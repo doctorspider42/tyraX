@@ -1,0 +1,39 @@
+{
+  "status": "DRAFT_NOT_FROZEN",
+  "sourceFiles": 501,
+  "kind": 29,
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "warmup": "Entire private carrier/group preparation and replacement disabled before global NightSampler.expectedIndex600; original rendering used. Delay applies once at startup, not each phase. No guard relaxed.",
+  "whyProtocol": [
+    "phase",
+    "offset",
+    "enabled",
+    "group",
+    "reason",
+    "firstDiff",
+    "keyReady",
+    "keyAdmitted"
+  ],
+  "whyMeaning": "Persistent history of refusal/demotion bits; historical keyAdmitted may remain1 after later invalidation. Not exclusive current-refusal classification. firstDiff UINT32_MAX absent key change.",
+  "inheritedScope": "Same restricted source-identical carrier copying/light/filter/order/lifetime guards and common unpriced footprint as v1. No game native build, output equivalence or positive activation from preparation.",
+  "sourceControlsPending": true,
+  "draftBaseManifestSha256": "cb9ae8eb8b5865a61b9f8e697952497474bdce1a0d8cad915e52d0487988d716",
+  "draftManifestSha256": "148974da3f906df0a6b5c75631456773b1e1424100f8f4fd49dccebfdb4a665d",
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "frozen": true,
+  "rootCodeHead": "ed047cf112d27b3c57ad1fc8aedf4803e0f3ac06",
+  "existingWaitsAndConsumerOwnershipRetained": true,
+  "noProductionPromotion": true,
+  "sourceManifestSha256": "a1c147f20be0ad43a69aea19a4d41f5d1a14e9d8b885649e97b85fb0541db73b"
+}

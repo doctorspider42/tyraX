@@ -109,3 +109,5 @@ The menu day/night mood selects and pauses the cycle once per mood or scene
 change. Physics keeps real dt; the sky, fog, moon/stars and grading still
 evaluate at the exact selected hour. The generated script API is described in
 [day and night cycle](../../docs/day-night-cycle.md#a-fixed-mood-selected-in-a-game-menu).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.

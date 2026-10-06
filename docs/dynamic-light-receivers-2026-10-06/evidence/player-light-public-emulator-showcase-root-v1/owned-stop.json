@@ -1,0 +1,16 @@
+{
+  "pid": 18687,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-showcase-root-v1/runtime/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-showcase-root-v1/runtime/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-runtime-v1/fixtures/showcase-players/bin/showcase.elf"
+  ],
+  "reason": "root requested owned public runtime stop",
+  "liveArtifactsDeleted": false
+}

@@ -1580,6 +1580,11 @@ class TerrainGame : public Tyra::Game {
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
+  bool isLivePlayerReceiver(int i) const;
+  void renderObjectBag(int owner, Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag);
+  void fillAnimLightColors(int i);
+  unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
   void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
@@ -3454,6 +3459,11 @@ class TerrainGame : public Tyra::Game {
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
+  bool isLivePlayerReceiver(int i) const;
+  void renderObjectBag(int owner, Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag);
+  void fillAnimLightColors(int i);
+  unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
   void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
@@ -6646,7 +6656,7 @@ static std::string reflGroundCapture(const Project& p) {
           }
       }
       for (auto& gp : groundParts)
-        if (gp && gp->bag) stapip.core.render(gp->bag.get());
+        if (gp && gp->bag) renderWorldBag(gp->bag.get());
     }
 )REFL";
 }
@@ -6817,7 +6827,7 @@ static std::string reflSceneryCapture(const Project& p) {
           p->bag->bboxVersion = ++g_bboxStamp;
           cell.part = std::move(p);
         }
-        if (cell.part && cell.part->bag) stapip.core.render(cell.part->bag.get());
+        if (cell.part && cell.part->bag) renderWorldBag(cell.part->bag.get());
       }
     }
 )REFL";
@@ -10361,6 +10371,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
     sceneFloats("SCENE_LIGHT_COL_GS", [&](int si) { return floatLit(rs[si].lightColor[1]); });
     sceneFloats("SCENE_LIGHT_COL_BS", [&](int si) { return floatLit(rs[si].lightColor[2]); });
     sceneFloats("SCENE_BRIGHTNESSES", [&](int si) { return floatLit(rs[si].brightness); });
+    sceneBools("SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS", [&](int si) {
+        return rs[si].dynamicLightReceivers == DynamicLightReceivers::Players;
+    });
+    out << "constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = "
+        << (std::any_of(rs.begin(), rs.end(), [](const ProjectSettings& settings) {
+                return settings.dynamicLightReceivers == DynamicLightReceivers::Players;
+            }) ? "true" : "false") << ";\n";
     // Day/night cycle sky bodies (docs/day-night-cycle.md). The arcs are
     // evaluated HERE, at the authored hour, so the game does no astronomy: it
     // just places two quads on the dome. A scene with no cycle gets a sun
@@ -11105,6 +11122,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces
@@ -12675,7 +12693,7 @@ void TerrainGame::renderVehicleSmoke() {
           fx.smokeFrameTex[(int)(fx.smokeClock * fx.smokeFps) % fx.smokeFrames];
     fx.smokeBag->count = (u32)kVehSmokeMax;
     fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
-    stapip.core.render(fx.smokeBag.get());
+    renderWorldBag(fx.smokeBag.get());
   }
 }
 
@@ -12839,7 +12857,7 @@ void TerrainGame::renderVehicleSkids() {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;
     }
-    stapip.core.render(fx.skidBag.get());
+    renderWorldBag(fx.skidBag.get());
   }
 }
 
@@ -13111,7 +13129,7 @@ void TerrainGame::renderVehicleGlow() {
         headlightCount_ != headlightCountPrev_)
       headlightBag_->bboxVersion = ++g_bboxStamp;
     headlightCountPrev_ = headlightCount_;
-    stapip.core.render(headlightBag_.get());
+    renderWorldBag(headlightBag_.get());
   } else {
     headlightCountPrev_ = 0;
   }
@@ -13138,7 +13156,7 @@ void TerrainGame::renderVehicleGlow() {
   }
   glowBag_->count = (u32)(glowCount_ * 6);
   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
-  stapip.core.render(glowBag_.get());
+  renderWorldBag(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -13833,7 +13851,7 @@ void TerrainGame::renderVehicleDebris() {
     } else {
       b.bag->texture = nullptr;
     }
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -14183,7 +14201,7 @@ void TerrainGame::renderVehicleLampGlow() {
   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
     lampGlowBag_->bboxVersion = ++g_bboxStamp;
   lampGlowQuadsPrev_ = quads;
-  stapip.core.render(lampGlowBag_.get());
+  renderWorldBag(lampGlowBag_.get());
 }
 
 void TerrainGame::updateVehicleDamage(float dt) {
@@ -17001,7 +17019,7 @@ void TerrainGame::renderVehicleGlass() {
       auto dst = part.colors.span(0, n);
       for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
     }
-    stapip.core.render(part.bag.get());
+    renderObjectBag(v.object, part.bag.get());
   }
 }
 
@@ -17570,10 +17588,16 @@ void TerrainGame::renderVehicleWheels() {
   // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
   // command key's `vertices`), never by the bag, and every batch owns its own
   // vertex vector.
+  const int receiverClasses = ANY_PLAYER_ONLY_DYNAMIC_LIGHTS &&
+      PLAYER_ONLY_DYNAMIC_LIGHTS ? 2 : 1;
+  // Allocate every class before any submit: growth must not move stamp/
+  // content owners while an earlier wheel batch is still referenced by DMA.
+  const size_t batchCount = (size_t)VEHICLE_DEF_COUNT * receiverClasses;
+  if (wheelBatches_.size() < batchCount) wheelBatches_.resize(batchCount);
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  if ((int)wheelBatches_.size() <= drawDef)
-    wheelBatches_.resize((size_t)drawDef + 1);
-  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  for (int receiverClass = 0; receiverClass < receiverClasses; ++receiverClass) {
+  const int batchIndex = drawDef * receiverClasses + receiverClass;
+  WheelBatch& batch = wheelBatches_[(size_t)batchIndex];
   // NOT cleared. The batch is addressed by SLOT - car k owns
   // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
   // keeps the vertices already sitting there, and the frame does no work for
@@ -17588,6 +17612,8 @@ void TerrainGame::renderVehicleWheels() {
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    if (receiverClasses == 2 &&
+        isLivePlayerReceiver(v.object) != (receiverClass == 1)) continue;
     // The body obeys this state in the ordinary object loop. Its separately
     // submitted wheels must obey it too or a hidden car leaves four ghosts.
     if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
@@ -18043,7 +18069,9 @@ void TerrainGame::renderVehicleWheels() {
   } else {
     wheelBag_->texture = nullptr;
   }
-  stapip.core.render(wheelBag_.get());
+  stapip.core.render(wheelBag_.get(), receiverClasses == 2 && receiverClass == 0 ?
+      Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+  }
   }
 #if TYRA_WHEEL_REBUILD_REPORT
   // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
@@ -19092,6 +19120,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // flowPickSfxChannel exists only in projects whose flow graph plays
     // sounds (the zero-cost rule).
     s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "4" : "8");
+    s = replaceAll(s, "  {{VEHICLE_LIGHT_RECEIVER}}", projectHasVehicles(p) ?
+        "  if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_ && "
+        "vehicles_[vehicleDriver_].active && vehicles_[vehicleDriver_].object == i) return true;" : "");
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{ROADS_MEMBERS}}", roadsMembers(p));
     s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));

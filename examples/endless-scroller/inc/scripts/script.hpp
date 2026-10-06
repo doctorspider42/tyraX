@@ -308,6 +308,10 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+  // Set Frame Pipeline is deferred until applyVideoRequests, before the next
+  // beginFrame. -1 = leave, 0 = Off, 1 = On; last request wins. The getter
+  // reads RendererCore's applied requested state, not this pending request.
+  int requestFramePipeline = -1;
 
   // Master sound-effect volume as a percentage (0..100), driven by a menu
   // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied

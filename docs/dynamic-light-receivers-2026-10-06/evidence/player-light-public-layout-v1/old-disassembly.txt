@@ -1,0 +1,3 @@
+
+/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-layout-v1/old.o:     file format elf32-nlittlemips
+

@@ -1,0 +1,6 @@
+{
+  "status": "REJECTED_ROOT_PREFLIGHT_NO_EMULATOR_START",
+  "reason": "Root treated source proof checks list as integer33; check rejected before authority creation. Subsequent dependent calls failed closed before process/config/archive creation. Corrected rootv2 tests length and each PASS. Native/source bytes unchanged.",
+  "rejectedStem": "night-ablation-emulator-main11-batch-order0-20261006",
+  "runtimeStarted": false
+}

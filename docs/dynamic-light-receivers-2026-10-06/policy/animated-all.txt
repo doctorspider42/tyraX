@@ -1,0 +1,3 @@
+515: inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false};
+516: inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
+769: #define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]

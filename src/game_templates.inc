@@ -696,8 +696,9 @@ inline void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
  * work (the lit anim programs have no spot slot). The flashlight's cone is
  * a rough cos test at model scale; the falloff mirrors the VU1 shape. */
 inline void dynLightAt(Tyra::Engine* engine, float wx, float wy, float wz,
-                float out[3]) {
+                float out[3], bool receivesLive) {
   out[0] = out[1] = out[2] = 0.0F;
+  if (!receivesLive) return;
   auto& core = engine->renderer.core;
   const Tyra::RendererCoreSpotLight* ls[Tyra::RendererCore::DYN_LIGHTS_MAX + 1];
   u32 n = 0;
@@ -9233,7 +9234,110 @@ void TerrainGame::setupAnimObject(int index) {
  * no dynamic-light slot (StaPipCore::render) - without folding it in by hand,
  * an object that opted into dynamic lighting would be the one thing in the
  * scene the flashlight cannot touch. */
+// Resolve live ownership at the draw's actual source object, never meshOwner.
+bool TerrainGame::isLivePlayerReceiver(int i) const {
+  if (dynamicReceiverGeneration_ != sceneGeneration || i < 0 ||
+      i >= (int)runtimeObjects.size() || !runtimeObjects[i].active) return false;
+  if (players[0].objIndex == i) return true;
+  if (MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex == i)
+    return true;
+  {{VEHICLE_LIGHT_RECEIVER}}
+  return false;
+}
+
+void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {
+  const bool receives = !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS ||
+      !PLAYER_ONLY_DYNAMIC_LIGHTS || isLivePlayerReceiver(owner);
+  stapip.core.render(bag, receives ? Tyra::StaPipLightReception::FromInfo :
+                                  Tyra::StaPipLightReception::Suppress);
+}
+
+void TerrainGame::renderWorldBag(Tyra::StaPipBag* bag) {
+  stapip.core.render(bag, !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS ||
+      !PLAYER_ONLY_DYNAMIC_LIGHTS ? Tyra::StaPipLightReception::FromInfo :
+                                  Tyra::StaPipLightReception::Suppress);
+}
+
+void TerrainGame::fillAnimLightColors(int i) {
+  if (i < 0 || i >= (int)runtimeObjects.size() ||
+      i >= (int)objectGeometry.size()) return;
+  RuntimeObject& o = runtimeObjects[i];
+  ObjectGeometry& g = objectGeometry[i];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size() ||
+      g.animParts.empty()) return;
+    // Dynamic light pickup: one sample at the model's center added to each
+    // part's ambient term - a torch or the flashlight visibly lights the
+    // character, without per-vertex VU1 cost (litColors[3] mirrors
+    // setupAnimObject's albedo fold; alpha stays 128).
+    {
+      float dl[3];
+      dynLightAt(engine, o.data.position[0],
+                 o.data.position[1] + o.data.scale[1] * 0.5F,
+                 o.data.position[2], dl,
+               !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS || !PLAYER_ONLY_DYNAMIC_LIGHTS ||
+                   isLivePlayerReceiver(i));
+      // One weighted probe lookup per visible instance, independent of pose
+      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
+      // transforms the skinned local normals in the existing VU1 program.
+      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+      V3 ldir = sun;
+      GiSample gs;
+      const bool hasProbe = giProbeAt(o.data.position[0],
+                    o.data.position[1] + o.data.scale[1] * 0.5F,
+                    o.data.position[2], gs);
+      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+      for (size_t p = 0; p < g.animParts.size(); ++p) {
+        if (!g.animParts[p].bag) continue;
+        const float* base = gam.src->parts[p].color;
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
+        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
+                                        128.0F * dif[1] * base[1],
+                                        128.0F * dif[2] * base[2], 1.0F);
+        g.animParts[p].litColors[3].set(
+            128.0F * (amb[0] + dl[0]) * base[0],
+            128.0F * (amb[1] + dl[1]) * base[1],
+            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
+      }
+    }
+}
+
 void TerrainGame::updateDynLitObjects() {
+  // A newly live binding must leave a World batch before a secondary pass
+  // can consume its dirty flag. All mode keeps ordinary batch membership.
+  if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+    for (StaticBatch& b : staticBatches)
+      for (size_t k = 0; k < b.members.size(); ) {
+        const int object = b.members[k].object;
+        if (!isLivePlayerReceiver(object)) { ++k; continue; }
+        objectBatchOf[object] = -1;
+        runtimeObjects[object].dirty = true;
+        b.members.erase(b.members.begin() + (long)k);
+        if (k < b.shown.size())
+          b.shown.erase(b.shown.begin() + (long)k);
+        b.dirty = true;
+      }
+  // Secondary views precede main animation rendering. Refresh owned colors
+  // before those views after a receiver/driver change, without reskinning.
+  if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+      if (runtimeObjects[i].active && runtimeObjects[i].visible)
+        fillAnimLightColors(i);
   if (!SCENE_PROBES) return;
   // The shared light DIRECTIONS - the anim path sets these too, but it bails
   // out early when a scene has no animated models, and this pass must not
@@ -9290,7 +9394,9 @@ void TerrainGame::fillDynLitColors(int i) {
                                     o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
-               o.data.position[2], dl);
+               o.data.position[2], dl,
+               !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS || !PLAYER_ONLY_DYNAMIC_LIGHTS ||
+                   isLivePlayerReceiver(i));
     for (GeoPart& part : g.parts) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
@@ -9521,54 +9627,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
         meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
             ? inst->ensurePose(meshLod)
             : false;
-    // Dynamic light pickup: one sample at the model's center added to each
-    // part's ambient term - a torch or the flashlight visibly lights the
-    // character, without per-vertex VU1 cost (litColors[3] mirrors
-    // setupAnimObject's albedo fold; alpha stays 128).
-    {
-      float dl[3];
-      dynLightAt(engine, o.data.position[0],
-                 o.data.position[1] + o.data.scale[1] * 0.5F,
-                 o.data.position[2], dl);
-      // One weighted probe lookup per visible instance, independent of pose
-      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
-      // transforms the skinned local normals in the existing VU1 program.
-      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
-      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
-      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
-      V3 ldir = sun;
-      GiSample gs;
-      const bool hasProbe = giProbeAt(o.data.position[0],
-                    o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs);
-      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
-      for (size_t p = 0; p < g.animParts.size(); ++p) {
-        if (!g.animParts[p].bag) continue;
-        const float* base = gam.src->parts[p].color;
-        auto& ap = g.animParts[p];
-        ap.animLights->signedSH = hasProbe;
-        if (hasProbe) {
-          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
-          continue;
-        }
-        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
-        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
-        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
-                                        128.0F * dif[1] * base[1],
-                                        128.0F * dif[2] * base[2], 1.0F);
-        g.animParts[p].litColors[3].set(
-            128.0F * (amb[0] + dl[0]) * base[0],
-            128.0F * (amb[1] + dl[1]) * base[1],
-            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
-      }
-    }
+    fillAnimLightColors(i);
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
@@ -9585,7 +9644,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
         // frustum boxes instead of recomputing them per instance
         ap.bag->bboxVersion = owner.animParts[p].bag->bboxVersion;
       }
-      stapip.core.render(ap.bag.get());
+      renderObjectBag(i, ap.bag.get());
     }
     rendered.push_back({i, meshOwner, meshLod});
   }
@@ -9910,6 +9969,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
+  dynamicReceiverGeneration_ = ~0U;
   sceneGeneration++;  // scene scripts see this and reset their state
   carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
   carryPortalPi = -1;
@@ -10325,6 +10385,9 @@ void TerrainGame::loadScene(int sceneIndex) {
       }
     }
   }
+
+  // Both live bindings now belong to this scene, including inactive P2.
+  dynamicReceiverGeneration_ = sceneGeneration;
 
   buildParticles();
 
@@ -13268,7 +13331,7 @@ void TerrainGame::renderStarField() {
     float fix = 128.0F * k;
     sb.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-    stapip.core.render(sb.bag.get());
+    renderWorldBag(sb.bag.get());
   }
 }
 
@@ -13457,7 +13520,7 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
     b.verts[4] = c2;
     b.verts[5] = c3;
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   };
 
   // The sun takes the scene's light colour, so a red sunset sun is red without
@@ -14009,7 +14072,7 @@ void TerrainGame::poolBatchFlush() {
     pb.bag->bboxVersion = ++g_bboxStamp;
     pb.lastKey = pb.key;
   }
-  stapip.core.render(pb.bag.get());
+  renderWorldBag(pb.bag.get());
   pb.members.clear();
   pb.memberFix.clear();
 }
@@ -14214,13 +14277,13 @@ void TerrainGame::updateAndRenderLightPools() {
         front.bind(setBag);
         setBag->count = (u32)front.size();
         setBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(setBag);
+        renderWorldBag(setBag);
       }
       if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         back.bind(clrBag);
         clrBag->count = (u32)back.size();
         clrBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(clrBag);
+        renderWorldBag(clrBag);
       }
       if (SHADOW_VOLUMES_DEBUG != 1)
         rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
@@ -14730,7 +14793,7 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
         b.wBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(b.wBag.get());
+        renderWorldBag(b.wBag.get());
       };
       // The occluder candidates (pickVolCasters above, shared with the
       // scene's spot lights). Nothing nearer than the VIRTUAL torch may
@@ -14834,13 +14897,13 @@ void TerrainGame::updateAndRenderLightPools() {
               b.volFront.bind(b.volSetBag);
               b.volSetBag->count = (u32)b.volFront.size();
               b.volSetBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volSetBag.get());
+              renderWorldBag(b.volSetBag.get());
             }
             if (!b.volBack.empty()) {
               b.volBack.bind(b.volClrBag);
               b.volClrBag->count = (u32)b.volBack.size();
               b.volClrBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volClrBag.get());
+              renderWorldBag(b.volClrBag.get());
             }
             rc.alphaMask.end();
           }
@@ -15336,7 +15399,7 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       finishVolMask();
       continue;
     }
@@ -15486,7 +15549,7 @@ void TerrainGame::updateAndRenderLightPools() {
         b.texBag->texture == flashGoboTex && b.colorBag->single != nullptr)
       poolBatchAdd(b, (float)b.info->additiveBlendFix);
     else
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
     // --- the carving spot's RECEIVER pass ----------------------------------
     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
     // its cone touches - nearest three, the torch's rules - are rendered a
@@ -15656,7 +15719,7 @@ void TerrainGame::updateAndRenderLightPools() {
           w.sWColors.bind(w.sWColorBag);
           w.sWColorBag->single = nullptr;
           w.sWBag->bboxVersion = ++g_bboxStamp;
-          stapip.core.render(w.sWBag.get());
+          renderWorldBag(w.sWBag.get());
         }
       }
     }
@@ -15772,7 +15835,7 @@ void TerrainGame::renderShadowDecals() {
     // A shadow belongs to its caster's layer, so it streams with it: when the
     // layer is out, the thing that throws the shadow is gone from the world.
     if (d.layer >= 0 && !layerOn(d.layer)) continue;
-    stapip.core.render(d.bag.get());
+    renderWorldBag(d.bag.get());
   }
 }
 
@@ -15907,7 +15970,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
               engine->renderer.core.renderer3D.frustumPlanes.getAll(),
               b.cullMin, b.cullMax) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       continue;
     }
     float cx = d.position[0], cz = d.position[2];
@@ -16036,7 +16099,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -17086,7 +17149,7 @@ void TerrainGame::renderProjShadows() {
             break;
           }
       if (!below) {
-        stapip.core.render(bag);
+        renderWorldBag(bag);
         return;
       }
       // One shared buffer for every part of every caster, handed to the
@@ -17113,7 +17176,7 @@ void TerrainGame::renderProjShadows() {
       projClamp.bind(bag);
       bag->count = static_cast<u32>(projClamp.size());
       bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bag);
+      renderWorldBag(bag);
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
@@ -17427,7 +17490,7 @@ void TerrainGame::renderProjShadows() {
     b.wallBag->count = (u32)b.wallVerts.size();
     b.wallSts.bind(b.wallTexBag);
     b.wallBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.wallBag.get());
+    renderWorldBag(b.wallBag.get());
     b.barren = 0;  // this slot is earning its keep
     } while (0);
     if (half < 0.01F) continue;  // a flat torch ray: wall only
@@ -17553,7 +17616,7 @@ void TerrainGame::renderProjShadows() {
     // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
     b.barren = 0;
 
   }
@@ -17798,7 +17861,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coronaSts.bind(bb.coronaTexBag);
       bb.coronaColors.bind(bb.coronaColorBag);
       if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coronaBag.get());
+      renderWorldBag(bb.coronaBag.get());
     }
     bool nw = keepWrite(bb.coneVerts, kConeV);
     nw = keepWrite(bb.coneColors, kConeC) || nw;
@@ -17806,7 +17869,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coneVerts.bind(bb.coneBag);
       bb.coneColors.bind(bb.coneColorBag);
       if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coneBag.get());
+      renderWorldBag(bb.coneBag.get());
     }
     return;
   }
@@ -17818,13 +17881,13 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     bb.coronaSts.bind(bb.coronaTexBag);
     bb.coronaColors.bind(bb.coronaColorBag);
     bb.coronaBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coronaBag.get());
+    renderWorldBag(bb.coronaBag.get());
   }
   if (!bb.coneVerts.empty()) {
     bb.coneVerts.bind(bb.coneBag);
     bb.coneColors.bind(bb.coneColorBag);
     bb.coneBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coneBag.get());
+    renderWorldBag(bb.coneBag.get());
   }
 }
 
@@ -18062,7 +18125,7 @@ void TerrainGame::renderCollisionBoxes() {
   collisionBoxVerts.bind(collisionBoxBag);
   collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
   collisionBoxBag->bboxVersion = ++g_bboxStamp;
-  stapip.core.render(collisionBoxBag.get());
+  renderWorldBag(collisionBoxBag.get());
 }
 
 
@@ -19634,7 +19697,7 @@ void TerrainGame::renderReflectionProxy(int index) {
     p->bag->bboxVersion = ++g_bboxStamp;
     g.reflectionProxy = std::move(p);
   }
-  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
+  if (g.reflectionProxy->bag) renderObjectBag(index, g.reflectionProxy->bag.get());
 }
 
 
@@ -20931,7 +20994,7 @@ void TerrainGame::renderProcChunks() {
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
-    stapip.core.render(c.bag.get());
+    renderWorldBag(c.bag.get());
   }
 })TYRAXGAME";
 
@@ -21002,7 +21065,7 @@ void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
   if (heavyCollect)
     heavyBags.push_back(bag);
   else
-    stapip.core.render(bag);
+    renderWorldBag(bag);
 }
 
 
@@ -21021,7 +21084,7 @@ void TerrainGame::dripHeavy(bool all) {
     const size_t even = (total + objs - 1) / objs;
     if (even < want) want = even;
   }
-  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+  for (size_t k = 0; k < want; ++k) renderWorldBag(heavyBags[heavyNext++]);
 }
 
 
@@ -23217,6 +23280,10 @@ void TerrainGame::renderScene() {
       const RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
       mixWord(nk, (unsigned int)ri);
+      // Driver/P2 ownership can change without moving or dirtying geometry.
+      // It changes retained pixels only under the restricted receiver policy.
+      if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+        mixByte(nk, isLivePlayerReceiver(ri) ? 1u : 0u);
       for (int k = 0; k < 3; ++k) {
         mixWord(nk, qFixed(ro.data.position[k]));
         mixWord(nk, qFixed(ro.data.rotation[k]));
@@ -23299,7 +23366,7 @@ void TerrainGame::renderScene() {
                                 (float)Tyra::RendererCoreEnvMap::size);
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
     // The world under the car matters more to paint than another distant prop.
@@ -23338,7 +23405,7 @@ void TerrainGame::renderScene() {
         renderReflectionProxy(ri);
       else
         for (GeoPart& part : objectGeometry[ri].parts)
-          if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+          if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
     }
 {{REFL_SCENERY_CAPTURE}}    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -23396,7 +23463,7 @@ void TerrainGame::renderScene() {
     skyMat.data[12] = cameraPosition.x;
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     // Stars behind the discs: with the dome's depth arrangement the draw order
     // is the depth order, and a star must never land in front of the moon.
     renderStarField();
@@ -23675,7 +23742,7 @@ void TerrainGame::renderScene() {
         }
       }
     }
-    stapip.core.render(part.envBag.get());
+    renderObjectBag(objectIndex, part.envBag.get());
   };
   // Once a frame, before anything is submitted: the clock every time-varying
   // script reads. One quadword, and only when the project has a script at all.
@@ -23903,16 +23970,16 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
-        stapip.core.render(part.bag.get());
+        renderObjectBag(i, part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
         lpMain += lpB - lpA;
         // Scene lightmap: occlusion multiplies first, then the baked emissive
         // light adds on top of the darkened surface - the same order the
         // vertex path uses (AO scales the directional term, lights add over
         // it), and then the additive env pass last.
-        if (part.aoBag) stapip.core.render(part.aoBag.get());
+        if (part.aoBag) renderObjectBag(i, part.aoBag.get());
         if (part.emisBag && optionalMaterialDetail(i))
-          stapip.core.render(part.emisBag.get());
+          renderObjectBag(i, part.emisBag.get());
         renderEnvPass(i, objectGeometry[i], part);
         if (lp) lpCompanion += profTicks() - lpB;
       }
@@ -24054,7 +24121,7 @@ void TerrainGame::renderScene() {
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag && !part.lodHidden) {
-          stapip.core.render(part.bag.get());
+          renderObjectBag(i, part.bag.get());
           renderEnvPass(i, objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
@@ -24093,7 +24160,7 @@ void TerrainGame::renderScene() {
     }
   }
   for (ParticleSystem& ps : particles)
-    if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+    if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
 {{VEHICLE_SMOKE_RENDER}}
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
@@ -24282,7 +24349,7 @@ void TerrainGame::renderMirrors() {
     // the glass quad itself, alpha-blended over the copies (its vertex
     // alpha carries the opacity - see rebuildObjectGeometry case 15)
     for (GeoPart& part : objectGeometry[mir.object].parts)
-      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) renderObjectBag(mir.object, part.bag.get());
   }
 }
 
@@ -24309,7 +24376,7 @@ void TerrainGame::renderMirroredObject(int index) {
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
     part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
-    stapip.core.render(part.bag.get());
+    renderObjectBag(index, part.bag.get());
     part.infoBag->model = g.matrixMode ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
@@ -24319,7 +24386,7 @@ void TerrainGame::renderMirroredObject(int index) {
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -24624,7 +24691,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // The glass quad, textured with the traced reflection (drawn opaque
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
-    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) renderObjectBag(mir.object, part.bag.get());
 }
 
 
@@ -24668,7 +24735,7 @@ void TerrainGame::renderCameraFeed() {
       skyMat.data[14] = eye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-      stapip.core.render(skyDome.bag.get());
+      renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, look);
       skyDome.infoBag->zTestType = prevZTest;
     }
@@ -24700,10 +24767,10 @@ void TerrainGame::renderFeedObject(int index) {
   ObjectGeometry& og = objectGeometry[index];
   if (og.matrixMode) updateObjMat(index);
   for (GeoPart& part : og.parts)
-    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) renderObjectBag(index, part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
 }
 
 
@@ -24813,7 +24880,7 @@ void TerrainGame::renderObjectProbe(int index) {
     skyMat.data[14] = probeEye.z;
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
@@ -24840,7 +24907,7 @@ void TerrainGame::renderObjectProbe(int index) {
       renderReflectionProxy(ri);
     else
       for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+        if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
@@ -25165,7 +25232,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       skyMat.data[12] = eye.x;
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
-      stapip.core.render(skyDome.bag.get());
+      renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, at);
     }
     // resident chunks only - the streaming ring follows the MAIN camera, so
@@ -25203,7 +25270,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // Whole-object bounds cannot hide the rear wall of a model that spans the
   // exit. Clip only those static bags that straddle it, preserving every corner
   // attribute. Fully front-side objects keep the ordinary submission path.
-  auto renderExitClipped = [&](GeoPart& part) {
+  auto renderExitClipped = [&](int owner, GeoPart& part) {
     StaPipBag& source = *part.bag;
     if (part.portalClips.size() <= (size_t)pi) part.portalClips.resize(pi + 1);
     if (!part.portalClips[pi]) part.portalClips[pi] = std::make_unique<GeoPart::PortalClip>();
@@ -25306,7 +25373,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       normals.bind(&cache.lighting);
       cache.bag.lighting = &cache.lighting;
     }
-    stapip.core.render(&cache.bag);
+    renderObjectBag(owner, &cache.bag);
   };
   auto renderViewObject = [&](int ti) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
@@ -25343,7 +25410,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
         const int pkind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
                                          : ro.data.emitKind;
         ps.billboardBag->up = pkind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F) : pvUp;
-        stapip.core.render(ps.bag.get());
+        renderWorldBag(ps.bag.get());
         ps.billboardBag->right = savedR;  // main pass draws these again later
         ps.billboardBag->up = savedU;
       }
@@ -25374,12 +25441,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     if (coarseObjectOutside(ti)) return;
     for (GeoPart& part : g.parts) {
       if (!part.bag || part.lodHidden) continue;
-      if (clipsExit) renderExitClipped(part);
-      else stapip.core.render(part.bag.get());
+      if (clipsExit) renderExitClipped(ti, part);
+      else renderObjectBag(ti, part.bag.get());
     }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+        if (ap.bag && ap.bag->count > 0) renderObjectBag(ti, ap.bag.get());
   };
   // Two-sided carry: if the object in the hands is passing through THIS
   // portal, its through-view draws it mapped to the FAR side - the half that
@@ -25479,7 +25546,7 @@ void TerrainGame::renderPortals() {
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
     for (GeoPart& part : objectGeometry[p.object].parts)
-      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) renderObjectBag(p.object, part.bag.get());
   }
 }
 
@@ -26228,7 +26295,7 @@ void TerrainGame::renderHighlightHull(int index) {
     g.hullProxyVerts.bind(hullBag);
     hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
     hullBag->bboxVersion = g.hullProxyStamp;
-    stapip.core.render(hullBag.get());
+    renderWorldBag(hullBag.get());
   }
 
   // Grounded objects: the shells dip below the terrain and the ground in
@@ -26258,7 +26325,7 @@ void TerrainGame::renderHighlightHull(int index) {
       g.apronVerts.bind(apronBag);
       apronBag->count = static_cast<u32>(g.apronVerts.size());
       apronBag->bboxVersion = g.apronStamp;
-      stapip.core.render(apronBag.get());
+      renderWorldBag(apronBag.get());
     }
   }
 
@@ -26388,7 +26455,7 @@ void TerrainGame::renderOutlineShells() {
     g.outlineVerts.bind(outlineBag);
     outlineBag->count = static_cast<u32>(g.outlineVerts.size());
     outlineBag->bboxVersion = g.hullProxyStamp;
-    stapip.core.render(outlineBag.get());
+    renderWorldBag(outlineBag.get());
   }
   // Hand the parameters back, or the next flat-colour prop inherits the shell
   // flag and paints itself black.
@@ -27762,19 +27829,19 @@ void TerrainGame::renderTerrain() {
               tmx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
     }
-    stapip.core.render(ch.bag.get());
+    renderWorldBag(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
-      if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+      if (lp.bag && lp.bag->count > 0) renderWorldBag(lp.bag.get());
     // Terrain lightmap, last and in this order: the occlusion multiplies
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
-    if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    if (ch.aoBag && ch.aoBag->count > 0) renderWorldBag(ch.aoBag.get());
     // The sun's shadow darkens the sunlit ground, not the lamps' light.
-    if (ch.gsBag && ch.gsBag->count > 0) stapip.core.render(ch.gsBag.get());
+    if (ch.gsBag && ch.gsBag->count > 0) renderWorldBag(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
-      stapip.core.render(ch.emisBag.get());
+      renderWorldBag(ch.emisBag.get());
   }
 })TYRAXGAME";

@@ -160,7 +160,110 @@ void TerrainGame::setupAnimObject(int index) {
  * no dynamic-light slot (StaPipCore::render) - without folding it in by hand,
  * an object that opted into dynamic lighting would be the one thing in the
  * scene the flashlight cannot touch. */
+// Resolve live ownership at the draw's actual source object, never meshOwner.
+bool TerrainGame::isLivePlayerReceiver(int i) const {
+  if (dynamicReceiverGeneration_ != sceneGeneration || i < 0 ||
+      i >= (int)runtimeObjects.size() || !runtimeObjects[i].active) return false;
+  if (players[0].objIndex == i) return true;
+  if (MULTIPLAYER_MODE != 0 && playerTwoActive && players[1].objIndex == i)
+    return true;
+
+  return false;
+}
+
+void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {
+  const bool receives = !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS ||
+      !PLAYER_ONLY_DYNAMIC_LIGHTS || isLivePlayerReceiver(owner);
+  stapip.core.render(bag, receives ? Tyra::StaPipLightReception::FromInfo :
+                                  Tyra::StaPipLightReception::Suppress);
+}
+
+void TerrainGame::renderWorldBag(Tyra::StaPipBag* bag) {
+  stapip.core.render(bag, !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS ||
+      !PLAYER_ONLY_DYNAMIC_LIGHTS ? Tyra::StaPipLightReception::FromInfo :
+                                  Tyra::StaPipLightReception::Suppress);
+}
+
+void TerrainGame::fillAnimLightColors(int i) {
+  if (i < 0 || i >= (int)runtimeObjects.size() ||
+      i >= (int)objectGeometry.size()) return;
+  RuntimeObject& o = runtimeObjects[i];
+  ObjectGeometry& g = objectGeometry[i];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size() ||
+      g.animParts.empty()) return;
+    // Dynamic light pickup: one sample at the model's center added to each
+    // part's ambient term - a torch or the flashlight visibly lights the
+    // character, without per-vertex VU1 cost (litColors[3] mirrors
+    // setupAnimObject's albedo fold; alpha stays 128).
+    {
+      float dl[3];
+      dynLightAt(engine, o.data.position[0],
+                 o.data.position[1] + o.data.scale[1] * 0.5F,
+                 o.data.position[2], dl,
+               !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS || !PLAYER_ONLY_DYNAMIC_LIGHTS ||
+                   isLivePlayerReceiver(i));
+      // One weighted probe lookup per visible instance, independent of pose
+      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
+      // transforms the skinned local normals in the existing VU1 program.
+      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
+                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
+      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
+                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
+      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
+      V3 ldir = sun;
+      GiSample gs;
+      const bool hasProbe = giProbeAt(o.data.position[0],
+                    o.data.position[1] + o.data.scale[1] * 0.5F,
+                    o.data.position[2], gs);
+      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+      for (size_t p = 0; p < g.animParts.size(); ++p) {
+        if (!g.animParts[p].bag) continue;
+        const float* base = gam.src->parts[p].color;
+        auto& ap = g.animParts[p];
+        ap.animLights->signedSH = hasProbe;
+        if (hasProbe) {
+          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
+          continue;
+        }
+        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
+        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
+        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
+        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
+                                        128.0F * dif[1] * base[1],
+                                        128.0F * dif[2] * base[2], 1.0F);
+        g.animParts[p].litColors[3].set(
+            128.0F * (amb[0] + dl[0]) * base[0],
+            128.0F * (amb[1] + dl[1]) * base[1],
+            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
+      }
+    }
+}
+
 void TerrainGame::updateDynLitObjects() {
+  // A newly live binding must leave a World batch before a secondary pass
+  // can consume its dirty flag. All mode keeps ordinary batch membership.
+  if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+    for (StaticBatch& b : staticBatches)
+      for (size_t k = 0; k < b.members.size(); ) {
+        const int object = b.members[k].object;
+        if (!isLivePlayerReceiver(object)) { ++k; continue; }
+        objectBatchOf[object] = -1;
+        runtimeObjects[object].dirty = true;
+        b.members.erase(b.members.begin() + (long)k);
+        if (k < b.shown.size())
+          b.shown.erase(b.shown.begin() + (long)k);
+        b.dirty = true;
+      }
+  // Secondary views precede main animation rendering. Refresh owned colors
+  // before those views after a receiver/driver change, without reskinning.
+  if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i)
+      if (runtimeObjects[i].active && runtimeObjects[i].visible)
+        fillAnimLightColors(i);
   if (!SCENE_PROBES) return;
   // The shared light DIRECTIONS - the anim path sets these too, but it bails
   // out early when a scene has no animated models, and this pass must not
@@ -217,7 +320,9 @@ void TerrainGame::fillDynLitColors(int i) {
                                     o.data.position[2], gs);
     float dl[3];
     dynLightAt(engine, o.data.position[0], o.data.position[1],
-               o.data.position[2], dl);
+               o.data.position[2], dl,
+               !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS || !PLAYER_ONLY_DYNAMIC_LIGHTS ||
+                   isLivePlayerReceiver(i));
     for (GeoPart& part : g.parts) {
       if (!part.litBag) continue;
       const float* base = part.litAlbedo;
@@ -448,54 +553,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
         meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
             ? inst->ensurePose(meshLod)
             : false;
-    // Dynamic light pickup: one sample at the model's center added to each
-    // part's ambient term - a torch or the flashlight visibly lights the
-    // character, without per-vertex VU1 cost (litColors[3] mirrors
-    // setupAnimObject's albedo fold; alpha stays 128).
-    {
-      float dl[3];
-      dynLightAt(engine, o.data.position[0],
-                 o.data.position[1] + o.data.scale[1] * 0.5F,
-                 o.data.position[2], dl);
-      // One weighted probe lookup per visible instance, independent of pose
-      // sharing and skinning LOD. Directions live in WORLD space: animLightMat
-      // transforms the skinned local normals in the existing VU1 program.
-      float amb[3] = {SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      SCENE_BRIGHTNESS * SCENE_AMBIENT,
-                      SCENE_BRIGHTNESS * SCENE_AMBIENT};
-      float dif[3] = {SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_R,
-                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_G,
-                      SCENE_BRIGHTNESS * SCENE_DIFFUSE * SCENE_LIGHT_COL_B};
-      const V3 sun = {SCENE_LIGHT_X, SCENE_LIGHT_Y, SCENE_LIGHT_Z};
-      V3 ldir = sun;
-      GiSample gs;
-      const bool hasProbe = giProbeAt(o.data.position[0],
-                    o.data.position[1] + o.data.scale[1] * 0.5F,
-                    o.data.position[2], gs);
-      const GameAnimModel& gam = gameAnimModels[o.data.animModel];
-      for (size_t p = 0; p < g.animParts.size(); ++p) {
-        if (!g.animParts[p].bag) continue;
-        const float* base = gam.src->parts[p].color;
-        auto& ap = g.animParts[p];
-        ap.animLights->signedSH = hasProbe;
-        if (hasProbe) {
-          giSHLights(gs, dl, base, 128.0F, ap.litDirs, ap.litColors);
-          continue;
-        }
-        ap.litColors[1].set(0.0F, 0.0F, 0.0F, 0.0F);
-        ap.litColors[2].set(0.0F, 0.0F, 0.0F, 0.0F);
-        g.animParts[p].litDirs[0].set(ldir.x, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litDirs[1].set(ldir.y, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litDirs[2].set(ldir.z, 0.0F, 0.0F, 1.0F);
-        g.animParts[p].litColors[0].set(128.0F * dif[0] * base[0],
-                                        128.0F * dif[1] * base[1],
-                                        128.0F * dif[2] * base[2], 1.0F);
-        g.animParts[p].litColors[3].set(
-            128.0F * (amb[0] + dl[0]) * base[0],
-            128.0F * (amb[1] + dl[1]) * base[1],
-            128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
-      }
-    }
+    fillAnimLightColors(i);
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
       if (!ap.bag) continue;
@@ -512,7 +570,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
         // frustum boxes instead of recomputing them per instance
         ap.bag->bboxVersion = owner.animParts[p].bag->bboxVersion;
       }
-      stapip.core.render(ap.bag.get());
+      renderObjectBag(i, ap.bag.get());
     }
     rendered.push_back({i, meshOwner, meshLod});
   }
@@ -837,6 +895,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
+  dynamicReceiverGeneration_ = ~0U;
   sceneGeneration++;  // scene scripts see this and reset their state
   carryIndex = thrownIndex = -1;  // carried objects stay in their old scene
   carryPortalPi = -1;
@@ -1252,6 +1311,9 @@ void TerrainGame::loadScene(int sceneIndex) {
       }
     }
   }
+
+  // Both live bindings now belong to this scene, including inactive P2.
+  dynamicReceiverGeneration_ = sceneGeneration;
 
   buildParticles();
 
@@ -4195,7 +4257,7 @@ void TerrainGame::renderStarField() {
     float fix = 128.0F * k;
     sb.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-    stapip.core.render(sb.bag.get());
+    renderWorldBag(sb.bag.get());
   }
 }
 
@@ -4384,7 +4446,7 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
     b.verts[4] = c2;
     b.verts[5] = c3;
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   };
 
   // The sun takes the scene's light colour, so a red sunset sun is red without

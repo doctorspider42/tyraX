@@ -521,7 +521,7 @@ void TerrainGame::poolBatchFlush() {
     pb.bag->bboxVersion = ++g_bboxStamp;
     pb.lastKey = pb.key;
   }
-  stapip.core.render(pb.bag.get());
+  renderWorldBag(pb.bag.get());
   pb.members.clear();
   pb.memberFix.clear();
 }
@@ -726,13 +726,13 @@ void TerrainGame::updateAndRenderLightPools() {
         front.bind(setBag);
         setBag->count = (u32)front.size();
         setBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(setBag);
+        renderWorldBag(setBag);
       }
       if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         back.bind(clrBag);
         clrBag->count = (u32)back.size();
         clrBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(clrBag);
+        renderWorldBag(clrBag);
       }
       if (SHADOW_VOLUMES_DEBUG != 1)
         rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
@@ -1242,7 +1242,7 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
         b.wBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(b.wBag.get());
+        renderWorldBag(b.wBag.get());
       };
       // The occluder candidates (pickVolCasters above, shared with the
       // scene's spot lights). Nothing nearer than the VIRTUAL torch may
@@ -1346,13 +1346,13 @@ void TerrainGame::updateAndRenderLightPools() {
               b.volFront.bind(b.volSetBag);
               b.volSetBag->count = (u32)b.volFront.size();
               b.volSetBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volSetBag.get());
+              renderWorldBag(b.volSetBag.get());
             }
             if (!b.volBack.empty()) {
               b.volBack.bind(b.volClrBag);
               b.volClrBag->count = (u32)b.volBack.size();
               b.volClrBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volClrBag.get());
+              renderWorldBag(b.volClrBag.get());
             }
             rc.alphaMask.end();
           }
@@ -1848,7 +1848,7 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       finishVolMask();
       continue;
     }
@@ -1998,7 +1998,7 @@ void TerrainGame::updateAndRenderLightPools() {
         b.texBag->texture == flashGoboTex && b.colorBag->single != nullptr)
       poolBatchAdd(b, (float)b.info->additiveBlendFix);
     else
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
     // --- the carving spot's RECEIVER pass ----------------------------------
     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
     // its cone touches - nearest three, the torch's rules - are rendered a
@@ -2168,7 +2168,7 @@ void TerrainGame::updateAndRenderLightPools() {
           w.sWColors.bind(w.sWColorBag);
           w.sWColorBag->single = nullptr;
           w.sWBag->bboxVersion = ++g_bboxStamp;
-          stapip.core.render(w.sWBag.get());
+          renderWorldBag(w.sWBag.get());
         }
       }
     }
@@ -2284,7 +2284,7 @@ void TerrainGame::renderShadowDecals() {
     // A shadow belongs to its caster's layer, so it streams with it: when the
     // layer is out, the thing that throws the shadow is gone from the world.
     if (d.layer >= 0 && !layerOn(d.layer)) continue;
-    stapip.core.render(d.bag.get());
+    renderWorldBag(d.bag.get());
   }
 }
 
@@ -2423,7 +2423,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
               engine->renderer.core.renderer3D.frustumPlanes.getAll(),
               b.cullMin, b.cullMax) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       continue;
     }
     float cx = d.position[0], cz = d.position[2];
@@ -2552,7 +2552,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -3602,7 +3602,7 @@ void TerrainGame::renderProjShadows() {
             break;
           }
       if (!below) {
-        stapip.core.render(bag);
+        renderWorldBag(bag);
         return;
       }
       // One shared buffer for every part of every caster, handed to the
@@ -3629,7 +3629,7 @@ void TerrainGame::renderProjShadows() {
       projClamp.bind(bag);
       bag->count = static_cast<u32>(projClamp.size());
       bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bag);
+      renderWorldBag(bag);
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
@@ -3943,7 +3943,7 @@ void TerrainGame::renderProjShadows() {
     b.wallBag->count = (u32)b.wallVerts.size();
     b.wallSts.bind(b.wallTexBag);
     b.wallBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.wallBag.get());
+    renderWorldBag(b.wallBag.get());
     b.barren = 0;  // this slot is earning its keep
     } while (0);
     if (half < 0.01F) continue;  // a flat torch ray: wall only
@@ -4069,7 +4069,7 @@ void TerrainGame::renderProjShadows() {
     // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
     b.barren = 0;
 
   }
@@ -4314,7 +4314,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coronaSts.bind(bb.coronaTexBag);
       bb.coronaColors.bind(bb.coronaColorBag);
       if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coronaBag.get());
+      renderWorldBag(bb.coronaBag.get());
     }
     bool nw = keepWrite(bb.coneVerts, kConeV);
     nw = keepWrite(bb.coneColors, kConeC) || nw;
@@ -4322,7 +4322,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coneVerts.bind(bb.coneBag);
       bb.coneColors.bind(bb.coneColorBag);
       if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coneBag.get());
+      renderWorldBag(bb.coneBag.get());
     }
     return;
   }
@@ -4334,13 +4334,13 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     bb.coronaSts.bind(bb.coronaTexBag);
     bb.coronaColors.bind(bb.coronaColorBag);
     bb.coronaBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coronaBag.get());
+    renderWorldBag(bb.coronaBag.get());
   }
   if (!bb.coneVerts.empty()) {
     bb.coneVerts.bind(bb.coneBag);
     bb.coneColors.bind(bb.coneColorBag);
     bb.coneBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coneBag.get());
+    renderWorldBag(bb.coneBag.get());
   }
 }
 

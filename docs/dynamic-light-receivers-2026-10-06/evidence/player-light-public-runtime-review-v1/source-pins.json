@@ -1,0 +1,10 @@
+{
+  "status": "source draft, no build/runtime qualification",
+  "sha256": {
+    "src/game_templates.inc": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d",
+    "src/templates.cpp": "589606292fdc9dfefc61f1a2bff3518f11643be19fcea591e04c4138cde49a59",
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1",
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be"
+  }
+}

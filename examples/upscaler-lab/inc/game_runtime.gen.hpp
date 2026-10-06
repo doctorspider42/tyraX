@@ -693,8 +693,9 @@ inline void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
  * work (the lit anim programs have no spot slot). The flashlight's cone is
  * a rough cos test at model scale; the falloff mirrors the VU1 shape. */
 inline void dynLightAt(Tyra::Engine* engine, float wx, float wy, float wz,
-                float out[3]) {
+                float out[3], bool receivesLive) {
   out[0] = out[1] = out[2] = 0.0F;
+  if (!receivesLive) return;
   auto& core = engine->renderer.core;
   const Tyra::RendererCoreSpotLight* ls[Tyra::RendererCore::DYN_LIGHTS_MAX + 1];
   u32 n = 0;
@@ -2322,7 +2323,7 @@ struct VideoConfirm {
 };
 inline VideoConfirm g_videoConfirm;
 
-/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+/** Applies the display, widescreen and frame pipeline flow-node requests and
  * ticks the confirm countdown. Must run between frames (before
  * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
  * the frame a scan-mode switch happens - the caller closes any open game
@@ -2331,6 +2332,13 @@ inline VideoConfirm g_videoConfirm;
 inline bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
   auto& core = engine->renderer.core;
   bool switched = false;
+  if (ctx.requestFramePipeline >= 0) {
+    const bool requested = ctx.requestFramePipeline != 0;
+    // Even an unchanged engine setter completes a pending frame. Consume
+    // repeated graph requests without presenting early and losing overlap.
+    if (core.getFramePipeline() != requested) core.setFramePipeline(requested);
+    ctx.requestFramePipeline = -1;
+  }
   if (ctx.widescreen >= 0) {
     core.setDisplayOutput(core.getSettings().getDisplayMode(),
                           ctx.widescreen != 0);

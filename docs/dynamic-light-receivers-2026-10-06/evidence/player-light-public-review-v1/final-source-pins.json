@@ -1,0 +1,71 @@
+{
+  "status": "source review no remaining concrete blocker; no runtime qualification",
+  "schema": 1,
+  "pins": [
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\game_templates.inc",
+      "bytes": 1332402,
+      "sha256": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\templates.cpp",
+      "bytes": 1797156,
+      "sha256": "589606292fdc9dfefc61f1a2bff3518f11643be19fcea591e04c4138cde49a59"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\project.hpp",
+      "bytes": 298313,
+      "sha256": "60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\project.cpp",
+      "bytes": 511341,
+      "sha256": "1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\app.cpp",
+      "bytes": 897822,
+      "sha256": "09de35b4e0028e452d7a524ffb71b0304e8bf0c15669431741b7923f841e89fe"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\viewport.hpp",
+      "bytes": 85772,
+      "sha256": "076d0a314a071085cf1b5e2d36d3e48b2f324da07d73bc729560ef555d05cada"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\viewport.cpp",
+      "bytes": 423811,
+      "sha256": "3ab2959075b383789649634ccc810484ac7ef9d0a46eaa88c07b1efc63970920"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\version.hpp",
+      "bytes": 420143,
+      "sha256": "b53caea8f497056d2e2637885e18825974e3d31476063a53bcaf253cae523ac4"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp",
+      "bytes": 7640,
+      "sha256": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp",
+      "bytes": 9226,
+      "sha256": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp",
+      "bytes": 70489,
+      "sha256": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp",
+      "bytes": 46451,
+      "sha256": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "bytes": 136537,
+      "sha256": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d"
+    }
+  ]
+}

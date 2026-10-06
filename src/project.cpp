@@ -1293,7 +1293,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"width\": " << fmtFloat(s.highlightWidth) << ", \"steps\": " << s.highlightSteps
       << ", \"opacity\": " << fmtFloat(s.highlightOpacity)
       << ", \"overlay\": " << (s.highlightOverlay ? "true" : "false")
-      << " }";
+      << " }, \"dynamicLightReceivers\": \""
+      << (s.dynamicLightReceivers == DynamicLightReceivers::Players ? "players" : "all")
+      << "\"";
     // The neural upscaler's two per-scene values, and the override flag below,
     // are written ONLY when the scene actually overrides - unlike every
     // category above, which is emitted whether it is active or not. That is
@@ -1313,6 +1315,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"fog\": " << (o.fog ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false");
     if (o.upscaler) j << ", \"upscaler\": true";
+    if (o.dynamicLightReceivers) j << ", \"dynamicLightReceivers\": true";
     j << " }";
     if (!sc.ambiencePreset.empty())
         j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
@@ -1325,9 +1328,15 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
 // them this scene actually overrides (the rest inherit the project's).
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
+    s.dynamicLightReceivers = DynamicLightReceivers::All;
+    sc.overrides.dynamicLightReceivers = false;
     auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     if (const auto* ov = js.find("overrides")) {
         if (const auto* st = js.find("settings")) {
+            if (const auto* v = st->find("dynamicLightReceivers"))
+                s.dynamicLightReceivers = v->stringOr("") == "players"
+                                              ? DynamicLightReceivers::Players
+                                              : DynamicLightReceivers::All;
             if (const auto* li = st->find("lighting")) {
                 readVec3(li->find("dir"), s.lightDir);
                 if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
@@ -1415,6 +1424,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
         sc.overrides.upscaler =
             ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
+        sc.overrides.dynamicLightReceivers =
+            ov->find("dynamicLightReceivers")
+                ? ov->find("dynamicLightReceivers")->boolOr(false) : false;
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
@@ -1509,6 +1521,8 @@ float settingsSprintSpeed(const ProjectSettings& st) {
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     ProjectSettings r = p.settings;
     const ProjectSettings& o = s.settings;
+    if (s.overrides.dynamicLightReceivers)
+        r.dynamicLightReceivers = o.dynamicLightReceivers;
     if (s.overrides.lighting) {
         for (int i = 0; i < 3; ++i) r.lightDir[i] = o.lightDir[i], r.lightColor[i] = o.lightColor[i];
         r.ambient = o.ambient, r.diffuse = o.diffuse, r.brightness = o.brightness;
@@ -1763,6 +1777,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
          << "    \"framePipeline\": "
          << (p.settings.framePipeline ? "true" : "false") << ",\n"
+         << "    \"dynamicLightReceivers\": \""
+         << (p.settings.dynamicLightReceivers == DynamicLightReceivers::Players
+                 ? "players" : "all") << "\",\n"
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
                  ? "    \"frameExtrapolationPlane\": " +
@@ -6341,6 +6358,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.tripleBuffering = v->boolOr(false);
         if (const auto* v = s->find("framePipeline"))
             st.framePipeline = v->boolOr(false);
+        if (const auto* v = s->find("dynamicLightReceivers"))
+            st.dynamicLightReceivers = v->stringOr("") == "players"
+                                          ? DynamicLightReceivers::Players
+                                          : DynamicLightReceivers::All;
         if (const auto* v = s->find("frameExtrapolation"))
             st.frameExtrapolation = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolationPlane"))

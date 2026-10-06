@@ -331,6 +331,8 @@ uniform float uGiScale;
 // the per-vertex slot must not land a second copy. The per-pixel path
 // ignores it (its smooth preview paints the pool into the ground itself).
 uniform int uPs2NoDynLight;
+// Receiver policy is independent of the terrain/road projected-pool path.
+uniform int uLiveLightReceive;
 
 // shade(n) = L0 + (2/3) * dot(L1, n), weighted-trilinear over the 8 probes
 // around wp. Returns false when every one of them is buried in geometry.
@@ -698,7 +700,7 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
             float radius = uLightPos[i].w;
             float styleW = uLightDir[i].w;
             if (styleW < 1.9) {
-                if (uPs2NoDynLight != 0) continue;  // terrain: pool instead
+                if (uPs2NoDynLight != 0 || uLiveLightReceive == 0) continue;
                 float d2 = dot(d, d);
                 float axial = clamp(1.0 - d2 / (radius * radius), 0.0, 1.0);
                 if (axial <= 0.0) continue;
@@ -736,6 +738,9 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
             float atten = 1.0 - dist / radius;
             atten *= atten;
             float styleW = uLightDir[i].w;
+            // The per-pixel ground preview stands in for retained light pools.
+            if (styleW < 1.9 && uLiveLightReceive == 0 && uPs2NoDynLight == 0)
+                continue;
             float ndotl = dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
             if (styleW < 1.5) {
                 // A spot: the cone term, soft-edged, and no N.L - the same
@@ -779,7 +784,7 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
     // the console's torch on the ground is a PROJECTED pool, per pixel by
     // construction - per corner it would be the Gouraud diamond the pool
     // exists to replace (docs/flashlight.md).
-    if (uFlashOn != 0) {
+    if (uFlashOn != 0 && (uLiveLightReceive != 0 || uPs2NoDynLight != 0)) {
         // Camera flashlight - the exact per-vertex formula the PS2 runs on
         // VU1 (CalculateTyraSpotLight): cone + distance falloff, no N.L.
         vec3 d = wp - uFogEye;
@@ -990,7 +995,8 @@ void main() {
     // texture passes, per pixel by construction, whatever the shading mode.
     vec3 lmAdd = vec3(0.0);
     if (uLit != 0 && uLmMode != 0) lmApply(gUV, gWorld, gTint, shade, lmAdd);
-    if (uFlashOn != 0 && uLit != 0) {
+    if (uFlashOn != 0 && uLit != 0 &&
+        (uLiveLightReceive != 0 || uPs2NoDynLight != 0)) {
         // The torch stays per PIXEL here: on the console its footprint is a
         // projected pool (docs/flashlight.md), per pixel by construction, and
         // VU1 adds the cone AFTER the baked colours - hence post-tint.
@@ -1602,6 +1608,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uAoPerPixel_ = glGetUniformLocation(prog, "uAoPerPixel");
     uFoliageImpostor_ = glGetUniformLocation(prog, "uFoliageImpostor");
     uPs2NoDyn_ = glGetUniformLocation(prog, "uPs2NoDynLight");
+    uLiveLightReceive_ = glGetUniformLocation(prog, "uLiveLightReceive");
 }
 
 void Viewport::useSceneProgram(bool ps2Vertex) {
@@ -5772,6 +5779,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // ...and whether that bag opted out of the dynamic-light pick the way
     // the terrain does (dynLightPick = false - the pool is its light).
     int ps2NoDyn = 0;
+    const bool allLightReceivers =
+        dynamicLightReceivers_ != DynamicLightReceivers::Players;
+    bool liveLightReceive = allLightReceivers;
+    auto playerLightReceiver = [&](const SceneObject& object) {
+        return allLightReceivers ||
+               (!object.id.empty() &&
+                std::find(dynamicLightPlayerIds_.begin(), dynamicLightPlayerIds_.end(),
+                          object.id) != dynamicLightPlayerIds_.end());
+    };
     // ...and whether its AO is a per-pixel pass on the console (the terrain).
     int aoPerPixel = 0;
     // Emissive floor of the NEXT draw, already multiplied by the object tint
@@ -5995,6 +6011,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uFoliageImpostor_, ps2Flat == 2);
         glUniform1i(uPs2Flat_, ps2Flat);    // no-op on the per-pixel program
         glUniform1i(uPs2NoDyn_, ps2NoDyn);  // no-op on the per-pixel program
+        glUniform1i(uLiveLightReceive_, liveLightReceive ? 1 : 0);
         glUniform1i(uAoPerPixel_, aoPerPixel);  // no-op on the per-pixel program
         glUniform1i(uAoSelfObj_, aoSelfObj);
         // The ground-contact term needs a ground: with the terrain removed the
@@ -6093,6 +6110,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // model).
     auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
                                 bool asLines, float tintScale) {
+        // Procedural/prefab members have no live controller binding.
+        liveLightReceive = allLightReceivers;
         aoReceive = t.type != PrimitiveType::Model;
         prelitDraw = t.prelit ? 1 : 0;
         kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
@@ -6150,6 +6169,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoReceive = true;
         ps2Flat = 1;          // terrain chunks are TyraShadingFlat bags
         ps2NoDyn = 1;         // ...with dynLightPick = false: pool, not slot
+        liveLightReceive = allLightReceivers;
         aoPerPixel = 1;       // ...and their AO is the terrain map's pass
         // THE GROUND NEVER TAKES PROBE LIGHT, with or without a lightmap.
         //
@@ -6218,6 +6238,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            liveLightReceive = playerLightReceiver(o);
             // Baked scatter chunks are build output of the graph the preview
             // below draws live from the same deterministic evaluation - drawing
             // both would double every instance. Frozen volumes instead draw
@@ -6529,6 +6550,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // is fine for thousands, not for tens of thousands.
         if (!scatter_.instances.empty() &&
             (int)scatter_.instances.size() <= scatter_.proxyAbove) {
+            liveLightReceive = allLightReceivers;
             aoSelfObj = -1;
             aoGroundOn = true;
             aoReceive = false;  // models receive no baked AO, in game either
@@ -6610,6 +6632,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Post-scene passes (glass, portal surfaces, gizmos) are blends and
     // markers, not static bags - back to Gouraud interpolation.
     ps2Flat = 0;
+    liveLightReceive = allLightReceivers;
     // Dynamic lights' ground pools: only the PS2-shading look draws them (the
     // per-pixel path already paints the light into the ground per pixel, and
     // drawing both would double it). Same order as the generated game: after
@@ -6624,6 +6647,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // one reflected draw - the static subset of the scene pass (marker
         // types never make it into a mirror list)
         auto drawReflected = [&](const SceneObject& t, const Mat4& model) {
+            liveLightReceive = playerLightReceiver(t);
             if (t.collisionMode == 3) return;
             aoReceive = t.type != PrimitiveType::Model;
             prelitDraw = t.prelit ? 1 : 0;
@@ -6724,6 +6748,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                         continue;
                     AnimModelDraw* ad = animModelDraw(p.modelPath, p.materialPath);
                     if (ad && ad->ok) {
+                        liveLightReceive = playerLightReceiver(p);
                         aoSelfObj = (int)k;
                         aoGroundOn = true;
                         aoReceive = false;  // animated avatar - no AO receive
@@ -6737,6 +6762,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 }
             }
             // glass quad last, blended over whatever the copies drew
+            liveLightReceive = allLightReceivers;
             aoSelfObj = (int)mi;
             aoGroundOn = true;
             aoReceive = true;
@@ -6757,6 +6783,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const SceneObject& p = objects[pi];
             if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
             const Mat4 model = modelMatrix(p);
+            liveLightReceive = allLightReceivers;
             aoSelfObj = (int)pi;
             aoGroundOn = true;
             aoReceive = true;

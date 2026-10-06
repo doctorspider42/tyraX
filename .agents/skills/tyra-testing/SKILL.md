@@ -4732,3 +4732,18 @@ Core candidate kinds16/17 use the inherited producer record labels as candidate 
 Sky retint kind19 requires positive physical cold activation, exact full-array and retained-geometry/color-stamp checks, zero fallback/mismatch and no new scoped clocks. Inactive emulator counters must be rejected, even with normal pictures. A cold oracle leaves the original build live, so capture warm frames separately; forced-color/lifecycle qualification is not a pricing run. See `docs/tyrax2-sky-retint.md`.
 
 Paused-clock kind20 separates actual pause/hour witnesses from sky retint mediators: inactive retint is expected when paused. Require exact requested hour, positive unchanged frame dt, both physical orders and no extra scope reads; full cycle evaluation remains enabled. Clock policy affects all day/night consumers, so prices are not sky-only. Exercise resume and active/inactive scene resets before promotion.
+
+## Public dynamic light receiver verification (1.173)
+
+Check legacy/invalid All defaults, project/session round-trip, independent scene
+inheritance and scene undo. Exercise live player/driver entry/exit and mixed wheel
+batches, scalar animated pickup and source ownership in mirrors/portals. Preview
+selection must not grant vehicle reception. Preserve pools and probes in both
+shading modes. Native build and emulator output are separate from physical pricing;
+private historical receiver timing is not a public feature price. See
+docs/dynamic-light-receivers.md.
+
+For private main11 diagnostics, require mandatory cold WHY rows and distinguish
+completion from positive activation. Both frozen attempts use original fallback
+draws; changed lamp state and member light mismatch do not qualify batching gain.
+See docs/tyrax2-main11-batch.md and its source/evidence archive.

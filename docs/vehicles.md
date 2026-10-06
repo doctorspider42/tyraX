@@ -7,6 +7,9 @@ placed cars. [The Blender tutorial](blender-vehicle-modeling.md) covers making
 and exporting a model from scratch. [Motor District](../examples/vehicle-playground/README.md)
 is a playable example with three editable Blender cars.
 
+[Dynamic light receivers](dynamic-light-receivers.md) can keep live light on
+the driven vehicle's body, glass and wheels while excluding parked/traffic cars.
+
 A placed vehicle whose definition has no ID or model path is skipped. If no
 usable definitions remain, generated code keeps a complete inert placeholder
 (including both engine sound layers and the controls card fields), so an

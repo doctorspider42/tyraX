@@ -1,0 +1,19 @@
+{
+  "status": "PASS_EDITOR_RECEIVER_RENDERING_UI_INTERACTION_AND_SAVE",
+  "exitCode": 0,
+  "editor": "F:\\Projects\\tyra-editor\\build\\tyrax-editor.exe",
+  "editorSha256": "74b37b633401262dd5c27a40e4c6b872528a3828ce0f72981b878aa29965f478",
+  "durableRuntimeEditorSha256": "74f6ff3a1c6ad2dabb5867ec76191098f127727ef2472233049aa92038b95d66",
+  "durableRuntimeEditorUnchanged": true,
+  "script": "frames 20; dump; click '##MainMenuBar/Project'; click 'Preferences'; click 'Project Preferences/Rendering'; expect 'Project Preferences/##Dynamic light receivers'; click 'Project Preferences/##Dynamic light receivers'; expect 'All objects'; expect 'Players and driven vehicle'; shot F:/Projects/tyrax2-lab-20261001/player-light-public-ui-root-v2/choices.png; click 'Players and driven vehicle'; frames 5; shot F:/Projects/tyrax2-lab-20261001/player-light-public-ui-root-v2/rendering.png; dump; click 'Project Preferences/Close'; key ctrl+s; frames 5; quit",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\fixture",
+  "manifest": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\fixture\\vehicle-playground.tyra",
+  "beforeManifestSha256": "dbe50329dfc41b2b18d8890f8a36143af98ae275f70ffd6e0dc84fe07615d437",
+  "afterManifestSha256": "b030d7b8712cfaee81dfa1a6d2185b55a5321394006ecdb91fa1cead426c956d",
+  "savedDynamicLightReceivers": "players",
+  "images": {
+    "rendering.png": "50da070f6706468daaf8f7a0b0b68e6d2b90e1250ed032a27065ef04f4a75a1c",
+    "choices.png": "2d341ecc0ef8fcbc6a53fe8c188f030d7d4b341f63c014d56499599c328b75c7"
+  },
+  "visualReviewPending": true
+}

@@ -1,0 +1,114 @@
+{
+  "status": "DRAFT_NOT_FROZEN",
+  "kind": 29,
+  "sourceFiles": 501,
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "restoredObjectRouteFiles": [
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/terrain_game.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "productionRestoredFiles": [
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp"
+  ],
+  "productionBaseSha256": {
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp": "15259dc346241e01cb9e0fdab65c69663b4629de0943f0ea62709a71e0d592bd"
+  },
+  "draftEngineSourceSha256": {
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "65cc503cfa96679f479b8539e911bfa68f70473d6bc636b43d85d75ac9423496",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp": "15259dc346241e01cb9e0fdab65c69663b4629de0943f0ea62709a71e0d592bd"
+  },
+  "sourceProtocol": {
+    "aggregate": [
+      "invocations",
+      "sourceGroups",
+      "sourceMembers",
+      "groups",
+      "members",
+      "candidateGroups",
+      "candidateMembers",
+      "controlMainSubmits",
+      "candidateMainSubmits",
+      "reflectionCarriers",
+      "reflectionUses",
+      "fallbackGroups",
+      "demotedGroups",
+      "eligibilityRefused",
+      "dirtyDemotions",
+      "geometryCompared",
+      "geometryMismatches",
+      "duplicateMainSubmits",
+      "verticesCompared",
+      "colorBytesCompared"
+    ],
+    "group": [
+      "ready",
+      "admitted",
+      "demoted",
+      "submitted",
+      "first",
+      "count",
+      "members",
+      "geometryHash",
+      "infoHash",
+      "lightKey",
+      "spotEnabled"
+    ],
+    "member": [
+      "object",
+      "idLo",
+      "idHi",
+      "group",
+      "ready",
+      "admitted",
+      "mainOriginal",
+      "mainGrouped",
+      "reflectionUses",
+      "count",
+      "positionHash",
+      "colorHash",
+      "copiedPositionHash",
+      "copiedColorHash",
+      "infoHash",
+      "lightKey",
+      "spotEnabled"
+    ]
+  },
+  "baseChoices": "Clone frozen companion source/assets; restore prior object-route generated/debug files to remove kind24 census. Restore current production core/qrenderer/bbox cacher; Core adds only cold accepted annotation. Preserve fixed-hour mood/sky retint, original waits/programs. No engine class fields changed; generated game class grows and target ABI remains unqualified. No TEX1 owned candidate combined.",
+  "candidateScope": "Private separately owned main-only groups, raw original carriers copied; original objectBatchOf unchanged. No new Count reads/waits. Group arrays retained until original scene generation reset. Full night allsampler1/tableOn; producerTiming false. Runtime admissions conditional.",
+  "unqualified": [
+    "Native compile/ABI",
+    "Output/lighting/clip equivalence",
+    "Actual positive admissions",
+    "Parent independent source review",
+    "Lifetime across runtime scene/split changes"
+  ],
+  "commonFootprintUnpriced": true,
+  "commonSetupReflectionKeyDifference": "Initial early carrier preparation consumes dirty before shared-env content key. Both arms pay same preparation; no claim initial production key/cadence is byte-identical. Steady state contrast requires setup outside priced windows.",
+  "draftBaseManifestSha256": "5157606e596d8d466583db330371b72e5707883678549d50ff1dd901aa5996c6",
+  "draftManifestSha256": "1f042bf4425d15751ce816cd5aa2fa4768994036f473a58b851c46121410e03d",
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "frozen": true,
+  "rootCodeHead": "ed047cf112d27b3c57ad1fc8aedf4803e0f3ac06",
+  "existingWaitsAndConsumerOwnershipRetained": true,
+  "noProductionPromotion": true,
+  "sourceManifestSha256": "cb9ae8eb8b5865a61b9f8e697952497474bdce1a0d8cad915e52d0487988d716"
+}

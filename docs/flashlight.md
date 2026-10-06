@@ -5,6 +5,9 @@ with a colour, a reach, a cone half-angle and an optional pad button to switch
 it on and off. The `Set Flashlight` flow node is the master switch — a project
 can start dark and hand the torch over later.
 
+The [dynamic light receiver option](dynamic-light-receivers.md) restricts its
+model-light contribution; the projected ground pool remains visible.
+
 It reaches the world in two ways at once, and the difference between them is
 worth knowing before you tune anything.
 

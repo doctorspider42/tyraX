@@ -3975,3 +3975,25 @@ The kind14 Core prefix partition is documented in `docs/tyrax2-core-prefix-parti
 Kind15 splits head/bounds/package preparation into five disjoint regions. Preserve early returns in stage0/2 and compare only within its ELF; its common disabled footprint differs from kind14. See the Core prefix page. Matrix equality must preserve all64bytes (including signed zero/NaN payloads); clip-plane specialization must keep the exact far plane z+w and original leading distance/add order.
 
 Clip-plane kind17 V2 is a recorded target-only numerical failure: corrected compile-time coefficients pass8million host plane comparisons and emulator, but PS2 reports451 cold mismatches. V3 forced mul.s restores sparse agreement but regresses. Do not assume strength reduction of0/1/-1 products preserves hardware bits, or promote from host/emulator alone. See `docs/tyrax2-core-preparation-experiments.md`; row-sharing has its own nonalias, bit and pricing gates.
+
+## Public dynamic light receivers (1.173)
+
+The default-true PipelineInfoBag receiver gate must suppress both dynamic light
+selection and the global camera flashlight fallback; null means flashlight.
+Resolve live player/driven vehicle ownership at each draw/sample, keep secondary
+view source ownership, and partition mixed wheel geometry only in restricted mode.
+Shared info bags must not acquire temporary owner state retained by queued consumers.
+Scalar normal-lit/animated pickup uses the same policy, preserving probes and sun.
+Projected pools/beams/headlights are separate effects. Historical private prices
+do not measure the public implementation. See docs/dynamic-light-receivers.md.
+
+The main11 private batching attempts both completed in PCSX2 but never admitted
+a group. Original per-member light picks/effective light differed; lamp flicker
+changes an exact light key every frame. Zero activation is not a measured speedup.
+See docs/tyrax2-main11-batch.md.
+
+Public receiver ABI: actual R5900 PipelineInfoBag grows from 40 to 44 bytes
+(+4 per bag, alignment 4). Rebuild engine and game together through the normal
+Runner; old objects are not binary compatible. Production VU source stays
+unchanged. The archived private main11 TC image includes an unpromoted corona
+SPRITE prototype and is not a production receiver-image identity baseline.

@@ -233,6 +233,13 @@ public:
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
+    // Authoring preview uses explicit player object IDs. It has no live driver
+    // binding: parked vehicles remain world receivers, regardless of selection.
+    void setDynamicLightReceivers(DynamicLightReceivers mode,
+                                 const std::vector<std::string>& playerIds) {
+        dynamicLightReceivers_ = mode;
+        dynamicLightPlayerIds_ = playerIds;
+    }
 
     // Baked global illumination preview (docs/global-illumination.md). The
     // editor must show the same light the console will, or authoring a bake is
@@ -960,6 +967,9 @@ private:
     int uFoliageImpostor_ = -1;
     int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
     int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    int uLiveLightReceive_ = -1;
+    DynamicLightReceivers dynamicLightReceivers_ = DynamicLightReceivers::All;
+    std::vector<std::string> dynamicLightPlayerIds_;
     int uAoPerPixel_ = -1;  // vtx program only: terrain AO in the fragment stage
     // GL_LINES cannot pass through a triangles geometry shader, so when the
     // vtx program is active the draw helpers detour lines through program_

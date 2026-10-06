@@ -6,6 +6,10 @@ against player/driven-vehicle receivers, first retaining scene light pools and
 then suppressing those pools as a separate comparison. Both comparisons use
 full/candidate/full and candidate/full/candidate orders.
 
+The later [public receiver option](dynamic-light-receivers.md) is a separate
+implementation. It retains projected pools and has its own qualification;
+the archived prices below do not measure its common code or broader ownership.
+
 ## What the candidate changes
 
 The receiver classifier uses the live player object indices and the currently

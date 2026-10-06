@@ -1,0 +1,71 @@
+{
+  "status": "SOURCE_ONLY_ADDITIONAL_PUBLIC_RECEIVER_FIXTURES",
+  "fixtures": [
+    {
+      "name": "portals-players",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\portals",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\portals-players",
+      "mode": "players",
+      "witnessPlan": {},
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    },
+    {
+      "name": "showcase-players",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\showcase",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players",
+      "mode": "players",
+      "witnessPlan": {},
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    },
+    {
+      "name": "animated-all",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\two-players",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all",
+      "mode": "all",
+      "witnessPlan": {
+        "activePlayerIds": [
+          "0903d23f721680a8",
+          "7c3834dae27f65fd"
+        ],
+        "ordinaryModelIds": [
+          "f00dcafe00000001",
+          "f00dcafe00000002"
+        ],
+        "dynamicLightId": "f00dcafe00000003",
+        "sharedAsset": "res/models/cat.glb",
+        "sharedClip": "Armature|Armature|ArmatureAction",
+        "clipChannels": 105,
+        "samePoseNotRuntimeProven": true,
+        "p2JoinOnStart": true
+      },
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    },
+    {
+      "name": "animated-players",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\two-players",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players",
+      "mode": "players",
+      "witnessPlan": {
+        "activePlayerIds": [
+          "0903d23f721680a8",
+          "7c3834dae27f65fd"
+        ],
+        "ordinaryModelIds": [
+          "f00dcafe00000001",
+          "f00dcafe00000002"
+        ],
+        "dynamicLightId": "f00dcafe00000003",
+        "sharedAsset": "res/models/cat.glb",
+        "sharedClip": "Armature|Armature|ArmatureAction",
+        "clipChannels": 105,
+        "samePoseNotRuntimeProven": true,
+        "p2JoinOnStart": true
+      },
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    }
+  ]
+}

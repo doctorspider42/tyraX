@@ -1,0 +1,158 @@
+{
+  "status": "PASS",
+  "scope": "Pure host source closure and independent guard mutation controls only. No native compile, packet/VU/output/lifetime or activation qualification.",
+  "draftManifestSha256": "148974da3f906df0a6b5c75631456773b1e1424100f8f4fd49dccebfdb4a665d",
+  "generatorSha256": "790c920c74cd4d92e3c79a5ff166f0e8434c0844912b34e26dacdd045f97d99a",
+  "sourceFiles": 501,
+  "unchangedInheritedCRFiles": [
+    "tyra/engine/inc/debug/night_sampler.hpp",
+    "tyra/engine/inc/debug/quiet_cadence.hpp",
+    "tyra/engine/inc/debug/quiet_runtime.hpp"
+  ],
+  "checks": [
+    {
+      "name": "unfrozen501",
+      "pass": true
+    },
+    {
+      "name": "all501Hashes",
+      "pass": true
+    },
+    {
+      "name": "noCompanionCensusHooks",
+      "pass": true
+    },
+    {
+      "name": "producerTimingDisabled",
+      "pass": true
+    },
+    {
+      "name": "ordinarySamplerUnchanged",
+      "pass": true
+    },
+    {
+      "name": "qrendererProductionExact",
+      "pass": true
+    },
+    {
+      "name": "cacherProductionExact",
+      "pass": true
+    },
+    {
+      "name": "CoreOnlyColdAcceptedAnnotation",
+      "pass": true
+    },
+    {
+      "name": "preSecondaryDirtyReconcile",
+      "pass": true
+    },
+    {
+      "name": "noPrivateGlobalBatchMembershipWrites",
+      "pass": true
+    },
+    {
+      "name": "copyOriginalActiveArrays",
+      "pass": true
+    },
+    {
+      "name": "noPrivateCountReadsOrWaits",
+      "pass": true
+    },
+    {
+      "name": "originalCarrierNeverFreedByPrivate",
+      "pass": true
+    },
+    {
+      "name": "groupStorageNeverRebakedWithinScene",
+      "pass": true
+    },
+    {
+      "name": "noOutOfArrayLightPointerSubtract",
+      "pass": true
+    },
+    {
+      "name": "exactInfoAndFullLightingKey",
+      "pass": true
+    },
+    {
+      "name": "fullyInsideAndEffectiveSpotDomain",
+      "pass": true
+    },
+    {
+      "name": "delayedEntirePreparation",
+      "pass": true
+    },
+    {
+      "name": "coldWhyProtocol",
+      "pass": true
+    },
+    {
+      "name": "whyExactKeyDiffCategories",
+      "pass": true
+    },
+    {
+      "name": "opaqueAndNoCompanionGate",
+      "pass": true
+    },
+    {
+      "name": "orderSafePreservesHeavyDrips",
+      "pass": true
+    },
+    {
+      "name": "actualAcceptanceBeforePrepAndAfterMainCull",
+      "pass": true
+    },
+    {
+      "name": "reflectionAcceptedHooksExactly2",
+      "pass": true
+    },
+    {
+      "name": "coldOnlyFullWordOracle",
+      "pass": true
+    },
+    {
+      "name": "coldEmitOutsideLoopPrice",
+      "pass": true
+    },
+    {
+      "name": "modifiedEngineLF",
+      "pass": true
+    },
+    {
+      "name": "inheritedCRExactFrozenBytes",
+      "pass": true
+    },
+    {
+      "name": "positiveRestrictedAdmission",
+      "pass": true
+    },
+    {
+      "name": "laterMemberCannotRetroMerge",
+      "pass": true
+    },
+    {
+      "name": "pendingHeavyRefuses",
+      "pass": true
+    },
+    {
+      "name": "partialFrustumRefuses",
+      "pass": true
+    },
+    {
+      "name": "pickedLightDiffRefuses",
+      "pass": true
+    },
+    {
+      "name": "effectiveLightDiffRefuses",
+      "pass": true
+    },
+    {
+      "name": "dirtyRefusesBeforeClear",
+      "pass": true
+    },
+    {
+      "name": "lightCameraFogKeyChangeRefuses",
+      "pass": true
+    }
+  ]
+}

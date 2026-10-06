@@ -2,6 +2,10 @@
 
 TyraX tracks two independent versions (both defined in `src/version.hpp`):
 
+Format v96 adds [dynamic light receiver tokens](dynamic-light-receivers.md)
+and an independent scene override. Missing/invalid values use full reception;
+this additive change needs no destructive migration or automatic resave.
+
 | | What | Where | Who reads it |
 |---|---|---|---|
 | **Editor version** | semver `MAJOR.MINOR.PATCH` | title bar, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |

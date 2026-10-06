@@ -1,0 +1,11 @@
+{
+  "status": "PASS_ROOT_PUBLIC_RECEIVER_RUNTIME_INPUT_REVIEW",
+  "buildRecord": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-native-mixed-audit-root-v3/durable-build-record.json",
+  "buildRecordSha256": "2b30d412d1c5484a720d1ff7764e128969100689c779eee3eeffde544b81f01e",
+  "actualELFSha256": "595b8ff095f578532ca40a2e54398c29e435667041332e26919f638217f27b19",
+  "actualSymbolSha256": "7465b868502015a7c54ae2941c448e32cf7cbfdd85dd277b1f5850ce7f5c6940",
+  "actualCompiledSourceReviewPassed": true,
+  "actualELFSymbolTextReviewPassed": true,
+  "nativeProofSha256": "599b889a8b882560d285cbcc13543aaa845c77c33f442b1118ed0b37c117b482",
+  "runtimeOutputQualified": false
+}

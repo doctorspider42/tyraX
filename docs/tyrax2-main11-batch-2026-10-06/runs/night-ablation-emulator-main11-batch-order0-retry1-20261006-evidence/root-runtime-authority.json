@@ -1,0 +1,19 @@
+{
+  "status": "ROOT_NATIVE_HOST_SOURCE_PRIVATE_MAIN11_EMULATOR_TRIAL",
+  "scope": "Isolated kind29 stationary fullnight sameELF candidate. Original carriers and main draw order preserved in guarded domain; fallback on changed keys. Emulator output/activation first, physical trial pending. No production promotion or fps/gain claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-root-helpers-v1\\source-review.md",
+  "reviewSha256": "1cb44e649ef69acb2a7b4a5e4407c0757cf646b69c110b59e155bf76e3162cdf",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-root-helpers-v1\\host-authority.json",
+  "hostSha256": "f1ed735374eacd7bcfe5f5312079abf3a98975d9d00c28b4abb736d4ca044585",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-native-root-review-v1\\proof.json",
+  "nativeSha256": "5a7a46d6f6cbe52eaca369900209557c99c56af1a9f971243f6a797191fe8150",
+  "rootSourceFreezeSha256": "3a953907c09350276ff0e2c14505cde50706b1910ea59d64bed02af5814955e3",
+  "hostControlSha256": "02e4ad4afea7a58c4993891af83f34d2ad973d357fc68705deb26d1f3e7486e0",
+  "sourceControlSha256": "0651b7bcac5ab3d6e69d6c36fc499d7365c7ca6dfc3229d82ec1af3417077544",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false,
+  "independentReviewPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-independent-review-v1\\report.md": "f67451ba1a58e78a45835774a041da6fef72f3248db1abfa6552942534618582",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-independent-review-v1\\parser-repair-review.md": "df42dfe5972872d7e076df49c2dbadf0ad380767eff3888f8758932e1cb6d106"
+  }
+}

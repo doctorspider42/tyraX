@@ -1,0 +1,14 @@
+neutral
+press triangle 0.15
+wait 1
+hold r2
+wait 2
+release r2
+hold l2
+wait 1
+release l2
+press circle 0.15
+wait 1
+stick l 0 -80
+wait 1
+neutral

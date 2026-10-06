@@ -1,0 +1,36 @@
+{
+  "kind": "nonreconstructive top-level projection",
+  "original": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\owned-launch.json",
+  "originalSha256": "3c369e4677b12468cf2d83c9d34d0c1e960213ed9d1087608fd00dab54e70528",
+  "retained": {
+    "status": "OWNED_PUBLIC_RECEIVER_EMULATOR_LAUNCHED",
+    "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-runtime-v1/fixtures/vehicle-players",
+    "elf": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-runtime-v1/fixtures/vehicle-players/bin/vehicle-playground.elf",
+    "elfSha256": "0516e0c4ec66f14b101e4c21f87dbf51eead36bb1dfc7aed37c38ec907327b16",
+    "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+    "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+    "args": [
+      "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+      "-datapath",
+      "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-players-root-v1/runtime/profile",
+      "-logfile",
+      "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-players-root-v1/runtime/emulator.log",
+      "-batch",
+      "-nogui",
+      "-elf",
+      "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-runtime-v1/fixtures/vehicle-players/bin/vehicle-playground.elf"
+    ],
+    "profile": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-players-root-v1/runtime/profile",
+    "log": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-players-root-v1/runtime/emulator.log",
+    "review": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-native-players-audit-root-v2/root-runtime-review.json",
+    "reviewSha256": "3394594aa08e0f62f9b5c35812418777b1deb6a91acf6398b8d41bf04da6f0b1",
+    "pineSlot": 29207,
+    "xvfbPid": 19,
+    "xvfbOwned": false,
+    "helperSha256": "9fb48ca570afc7c4655ca0afbf75d2b5fc378ec4012c9f3294270719617b0bba",
+    "configSha256": "eccbbff4b4384bde93d56fe0439afe4ace06b6030cfedf25d8d55ab54d5a37ba",
+    "audioOutputQualified": false,
+    "runtimeQualified": false,
+    "pid": 17160
+  }
+}

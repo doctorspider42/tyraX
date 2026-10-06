@@ -1,0 +1,10 @@
+neutral
+press down 0.2
+wait 0.5
+press right 0.2
+wait 0.5
+press up 0.2
+wait 0.5
+press cross 0.2
+wait 2
+neutral

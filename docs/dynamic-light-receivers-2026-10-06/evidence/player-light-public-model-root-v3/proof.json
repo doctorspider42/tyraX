@@ -1,0 +1,26 @@
+{
+  "status": "PASS_ACTUAL_PROJECT_MODEL_SESSION_SCENE_HISTORY_CONTROLS",
+  "scope": "Actual linked project.cpp/settings transport/layout/undo/ambience; no emulator or game output proof",
+  "files": {
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-plan-v1\\editor-model-controls.cpp": "3b79388ccccd615e4c6d03d28d5b1062261bdb2ac8765e6232640c4b589a12c9",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.obj": "5d8f051f622ed81eee96641d8b2b4f1768ed0fc9798a56fb713b54c3ed140447",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.exe": "e1ceec214bba49c429b8c7d03f25c896136a4c600f208eb507b4b8c02dec913e",
+    "F:\\Projects\\tyra-editor\\build\\CMakeFiles\\tyrax-editor.dir\\src\\project.cpp.obj": "6ac03e000eca4a6b4d16ce567d4ef58b468946e7a3b2f7ba1450709fc4233867",
+    "F:\\Projects\\tyra-editor\\src\\project.hpp": "60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e",
+    "F:\\Projects\\tyra-editor\\src\\project.cpp": "1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015",
+    "F:\\Projects\\tyra-editor\\src\\history.hpp": "35e7014b213050f5a5fe7979d60e3b487f895c0c5c8da9d35c9533757f309444"
+  },
+  "compileCommand": [
+    "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.exe",
+    "-std=c++20",
+    "-O1",
+    "-UNDEBUG",
+    "-I",
+    "F:\\Projects\\tyra-editor\\src",
+    "-c",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-plan-v1\\editor-model-controls.cpp",
+    "-o",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.obj"
+  ],
+  "runExitCode": 0
+}

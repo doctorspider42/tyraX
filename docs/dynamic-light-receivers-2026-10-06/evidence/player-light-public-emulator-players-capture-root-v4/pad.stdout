@@ -1,0 +1,17 @@
+[pad] neutral
+[pad] press triangle 0.15
+[pad] (release triangle)
+[pad] wait 1
+[pad] hold r2
+[pad] wait 2
+[pad] release r2
+[pad] hold l2
+[pad] wait 1
+[pad] release l2
+[pad] press circle 0.15
+[pad] (release circle)
+[pad] wait 1
+[pad] stick l 0 -80
+[pad] wait 1
+[pad] neutral
+[pad] done - 16 step(s) in 6.5s, pad released

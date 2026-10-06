@@ -3198,3 +3198,13 @@ docs/frame-pipeline-flow-nodes.md.
 Runtime sky retint: generated FPP and orbit declarations expose `retintSkyDomeColors`. Only the RGB caller uses it; initialization and scene/texture/shape changes retain `buildSkyDome`. A color span stamps packets without changing vertices/ST/bbox. Do not generalize this helper to radius/yaw changes without a shape key. See `docs/tyrax2-sky-retint.md`.
 
 Generated day/night scripts expose `setHour` and `setPaused`. Pause skips only hour advancement; evaluation and real physics dt remain. Scene reset clears pause even if the scene cycle is inactive. DistrictMood applies its fixed hour/pause only on mood or scene-generation changes. See `docs/day-night-cycle.md`.
+
+## Dynamic light receiver policy (1.173)
+
+`ProjectSettings::dynamicLightReceivers` is a typed All/Players quality choice,
+serialized as all/players in format96. Missing/invalid values preserve All.
+`SceneOverrides::dynamicLightReceivers` is independent of directional lighting
+and ambience. Include both in equality, Settings/session and scene visuals/history
+serialization. Scene preferences preserve the inactive local choice. The viewport
+receives explicit authored player IDs; selection is not a live vehicle driver.
+See docs/dynamic-light-receivers.md.

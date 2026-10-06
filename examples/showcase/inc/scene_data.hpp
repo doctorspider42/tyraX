@@ -514,6 +514,8 @@ inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.826904F};
 inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.646295F};
 inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {0.979695F};
+inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false};
+inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
 inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.987427F};
 inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {0.124454F};
 inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0974644F};
@@ -776,6 +778,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces

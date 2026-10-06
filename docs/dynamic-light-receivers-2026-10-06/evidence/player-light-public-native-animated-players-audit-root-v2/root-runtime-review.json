@@ -1,0 +1,11 @@
+{
+  "status": "PASS_ROOT_PUBLIC_RECEIVER_RUNTIME_INPUT_REVIEW",
+  "buildRecord": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-native-animated-players-audit-root-v2/durable-build-record.json",
+  "buildRecordSha256": "60d0f85e4c243cc01708741044cb63109ec374f626ad888d8b7c233919537fec",
+  "actualELFSha256": "eec63941d455749337fb859ef1ebfa3ae6c27fd8e5190d8adcfa69cfa9b2d81a",
+  "actualSymbolSha256": "b7d837982b6958f26c037683d2ee469522d0d4fdcd30fdc2e40fc3e3cdae330c",
+  "actualCompiledSourceReviewPassed": true,
+  "actualELFSymbolTextReviewPassed": true,
+  "nativeProofSha256": "5a6bd9398116b73c70fcef7ebdd737ca32aa149366fe332ce852ed75fd157c50",
+  "runtimeOutputQualified": false
+}

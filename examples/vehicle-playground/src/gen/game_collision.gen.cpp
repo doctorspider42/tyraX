@@ -207,7 +207,7 @@ void TerrainGame::renderCollisionBoxes() {
   collisionBoxVerts.bind(collisionBoxBag);
   collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
   collisionBoxBag->bboxVersion = ++g_bboxStamp;
-  stapip.core.render(collisionBoxBag.get());
+  renderWorldBag(collisionBoxBag.get());
 }
 
 
@@ -830,6 +830,60 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
 }
 
 
+
+// RGB-only update: scene/texture/shape changes must still call buildSkyDome.
+// One color span invalidates packets without invalidating geometry or bounds.
+bool TerrainGame::retintSkyDomeColors() {
+ if(!SKY_DOME)return false;
+#ifdef SKY_TEXTURES_ON
+  const bool textured = skyTex != nullptr;
+#else
+  const bool textured = false;
+#endif
+  const int stacks = textured ? 8 : 6, slices = textured ? 24 : 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+  auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
+  };
+  // On a painted sky the gradient only TINTS: the ratio of the live colour to
+  // the one the scene was authored with (128 = the panorama as painted), so
+  // the authored hour shows the image untouched while the day/night cycle and
+  // Set Sky Color still darken or warm it.
+  auto tintAt = [&](float t) {
+    const Color live = skyAt(t);
+    auto ratio = [](float cur, float ref) {
+      const float r = ref > 1.0F ? cur / ref : 1.0F;
+      const float c = r * 128.0F;
+      return c > 255.0F ? 255.0F : (c < 0.0F ? 0.0F : c);
+    };
+    return Color(ratio(live.r, SKY_R + (SKY_TOP_R - SKY_R) * t),
+                 ratio(live.g, SKY_G + (SKY_TOP_G - SKY_G) * t),
+                 ratio(live.b, SKY_B + (SKY_TOP_B - SKY_B) * t), 128.0F);
+  };
+
+ const u32 count=static_cast<u32>(stacks*slices*6);
+ if(!skyDome.bag||!skyDome.infoBag||!skyDome.colorBag||
+    skyDome.bag->info!=skyDome.infoBag.get()||skyDome.bag->color!=skyDome.colorBag.get()||
+    skyDome.bag->count!=count||skyDome.vertices.size()!=count||skyDome.colors.size()!=count||
+    skyDome.bag->vertices!=skyDome.vertices.data()||skyDome.colorBag->many!=skyDome.colors.data())return false;
+#ifdef SKY_TEXTURES_ON
+ if(textured){if(!skyDome.texBag||skyDome.bag->texture!=skyDome.texBag.get()||skyDome.texBag->texture!=skyTex||skyDome.sts.size()!=count||skyDome.texBag->coordinates!=skyDome.sts.data())return false;}
+ else if(skyDome.bag->texture!=nullptr)return false;
+#else
+ if(skyDome.bag->texture!=nullptr)return false;
+#endif
+ auto colors=skyDome.colors.span(0,count);u32 v=0;
+ for(int st=0;st<stacks;++st){
+  const float t0=powf((float)st/stacks,SKY_ZENITH_EXP),t1=powf((float)(st+1)/stacks,SKY_ZENITH_EXP);
+  const Color c0=textured?tintAt(t0):skyAt(t0),c1=textured?tintAt(t1):skyAt(t1);
+  for(int sl=0;sl<slices;++sl){colors[v++]=c0;colors[v++]=c1;colors[v++]=c1;colors[v++]=c0;colors[v++]=c1;colors[v++]=c0;}
+ }
+ return true;
+}
 
 void TerrainGame::buildSkyDome() {
   if (!SKY_DOME) return;
@@ -1732,7 +1786,7 @@ void TerrainGame::renderReflectionProxy(int index) {
     p->bag->bboxVersion = ++g_bboxStamp;
     g.reflectionProxy = std::move(p);
   }
-  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
+  if (g.reflectionProxy->bag) renderObjectBag(index, g.reflectionProxy->bag.get());
 }
 
 
@@ -3196,7 +3250,7 @@ void TerrainGame::renderVehicleSmoke() {
           fx.smokeFrameTex[(int)(fx.smokeClock * fx.smokeFps) % fx.smokeFrames];
     fx.smokeBag->count = (u32)kVehSmokeMax;
     fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
-    stapip.core.render(fx.smokeBag.get());
+    renderWorldBag(fx.smokeBag.get());
   }
 }
 
@@ -3360,7 +3414,7 @@ void TerrainGame::renderVehicleSkids() {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;
     }
-    stapip.core.render(fx.skidBag.get());
+    renderWorldBag(fx.skidBag.get());
   }
 }
 
@@ -3632,7 +3686,7 @@ void TerrainGame::renderVehicleGlow() {
         headlightCount_ != headlightCountPrev_)
       headlightBag_->bboxVersion = ++g_bboxStamp;
     headlightCountPrev_ = headlightCount_;
-    stapip.core.render(headlightBag_.get());
+    renderWorldBag(headlightBag_.get());
   } else {
     headlightCountPrev_ = 0;
   }
@@ -3659,7 +3713,7 @@ void TerrainGame::renderVehicleGlow() {
   }
   glowBag_->count = (u32)(glowCount_ * 6);
   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
-  stapip.core.render(glowBag_.get());
+  renderWorldBag(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -4354,7 +4408,7 @@ void TerrainGame::renderVehicleDebris() {
     } else {
       b.bag->texture = nullptr;
     }
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -4704,7 +4758,7 @@ void TerrainGame::renderVehicleLampGlow() {
   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
     lampGlowBag_->bboxVersion = ++g_bboxStamp;
   lampGlowQuadsPrev_ = quads;
-  stapip.core.render(lampGlowBag_.get());
+  renderWorldBag(lampGlowBag_.get());
 }
 
 void TerrainGame::updateVehicleDamage(float dt) {
@@ -7522,7 +7576,7 @@ void TerrainGame::renderVehicleGlass() {
       auto dst = part.colors.span(0, n);
       for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
     }
-    stapip.core.render(part.bag.get());
+    renderObjectBag(v.object, part.bag.get());
   }
 }
 
@@ -8091,10 +8145,16 @@ void TerrainGame::renderVehicleWheels() {
   // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
   // command key's `vertices`), never by the bag, and every batch owns its own
   // vertex vector.
+  const int receiverClasses = ANY_PLAYER_ONLY_DYNAMIC_LIGHTS &&
+      PLAYER_ONLY_DYNAMIC_LIGHTS ? 2 : 1;
+  // Allocate every class before any submit: growth must not move stamp/
+  // content owners while an earlier wheel batch is still referenced by DMA.
+  const size_t batchCount = (size_t)VEHICLE_DEF_COUNT * receiverClasses;
+  if (wheelBatches_.size() < batchCount) wheelBatches_.resize(batchCount);
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  if ((int)wheelBatches_.size() <= drawDef)
-    wheelBatches_.resize((size_t)drawDef + 1);
-  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  for (int receiverClass = 0; receiverClass < receiverClasses; ++receiverClass) {
+  const int batchIndex = drawDef * receiverClasses + receiverClass;
+  WheelBatch& batch = wheelBatches_[(size_t)batchIndex];
   // NOT cleared. The batch is addressed by SLOT - car k owns
   // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
   // keeps the vertices already sitting there, and the frame does no work for
@@ -8109,6 +8169,8 @@ void TerrainGame::renderVehicleWheels() {
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    if (receiverClasses == 2 &&
+        isLivePlayerReceiver(v.object) != (receiverClass == 1)) continue;
     // The body obeys this state in the ordinary object loop. Its separately
     // submitted wheels must obey it too or a hidden car leaves four ghosts.
     if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
@@ -8564,7 +8626,9 @@ void TerrainGame::renderVehicleWheels() {
   } else {
     wheelBag_->texture = nullptr;
   }
-  stapip.core.render(wheelBag_.get());
+  stapip.core.render(wheelBag_.get(), receiverClasses == 2 && receiverClass == 0 ?
+      Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+  }
   }
 #if TYRA_WHEEL_REBUILD_REPORT
   // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
@@ -9170,7 +9234,7 @@ void TerrainGame::renderProcChunks() {
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
-    stapip.core.render(c.bag.get());
+    renderWorldBag(c.bag.get());
   }
 }
 }

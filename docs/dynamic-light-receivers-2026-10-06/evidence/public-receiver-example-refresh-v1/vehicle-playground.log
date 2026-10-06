@@ -1,0 +1,31 @@
+--migrate exit=0
+migrated: F:\Projects\tyrax2-lab-20261001\public-receiver-example-refresh-v1\clones\vehicle-playground (format v96)
+
+--refresh-gen exit=0
+[vehicle] Ravager: 256x256 quantized to 8bit (43060 -> 24959 bytes)
+[vehicle] Ravager: far model ravager-far.glb 708 tris (wheels in), 2 submit(s) past 48 units (12 for cars nobody drives)
+[vehicle] Ravager: part 0 lamps 120 list verts (no strip)
+[vehicle] Ravager: part 1 glass 204 list verts (no strip); hidden far
+[vehicle] Ravager: part 2 body paint 5892 list verts -> 3390 strip (0.575x); tier 2124 list -> 1632 strip (0.768x)
+[vehicle] Ravager: lamp materials -> emissive part 0 (24 rear corners, 96 front)
+[vehicle] Ravager: body 2072 tris / 3 part(s), wheel 160 tris, 4 submit(s) per vehicle
+[vehicle] Ravager: measured wheelBase 2.732 track 1.435 radius 0.316 rideHeight 0.316 - the definition's Driving tab should match
+[vehicle] Pica Turbo: 256x256 quantized to 8bit (36400 -> 23799 bytes)
+[vehicle] Pica Turbo: far model pica-far.glb 652 tris (wheels in), 2 submit(s) past 48 units (12 for cars nobody drives)
+[vehicle] Pica Turbo: part 0 lamps 36 list verts (no strip)
+[vehicle] Pica Turbo: part 1 glass 228 list verts (no strip); hidden far
+[vehicle] Pica Turbo: part 2 body paint 5412 list verts -> 3204 strip (0.592x); tier 1956 list -> 1476 strip (0.755x)
+[vehicle] Pica Turbo: lamp materials -> emissive part 0 (12 rear corners, 24 front)
+[vehicle] Pica Turbo: body 1892 tris / 3 part(s), wheel 150 tris, 4 submit(s) per vehicle
+[vehicle] Pica Turbo: measured wheelBase 2.245 track 1.306 radius 0.262 rideHeight 0.262 - the definition's Driving tab should match
+[vehicle] Strix V12: 256x256 quantized to 8bit (37869 -> 22199 bytes)
+[vehicle] Strix V12: far model strix-far.glb 668 tris (wheels in), 2 submit(s) past 48 units (12 for cars nobody drives)
+[vehicle] Strix V12: part 0 lamps 120 list verts (no strip)
+[vehicle] Strix V12: part 1 glass 168 list verts (no strip); hidden far
+[vehicle] Strix V12: part 2 body paint 6114 list verts -> 3636 strip (0.595x); tier 2004 list -> 1521 strip (0.759x)
+[vehicle] Strix V12: lamp materials -> emissive part 0 (96 rear corners, 24 front)
+[vehicle] Strix V12: body 2134 tris / 3 part(s), wheel 160 tris, 4 submit(s) per vehicle
+[vehicle] Strix V12: measured wheelBase 2.447 track 1.490 radius 0.302 rideHeight 0.302 - the definition's Driving tab should match
+[vehicle] tyre marks: 32x64 quantized to 4bit (6538 -> 1155 bytes)
+[vehicle] tyre smoke: 64x64 quantized to 8bit (5892 -> 3816 bytes)
+refreshed generated files: F:\Projects\tyrax2-lab-20261001\public-receiver-example-refresh-v1\clones\vehicle-playground

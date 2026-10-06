@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/usr/bin/python3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-main11-batch-controls-v1/analyze-night-cli.py",
+    "--stdout",
+    "/home/spider/night-ablation-emulator-main11-batch-order0-retry1-20261006/emulator.log",
+    "--artifact",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v1/game/bin/night-ablation.log",
+    "--environment",
+    "emulator",
+    "--kind",
+    "29",
+    "--order",
+    "0",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-main11-batch-order0-retry1-20261006-evidence/strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

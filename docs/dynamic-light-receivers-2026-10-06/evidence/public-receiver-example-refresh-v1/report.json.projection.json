@@ -1,0 +1,351 @@
+{
+  "kind": "nonreconstructive top-level projection",
+  "original": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\report.json",
+  "originalSha256": "df78271ea9f6c61b8bde9ea703170d06bc99bfff48d6509b30f908a8138d3255",
+  "retained": {
+    "editor": "F:\\Projects\\tyra-editor\\build\\tyrax-editor-public-receivers-runtime.exe",
+    "editorSha256": "74f6ff3a1c6ad2dabb5867ec76191098f127727ef2472233049aa92038b95d66",
+    "status": "complete",
+    "projectCount": 44,
+    "failedCount": 0,
+    "copiedCount": 485,
+    "verification": {
+      "preservationViolations": [],
+      "scratchPathLeaks": [],
+      "all44DefaultAll": true,
+      "generatedFileCounts": {
+        "src\\gen\\game_collision.gen.cpp": 44,
+        "src\\gen\\game_lighting.gen.cpp": 44,
+        "src\\gen\\game_physics.gen.cpp": 44,
+        "src\\gen\\game_scene.gen.cpp": 44,
+        "src\\gen\\game_vehicles.gen.cpp": 44,
+        "src\\terrain_game.cpp": 44,
+        "inc\\daynight.gen.hpp": 44,
+        "inc\\game_runtime.gen.hpp": 44,
+        "inc\\scene_data.hpp": 44,
+        "inc\\scripts\\script.hpp": 44,
+        "inc\\terrain_game.hpp": 44,
+        "src\\gen\\input_replay.gen.cpp": 1
+      },
+      "authoredManifestInventory": [
+        {
+          "name": "ambient-occlusion",
+          "authoredManifests": [
+            "examples/ambient-occlusion/ambient-occlusion.tyra"
+          ]
+        },
+        {
+          "name": "baked-shadows",
+          "authoredManifests": [
+            "examples/baked-shadows/baked-shadows.tyra"
+          ]
+        },
+        {
+          "name": "blocks-terrain",
+          "authoredManifests": [
+            "examples/blocks-terrain/blocks-terrain.tyra"
+          ]
+        },
+        {
+          "name": "credits",
+          "authoredManifests": [
+            "examples/credits/credits.tyra"
+          ]
+        },
+        {
+          "name": "cube",
+          "authoredManifests": [
+            "examples/cube/cube.tyra"
+          ]
+        },
+        {
+          "name": "custom-nodes",
+          "authoredManifests": [
+            "examples/custom-nodes/custom-nodes.tyra"
+          ]
+        },
+        {
+          "name": "cutscene-demo",
+          "authoredManifests": [
+            "examples/cutscene-demo/cutscene-demo.tyra"
+          ]
+        },
+        {
+          "name": "day-night",
+          "authoredManifests": [
+            "examples/day-night/day-night.tyra"
+          ]
+        },
+        {
+          "name": "deep-forest",
+          "authoredManifests": [
+            "examples/deep-forest/deep-forest.tyra"
+          ]
+        },
+        {
+          "name": "endless-runner",
+          "authoredManifests": [
+            "examples/endless-runner/endless-runner.tyra"
+          ]
+        },
+        {
+          "name": "endless-scroller",
+          "authoredManifests": [
+            "examples/endless-scroller/endless-scroller.tyra"
+          ]
+        },
+        {
+          "name": "gi-showcase",
+          "authoredManifests": [
+            "examples/gi-showcase/gi-showcase.tyra"
+          ]
+        },
+        {
+          "name": "global-illumination",
+          "authoredManifests": [
+            "examples/global-illumination/global-illumination.tyra"
+          ]
+        },
+        {
+          "name": "glow",
+          "authoredManifests": [
+            "examples/glow/glow.tyra"
+          ]
+        },
+        {
+          "name": "hud-animation",
+          "authoredManifests": [
+            "examples/hud-animation/hud-animation.tyra"
+          ]
+        },
+        {
+          "name": "impostor-grove",
+          "authoredManifests": [
+            "examples/impostor-grove/impostor-grove.tyra"
+          ]
+        },
+        {
+          "name": "large-terrain",
+          "authoredManifests": [
+            "examples/large-terrain/large-terrain.tyra"
+          ]
+        },
+        {
+          "name": "layer-streaming",
+          "authoredManifests": [
+            "examples/layer-streaming/layer-streaming.tyra"
+          ]
+        },
+        {
+          "name": "lighting",
+          "authoredManifests": [
+            "examples/lighting/lighting.tyra"
+          ]
+        },
+        {
+          "name": "material-lab",
+          "authoredManifests": [
+            "examples/material-lab/material-lab.tyra"
+          ]
+        },
+        {
+          "name": "mirror-room",
+          "authoredManifests": [
+            "examples/mirror-room/mirror-room.tyra"
+          ]
+        },
+        {
+          "name": "nav-ai",
+          "authoredManifests": [
+            "examples/nav-ai/nav-ai.tyra"
+          ]
+        },
+        {
+          "name": "night-walk",
+          "authoredManifests": [
+            "examples/night-walk/night-walk.tyra"
+          ]
+        },
+        {
+          "name": "object-spawning",
+          "authoredManifests": [
+            "examples/object-spawning/object-spawning.tyra"
+          ]
+        },
+        {
+          "name": "particle-lab",
+          "authoredManifests": [
+            "examples/particle-lab/particle-lab.tyra"
+          ]
+        },
+        {
+          "name": "physics-playground",
+          "authoredManifests": [
+            "examples/physics-playground/physics-playground.tyra"
+          ]
+        },
+        {
+          "name": "portals",
+          "authoredManifests": [
+            "examples/portals/portals.tyra"
+          ]
+        },
+        {
+          "name": "probe-aim",
+          "authoredManifests": [
+            "examples/probe-aim/probe-aim.tyra"
+          ]
+        },
+        {
+          "name": "probe-lighting",
+          "authoredManifests": [
+            "examples/probe-lighting/probe-lighting.tyra"
+          ]
+        },
+        {
+          "name": "procedural",
+          "authoredManifests": [
+            "examples/procedural/procedural.tyra"
+          ]
+        },
+        {
+          "name": "raytraced-mirror",
+          "authoredManifests": [
+            "examples/raytraced-mirror/raytraced-mirror.tyra"
+          ]
+        },
+        {
+          "name": "reflections",
+          "authoredManifests": [
+            "examples/reflections/reflections.tyra"
+          ]
+        },
+        {
+          "name": "reverb-rooms",
+          "authoredManifests": [
+            "examples/reverb-rooms/reverb-rooms.tyra"
+          ]
+        },
+        {
+          "name": "save-points",
+          "authoredManifests": [
+            "examples/save-points/save-points.tyra"
+          ]
+        },
+        {
+          "name": "script-demo",
+          "authoredManifests": [
+            "examples/script-demo/script-demo.tyra"
+          ]
+        },
+        {
+          "name": "showcase",
+          "authoredManifests": [
+            "examples/showcase/showcase.tyra"
+          ]
+        },
+        {
+          "name": "texture-atlas",
+          "authoredManifests": [
+            "examples/texture-atlas/texture-atlas.tyra"
+          ]
+        },
+        {
+          "name": "texture-feeds",
+          "authoredManifests": [
+            "examples/texture-feeds/texture-feeds.tyra"
+          ]
+        },
+        {
+          "name": "two-players",
+          "authoredManifests": [
+            "examples/two-players/two-players.tyra"
+          ]
+        },
+        {
+          "name": "upscaler-lab",
+          "authoredManifests": [
+            "examples/upscaler-lab/upscaler-lab.tyra"
+          ]
+        },
+        {
+          "name": "vehicle-playground",
+          "authoredManifests": [
+            "examples/vehicle-playground/vehicle-playground.tyra"
+          ]
+        },
+        {
+          "name": "video-modes",
+          "authoredManifests": [
+            "examples/video-modes/video-modes.tyra"
+          ]
+        },
+        {
+          "name": "vu-lab",
+          "authoredManifests": [
+            "examples/vu-lab/vu-lab.tyra"
+          ]
+        },
+        {
+          "name": "world-facts",
+          "authoredManifests": [
+            "examples/world-facts/world-facts.tyra"
+          ]
+        }
+      ]
+    },
+    "formattingRefresh": {
+      "editor": "F:\\Projects\\tyra-editor\\build\\tyrax-editor-public-receivers-generator-v2.exe",
+      "editorSha256": "5fa624c1dbb648573f7eeb794115d898dedda8fcbf2443caf6ef1201f9154409",
+      "changed": [
+        "examples/ambient-occlusion/src/gen/game_scene.gen.cpp",
+        "examples/baked-shadows/src/gen/game_scene.gen.cpp",
+        "examples/blocks-terrain/src/gen/game_scene.gen.cpp",
+        "examples/credits/src/gen/game_scene.gen.cpp",
+        "examples/cube/src/gen/game_scene.gen.cpp",
+        "examples/custom-nodes/src/gen/game_scene.gen.cpp",
+        "examples/cutscene-demo/src/gen/game_scene.gen.cpp",
+        "examples/day-night/src/gen/game_scene.gen.cpp",
+        "examples/deep-forest/src/gen/game_scene.gen.cpp",
+        "examples/endless-runner/src/gen/game_scene.gen.cpp",
+        "examples/endless-scroller/src/gen/game_scene.gen.cpp",
+        "examples/gi-showcase/src/gen/game_scene.gen.cpp",
+        "examples/global-illumination/src/gen/game_scene.gen.cpp",
+        "examples/glow/src/gen/game_scene.gen.cpp",
+        "examples/hud-animation/src/gen/game_scene.gen.cpp",
+        "examples/impostor-grove/src/gen/game_scene.gen.cpp",
+        "examples/large-terrain/src/gen/game_scene.gen.cpp",
+        "examples/layer-streaming/src/gen/game_scene.gen.cpp",
+        "examples/lighting/src/gen/game_scene.gen.cpp",
+        "examples/material-lab/src/gen/game_scene.gen.cpp",
+        "examples/mirror-room/src/gen/game_scene.gen.cpp",
+        "examples/nav-ai/src/gen/game_scene.gen.cpp",
+        "examples/night-walk/src/gen/game_scene.gen.cpp",
+        "examples/object-spawning/src/gen/game_scene.gen.cpp",
+        "examples/particle-lab/src/gen/game_scene.gen.cpp",
+        "examples/physics-playground/src/gen/game_scene.gen.cpp",
+        "examples/portals/src/gen/game_scene.gen.cpp",
+        "examples/probe-aim/src/gen/game_scene.gen.cpp",
+        "examples/probe-lighting/src/gen/game_scene.gen.cpp",
+        "examples/procedural/src/gen/game_scene.gen.cpp",
+        "examples/raytraced-mirror/src/gen/game_scene.gen.cpp",
+        "examples/reflections/src/gen/game_scene.gen.cpp",
+        "examples/reverb-rooms/src/gen/game_scene.gen.cpp",
+        "examples/save-points/src/gen/game_scene.gen.cpp",
+        "examples/script-demo/src/gen/game_scene.gen.cpp",
+        "examples/showcase/src/gen/game_scene.gen.cpp",
+        "examples/texture-atlas/src/gen/game_scene.gen.cpp",
+        "examples/texture-feeds/src/gen/game_scene.gen.cpp",
+        "examples/two-players/src/gen/game_scene.gen.cpp",
+        "examples/upscaler-lab/src/gen/game_scene.gen.cpp",
+        "examples/video-modes/src/gen/game_scene.gen.cpp",
+        "examples/vu-lab/src/gen/game_scene.gen.cpp",
+        "examples/world-facts/src/gen/game_scene.gen.cpp"
+      ],
+      "generatorSourceSha256": {
+        "src/templates.cpp": "25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5"
+      },
+      "generatorFix": "consume indentation with empty vehicle receiver placeholder; no runtime behavior change"
+    }
+  }
+}

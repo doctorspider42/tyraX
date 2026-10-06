@@ -1,0 +1,9 @@
+{
+  "status": "PASS_SOURCE_REVIEWED_RECEIVER_CONTROLS_UNCLIPPED",
+  "uiProofSha256": "917bf07d9e55af0bb109d8f545a7ecbc81b3f7541ea5156a456dbc6a1a54adfb",
+  "buildLogSha256": "d1552019e33b27b57ab5494826ac00dc2309313b25d21a95fb178f7e5659aff8",
+  "closedImageSha256": "50da070f6706468daaf8f7a0b0b68e6d2b90e1250ed032a27065ef04f4a75a1c",
+  "openImageSha256": "2d341ecc0ef8fcbc6a53fe8c188f030d7d4b341f63c014d56499599c328b75c7",
+  "review": "Actual screenshots inspected: complete Dynamic light receivers label, complete Players and driven vehicle value, complete two options, arrow and help marker are visible in the narrow saved Preferences window. This does not qualify unrelated offscreen rendering controls.",
+  "documentImage": "F:/Projects/tyra-editor/docs/img/dynamic-light-receivers.png"
+}

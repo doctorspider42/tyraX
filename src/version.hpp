@@ -1,5 +1,8 @@
 #pragma once
 
+// 1.173.0: all/player dynamic-light receivers with independent scene overrides.
+// Format v96 adds receiver tokens; missing/invalid values preserve full lighting.
+
 // 1.172.0: deferred Set Frame Pipeline and requested-state getter flow nodes.
 // Repeated requests preserve overlap; project format remains v95.
 
@@ -5535,7 +5538,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 172
+#define TYRAX_VERSION_MINOR 173
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -6138,7 +6141,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v95 defaults new projects to TyraX2 and always writes framePipeline.
 // Missing v94-or-older values remain false; explicit false survives resave.
 // No destructive migration step: legacy files retain their request in memory.
-inline constexpr int kFormatVersion = 95;
+inline constexpr int kFormatVersion = 96;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

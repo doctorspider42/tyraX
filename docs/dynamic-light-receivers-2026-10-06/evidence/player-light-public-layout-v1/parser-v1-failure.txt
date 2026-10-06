@@ -1,0 +1,1 @@
+Initial read-only attempt reached target layout compilations successfully but failed lookup of VU CodeStart in actual stripped game ELF. The accompanying .elf.sym contains the linked symbol table. Corrected parser resolves symbols from that pinned actual symbol ELF and extracts bytes from the pinned actual game ELF sections. No runtime or cache mutation occurred.

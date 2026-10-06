@@ -1,0 +1,5 @@
+--migrate exit=0
+migrated: F:\Projects\tyrax2-lab-20261001\public-receiver-example-refresh-v1\clones\vu-lab (format v96)
+
+--refresh-gen exit=0
+refreshed generated files: F:\Projects\tyrax2-lab-20261001\public-receiver-example-refresh-v1\clones\vu-lab

@@ -581,7 +581,7 @@ void TerrainGame::loop() {
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
-  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // Runtime video output and deferred Frame Pipeline flow-node requests +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
   // open game menu: the player judges the new picture unobstructed and the

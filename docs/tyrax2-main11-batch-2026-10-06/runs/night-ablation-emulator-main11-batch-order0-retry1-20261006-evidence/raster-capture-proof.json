@@ -1,0 +1,54 @@
+{
+  "status": "PASS_OWNED_EMULATOR_THREE_PHASE_CAPTURE_IDENTITY",
+  "helperSha256": "ab2a61f96797c5d64e6f449625e3bdbc41b714e89fd26ebc957b2f06826c42c8",
+  "launchRecordSha256": "a70a56f9595f8a2ae1986375fe7bb056789893045501b042713fda1487c53b99",
+  "images": {
+    "0": {
+      "filename": "phase-0.png",
+      "sha256": "518654d5afce71302733a99bc37658011e21cad2e07d7e5b71d1ac457f360fae",
+      "phase": 0,
+      "coronaSpriteEnabled": 0,
+      "producerObserverEnabled": 0,
+      "extraMask": 0,
+      "window": "0x200007",
+      "ownedPid": 15937,
+      "beforeLogSha256": "70d45c424c7b22a752c81f018f56fbee1ee4d675cd6cb0daf68b86890bfcf1f3",
+      "afterLogSha256": "70d45c424c7b22a752c81f018f56fbee1ee4d675cd6cb0daf68b86890bfcf1f3",
+      "warmCaptureAfterWindowExport": true,
+      "artifactSha256": "e8cfcb227e2858a6cd836ad249a61c6e5397b79d163d9bf89c9c6b344eed9563",
+      "utc": "2026-10-06T06:47:56.980728+00:00"
+    },
+    "1": {
+      "filename": "phase-1.png",
+      "sha256": "dd18554c68e1972b73fe01536e519e5dfaed2b433dfc02deeeca662960f31cbf",
+      "phase": 1,
+      "coronaSpriteEnabled": 0,
+      "producerObserverEnabled": 1,
+      "extraMask": 0,
+      "window": "0x200007",
+      "ownedPid": 15937,
+      "beforeLogSha256": "2e63d7a15af136b7ff43bed614677df861ad3161b47d667d5a299419d7cac4cd",
+      "afterLogSha256": "2e63d7a15af136b7ff43bed614677df861ad3161b47d667d5a299419d7cac4cd",
+      "warmCaptureAfterWindowExport": true,
+      "artifactSha256": "079d0e47f3c865e7aaf6be3cc9ae5a7938434806d9c002b7c6f650f46d5379cb",
+      "utc": "2026-10-06T06:48:28.999354+00:00"
+    },
+    "2": {
+      "filename": "phase-2.png",
+      "sha256": "1802f745388d186cbec91c46881d7a010f52675aa3afd69d27236bb58ddb23d0",
+      "phase": 2,
+      "coronaSpriteEnabled": 0,
+      "producerObserverEnabled": 0,
+      "extraMask": 0,
+      "window": "0x200007",
+      "ownedPid": 15937,
+      "beforeLogSha256": "f229afd6d89d6726c25c688a3911ff3c57b0e1c8a2c00230fac464ce61993c41",
+      "afterLogSha256": "f229afd6d89d6726c25c688a3911ff3c57b0e1c8a2c00230fac464ce61993c41",
+      "warmCaptureAfterWindowExport": true,
+      "artifactSha256": "4063a7e5651904bbd3ee079f15ded23e77e2895abeab627b6482724d0ea1a192",
+      "utc": "2026-10-06T06:49:00.689078+00:00"
+    }
+  },
+  "qualitativeVisualReviewPending": true,
+  "physicalPerformanceAccepted": false
+}

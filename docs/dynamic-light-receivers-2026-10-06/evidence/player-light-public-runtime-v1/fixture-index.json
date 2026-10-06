@@ -1,0 +1,28 @@
+{
+  "status": "SOURCE_ONLY_PUBLIC_RECEIVER_FIXTURES",
+  "fixtures": [
+    {
+      "name": "vehicle-all",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\vehicle-playground",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all",
+      "mode": "all",
+      "driverObjectId": "ravagerpark00001",
+      "startScene": 0,
+      "authoredNightFrozen": true,
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    },
+    {
+      "name": "vehicle-players",
+      "sourceExample": "F:\\Projects\\tyra-editor\\examples\\vehicle-playground",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players",
+      "mode": "players",
+      "driverObjectId": "ravagerpark00001",
+      "startScene": 0,
+      "authoredNightFrozen": true,
+      "nativeBuilt": false,
+      "runtimeQualified": false
+    }
+  ],
+  "noPrivateObserver": true
+}

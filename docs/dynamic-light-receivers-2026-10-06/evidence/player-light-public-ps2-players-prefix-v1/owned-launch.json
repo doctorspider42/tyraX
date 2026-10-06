@@ -1,0 +1,21 @@
+{
+  "status": "ROOT_OWNED_PUBLIC_RECEIVER_PS2_LAUNCH_ATTEMPT",
+  "pid": 51220,
+  "args": [
+    "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe",
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf"
+  ],
+  "cwd": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\bin",
+  "startedUnix": 1791272761.0191658,
+  "clientSha256": "f1dc497a1496925fc58723d81280602ba0ce3bf81c950aa7857811bd057414c9",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\root-runtime-review.json",
+  "reviewSha256": "3394594aa08e0f62f9b5c35812418777b1deb6a91acf6398b8d41bf04da6f0b1",
+  "elfSha256": "0516e0c4ec66f14b101e4c21f87dbf51eead36bb1dfc7aed37c38ec907327b16",
+  "symbolSha256": "469ca9cbb50bd4dcf3cf4169553735786321ed7d5aeff78bc02d466c3dbb989a",
+  "markerSha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+  "runtimeQualified": false,
+  "hardwarePerformanceQualified": false
+}

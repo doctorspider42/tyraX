@@ -14921,6 +14921,11 @@ void App::applyProjectToViewport() {
         rs.skyTextureYaw);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    std::vector<std::string> lightPlayerIds;
+    for (const auto& object : sc.objects)
+        if (object.type == PrimitiveType::Player && lightPlayerIds.size() < 2)
+            lightPlayerIds.push_back(object.id);
+    viewport_.setDynamicLightReceivers(rs.dynamicLightReceivers, lightPlayerIds);
     viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
     // Baked global illumination (docs/global-illumination.md): the viewport
     // shows what the console will, so it reads the SAME cache codegen and
@@ -15369,6 +15374,17 @@ void App::openProjectPreferences() {
 // the footer says so. The one control that is genuinely dangerous to apply
 // keystroke-by-keystroke is the terrain grid, and it is treated specially
 // rather than holding the whole dialog modal - see prefGridDetail_ in app.hpp.
+static void drawDynamicLightReceiversCombo(ProjectSettings& settings) {
+    int mode = settings.dynamicLightReceivers == DynamicLightReceivers::Players ? 1 : 0;
+    const char* choices[] = {"All objects", "Players and driven vehicle"};
+    // Keep the complete choice readable in narrow saved Preferences layouts.
+    ImGui::TextUnformatted("Dynamic light receivers");
+    ImGui::SetNextItemWidth(-ImGui::GetFrameHeightWithSpacing());
+    if (ImGui::Combo("##Dynamic light receivers", &mode, choices, 2))
+        settings.dynamicLightReceivers = mode == 1 ? DynamicLightReceivers::Players
+                                                  : DynamicLightReceivers::All;
+}
+
 void App::drawPreferencesWindow() {
     if (!showProjectPrefs_ || !hasProject_) {
         // A viewport refresh owed from the last frame the window was open must
@@ -15992,6 +16008,11 @@ void App::drawPreferencesWindow() {
     }
 
     if (beginTab("Rendering")) {
+    ImGui::SeparatorText("Dynamic lighting");
+    drawDynamicLightReceiversCombo(prefSettings_);
+    prefHelp("Live lights affect either all objects or only player models and\n"
+             "the vehicle being driven. Other objects keep baked and probe\n"
+             "lighting. Projected light pools and beams remain visible.");
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
@@ -17261,6 +17282,10 @@ void App::openScenePreferences() {
     // a grayed-out category previews exactly what the scene inherits, and
     // ticking its override starts editing from that value with no jump.
     scenePrefSettings_ = project::resolvedSettings(project_, project_.active());
+    // Preserve a disabled local receiver value across reopening the dialog;
+    // the disabled widget below displays the inherited project value instead.
+    scenePrefSettings_.dynamicLightReceivers =
+        project_.active().settings.dynamicLightReceivers;
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
@@ -17407,6 +17432,17 @@ void App::drawScenePreferencesModal() {
         }
         ImGui::TextDisabled("Author screens in Tools > Loading Screens.");
     }
+
+    category("Dynamic light reception", ov.dynamicLightReceivers, [&] {
+        if (ov.dynamicLightReceivers) drawDynamicLightReceiversCombo(s);
+        else {
+            ProjectSettings inherited = project_.settings;
+            drawDynamicLightReceiversCombo(inherited);
+        }
+        prefHelp("Live lights affect either all objects or only player models and\n"
+                 "the vehicle being driven. Other objects keep baked and probe\n"
+                 "lighting. Projected light pools and beams remain visible.");
+    }, "Override dynamic light receivers for this scene");
 
     category("Clipping", ov.clipping, [&] {
         int clipMode = s.clipping == "fast"      ? 2

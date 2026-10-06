@@ -1,0 +1,15 @@
+{
+  "status": "PASS_ACTUAL_LIVEDBG_HOST_CLI_BUILD_ONLY",
+  "command": "wsl -d Ubuntu -- g++ -std=c++20 -O2 -Wall -Wextra -pedantic -I/mnt/f/Projects/tyra-editor/src command-encoder.cpp /mnt/f/Projects/tyra-editor/src/livedbg.cpp -o command-encoder",
+  "exitCode": 0,
+  "sourceSha256": "298ec34991d233b118800a210201b6f77e806d30fddd0bd0a8a3c17bf7deb271",
+  "actualRepositoryInputs": {
+    "F:\\Projects\\tyra-editor\\src\\livedbg.cpp": "5450c4e973372083bff21326130d38b1903b3bd62c1ee1fb8e866f745e06ac72",
+    "F:\\Projects\\tyra-editor\\src\\livedbg.hpp": "31fb98a13ae4573bd5603fc2defa650380201ab1a1927db5ad84f87a6f1c4de4"
+  },
+  "executableSha256": "77800d062d90d73d8b7aa76a01eb79d0fc5ab2db4b0c9d6872bf008a70224c3b",
+  "buildLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stubs": false,
+  "fixtureCommandExecuted": false,
+  "runtimeQualified": false
+}

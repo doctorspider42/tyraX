@@ -520,6 +520,8 @@ inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 0.42
 inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.787059F, 0.98F, 0.667273F, 0.52F, 0.98F};
 inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.6F, 0.93F, 0.451818F, 0.9F, 0.93F};
 inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {0.976471F, 1.0F, 0.970455F, 0.9F, 1.0F};
+inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
 inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.958421F, 0.181919F, -0.886235F, -0.552274F, 0.578707F};
 inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {0.262272F, 0.881205F, 0.262272F, -0.783956F, 0.468545F};
 inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.112436F, -0.436329F, -0.381838F, 0.28356F, 0.667506F};
@@ -912,6 +914,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces

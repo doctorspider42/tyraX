@@ -7,6 +7,9 @@ its light from a probe grid. Ray tracing happens on your desktop and ships as a 
 The PlayStation 2 samples those baked results and shades geometry at runtime;
 it does not trace rays.
 
+[Dynamic light receivers](dynamic-light-receivers.md) can limit live model
+lighting to players and the driven vehicle without disabling baked GI or probes.
+
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
 the same window the sky, the sun and the AO are authored in — press **Bake this
 scene**, and build. Two example projects:

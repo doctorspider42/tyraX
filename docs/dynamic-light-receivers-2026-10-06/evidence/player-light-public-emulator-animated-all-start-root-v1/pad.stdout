@@ -1,0 +1,15 @@
+[pad] neutral
+[pad] press down 0.2
+[pad] (release down)
+[pad] wait 0.5
+[pad] press right 0.2
+[pad] (release right)
+[pad] wait 0.5
+[pad] press up 0.2
+[pad] (release up)
+[pad] wait 0.5
+[pad] press cross 0.2
+[pad] (release cross)
+[pad] wait 2
+[pad] neutral
+[pad] done - 14 step(s) in 4.5s, pad released

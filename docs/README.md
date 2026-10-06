@@ -531,6 +531,10 @@ The [ordinary 24-bit corona pricing checkpoint](tyrax2-corona24-pricing-2026-10-
 
 The [private player-only light receiver experiment](tyrax2-player-light-receivers.md) completes both physical orders: 1.407-1.497 ms saved with scene pools retained, 2.247-2.375 ms with scene pools removed; neither achieves stable 60 fps. Source/evidence and the interrupted host attempt are archived.
 
+[Dynamic light receivers](dynamic-light-receivers.md) documents the project and independent scene option, live player/vehicle ownership, preserved projected effects and authoring preview behavior. The historical private measurements are not a price for the public implementation.
+
+[The eleven-box main batching trial](tyrax2-main11-batch.md) records two completed emulator attempts that fell back to the original draws because member lights differed; the diagnostic identifies intentional lamp flicker. No hardware optimization gain is claimed.
+
 The [conservative far-light gate experiment](tyrax2-far-light-gate.md) is rejected after both physical orders regress by 0.239/0.230 ms despite matching cold light-selection pointers. Its source/evidence checkpoint preserves the failed emulator startup separately.
 
 The [EE performance audit](tyrax2-ee-performance-audit-2026-10-05.md) maps fourteen concrete preparation, ownership and inherited-API findings, distinguishes active work from conditional routes, checks linked square-root instructions and proposes bounded VU0/VU1 experiments without invented gains.

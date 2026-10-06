@@ -1,0 +1,9 @@
+[pad] neutral
+[pad] stick l -80 -50
+[pad] wait 1.5
+[pad] neutral
+[pad] press square 0.2
+[pad] (release square)
+[pad] wait 1
+[pad] neutral
+[pad] done - 8 step(s) in 2.8s, pad released

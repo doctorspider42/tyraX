@@ -1183,7 +1183,7 @@ void TerrainGame::renderScene() {
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
     skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
-    buildSkyDome();
+    if (!retintSkyDomeColors()) buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
   // from the camera-space normal - u along the camera's right, v (image
@@ -1344,6 +1344,10 @@ void TerrainGame::renderScene() {
       const RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
       mixWord(nk, (unsigned int)ri);
+      // Driver/P2 ownership can change without moving or dirtying geometry.
+      // It changes retained pixels only under the restricted receiver policy.
+      if (ANY_PLAYER_ONLY_DYNAMIC_LIGHTS && PLAYER_ONLY_DYNAMIC_LIGHTS)
+        mixByte(nk, isLivePlayerReceiver(ri) ? 1u : 0u);
       for (int k = 0; k < 3; ++k) {
         mixWord(nk, qFixed(ro.data.position[k]));
         mixWord(nk, qFixed(ro.data.rotation[k]));
@@ -1426,7 +1430,7 @@ void TerrainGame::renderScene() {
                                 (float)Tyra::RendererCoreEnvMap::size);
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
     // The world under the car matters more to paint than another distant prop.
@@ -1469,7 +1473,7 @@ void TerrainGame::renderScene() {
         renderReflectionProxy(ri);
       else
         for (GeoPart& part : objectGeometry[ri].parts)
-          if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+          if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -1527,7 +1531,7 @@ void TerrainGame::renderScene() {
     skyMat.data[12] = cameraPosition.x;
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     // Stars behind the discs: with the dome's depth arrangement the draw order
     // is the depth order, and a star must never land in front of the moon.
     renderStarField();
@@ -1806,7 +1810,7 @@ void TerrainGame::renderScene() {
         }
       }
     }
-    stapip.core.render(part.envBag.get());
+    renderObjectBag(objectIndex, part.envBag.get());
   };
   // Once a frame, before anything is submitted: the clock every time-varying
   // script reads. One quadword, and only when the project has a script at all.
@@ -2034,16 +2038,16 @@ void TerrainGame::renderScene() {
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
-        stapip.core.render(part.bag.get());
+        renderObjectBag(i, part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
         lpMain += lpB - lpA;
         // Scene lightmap: occlusion multiplies first, then the baked emissive
         // light adds on top of the darkened surface - the same order the
         // vertex path uses (AO scales the directional term, lights add over
         // it), and then the additive env pass last.
-        if (part.aoBag) stapip.core.render(part.aoBag.get());
+        if (part.aoBag) renderObjectBag(i, part.aoBag.get());
         if (part.emisBag && optionalMaterialDetail(i))
-          stapip.core.render(part.emisBag.get());
+          renderObjectBag(i, part.emisBag.get());
         renderEnvPass(i, objectGeometry[i], part);
         if (lp) lpCompanion += profTicks() - lpB;
       }
@@ -2185,7 +2189,7 @@ void TerrainGame::renderScene() {
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag && !part.lodHidden) {
-          stapip.core.render(part.bag.get());
+          renderObjectBag(i, part.bag.get());
           renderEnvPass(i, objectGeometry[i], part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
@@ -2224,7 +2228,7 @@ void TerrainGame::renderScene() {
     }
   }
   for (ParticleSystem& ps : particles)
-    if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+    if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
@@ -2413,7 +2417,7 @@ void TerrainGame::renderMirrors() {
     // the glass quad itself, alpha-blended over the copies (its vertex
     // alpha carries the opacity - see rebuildObjectGeometry case 15)
     for (GeoPart& part : objectGeometry[mir.object].parts)
-      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) renderObjectBag(mir.object, part.bag.get());
   }
 }
 
@@ -2440,7 +2444,7 @@ void TerrainGame::renderMirroredObject(int index) {
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
     part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
-    stapip.core.render(part.bag.get());
+    renderObjectBag(index, part.bag.get());
     part.infoBag->model = g.matrixMode ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
@@ -2450,7 +2454,7 @@ void TerrainGame::renderMirroredObject(int index) {
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -2755,7 +2759,7 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // The glass quad, textured with the traced reflection (drawn opaque
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
-    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) renderObjectBag(mir.object, part.bag.get());
 }
 
 
@@ -2799,7 +2803,7 @@ void TerrainGame::renderCameraFeed() {
       skyMat.data[14] = eye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-      stapip.core.render(skyDome.bag.get());
+      renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, look);
       skyDome.infoBag->zTestType = prevZTest;
     }
@@ -2831,10 +2835,10 @@ void TerrainGame::renderFeedObject(int index) {
   ObjectGeometry& og = objectGeometry[index];
   if (og.matrixMode) updateObjMat(index);
   for (GeoPart& part : og.parts)
-    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) renderObjectBag(index, part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
 }
 
 
@@ -2944,7 +2948,7 @@ void TerrainGame::renderObjectProbe(int index) {
     skyMat.data[14] = probeEye.z;
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    stapip.core.render(skyDome.bag.get());
+    renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
@@ -2971,7 +2975,7 @@ void TerrainGame::renderObjectProbe(int index) {
       renderReflectionProxy(ri);
     else
       for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+        if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
@@ -3296,7 +3300,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       skyMat.data[12] = eye.x;
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
-      stapip.core.render(skyDome.bag.get());
+      renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, at);
     }
     // resident chunks only - the streaming ring follows the MAIN camera, so
@@ -3334,7 +3338,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // Whole-object bounds cannot hide the rear wall of a model that spans the
   // exit. Clip only those static bags that straddle it, preserving every corner
   // attribute. Fully front-side objects keep the ordinary submission path.
-  auto renderExitClipped = [&](GeoPart& part) {
+  auto renderExitClipped = [&](int owner, GeoPart& part) {
     StaPipBag& source = *part.bag;
     if (part.portalClips.size() <= (size_t)pi) part.portalClips.resize(pi + 1);
     if (!part.portalClips[pi]) part.portalClips[pi] = std::make_unique<GeoPart::PortalClip>();
@@ -3437,7 +3441,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       normals.bind(&cache.lighting);
       cache.bag.lighting = &cache.lighting;
     }
-    stapip.core.render(&cache.bag);
+    renderObjectBag(owner, &cache.bag);
   };
   auto renderViewObject = [&](int ti) {
     if (ti < 0 || ti >= (int)runtimeObjects.size()) return;
@@ -3474,7 +3478,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
         const int pkind = ps.layer >= 0 ? EMITTER_LAYER_OBJECTS[ps.layer].emitKind
                                          : ro.data.emitKind;
         ps.billboardBag->up = pkind == 4 ? Vec4(0.0F, 1.0F, 0.0F, 0.0F) : pvUp;
-        stapip.core.render(ps.bag.get());
+        renderWorldBag(ps.bag.get());
         ps.billboardBag->right = savedR;  // main pass draws these again later
         ps.billboardBag->up = savedU;
       }
@@ -3505,12 +3509,12 @@ bool TerrainGame::renderOnePortalView(int pi) {
     if (coarseObjectOutside(ti)) return;
     for (GeoPart& part : g.parts) {
       if (!part.bag || part.lodHidden) continue;
-      if (clipsExit) renderExitClipped(part);
-      else stapip.core.render(part.bag.get());
+      if (clipsExit) renderExitClipped(ti, part);
+      else renderObjectBag(ti, part.bag.get());
     }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+        if (ap.bag && ap.bag->count > 0) renderObjectBag(ti, ap.bag.get());
   };
   // Two-sided carry: if the object in the hands is passing through THIS
   // portal, its through-view draws it mapped to the FAR side - the half that
@@ -3610,7 +3614,7 @@ void TerrainGame::renderPortals() {
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
     for (GeoPart& part : objectGeometry[p.object].parts)
-      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) renderObjectBag(p.object, part.bag.get());
   }
 }
 
@@ -4359,7 +4363,7 @@ void TerrainGame::renderHighlightHull(int index) {
     g.hullProxyVerts.bind(hullBag);
     hullBag->count = static_cast<u32>(g.hullProxyVerts.size());
     hullBag->bboxVersion = g.hullProxyStamp;
-    stapip.core.render(hullBag.get());
+    renderWorldBag(hullBag.get());
   }
 
   // Grounded objects: the shells dip below the terrain and the ground in
@@ -4389,7 +4393,7 @@ void TerrainGame::renderHighlightHull(int index) {
       g.apronVerts.bind(apronBag);
       apronBag->count = static_cast<u32>(g.apronVerts.size());
       apronBag->bboxVersion = g.apronStamp;
-      stapip.core.render(apronBag.get());
+      renderWorldBag(apronBag.get());
     }
   }
 
@@ -4519,7 +4523,7 @@ void TerrainGame::renderOutlineShells() {
     g.outlineVerts.bind(outlineBag);
     outlineBag->count = static_cast<u32>(g.outlineVerts.size());
     outlineBag->bboxVersion = g.hullProxyStamp;
-    stapip.core.render(outlineBag.get());
+    renderWorldBag(outlineBag.get());
   }
   // Hand the parameters back, or the next flat-colour prop inherits the shell
   // flag and paints itself black.
@@ -5893,20 +5897,20 @@ void TerrainGame::renderTerrain() {
               tmx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
     }
-    stapip.core.render(ch.bag.get());
+    renderWorldBag(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
-      if (lp.bag && lp.bag->count > 0) stapip.core.render(lp.bag.get());
+      if (lp.bag && lp.bag->count > 0) renderWorldBag(lp.bag.get());
     // Terrain lightmap, last and in this order: the occlusion multiplies
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
-    if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    if (ch.aoBag && ch.aoBag->count > 0) renderWorldBag(ch.aoBag.get());
     // The sun's shadow darkens the sunlit ground, not the lamps' light.
-    if (ch.gsBag && ch.gsBag->count > 0) stapip.core.render(ch.gsBag.get());
+    if (ch.gsBag && ch.gsBag->count > 0) renderWorldBag(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
-      stapip.core.render(ch.emisBag.get());
+      renderWorldBag(ch.emisBag.get());
   }
 }
 }

@@ -1,0 +1,26 @@
+{
+  "kind": "nonreconstructive top-level projection",
+  "original": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\build-record.json",
+  "originalSha256": "5ba06c7c00b2af8f6c518b5cc9dcf4c765e94a83a00051054aba99fd69c57310",
+  "retained": {
+    "status": "PASS_NORMAL_NATIVE_EDITOR_CLI_BUILD_ONLY",
+    "command": [
+      "F:\\Projects\\tyra-editor\\build\\tyrax-editor.exe",
+      "--build",
+      "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players"
+    ],
+    "exitCode": 0,
+    "fixture": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players",
+    "editor": "F:\\Projects\\tyra-editor\\build\\tyrax-editor.exe",
+    "editorSha256": "5fa624c1dbb648573f7eeb794115d898dedda8fcbf2443caf6ef1201f9154409",
+    "buildLog": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\native-build.stdout",
+    "buildLogSha256": "a50f281fa00450bc302183d3c6253ed61093c661a91b125f6751cf1deacf5da9",
+    "elf": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\bin\\vehicle-playground.elf",
+    "elfSha256": "595b8ff095f578532ca40a2e54398c29e435667041332e26919f638217f27b19",
+    "symbol": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\bin\\vehicle-playground.elf.sym",
+    "symbolSha256": "7465b868502015a7c54ae2941c448e32cf7cbfdd85dd277b1f5850ce7f5c6940",
+    "nativeObjectAndELFSymbolReviewPending": true,
+    "runtimeAuthorized": false,
+    "hardwarePerformanceQualified": false
+  }
+}

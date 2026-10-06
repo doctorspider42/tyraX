@@ -69,7 +69,7 @@ void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
   if (heavyCollect)
     heavyBags.push_back(bag);
   else
-    stapip.core.render(bag);
+    renderWorldBag(bag);
 }
 
 
@@ -88,7 +88,7 @@ void TerrainGame::dripHeavy(bool all) {
     const size_t even = (total + objs - 1) / objs;
     if (even < want) want = even;
   }
-  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+  for (size_t k = 0; k < want; ++k) renderWorldBag(heavyBags[heavyNext++]);
 }
 
 

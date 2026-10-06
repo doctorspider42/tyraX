@@ -1,0 +1,18 @@
+{
+  "status": "PASS_OWNED_EMULATOR_PROGRESS_AND_CAPTURE_IDENTITY_ONLY",
+  "launchSha256": "139fa948c707f17c05bd2fc9056a105a2268267a82087432fe1999e1946c18f2",
+  "images": [
+    {
+      "label": "boot",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-animated-players-capture-root-v1/boot.png",
+      "sha256": "c881a33758a432655b9335224d8e66e7956f0425c6a07bb8010e5f881d6f6d77",
+      "window": "0x200007",
+      "liveDebugSha256": "8c375b0e764b660e117c29c3521d6a149e18d7f731bd251097f985ce9ba7d189"
+    }
+  ],
+  "padApplied": false,
+  "qualitativeVisualReviewPending": true,
+  "actualReceiverActivationQualified": false,
+  "hardwarePerformanceQualified": false,
+  "helperSha256": "415a700a2017bc203bf8d92ff86ac58504c07beebb0a87cb2542c8b3d3390b4d"
+}

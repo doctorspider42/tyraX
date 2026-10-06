@@ -1,0 +1,14 @@
+﻿{
+    "errorLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v56.err",
+    "buildLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v56.log",
+    "childProcessId":  60548,
+    "sourceManifestSha256":  "a1c147f20be0ad43a69aea19a4d41f5d1a14e9d8b885649e97b85fb0541db73b",
+    "actualCommandParameters":  {
+                                    "Toolchain":  "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+                                    "Cache":  "F:/Projects/tyrax2-lab-20261001/native-cache",
+                                    "Engine":  "F:/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v2/tyra",
+                                    "Project":  "F:/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v2/game"
+                                },
+    "status":  "ROOT_observed_native_child_process_completion",
+    "processExitCode":  0
+}

@@ -415,6 +415,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
   drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
   frame in a dense scene); Auto times both orders and keeps the faster.
+- [Dynamic light receivers](docs/dynamic-light-receivers.md) — optionally light
+  only player models and the driven vehicle, with independent scene overrides.
 - [Conservative occlusion culling](docs/occlusion-culling.md) — build-time
   inner proxies and a tiny CPU visibility buffer reject whole draw units behind
   solid walls, with per-object occluder and receiver opt-outs.

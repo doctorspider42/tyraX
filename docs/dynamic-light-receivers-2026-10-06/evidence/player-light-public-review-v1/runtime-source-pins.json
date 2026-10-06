@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "pins": [
+    {
+      "bytes": 1332402,
+      "path": "F:\\Projects\\tyra-editor\\src\\game_templates.inc",
+      "sha256": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d"
+    },
+    {
+      "bytes": 1797156,
+      "path": "F:\\Projects\\tyra-editor\\src\\templates.cpp",
+      "sha256": "589606292fdc9dfefc61f1a2bff3518f11643be19fcea591e04c4138cde49a59"
+    },
+    {
+      "bytes": 7640,
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp",
+      "sha256": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1"
+    },
+    {
+      "bytes": 9226,
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp",
+      "sha256": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2"
+    },
+    {
+      "bytes": 70489,
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp",
+      "sha256": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be"
+    },
+    {
+      "bytes": 46451,
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp",
+      "sha256": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145"
+    },
+    {
+      "bytes": 136537,
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "sha256": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d"
+    }
+  ],
+  "status": "startup fix confirmed; env eligibility key repair pending"
+}

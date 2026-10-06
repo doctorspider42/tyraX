@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "status": "BOUNDED_ACTIVE_RUN_PREFIX_NOT_TERMINAL",
+  "pid": 51220,
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-root-v2\\ps2client.stdout",
+  "prefixByteLength": 351293,
+  "prefixSha256": "7073bdf0b4236152ff5188401bdff9dfa144f2246dacad84ec5f6a729efbb4b5",
+  "captureStartedUTC": "2026-10-06T07:53:37.012913+00:00",
+  "snapshotUTC": "2026-10-06T07:53:37.022969+00:00",
+  "clientLeftServing": true,
+  "terminalRunProven": false,
+  "hardwarePerformanceQualified": false,
+  "ELFSha256": "0516e0c4ec66f14b101e4c21f87dbf51eead36bb1dfc7aed37c38ec907327b16",
+  "rootReview": "fresh loadelf/Loaded startup, normal boot and exit captures; enter0/exitspot0/exitat-1,-74 route; qualitative correctness only",
+  "mutableNormalFiles": [
+    "log.txt",
+    "livedbg.cmd",
+    "frame.tga"
+  ],
+  "copied": {
+    "owned-launch.json": {
+      "sha256": "6e4bf4540d4f50fe746e7b7844d3eb4081cbe4b85b1e0c33f8173eafbeb601f8",
+      "bytes": 1039
+    },
+    "boot.png": {
+      "sha256": "589cef11f20eb6190f0f2fc9ce6901b66c590504458772247d6bfc21751e1025",
+      "bytes": 273170
+    },
+    "after-exit.png": {
+      "sha256": "407ecfd8af2d23b1a4c0947fd1b298a86f52faa1e7e5578f91468a9543c455e5",
+      "bytes": 252877
+    },
+    "capture-after-exit.stdout": {
+      "sha256": "f252b8f0f5e3adf61b176bd5dea90430c71b0146808eb0c5c412e4f99a78c9a8",
+      "bytes": 114
+    },
+    "ps2client.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "metadataOnly": {
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\bin\\frame.tga": {
+      "sha256": "e0a7b143c4221b7b869bedafc57e09973972b0404a9747058c7067901d9b085e",
+      "bytes": 802834,
+      "role": "mutable captured frame; reviewed PNG retained"
+    }
+  }
+}

@@ -1,0 +1,355 @@
+[ui] running 8 step(s)
+[ui] frames 20
+[ui] click 'Project'
+[ui] click 'Preferences'
+[ui] click 'Rendering'
+[ui] expect 'Dynamic light receivers'
+[ui] shot F:/Projects/tyrax2-lab-20261001/player-light-public-ui-root-v1/rendering.png
+[shot] F:/Projects/tyrax2-lab-20261001/player-light-public-ui-root-v1/rendering.png (3840x1973)
+[ui] dump
+343 item(s) on screen
+  [Debug##Default] Debug  @ 60,60 400x400
+  [Debug##Default] -  @ 84,72 45x45
+  [Debug##Default] -  @ 60,60 400x69
+  [gizmo] gizmo  @ 0,0 3840x1973
+  [WindowOverViewport_11111111] WindowOverViewport_11111111  @ 0,69 3840x1904
+  [WindowOverViewport_11111111/DockSpace_08BD597D] WindowOverViewport_11111111/DockSpace_08BD597D  @ 0,69 3840x1904
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 444,69 6x1904
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3329,69 6x1904
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 450,1729 2879x6
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 24,81 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Project  @ 87,69 147x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 0,69 444x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 474,81 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Viewport  @ 537,69 178x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Flow Graph  @ 733,69 213x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 450,69 2879x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 474,1747 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Output  @ 537,1735 150x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Debug  @ 705,1735 144x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 450,1735 2879x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3359,81 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3667,69 43x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3710,69 43x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Properties  @ 3254,69 195x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] Debugger  @ 3467,69 240x69
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3641,81 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3771,81 45x45
+  [WindowOverViewport_11111111/DockSpace_08BD597D] -  @ 3335,69 505x69
+  [WindowOverViewport_11111111] -  @ 0,69 3840x1904
+  [##MainMenuBar] -  @ 0,0 3840x69
+  [##MainMenuBar] File  @ 156,5 99x60  [closed]
+  [##MainMenuBar] Edit  @ 255,5 105x60  [closed]
+  [##MainMenuBar] View  @ 360,5 120x60  [closed]
+  [##MainMenuBar] Layout  @ 480,5 148x60  [closed]
+  [##MainMenuBar] Scene  @ 628,5 137x60  [closed]
+  [##MainMenuBar] Project  @ 765,5 152x60  [closed]
+  [##MainMenuBar] Build  @ 917,5 123x60  [closed]
+  [##MainMenuBar] Session  @ 1040,5 160x60  [closed]
+  [##MainMenuBar] Tools  @ 1200,5 128x60  [closed]
+  [##MainMenuBar] Help  @ 1328,5 118x60  [closed]
+  [##MainMenuBar] -  @ 1459,0 69x69
+  [##MainMenuBar] -  @ 1534,0 69x69
+  [##MainMenuBar] -  @ 1641,0 69x69
+  [##MainMenuBar] -  @ 1711,0 37x69
+  [##MainMenuBar] -  @ 1754,0 69x69
+  [##MainMenuBar] -  @ 1861,0 225x69
+  [##MainMenuBar] -  @ 2124,0 137x69
+  [##MainMenuBar] -  @ 2267,0 90x69
+  [Viewport] Viewport  @ 450,69 2879x1660
+  [Viewport] -  @ 537,69 178x69
+  [Viewport] Viewport canvas  @ 450,138 2879x1591
+  [Viewport] -  @ 458,1640 69x69
+  [Viewport] Move (1)  @ 458,146 175x45
+  [Viewport] Rotate (2)  @ 657,146 188x45
+  [Viewport] Scale (3)  @ 869,146 167x45
+  [Viewport] Sculpt (4)  @ 1060,146 183x45
+  [Viewport] Paint (6)  @ 1267,146 165x45
+  [Viewport] Surface snap  @ 1456,146 232x45
+  [Viewport] Measure (7)  @ 1712,146 219x45
+  [Viewport] Center view  @ 551,1652 217x45
+  [Viewport] Center selection  @ 792,1652 283x45
+  [Viewport] Proj: Perspective  @ 1091,1652 287x45
+  [Viewport] World  @ 3007,1652 134x45
+  [Viewport] Camera  @ 3165,1652 156x45
+  [Project] Project  @ 0,69 444x1904
+  [Project] -  @ 87,69 147x69
+  [Project] Scenes  @ 15,537 414x69  [open]
+  [Project] + Scene  @ 30,621 163x45
+  [Project] Preferences...  @ 217,621 237x45
+  [Project] main  (start)  @ 18,674 408x60
+  [Project] x  @ 392,681 58x45
+  [Project] dense  @ 18,734 408x60
+  [Project] x  @ 392,741 58x45
+  [Project] procedural  @ 18,794 408x60
+  [Project] x  @ 392,801 58x45
+  [Project] Scene objects  @ 15,861 414x69  [open]
+  [Project] + Add object  @ 30,945 239x69
+  [Project] -  @ 30,1029 48x69  [input]
+  [Project] -  @ 102,1029 312x69
+  [Project/##objects_DC0BCE04] Project/  @ 30,1113 384x130
+  [Project/##objects_DC0BCE04] -  @ 376,1115 36x126
+  [Project/##objects_DC0BCE04] player-1  (player)  @ 48,1130 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] wall-1  (box)  @ 48,1190 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1250 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1310 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1370 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1430 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1490 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1550 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1610 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1670 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1730 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1790 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1850 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1910 398x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,1970 416x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2030 316x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2090 353x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2150 332x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2210 390x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2270 433x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2330 433x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2390 447x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2450 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2510 447x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2570 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2630 385x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2690 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2750 385x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2810 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2870 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2930 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,2990 385x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3050 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3110 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3170 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3230 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3290 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3350 447x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3410 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3470 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3530 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3590 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3650 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3710 385x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3770 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3830 351x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3890 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,3950 447x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4010 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4070 414x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4130 400x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4190 400x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4250 386x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4310 414x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4370 386x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4430 400x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4490 418x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4550 405x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4610 432x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4670 418x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4730 428x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4790 401x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4850 447x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4910 419x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,4970 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5030 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5090 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5150 382x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5210 382x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5270 382x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5330 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5390 414x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5450 414x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5510 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5570 409x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5630 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5690 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5750 382x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5810 396x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5870 409x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5930 441x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,5990 441x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6050 441x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6110 428x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6170 428x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6230 441x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6290 441x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6350 455x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6410 455x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6470 437x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6530 437x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6590 437x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6650 437x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6710 455x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6770 455x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6830 583x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6890 569x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,6950 583x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7010 354x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7070 341x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7130 354x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7190 443x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7250 443x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7310 443x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7370 510x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7430 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7490 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7550 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7610 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7670 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7730 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7790 440x60  [checked]
+  [Project/##objects_DC0BCE04] -  @ 48,7850 440x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7910 433x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,7970 459x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8030 427x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8090 427x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8150 419x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8210 445x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8270 439x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8330 439x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8390 408x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8450 389x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8510 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8570 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8630 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8690 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8750 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8810 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8870 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8930 526x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,8990 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,9050 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,9110 312x60  [unchecked]
+  [Project/##objects_DC0BCE04] -  @ 48,9170 493x60  [unchecked]
+  [Project] -  @ 30,1113 384x130
+  [Project] Layers  @ 15,1318 414x69  [closed]
+  [Project] Assets  @ 15,1402 414x69  [open]
+  [Project] Browse assets...  @ 30,1486 271x69
+  [Project] Import model...  @ 325,1498 270x45
+  [Project] -  @ 619,1498 262x45
+  [Project] Music  @ 15,1630 414x69  [closed]
+  [Project] Sounds  @ 15,1714 414x69  [closed]
+  [Project] Scripts  @ 15,1798 414x69  [closed]
+  [Properties] Properties  @ 3335,69 505x1904
+  [Properties] -  @ 3254,69 195x69
+  [Flow Graph] Flow Graph  @ 450,69 2879x1660
+  [Flow Graph] -  @ 733,69 213x69
+  [Flow Graph/scrolling_region_DCB3B1D8] Flow Graph/scrolling_region_DCB3B1D8  @ 480,162 2819x1543
+  [Flow Graph/scrolling_region_DCB3B1D8/minimap_CA62D2F6] Flow Graph/scrolling_region_DCB3B1D8/minimap_CA62D2F6  @ 2905,1462 382x231
+  [Flow Graph/scrolling_region_DCB3B1D8] -  @ 2905,1462 382x231
+  [Flow Graph] -  @ 480,162 2819x1543
+  [Output] Output  @ 450,1735 2879x238
+  [Output] -  @ 537,1735 150x69
+  [Output] Clear  @ 480,1828 118x45
+  [Output] Copy  @ 622,1828 120x45
+  [Output] 0 errors  @ 766,1828 157x45
+  [Output] 0 warnings  @ 947,1828 204x45
+  [Output] 0 info  @ 1175,1828 128x45
+  [Output] 0 verbose  @ 1327,1828 187x45
+  [Output] Select text  @ 1538,1828 242x69  [unchecked]
+  [Output/##logscroll_FB77FB18] Output/  @ 480,1930 2819x19
+  [Output/##logscroll_FB77FB18] -  @ 3263,1930 36x19
+  [Output] -  @ 480,1930 2819x19
+  [Debug] Debug  @ 450,1735 2879x238
+  [Debug] -  @ 705,1735 144x69
+  [Debug/##debugscroll_45994E31] Debug/  @ 480,1828 2783x121
+  [Debug] -  @ 480,1828 2783x121
+  [Ambience Editor] Ambience Editor  @ 60,60 747x728
+  [Ambience Editor] -  @ 762,743 57x57
+  [Ambience Editor] -  @ 48,743 57x57
+  [Ambience Editor] -  @ 48,105 24x638
+  [Ambience Editor] -  @ 795,105 24x638
+  [Ambience Editor] -  @ 105,48 657x24
+  [Ambience Editor] -  @ 105,776 657x24
+  [Ambience Editor] -  @ 84,72 45x45
+  [Ambience Editor] -  @ 738,72 45x45
+  [Ambience Editor] -  @ 60,60 747x69
+  [Ambience Editor] -  @ 691,153 43x69
+  [Ambience Editor] -  @ 734,153 43x69
+  [Ambience Editor] Presets  @ 90,153 150x69
+  [Ambience Editor/##ambience_list_9EF741D1] Ambience Editor/  @ 90,237 510x527
+  [Ambience Editor/##ambience_list_9EF741D1] + New preset  @ 120,261 449x69
+  [Ambience Editor/##ambience_list_9EF741D1] Default  [default]  @ 108,356 474x60
+  [Ambience Editor] -  @ 90,237 510x527
+  [Ambience Editor/##ambience_edit_33AC82F9] Ambience Editor/  @ 624,237 153x527
+  [Ambience Editor] -  @ 624,237 153x527
+  [Ambience Editor] Day / night  @ 258,153 210x69
+  [Ambience Editor] Global illumination  @ 486,153 240x69
+  [Ambience Editor] Baked lighting  @ 744,153 240x69
+  [Debugger] Debugger  @ 3335,69 505x1904
+  [Debugger] -  @ 3467,69 240x69
+  [Debugger] ⏸ Pause  @ 3365,405 312x69
+  [Debugger] ⏭ Step frame  @ 3701,405 312x69
+  [Debugger] -  @ 4037,405 312x69
+  [Debugger] -  @ 3353,489 69x69
+  [Debugger] -  @ 3724,489 43x69
+  [Debugger] -  @ 3767,489 43x69
+  [Debugger] Watch  @ 3422,489 139x69
+  [Debugger] -  @ 3365,573 660x69  [input]
+  [Debugger/##watch_C825FCFB] Debugger/  @ 3365,657 445x1292
+  [Debugger/##watch_C825FCFB] Name  @ 3365,657 204x63
+  [Debugger/##watch_C825FCFB] Kind  @ 3569,657 111x63
+  [Debugger/##watch_C825FCFB] Value  @ 3680,657 130x63
+  [Debugger] -  @ 3365,657 445x1292
+  [Debugger] Timeline  @ 3579,489 169x69
+  [Debugger] Rewind  @ 3766,489 153x69
+  [Debugger] Replay  @ 3937,489 143x69
+  [Debugger] Nodes  @ 4098,489 141x69
+  [Debugger] Stats  @ 4257,489 116x69
+  [Debugger] Hardware timeline  @ 4391,489 240x69
+  [Debugger] Render cost  @ 4649,489 220x69
+  [Debugger] Screen  @ 4887,489 143x69
+  [Debugger] VU  @ 5048,489 88x69
+  [Debugger] Objects  @ 5154,489 156x69
+  [Debugger] Logic  @ 5328,489 123x69
+  [Debugger] Breakpoints  @ 5469,489 219x69
+  [Project Preferences] Project Preferences  @ 926,119 720x860
+  [Project Preferences] -  @ 1601,934 57x57
+  [Project Preferences] -  @ 914,934 57x57
+  [Project Preferences] -  @ 914,164 24x770
+  [Project Preferences] -  @ 1634,164 24x770
+  [Project Preferences] -  @ 971,107 630x24
+  [Project Preferences] -  @ 971,967 630x24
+  [Project Preferences] -  @ 950,131 45x45
+  [Project Preferences] -  @ 1577,131 45x45
+  [Project Preferences] -  @ 926,119 720x69
+  [Project Preferences] -  @ 1530,212 43x69
+  [Project Preferences] -  @ 1573,212 43x69
+  [Project Preferences] Display  @ 956,212 151x69
+  [Project Preferences] World  @ 1125,212 135x69
+  [Project Preferences] Rendering  @ 1278,212 197x69
+  [Project Preferences/##body_1C3AA5FE] Project Preferences/  @ 956,296 660x350
+  [Project Preferences/##body_1C3AA5FE] -  @ 1580,296 36x350
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,380 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,548 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,632 270x69  [input]
+  [Project Preferences/##body_1C3AA5FE] -  @ 1454,632 270x69  [input]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,776 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,860 428x69
+  [Project Preferences/##body_1C3AA5FE] Reflection probe: aim along the reflected ray  @ 956,944 751x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1028 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1112 428x69
+  [Project Preferences/##body_1C3AA5FE] Reflect static scenery as boxes  @ 956,1196 536x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] Reflect the ground as flat colour  @ 956,1280 567x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] Static object batching  @ 956,1364 411x69  [checked]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1448 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1532 428x69
+  [Project Preferences/##body_1C3AA5FE] Conservative occlusion culling  @ 956,1616 535x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1700 428x69
+  [Project Preferences/##body_1C3AA5FE] Texture atlasing  @ 956,1784 323x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,1868 428x69
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,2036 381x69
+  [Project Preferences/##body_1C3AA5FE] Blob shadows under moving objects  @ 956,2204 628x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] -  @ 956,2288 428x69
+  [Project Preferences/##body_1C3AA5FE] Flashlight shadow volumes  @ 956,2372 488x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] Spot light shadow volumes  @ 956,2456 491x69  [unchecked]
+  [Project Preferences/##body_1C3AA5FE] Highlight usable objects  @ 956,2624 448x69  [unchecked]
+  [Project Preferences] -  @ 956,296 660x350
+  [Project Preferences] Player  @ 1493,212 134x69
+  [Project Preferences] Build  @ 1645,212 118x69
+  [Project Preferences] Close  @ 956,679 360x69
+[ui] quit
+[ui] done - 8 step(s)

@@ -1693,6 +1693,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
 
 // General project preferences (Project > Preferences in the editor).
 // Baked into the generated terrain_config.hpp on every build.
+enum class DynamicLightReceivers : uint8_t { All, Players };
+
 struct ProjectSettings {
     // Build target. videoSystem: "auto" follows the console region, "ntsc"
     // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
@@ -2489,6 +2491,8 @@ struct ProjectSettings {
     // that fades outward into a rim) instead of only a rim BEHIND it. Off =
     // the classic silhouette outline (shells pushed behind object depth).
     bool highlightOverlay = false;
+    // Live point/spot/flashlight model reception; projected pools stay separate.
+    DynamicLightReceivers dynamicLightReceivers = DynamicLightReceivers::All;
 };
 
 static_assert(sizeof(ProjectSettings) == 864,
@@ -2525,6 +2529,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
            a.framePipeline == b.framePipeline &&
+           a.dynamicLightReceivers == b.dynamicLightReceivers &&
            a.frameExtrapolation == b.frameExtrapolation &&
            a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
            a.frameExtrapolationForce == b.frameExtrapolationForce &&
@@ -2686,6 +2691,7 @@ inline int motionBlurMaxFix(const ProjectSettings& s) {
 // Camera, physics, terrain detail and the game template stay project-wide.
 struct SceneOverrides {
     bool lighting = false;    // lightDir, ambient, diffuse, lightColor, brightness
+    bool dynamicLightReceivers = false;  // independent of baked lighting/ambience
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
@@ -2719,7 +2725,8 @@ inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
            a.fog == b.fog && a.highlight == b.highlight &&
-           a.upscaler == b.upscaler;
+           a.upscaler == b.upscaler &&
+           a.dynamicLightReceivers == b.dynamicLightReceivers;
 }
 
 class History;

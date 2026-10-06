@@ -1,0 +1,20 @@
+{
+  "kind": "nonreconstructive top-level projection",
+  "original": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\native-proof.json",
+  "originalSha256": "5a6bd9398116b73c70fcef7ebdd737ca32aa149366fe332ce852ed75fd157c50",
+  "retained": {
+    "status": "PASS_ROOT_ACTUAL_NATIVE_RECEIVER_SOURCE_MIRRORS_OBJECTS_ELF_TEXT",
+    "definedReceiverMethods": [
+      "TerrainGame::renderObjectBag(int, Tyra::StaPipBag*)",
+      "TerrainGame::renderWorldBag(Tyra::StaPipBag*)",
+      "TerrainGame::isLivePlayerReceiver(int) const",
+      "TerrainGame::fillAnimLightColors(int)",
+      "Tyra::StaPipCore::render(Tyra::StaPipBag*, Tyra::StaPipLightReception)"
+    ],
+    "actualELFSha256": "eec63941d455749337fb859ef1ebfa3ae6c27fd8e5190d8adcfa69cfa9b2d81a",
+    "actualSymbolSha256": "b7d837982b6958f26c037683d2ee469522d0d4fdcd30fdc2e40fc3e3cdae330c",
+    "originalBuildRecordSha256": "f5faea263a39f9ce7aa1d674385abc7733dc443cdc23f742f20cd974d47fc5f3",
+    "runtimeOutputQualified": false,
+    "hardwarePerformanceQualified": false
+  }
+}
