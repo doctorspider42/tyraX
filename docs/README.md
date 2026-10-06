@@ -562,3 +562,5 @@ The [Claude proposal trials](tyrax2-claude-trials.md) price original validation 
 - [Fresh empty one-car isolation](tyrax2-empty-car-2026-10-06/README.md): PS2 parked/driving/post-drive windows hold approximately 59.94 Hz at 1.19/1.83/1.19 ms non-pacing work. Subsequent S-road and two-model runs retain that cadence (two cars: 1.90/2.80/1.89 ms; adding one moving point light: 2.67/2.92/2.67 ms). Unlit two-car and subsequent moving-light/pine scene appearances are confirmed on TV.
 
 The same isolation archive adds a small textured pine: native binding, 42 parser controls, emulator and 5400 PS2 loops pass. Hardware retains approximately 59.94 Hz at 2.70/2.98/2.70 ms non-pacing work; the current scene is confirmed visually on TV. A separate r7-resetdiag loader is native reviewed but remains unflashed/unqualified on hardware.
+
+The next sibling adds eight textured facades. Native binding, 48 parser controls and 5400 emulator loops pass; six cold observations accept 12 building carriers with 11,328 input vertices. Physical measurement awaits a confirmed fresh console start; emulator cadence does not qualify PS2 performance.

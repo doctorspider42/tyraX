@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 96, in <module>
+    assert abs(fp(r,'roadY')-.12)<.001 and abs(fp(r,'centerOffset'))<4.0
+               ^^^^^^^^^^^^^
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 87, in fp
+    value=struct.unpack('<f',struct.pack('<I',int(r[key],16)))[0];assert math.isfinite(value),key
+                                                                         ^^^^^^^^^^^^^^^^^^^^
+AssertionError: roadY

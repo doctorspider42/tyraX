@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 57, in <module>
+    assert n(r,'pacing')<=n(r,'wholeLoop')and n(r,'totalFlips')==n(r,'renderedFlips')+n(r,'syntheticFlips');assert n(r,'lastKind')in(0,1,2)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 46, in <module>
+    assert re.fullmatch('[0-9a-fA-F]{8}',r[key]) and (int(r[key],16)&0x7f800000)!=0x7f800000,key
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: positionX

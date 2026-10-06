@@ -1,0 +1,867 @@
+{
+  "status": "PASS_COMPLETED_PRIVATE_TWO_CARS_LIGHT_PINE_EIGHT_BUILDINGS_PROTOCOL",
+  "renderColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "acceptedBags": "16",
+        "acceptedVertices": "15724",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "1024",
+        "carBags": "4",
+        "carVertices": "3072",
+        "valid": "1"
+      }
+    }
+  },
+  "route": "same-two-car-road-light-pine-plus-eight-buildings",
+  "buildingColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "acceptedBags": "8",
+        "acceptedVertices": "11328",
+        "refs0": "1",
+        "refs1": "1",
+        "refs2": "1",
+        "refs3": "1",
+        "refs4": "1",
+        "refs5": "1",
+        "refs6": "1",
+        "refs7": "1",
+        "valid": "1"
+      }
+    }
+  },
+  "buildingRefsMeaning": "accepted-carrier membership for each actual shown owner, not per-owner raster or postclip triangle count",
+  "staticModelColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "owner": "4",
+        "acceptedBags": "1",
+        "acceptedVertices": "300",
+        "valid": "1"
+      }
+    }
+  },
+  "lightColdContexts": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf933333",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf666666",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf933333",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf666666",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf933333",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "count": "1",
+        "slot": "0",
+        "enabled": "1",
+        "point": "1",
+        "x": "bf666666",
+        "y": "40400000",
+        "z": "40800000",
+        "range": "20",
+        "r": "32",
+        "g": "96",
+        "b": "128",
+        "valid": "1"
+      }
+    }
+  },
+  "lightEffectiveWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "ravagerBodySelected": "1",
+        "picaBodySelected": "1",
+        "ravagerWheelSelected": "1",
+        "picaWheelSelected": "1",
+        "ravagerBodyEffective": "1",
+        "picaBodyEffective": "1",
+        "ravagerWheelEffective": "1",
+        "picaWheelEffective": "1",
+        "valid": "1"
+      }
+    }
+  },
+  "roadColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    }
+  },
+  "twoCarContexts": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec28f5c",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    }
+  },
+  "twoCarAcceptedWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "ravagerBodyBags": "1",
+        "ravagerBodyVertices": "768",
+        "picaBodyBags": "1",
+        "picaBodyVertices": "768",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "768",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "768",
+        "valid": "1"
+      }
+    }
+  },
+  "portalColdCounts": null,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.086263020833333,
+      "chunkMeanEntryMs": 6.781684027777778,
+      "perChunkMeanEntryMs": [
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778
+      ],
+      "maxObservedChunkMeanEntryMs": 6.781684027777778,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 6.103515625,
+          "p50Ms": 6.103515625,
+          "p95Ms": 6.103515625,
+          "maxMs": 6.103515625,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 4.408094618055555,
+          "p50Ms": 4.408094618055555,
+          "p95Ms": 4.408094618055555,
+          "maxMs": 4.408094618055555,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.086263020833333,
+      "chunkMeanEntryMs": 6.781684027777778,
+      "perChunkMeanEntryMs": [
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778
+      ],
+      "maxObservedChunkMeanEntryMs": 6.781684027777778,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 6.103515625,
+          "p50Ms": 6.103515625,
+          "p95Ms": 6.103515625,
+          "maxMs": 6.103515625,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 4.408094618055555,
+          "p50Ms": 4.408094618055555,
+          "p95Ms": 4.408094618055555,
+          "maxMs": 4.408094618055555,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.086263020833333,
+      "chunkMeanEntryMs": 6.781684027777778,
+      "perChunkMeanEntryMs": [
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778,
+        6.781684027777778
+      ],
+      "maxObservedChunkMeanEntryMs": 6.781684027777778,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 6.103515625,
+          "p50Ms": 6.103515625,
+          "p95Ms": 6.103515625,
+          "maxMs": 6.103515625,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 4.408094618055555,
+          "p50Ms": 4.408094618055555,
+          "p95Ms": 4.408094618055555,
+          "maxMs": 4.408094618055555,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 6.781684027777778,
+          "p50Ms": 6.781684027777778,
+          "p95Ms": 6.781684027777778,
+          "maxMs": 6.781684027777778,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "movedAtColdEndpoints": {
+    "0": true,
+    "1": true,
+    "2": true
+  },
+  "oneArm": true,
+  "matchedAB": false,
+  "hardwarePerformanceQualified": false,
+  "nativeSixtyFpsAccepted": false,
+  "commonControllerObserverCostUnpriced": true,
+  "limitations": [
+    "Cold positions/contact and accepted render counts are six sparse witnesses, not whole-run wheel path or image proof; centerOffset uses piecewise authored-anchor approximation, not exact tessellated Catmull-Rom centerline.",
+    "Phase0 is initial parked; phase1 bounded virtual-pad steering/throttle/braking; phase2 neutral post-drive, not matched savings. Invisible analytic y0 floor retains driving physics; public tessellated road supplies normal raised contact geometry. Controller shortened to keep both models visible, changed and included in the price; no causal incremental subtraction. Full S geometry retained but bends not traversed.",
+    "Worst window is maximum observed64-loop mean, not worst frame or p99.",
+    "128 raw loops per phase do not cover all measured chunks.",
+    "Emulator qualifies controller/scene correctness only; hardware cadence remains separate.",
+    "Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification."
+  ]
+}
