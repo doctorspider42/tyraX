@@ -9,6 +9,9 @@ for people building games with it. Internals live in code comments, the git log
 
 **World & objects**
 
+- [Model strips and batch packing](tyrax2-strip-batch-2026-10-07/README.md) —
+  existing strip coverage and a private PS2 comparison: 12% fewer resident batch
+  vertices, only 0.016 ms observed work contrast, no night/driving 60 FPS claim.
 - [TyraX2 closeout qualification](tyrax2-closeout.md) — bounded public receiver,
   sampler, night dressing and motion/portal checks through eight physical
   protocols, with ordinary timing traps and remaining stable-60 limits.

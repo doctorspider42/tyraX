@@ -1,0 +1,67 @@
+{
+  "countClockHz": 294912000,
+  "status": "PASS_STRIP_BATCH_STATIONARY_COMPARISON",
+  "inputLogSha256": "86d1b98909edadbf896ea78396fbd5aa08913c4492e4ad3b5f9a1bed6d55ee81",
+  "inputSamplesSha256": "b5a8ba79801b5b6ad7146d46a6d84cc53dedd4da1098eaa92f170c63a8cacb39",
+  "arms": [
+    {
+      "phase": 0,
+      "candidate": true,
+      "coarseLoops": 320,
+      "loopMs": 16.683235115475124,
+      "workMs": 13.154896979861789,
+      "pacingMs": 3.5283381356133354,
+      "renderedFlips": 320,
+      "renderedHz": 59.940412820317725,
+      "rawWorkMs": 13.152994208865696,
+      "chunkWorkMs": [
+        13.20000171661377,
+        13.096521695454916,
+        13.225014792548286,
+        13.09663470586141,
+        13.156311988830566
+      ]
+    },
+    {
+      "phase": 1,
+      "candidate": false,
+      "coarseLoops": 320,
+      "loopMs": 16.68341105779012,
+      "workMs": 13.168069638146294,
+      "pacingMs": 3.515341419643826,
+      "renderedFlips": 320,
+      "renderedHz": 59.93978069209425,
+      "rawWorkMs": 13.16643582450019,
+      "chunkWorkMs": [
+        13.213811344570583,
+        13.106328540378147,
+        13.23865360683865,
+        13.11099206076728,
+        13.170562638176811
+      ]
+    },
+    {
+      "phase": 2,
+      "candidate": true,
+      "coarseLoops": 320,
+      "loopMs": 16.683331139882405,
+      "workMs": 13.149770916832818,
+      "pacingMs": 3.5335602230495877,
+      "renderedFlips": 320,
+      "renderedHz": 59.94006782071513,
+      "rawWorkMs": 13.145444658067492,
+      "chunkWorkMs": [
+        13.201355404324001,
+        13.09136708577474,
+        13.21533277299669,
+        13.091779655880398,
+        13.14901966518826
+      ]
+    }
+  ],
+  "oldMinusCandidateWorkMs": 0.01573568979899065,
+  "candidateOuterSpreadMs": 0.005126063028971117,
+  "residentVertexReduction": 1098,
+  "residentVertexReductionPercent": 12.071240105540896,
+  "limitations": "Elapsed EE work includes interrupts and retained common observer/selector footprint. Stationary daylight full-city comparison only; resident batch counts are not visible submitted counts. No moving/night/general60FPS claim; no physical TV/audio qualification."
+}

@@ -1,0 +1,18 @@
+{
+  "status": "ROOT_OWNED_CLOSEOUT_LAUNCH_ATTEMPT",
+  "pid": 16023,
+  "procStartTicks": "9532150",
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-lab-20261001/strip-batch-trial-v2/emulator-v1/runtime/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-lab-20261001/strip-batch-trial-v2/emulator-v1/runtime/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/strip-batch-trial-v2/vehicle/game/bin/vehicle-playground.elf"
+  ],
+  "reviewSha256": "fe96ad0565f352d76f1f93824abb1df5f7379be123e3b0f49cc689edfbf10ba2",
+  "runtimeQualified": false
+}

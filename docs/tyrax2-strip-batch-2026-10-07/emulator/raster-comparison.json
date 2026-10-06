@@ -1,0 +1,18 @@
+{
+  "status": "SOFTWARE_RASTER_COMPARISON",
+  "fixedCamera": true,
+  "mask": "Top32 screenshot rows containing the FPS counter; all remaining pixels compared.",
+  "pairs": [
+    {
+      "other": "capture-control",
+      "changedPixelsOutsideTop32": 6859,
+      "peakChannelDifference": 32
+    },
+    {
+      "other": "completed",
+      "changedPixelsOutsideTop32": 7550,
+      "peakChannelDifference": 32
+    }
+  ],
+  "limitations": "Owned PCSX2 software captures only; does not qualify physical TV or audio."
+}

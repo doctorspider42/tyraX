@@ -19,6 +19,16 @@ description: >
 
 # Building, running and verifying
 
+Strip-packing evidence: `docs/tyrax2-strip-batch-2026-10-07/README.md` records
+existing model coverage and a private batch-run compactor. Preserve source-run
+order, package overlaps and the GS provoking vertex; copy position/color/ST
+together and rebind versioned arrays after swaps. Host topology equality does
+not prove physical raster equality. Resident batch counts are not visible
+submitted counts. Clear startup HUD transitions before every compared window,
+keep the same sampler in each arm, and use 294,912,000 EE Count ticks/second as
+the physical analyzers do. The 0.016 ms stationary daylight contrast does not
+qualify night/driving performance or a production optimization.
+
 Loop-balance diagnostics: `docs/tyrax2-loop-balance-2026-10-06/README.md`
 separates pre-render update, render phase, leaf VIF/GIF/GS waits and existing
 pacing. Reuse enclosing/pacing stamps, end GS scope before clear callbacks,

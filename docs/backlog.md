@@ -3071,3 +3071,9 @@ Next qualify snapshot preflight/lease versus copy/fixup, or a single-lookup
 ImmutableSpanTable borrow candidate with range/retirement/bank-reader controls.
 Active parked perturbations0.7865/0.4152 ms remain nonuniform; do not subtract
 them from moving rows. Full-night stable60 and public optimization remain open.
+
+TyraX2 strip follow-up: [completed private packing experiment](tyrax2-strip-batch-2026-10-07/README.md)
+confirms existing strips on 208 of 260 static model parts. Compact batch runs
+save 1098 resident vertices but only 0.015736 ms observed work in the stationary
+daylight comparison; both arms already present at 59.94 Hz. No production
+packing change is accepted, and driving/night stable 60 remains open.

@@ -1,0 +1,38 @@
+{
+  "status": "PASS_EIGHT_INVALID_PARSER_CONTROLS_REJECTED",
+  "parserSha256": "6c86135f37f5db3a555e841286d934ebed2f41884d20f5d94524e6adf12a0ed1",
+  "cases": [
+    {
+      "name": "bad-camera",
+      "rejected": true
+    },
+    {
+      "name": "bad-done",
+      "rejected": true
+    },
+    {
+      "name": "bad-vertices",
+      "rejected": true
+    },
+    {
+      "name": "duplicate-raw",
+      "rejected": true
+    },
+    {
+      "name": "missing-chunk",
+      "rejected": true
+    },
+    {
+      "name": "missing-raw",
+      "rejected": true
+    },
+    {
+      "name": "unfixed",
+      "rejected": true
+    },
+    {
+      "name": "wrong-route",
+      "rejected": true
+    }
+  ]
+}

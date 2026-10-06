@@ -1,0 +1,22 @@
+{
+  "status": "PASS_ROOT_NATIVE_EMULATOR_PHYSICAL_STRIP_BATCH_COMPARISON",
+  "elfSha256": "b43ca47cfb3617d0b7757e7ef8d93d74d8d9393849adccb79fe1d11be3a96ee2",
+  "nativeProofSha256": "e0176f655cfe2092abaa4ce922e919eab5ac79c8a6c1befba9128c5b91a55217",
+  "rootReviewSha256": "fe96ad0565f352d76f1f93824abb1df5f7379be123e3b0f49cc689edfbf10ba2",
+  "launchInputsSha256": "d8da0f9a57ee8a41e9b900e104d0817604eafe1db2ff3a0a05a8a05745c8580b",
+  "rawPrefixSha256": "866fcbb339027c6722d0aab57a669aeb4e5f59c811eb9bb850dd4149f8f2bae3",
+  "normalizedLogSha256": "86d1b98909edadbf896ea78396fbd5aa08913c4492e4ad3b5f9a1bed6d55ee81",
+  "sampleSha256": "b5a8ba79801b5b6ad7146d46a6d84cc53dedd4da1098eaa92f170c63a8cacb39",
+  "strictResultSha256": "0afe0e6343e24405cac52e006bdf861b15a82b040576f4c4ee92c6ff4e669aa1",
+  "sourceHead": "28628d8d7",
+  "physicalLoops": 5400,
+  "rawRows": 384,
+  "coarseLoopsPerArm": 320,
+  "sourceAndObjectMirrorsVerified": true,
+  "normalization": "Bounded raw bytes through completion retained. Latin1 byte-to-codepoint decoding preserves non-UTF8 loader bytes; only CR transport removed before UTF8 normalized log. Typed diagnostic rows are ASCII.",
+  "commonObserverCostUnpriced": true,
+  "productionOptimizationShipped": false,
+  "physicalImageQualified": false,
+  "physicalAudioQualified": false,
+  "limitations": "Elapsed EE work includes interrupts and retained common observer/selector footprint. Stationary daylight full-city comparison only; resident batch counts are not visible submitted counts. No moving/night/general60FPS claim; no physical TV/audio qualification."
+}

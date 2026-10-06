@@ -227,3 +227,11 @@ Next test snapshot preflight/lease versus copy/fixup, or an exact single-lookup
 borrow candidate preserving retirement and bank-reader safety. Core preparation
 and unannotated render remain separate leads. Full-night stable60, physical TV and
 audio inspection remain pending; no production optimization ships here.
+
+The [October 7 strip/batch experiment](tyrax2-strip-batch-2026-10-07/README.md)
+confirms that 208 of 260 shipped static-model parts already have strips.
+Bidirectional strip walking saves only 57 asset vertices. Compacting batch-run
+padding reduces resident batch vertices 9096→7998, but the physical stationary
+daylight work contrast is only 0.015736 ms; all three arms already present at
+59.94 Hz. This is not a visible-package census or a moving/night qualification.
+The packing candidate stays private and production behavior remains unchanged.
