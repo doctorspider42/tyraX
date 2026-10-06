@@ -283,10 +283,23 @@ static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
             for (const auto& e : keys) seen |= (e == key);
             if (!seen) keys.push_back(key);
         }
-    // A generated character with a Body row (chargen Params::bodyChoice) has
-    // its other body beside it, "<stem>-alt.glb": no object names it, but the
-    // creator swaps the player to it - so it is baked and listed too, AFTER
-    // every placed model (their indices stay what the scene table says).
+    // The Character Creator's choices (docs/character-generator.md,
+    // "Choosing a character"): a Player's other characters, and a generated
+    // character's other body beside it ("<stem>-alt.glb", the generator's Man
+    // or woman). No object names them, but the creator swaps the player to
+    // them - so they are baked and listed too, AFTER every placed model (their
+    // indices stay what the scene table says).
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (!hasAnimBody(o)) continue;
+            for (const std::string& c : o.playerCharacters) {
+                if (c.empty()) continue;
+                const std::pair<std::string, std::string> key{c, std::string()};
+                bool seen = false;
+                for (const auto& e : keys) seen |= (e == key);
+                if (!seen) keys.push_back(key);
+            }
+        }
     const size_t placed = keys.size();
     for (size_t i = 0; i < placed; ++i) {
         const std::string alt = altModelRel(keys[i].first);
@@ -1676,7 +1689,7 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
-  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // The Character row (docs/character-generator.md, "Choosing a character"): the model a
   // character is swapped to - read a slice per frame while they keep moving,
   // then adopted, set up, and the old body freed. bodyWant = the model asked
   // for (-1 = none pending); creatorRestoreModel = the body when it opened.
@@ -3626,7 +3639,7 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
-  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // The Character row (docs/character-generator.md, "Choosing a character"): the model a
   // character is swapped to - read a slice per frame while they keep moving,
   // then adopted, set up, and the old body freed. bodyWant = the model asked
   // for (-1 = none pending); creatorRestoreModel = the body when it opened.
@@ -30081,15 +30094,22 @@ static std::string modelDataHeader(const Project& p) {
         }
     }
     out << "};\n\n";
-    // The creator's Body row (docs/character-generator.md, "Man or woman"):
-    // each model's other body (-1 none) and whether a model is a woman's
-    // (1), a man's (0) or unknown (-1) - from the recipe beside the base
-    // model; its "-alt" is the other sex. Emitted only when a pair exists.
+    // The creator's CHARACTER row (docs/character-generator.md, "Choosing a
+    // character"): GROUPS of models one character may switch between - a
+    // Player's own model, its player.characters, and each one's generated
+    // "-alt" body; and for any other model with an "-alt" beside it, that
+    // pair. ANIM_MODEL_GROUP[m] = its group (-1 none; the first wins), the
+    // members in ANIM_GROUP_MEMBERS[FIRST..FIRST+SIZE), and a label per model
+    // for the row ("Man"/"Woman" for a lone generated pair, else the file's
+    // name). Emitted only when some group has two members.
     {
-        std::vector<int> alt(animKeys.size(), -1), woman(animKeys.size(), -1);
-        bool anyAlt = false;
+        auto indexOf = [&](const std::string& path, const std::string& mtl) {
+            for (size_t j = 0; j < animKeys.size(); ++j)
+                if (animKeys[j].first == path && animKeys[j].second == mtl) return (int)j;
+            return -1;
+        };
         auto genderOf = [&](const std::string& glbRel) -> float {
-            std::string recipe = glbRel.substr(0, glbRel.size() - 4) + ".chargen.json";
+            const std::string recipe = glbRel.substr(0, glbRel.size() - 4) + ".chargen.json";
             std::ifstream f(std::filesystem::path(p.dir) / recipe, std::ios::binary);
             if (!f) return -1.0f;
             std::stringstream ss;
@@ -30099,27 +30119,88 @@ static std::string modelDataHeader(const Project& p) {
             if (!chargen::fromJson(ss.str(), cp, err)) return -1.0f;
             return cp.gender;
         };
-        for (size_t i = 0; i < animKeys.size(); ++i) {
-            const std::string a = altModelRel(animKeys[i].first);
-            if (a.empty()) continue;
-            for (size_t j = 0; j < animKeys.size(); ++j)
-                if (animKeys[j].first == a && animKeys[j].second == animKeys[i].second) {
-                    alt[i] = (int)j;
-                    alt[j] = (int)i;
-                    anyAlt = true;
-                    const float g = genderOf(animKeys[i].first);
-                    if (g >= 0.0f) {
-                        woman[i] = g < 0.5f ? 1 : 0;
-                        woman[j] = g < 0.5f ? 0 : 1;
-                    }
+        std::vector<std::vector<int>> groups;
+        std::vector<int> groupOf(animKeys.size(), -1);
+        auto addGroup = [&](const std::vector<std::pair<std::string, std::string>>& bases) {
+            std::vector<int> g;
+            auto put = [&](int k) {
+                if (k >= 0 && std::find(g.begin(), g.end(), k) == g.end()) g.push_back(k);
+            };
+            for (const auto& b : bases) {
+                put(indexOf(b.first, b.second));
+                const std::string a = altModelRel(b.first);
+                if (!a.empty()) put(indexOf(a, b.second));
+            }
+            if (g.size() < 2) return;
+            for (const auto& have : groups)
+                if (have == g) return;  // the same player in another scene
+            const int id = (int)groups.size();
+            for (int k : g)
+                if (groupOf[(size_t)k] < 0) groupOf[(size_t)k] = id;
+            groups.push_back(std::move(g));
+        };
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) {
+                if (!hasAnimBody(o) || o.type != PrimitiveType::Player) continue;
+                std::vector<std::pair<std::string, std::string>> bases{{o.modelPath, o.materialPath}};
+                for (const std::string& c : o.playerCharacters) bases.push_back({c, std::string()});
+                addGroup(bases);
+            }
+        for (size_t i = 0; i < animKeys.size(); ++i)
+            if (groupOf[i] < 0) addGroup({animKeys[i]});
+        if (!groups.empty()) {
+            // labels
+            std::vector<std::string> label(animKeys.size());
+            for (size_t i = 0; i < animKeys.size(); ++i) {
+                const std::string& path = animKeys[i].first;
+                std::string stem = std::filesystem::path(path).stem().string();
+                const bool isAlt = stem.size() > 4 && stem.compare(stem.size() - 4, 4, "-alt") == 0;
+                const std::string base = isAlt ? stem.substr(0, stem.size() - 4) : stem;
+                std::string nice = base;
+                for (char& c : nice)
+                    if (c == '_' || c == '-') c = ' ';
+                if (!nice.empty()) nice[0] = (char)std::toupper((unsigned char)nice[0]);
+                const std::string baseGlb = std::filesystem::path(path).parent_path().generic_string() +
+                                            (std::filesystem::path(path).has_parent_path() ? "/" : "") +
+                                            base + ".glb";
+                const float g = genderOf(baseGlb);
+                const bool woman = g >= 0.0f && ((g < 0.5f) != isAlt);
+                // "(woman)" / "(man)" only tells apart the two bodies of one person
+                std::error_code ec;
+                const bool generated =
+                    g >= 0.0f && (isAlt || (!altModelRel(path).empty() &&
+                                            std::filesystem::exists(
+                                                std::filesystem::path(p.dir) / altModelRel(path), ec)));
+                const int gi = groupOf[i];
+                const bool lonePair = gi >= 0 && groups[(size_t)gi].size() == 2 && generated &&
+                                      altModelRel(animKeys[(size_t)groups[(size_t)gi][0]].first) ==
+                                          animKeys[(size_t)groups[(size_t)gi][1]].first;
+                label[i] = lonePair ? (woman ? "Woman" : "Man")
+                           : generated ? nice + (woman ? " (woman)" : " (man)")
+                                       : nice;
+            }
+            out << "#define ANIM_MODEL_GROUPS_USED 1\n"
+                << "inline const int ANIM_MODEL_GROUP[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < groupOf.size(); ++i) out << (i ? ", " : "") << groupOf[i];
+            out << "};\nconstexpr int ANIM_GROUP_COUNT = " << groups.size() << ";\n"
+                << "inline const int ANIM_GROUP_FIRST[ANIM_GROUP_COUNT] = {";
+            int at = 0;
+            for (size_t g = 0; g < groups.size(); ++g) {
+                out << (g ? ", " : "") << at;
+                at += (int)groups[g].size();
+            }
+            out << "};\ninline const int ANIM_GROUP_SIZE[ANIM_GROUP_COUNT] = {";
+            for (size_t g = 0; g < groups.size(); ++g) out << (g ? ", " : "") << groups[g].size();
+            out << "};\ninline const int ANIM_GROUP_MEMBERS[" << at << "] = {";
+            bool first = true;
+            for (const auto& g : groups)
+                for (int k : g) {
+                    out << (first ? "" : ", ") << k;
+                    first = false;
                 }
-        }
-        if (anyAlt) {
-            out << "#define ANIM_MODEL_ALT_USED 1\n"
-                << "inline const int ANIM_MODEL_ALT[ANIM_MODEL_COUNT] = {";
-            for (size_t i = 0; i < alt.size(); ++i) out << (i ? ", " : "") << alt[i];
-            out << "};\ninline const int ANIM_MODEL_WOMAN[ANIM_MODEL_COUNT] = {";
-            for (size_t i = 0; i < woman.size(); ++i) out << (i ? ", " : "") << woman[i];
+            out << "};\ninline const char* ANIM_MODEL_LABEL[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < label.size(); ++i)
+                out << (i ? ", " : "") << "\"" << escapeCString(label[i]) << "\"";
             out << "};\n\n";
         }
     }
@@ -33056,7 +33137,7 @@ static std::string menuDataHeader(const Project& p) {
                     case MenuEntry::PlayCredits: param = creditsIndexOf(en.param); break;
                     // Creator rows: param = the look slot (0 colours, 1 hair,
                     // 2 hat, 3 glasses), what RuntimeObject::look indexes -
-                    // or 4, the Body row (the model itself, ANIM_MODEL_ALT).
+                    // or 4, the Character row (the model itself, ANIM_MODEL_GROUP).
                     case MenuEntry::CreatorOption:
                         param = en.param == "hair"      ? 1
                                 : en.param == "hat"     ? 2

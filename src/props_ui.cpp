@@ -2644,6 +2644,45 @@ void App::drawPropertiesWindow() {
                         "No animated models (.glb/.fbx) - Import one in Project > Assets.");
                 ImGui::EndCombo();
             }
+            // The Character Creator's CHARACTER row (docs/character-generator.md,
+            // "Choosing a character"): the other models the player may become.
+            if (ImGui::TreeNodeEx("Characters to choose from", ImGuiTreeNodeFlags_DefaultOpen)) {
+                int drop = -1;
+                for (int i = 0; i < (int)o.playerCharacters.size(); ++i) {
+                    ImGui::PushID(i);
+                    ImGui::TextUnformatted(
+                        std::filesystem::path(o.playerCharacters[(size_t)i]).filename().string().c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("x")) drop = i;
+                    ImGui::PopID();
+                }
+                if (drop >= 0) {
+                    o.playerCharacters.erase(o.playerCharacters.begin() + drop);
+                    committed = true;
+                }
+                if (ImGui::BeginCombo("##addchar", "+ Add a character")) {
+                    for (const std::string& m : listAnimatedModelFiles()) {
+                        const std::string rel = "res/models/" + m;
+                        if (rel == o.modelPath ||
+                            std::find(o.playerCharacters.begin(), o.playerCharacters.end(), rel) !=
+                                o.playerCharacters.end())
+                            continue;
+                        if (ImGui::Selectable(m.c_str())) {
+                            o.playerCharacters.push_back(rel);
+                            committed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(
+                    "Models the in-game Character Creator's CHARACTER row may turn\n"
+                    "the player into - generated people or a model of your own\n"
+                    "(any animated .glb with the clips the avatar uses). The other\n"
+                    "one is loaded in the background when chosen; only one is in\n"
+                    "memory. A generated model's '-alt' body ('Also as a woman' in\n"
+                    "the generator) joins by itself.");
+                ImGui::TreePop();
+            }
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                    "Pick an animated .glb/.fbx - the avatar is invisible\n"

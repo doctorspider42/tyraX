@@ -542,6 +542,12 @@ struct SceneObject {
     float playerRunSpeed = 0.0f;    // 0 = same as walk (no ramp)
     float playerSprintSpeed = 0.0f; // 0 = run x settings.sprintMultiplier
     float playerLookSpeed = 1.0f;  // multiplier
+    // The Character Creator's CHARACTER row (docs/character-generator.md,
+    // "Choosing a character"): the other animated models (.glb, project-
+    // relative) the player may become, besides its own modelPath - generated
+    // presets or a model of your own. A generated model's "-alt" body (the
+    // generator's Also as a woman) joins the choice by itself.
+    std::vector<std::string> playerCharacters;
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
@@ -1608,6 +1614,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerRunSpeed == b.playerRunSpeed &&
            a.playerSprintSpeed == b.playerSprintSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
+           a.playerCharacters == b.playerCharacters &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump &&

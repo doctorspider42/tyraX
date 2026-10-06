@@ -787,7 +787,7 @@ real console.
 
 The built-in screen is fixed. To restyle it, make the creator a **menu**:
 *Tools > Menu Editor > **+ Character creator menu*** scaffolds one -
-BODY / COLOURS / HAIR / HAT / GLASSES rows, DONE and UNDO, not pausing, panel on the
+CHARACTER / COLOURS / HAIR / HAT / GLASSES rows, DONE and UNDO, not pausing, panel on the
 right - and the **Character Creator** node's *Menu* picks it. From then on it
 is an ordinary menu: stylesheet, font, title, row labels and order, icons,
 descriptions, images, position, open and close motion
@@ -809,20 +809,47 @@ descriptions, images, position, open and close motion
 
 ![The Character Creator as a menu in PCSX2](img/chargen-creator-menu.png)
 
-### Man or woman
+### Choosing a character
 
-The creator's **Body** row swaps the character between two whole models: the
-person as made and the same person in the other sex. The game cannot rebuild
-a mesh, so the generator makes both - tick *Man or woman* (*Woman or man*) in
-*Player creator...*, or `"bodyChoice": true` in the recipe, and beside
-`hero.glb` it writes `hero-alt.glb` with the same clothes, creator options and
-colour looks (`altParams`: the other gender, about 7% shorter or taller, a
-quarter less or more muscle, no stubble on her and no lipstick on him, the
-bust slider and the breast macro reset; movement style follows on Auto).
+The creator's **CHARACTER** row (menu param `body`) swaps the character
+between whole models. The game cannot rebuild a mesh, so every choice is a
+model of its own, prepared in the editor:
 
-The build bakes the `-alt` model whenever it sits beside a placed one (it
-inherits the base's texture quality), and the game gets the pair in
-`ANIM_MODEL_ALT` / `ANIM_MODEL_WOMAN`. Only one body is in memory at a time:
+- **The Player's *Characters to choose from*** (Inspector, under *Avatar
+  model*; `player.characters` in the project): any animated models of the
+  project - generated people, presets, a model of your own. The Player's own
+  model is always the first choice. *Player creator... > Add as a character
+  choice* in the generator writes the character and adds it there.
+- **Also as a woman / as a man** (`"bodyChoice": true` in a recipe) is the
+  shortcut for the same person in the other sex: beside `hero.glb` the
+  generator writes `hero-alt.glb` with the same clothes, creator options and
+  colour looks (`altParams`: the other gender, about 7% shorter or taller, a
+  quarter less or more muscle, no stubble on her and no lipstick on him, the
+  bust slider and the breast macro reset; movement style follows on Auto). An
+  `-alt` beside any choice joins the choice by itself.
+
+The build bakes every choice (after the placed models, so the scene table's
+indices hold; an `-alt` inherits its base's texture quality) and emits the
+**groups** - `ANIM_MODEL_GROUP`, `ANIM_GROUP_FIRST/SIZE/MEMBERS` - and a
+label per model for the row: "Man" / "Woman" for a lone generated pair,
+"Hero (man)" / "Hero (woman)" for one person's two bodies among others, the
+file's name otherwise ("Clerk"). Left/Right walks the group; rows the chosen
+model has nothing for (a model without creator options) show `-`.
+
+**A model of your own** works as a choice as it is: any animated `.glb` with
+the clips the third-person avatar plays (idle / walk / run...). To make it
+dressable as well, follow the generator's contract - it is the whole
+contract, nothing about the model has to come from the generator:
+
+- a part (material) named `<anything>:opt-<slot>-<id>` is a creator option:
+  slot `hair`, `head` (hats) or `face` (glasses); `optd-` instead of `opt-` is
+  the one worn at the start; the game shows one per slot and hides the rest;
+- colour looks are textures beside the model, `<stem>_<image>.v<k>.png`
+  (k = 1, 2, ...) - the build fits each into a palette for the base texture;
+- face and spring bones are found by name (`Jaw`, eyes and lids, `hair_*`,
+  skirt panels) and are optional.
+
+Only one body is in memory at a time:
 
 - **Switching loads the other body in the background.** The `.tskl` is read
   64 KB a frame, parsed the frame after the last slice, its textures loaded
@@ -848,8 +875,10 @@ inherits the base's texture quality), and the game gets the pair in
   count up to 12 cm deep), and skin poking through a coarse garment between
   its vertices is hidden.
 
-A model without a pair shows `-` in a BODY row and the built-in screen leaves
-the row out.
+A model in no group shows `-` in a CHARACTER row and the built-in screen
+leaves the row out. Measured in the example: Hero (man) -> Hero (woman) ->
+Clerk -> Hero again, each swap in the background, EE memory 16.0 -> 17.0 ->
+14.3 -> 16.8 MB (the clerk is lighter; whatever is left behind is freed).
 
 ## Hat hair
 

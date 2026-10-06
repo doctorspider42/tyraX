@@ -9471,8 +9471,9 @@ int TerrainGame::creatorRows(int index, int* rows) const {
   const GameAnimModel& gam = gameAnimModels[o.data.animModel];
   const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
   int n = 0;
-#ifdef ANIM_MODEL_ALT_USED
-  if (ANIM_MODEL_ALT[o.data.animModel] >= 0) rows[n++] = 4;  // Body: man or woman
+#ifdef ANIM_MODEL_GROUPS_USED
+  // Character: one of the models this one may become (a group of 2+)
+  if (ANIM_MODEL_GROUP[o.data.animModel] >= 0) rows[n++] = 4;
 #endif
   if (variants > 0) rows[n++] = 0;
   for (int s = 1; s <= 3; ++s)
@@ -9576,15 +9577,18 @@ int TerrainGame::creatorTarget() const {
 // loads; while the creator is open, the body it shows. Everything that loads,
 // frees or sets up the player's model goes through this.
 int TerrainGame::effectiveAnimModel(int index, int authored) const {
-#ifdef ANIM_MODEL_ALT_USED
+#ifdef ANIM_MODEL_GROUPS_USED
   if (index == PLAYER_INDEX && authored >= 0 && authored < ANIM_MODEL_COUNT) {
-    const int alt = ANIM_MODEL_ALT[authored];
-    if (alt >= 0) {
+    const int g = ANIM_MODEL_GROUP[authored];
+    auto inGroup = [&](int m) {
+      return g >= 0 && m >= 0 && m < ANIM_MODEL_COUNT && ANIM_MODEL_GROUP[m] == g;
+    };
+    if (g >= 0) {
       if (creatorObj == index && index < (int)runtimeObjects.size()) {
         const int now = runtimeObjects[index].data.animModel;
-        if (now == alt || now == authored) return now;
+        if (inGroup(now)) return now;
       }
-      if (playerLook[0] == alt) return alt;
+      if (inGroup(playerLook[0])) return playerLook[0];
     }
   }
 #endif
@@ -9614,7 +9618,7 @@ void TerrainGame::requestBody(int index, int model) {
 // loaded into the cache one a frame, the model adopted (every texture a cache
 // hit by then), and only then does the character change bodies. The old body
 // is freed once nobody draws it. Measured in PCSX2 (docs/character-
-// generator.md, "Man or woman"): the 64 KB slices fit the frame; parsing and
+// generator.md, "Choosing a character"): the 64 KB slices fit the frame; parsing and
 // the bigger textures still cost a frame or two each.
 void TerrainGame::stepBodyLoad() {
   if (bodyWant < 0) return;
@@ -9727,11 +9731,16 @@ void TerrainGame::creatorStep(int index, int slot, int dir) {
   if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 4) return;
   RuntimeObject& o = runtimeObjects[index];
   if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
-  if (slot == 4) {  // Body: the other one (two bodies, so either way toggles)
-#ifdef ANIM_MODEL_ALT_USED
+  if (slot == 4) {  // Character: the next (or previous) model of its group
+#ifdef ANIM_MODEL_GROUPS_USED
     const int cur = bodyWant >= 0 && bodyLoad.target == index ? bodyWant : o.data.animModel;
-    const int alt = cur >= 0 && cur < ANIM_MODEL_COUNT ? ANIM_MODEL_ALT[cur] : -1;
-    if (alt >= 0) requestBody(index, alt);
+    const int g = cur >= 0 && cur < ANIM_MODEL_COUNT ? ANIM_MODEL_GROUP[cur] : -1;
+    if (g < 0) return;
+    const int n = ANIM_GROUP_SIZE[g], first = ANIM_GROUP_FIRST[g];
+    int at = 0;
+    for (int k = 0; k < n; ++k)
+      if (ANIM_GROUP_MEMBERS[first + k] == cur) at = k;
+    requestBody(index, ANIM_GROUP_MEMBERS[first + ((at + dir) % n + n) % n]);
 #endif
     (void)dir;
     return;
@@ -9758,11 +9767,11 @@ void TerrainGame::creatorValueText(int index, int slot, char* out, int size) con
   const RuntimeObject& o = runtimeObjects[index];
   if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
   if (slot == 4) {
-#ifdef ANIM_MODEL_ALT_USED
+#ifdef ANIM_MODEL_GROUPS_USED
     const bool pending = bodyWant >= 0 && bodyLoad.target == index;
     const int m = pending ? bodyWant : o.data.animModel;
-    if (ANIM_MODEL_ALT[o.data.animModel] < 0 && !pending) return;
-    const char* who = ANIM_MODEL_WOMAN[m] == 1 ? "Woman" : ANIM_MODEL_WOMAN[m] == 0 ? "Man" : "Other";
+    if (ANIM_MODEL_GROUP[o.data.animModel] < 0 && !pending) return;
+    const char* who = ANIM_MODEL_LABEL[m];
     // loading in the background: the choice, and a spinner beside it
     static const char kSpin[4] = {'|', '/', '-', '\\'};
     if (pending)

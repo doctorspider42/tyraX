@@ -1213,7 +1213,7 @@ private:
     // The Crowd button (docs/character-generator.md, "Crowds"): the current
     // character once, N palette variants beside it, `people` Model objects.
     void addCrowdToScene(int people, int variants, float spread, bool wander);
-    void makeCreatorPlayer();  // the generator's "Player creator..." popup
+    void makeCreatorPlayer(bool asChoice = false);  // asChoice: add to the player's characters  // the generator's "Player creator..." popup
     // Tools > Mocap (docs/character-generator.md): a performer's motion driving
     // a character in the editor as it arrives. The source is either a recorded
     // `.tmocap` played back or the live phone link - deliberately the same

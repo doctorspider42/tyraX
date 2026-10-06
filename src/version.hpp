@@ -5515,7 +5515,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 184
+#define TYRAX_VERSION_MINOR 185
+// 1.185.0: the Character Creator's CHARACTER row chooses among N models
+// (docs/character-generator.md, "Choosing a character"): a Player's
+// player.characters (Inspector > Characters to choose from; the generator's
+// Add as a character choice) plus every choice's "-alt" body, baked as
+// groups (ANIM_MODEL_GROUP / ANIM_GROUP_* / ANIM_MODEL_LABEL) and loaded in
+// the background as before. A model of your own needs only the clips; the
+// creator contract (opt- parts, .v<k> looks) is documented. Format v99.
 // 1.184.0: the Character Creator's Body row - man or woman
 // (docs/character-generator.md, "Man or woman"). Recipes gain "bodyChoice";
 // the generator writes "<name>-alt.glb" (altParams), the build bakes it and
@@ -5741,7 +5748,7 @@
 // 1.184.1: Character Generator - the project's own garments
 // (res/models/characters/custom) are cards under Your own clothes, with
 // thumbnails; a file's slot is remembered in <name>.wear.json or guessed.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6246,7 +6253,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v98 (docs/character-generator.md, "The creator as a menu"): menu entry
 // actions "creator" (param look/hair/hat/glasses) and "creator-undo". An
 // older editor would read them as Close. Additive; no migration step.
-inline constexpr int kFormatVersion = 98;
+// v99 (docs/character-generator.md, "Choosing a character"): a Player
+// object's player.characters - the other models the Character Creator may
+// turn it into - written only when non-empty. Missing = its own model only
+// (plus a generated "-alt" body), as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 99;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

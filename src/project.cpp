@@ -731,6 +731,16 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
     }
 }
 
+// A Player's "characters" (the Character Creator's choice), only when set -
+// a project that never used it resaves byte for byte.
+static std::string playerCharactersJson(const SceneObject& o) {
+    if (o.playerCharacters.empty()) return std::string();
+    std::string s = ", \"characters\": [";
+    for (size_t i = 0; i < o.playerCharacters.size(); ++i)
+        s += (i ? ", \"" : "\"") + jsonEscape(o.playerCharacters[i]) + "\"";
+    return s + "]";
+}
+
 std::string objectJson(const SceneObject& o) {
     std::string json =
         "{ \"id\": \"" + jsonEscape(o.id) + "\", \"name\": \"" + jsonEscape(o.name) +
@@ -838,6 +848,7 @@ std::string objectJson(const SceneObject& o) {
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
                 speedTiers +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
+                playerCharactersJson(o) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") +
@@ -5947,6 +5958,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.playerSprintSpeed = (float)v->numberOr(0.0);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
+            o.playerCharacters.clear();
+            if (const auto* v = pl->find("characters"); v && v->type == json::Value::Type::Array)
+                for (const auto& c : v->arr)
+                    if (!c.stringOr("").empty()) o.playerCharacters.push_back(c.stringOr(""));
             if (const auto* v = pl->find("eyeHeight"))
                 o.playerEyeHeight = (float)v->numberOr(1.8);
             if (const auto* v = pl->find("jumpSpeed"))
@@ -8475,6 +8490,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // (record v3), so a speed edit updates the running game instead of
     // flipping the chip amber. Look speed stays baked.
     fnvMixF(h, o.playerLookSpeed);
+    for (const std::string& c : o.playerCharacters) fnvMixS(h, c);
     fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);

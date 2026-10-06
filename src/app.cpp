@@ -12501,7 +12501,7 @@ int addCreatorMenu(Project& p) {
     m.pauseGame = false;
     m.screenPos[0] = 0.72f;  // the creator's camera keeps the character on the left
     m.screenPos[1] = 0.5f;
-    static const char* kRows[][2] = {{"BODY", "body"},  {"COLOURS", "look"}, {"HAIR", "hair"},
+    static const char* kRows[][2] = {{"CHARACTER", "body"},  {"COLOURS", "look"}, {"HAIR", "hair"},
                                      {"HAT", "hat"},    {"GLASSES", "glasses"}};
     for (const auto& r : kRows) {
         MenuEntry en;
@@ -13107,7 +13107,7 @@ void App::drawMenusWindow() {
                 for (int k = 0; k < 5; ++k)
                     if (en.param == kSlots[k]) slot = k;
                 ImGui::SetNextItemWidth(scaled(90.0f));
-                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses", "Body"};
+                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses", "Character"};
                 if (ImGui::Combo("##creatorslot", &slot, kSlotNames, 5)) {
                     en.param = kSlots[slot];
                     changed = true;
@@ -18969,14 +18969,13 @@ void App::drawCharacterGeneratorWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Other skin, hair and clothing colours to choose from,\n"
                               "beside the character's own - a 1 KB palette each.");
-        ImGui::Checkbox(p.gender >= 0.5f ? "Man or woman (adds her body)" : "Woman or man (adds his body)",
-                        &p.bodyChoice);
+        ImGui::Checkbox(p.gender >= 0.5f ? "Also as a woman" : "Also as a man", &p.bodyChoice);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("A Body row in the creator: the same person in the other\n"
-                              "sex, written beside the model as <name>-alt.glb with the\n"
-                              "same clothes, options and colour looks. The game loads the\n"
-                              "other body in the background when they switch and frees\n"
-                              "the first - a second model on disc, not in memory.");
+            ImGui::SetTooltip("A shortcut for the CHARACTER row: the same person in the\n"
+                              "other sex, written beside the model as <name>-alt.glb with\n"
+                              "the same clothes, options and colour looks, and offered\n"
+                              "with it. The game loads a chosen character in the background\n"
+                              "and frees the other - a second model on disc, not in memory.");
         ImGui::TextDisabled("Opens in the game with the Character Creator flow\n"
                             "node (Animation category). The choice survives\n"
                             "scene changes and is saved with the game.");
@@ -18984,6 +18983,15 @@ void App::drawCharacterGeneratorWindow() {
             makeCreatorPlayer();
             ImGui::CloseCurrentPopup();
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Add as a character choice")) {
+            makeCreatorPlayer(true);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Keep the player as it is and add this one to its\n"
+                              "'Characters to choose from': the creator's CHARACTER row\n"
+                              "switches between them in the game.");
         ImGui::EndPopup();
     }
     ImGui::EndGroup();
@@ -19149,7 +19157,7 @@ void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
 // creator"): the character is written WITH its creator options and colour
 // looks, and the active scene's Player object wears it - or a Player is added
 // when the scene has none.
-void App::makeCreatorPlayer() {
+void App::makeCreatorPlayer(bool asChoice) {
     std::string base = sanitizeAssetName(charName_);
     if (base.empty()) base = "player";
     namespace fs = std::filesystem;
@@ -19186,6 +19194,16 @@ void App::makeCreatorPlayer() {
             player = &o;
             break;
         }
+    if (player && asChoice) {
+        // one more character the creator's CHARACTER row offers
+        if (std::find(player->playerCharacters.begin(), player->playerCharacters.end(), rel) ==
+            player->playerCharacters.end())
+            player->playerCharacters.push_back(rel);
+        commitChange();
+        statusMessage_ = "'" + name + "' is a character the player may choose (" +
+                         std::to_string((int)player->playerCharacters.size() + 1) + " in all)";
+        return;
+    }
     if (player) {
         player->modelPath = rel;
         player->playerMode = 2;  // third person: the avatar is what they dressed

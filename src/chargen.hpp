@@ -128,7 +128,7 @@ struct Params {
     // The creator's Body row: a second model of the same person in the other
     // sex (altParams), written beside this one as "<name>-alt.glb" - the game
     // swaps between them, loading the other in the background
-    // (docs/character-generator.md, "Man or woman").
+    // (docs/character-generator.md, "Choosing a character").
     bool bodyChoice = false;
 
     // ---- animation ----
