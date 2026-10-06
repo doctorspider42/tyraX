@@ -1970,5 +1970,45 @@
   {
     "path": "buildings/preparation/finish-buildings-physical.py",
     "sha256": "e65594184832c6311d613b3f82fa998f4e944a62d949e05b8353d4eaca3f5d11"
+  },
+  {
+    "path": "buildings/physical/completed-stdout.raw",
+    "sha256": "5a29b37f00b23d9ecc6526585d3a630efa118e75463c9f26871495a516f09060"
+  },
+  {
+    "path": "buildings/physical/stdout.utf8.log",
+    "sha256": "5a29b37f00b23d9ecc6526585d3a630efa118e75463c9f26871495a516f09060"
+  },
+  {
+    "path": "buildings/physical/bin/closeout-samples.txt",
+    "sha256": "42a742f80697f0969caffee98734cf79d13268e426044f1987ad2e8e4c201f3a"
+  },
+  {
+    "path": "buildings/physical/launch-inputs.json",
+    "sha256": "620cb99e514e97db7698b33222998d84b62576f38a826af0d309c918beb705d6"
+  },
+  {
+    "path": "buildings/physical/owned-launch.json",
+    "sha256": "932843ee465d6a5cba68de4ea2d67bac1ee8bd1a397a3530a9f056b98f9620b4"
+  },
+  {
+    "path": "buildings/physical/protocol-analysis.json",
+    "sha256": "98f60765248ee45e37cf7f62786c0c1074c6a00900c7dc7bf4d74e498196c789"
+  },
+  {
+    "path": "buildings/physical/physical-review.json",
+    "sha256": "007878de46fcfa01ce60971b428c029e481e26324ce6b1bc67e9c86b0d03f2b2"
+  },
+  {
+    "path": "buildings/physical/root-cadence-review.json",
+    "sha256": "196d79b6bfe9b11add29de672b9819e1e858ff38f569e3a87a48f46a4e0ef205"
+  },
+  {
+    "path": "buildings/physical/finish-buildings-physical.py",
+    "sha256": "e65594184832c6311d613b3f82fa998f4e944a62d949e05b8353d4eaca3f5d11"
+  },
+  {
+    "path": "buildings/physical/archive-buildings-physical.py",
+    "sha256": "b2ab7096eb63261dcb79abf410f012f647f52eac4501a1564d8663c3513f8ae3"
   }
 ]
