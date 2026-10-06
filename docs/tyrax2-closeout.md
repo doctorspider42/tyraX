@@ -178,3 +178,10 @@ continue, with slight parked-car drift and exact cold camera matching. This
 supports investigating transient motion/view work without dismissing the whole
 city as uniformly too expensive. It does not isolate physics from changing
 visibility, price observer overhead or resolve full-night stable60.
+
+The [vehicle substep follow-up](tyrax2-city-physics-2026-10-06/README.md) is native
+and emulator qualified: actual planned/executed updates and bounded vehicle
+scope intervals accompany384 ordinary raw loops, with512 separately accounted
+extra Count reads and parked Off/On/Off plus reverse controls. No production
+timestep or renderer behavior changes. Physical activation/cost/transition
+ordering await a reset-ready PS2; emulator timing supplies no hardware verdict.
