@@ -1,0 +1,235 @@
+{
+  "hardwarePerformanceQualified": false,
+  "sourceBin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-road-two-cars-light-v1\\empty-car\\bin",
+  "bin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-two-cars-light-v1\\bin",
+  "productionCommentOnlyFollowup": "ac2c52f2c",
+  "sourceHead": "6c9651bfe",
+  "order": 0,
+  "kind": 4,
+  "files": [
+    {
+      "sha256": "240a3e0d37d2e86b614063f5347eb02d4f99ca6c254de6b82871ff8d95532a7d",
+      "name": ".gitignore"
+    },
+    {
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623",
+      "name": "closeout.cfg"
+    },
+    {
+      "sha256": "9313d22cd621c1711ca455029f690532cdae3899263118b5d9240ce64dd8d5a1",
+      "name": "empty-car.elf"
+    },
+    {
+      "sha256": "d8b6e850dd109b65df4a22abdcba318aecabc1c586b7e6e7e24824a0fe16a0bb",
+      "name": "empty-car.elf.sym"
+    },
+    {
+      "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+      "name": "ps2link.run"
+    },
+    {
+      "sha256": "8adf01fbeddd2512d9bb0584af9804a827e125bb90c27be72a3288ef7db02131",
+      "name": "fonts\\atlas-default.png"
+    },
+    {
+      "sha256": "a02cd1c73e8997e3a0370204405156b68ed8583a88680b0125b4a0e9ae5416c8",
+      "name": "hud\\debugfont.png"
+    },
+    {
+      "sha256": "a3ee5cb781e93cf306be117e21954494687846b8a6464dd213abb8d237ef7e10",
+      "name": "hud\\flare-corona.png"
+    },
+    {
+      "sha256": "8029e6a08c06e9a7426aba04efe74aa03dc46935d11f9ee4fbfade992907fb68",
+      "name": "hud\\icon-circle.png"
+    },
+    {
+      "sha256": "63adb1520656bb8bbb7e787c6ac66ca445e86a668790886493e7a11bcd77a7c8",
+      "name": "hud\\icon-cross.png"
+    },
+    {
+      "sha256": "82051f011f1ca1d20e5b47415a883b04958e1576e6e84388c211e043836272ae",
+      "name": "hud\\icon-dpaddown.png"
+    },
+    {
+      "sha256": "0f0f0c797484a583df206c56249930ba1dfe9807665c079c25b820bc0c009b7f",
+      "name": "hud\\icon-dpadleft.png"
+    },
+    {
+      "sha256": "36c1318aacde72b88892d1841fb3b1df99fe18efaba7ff1e83989eb2c44c1f42",
+      "name": "hud\\icon-dpadright.png"
+    },
+    {
+      "sha256": "8d32ded1121e5f833ac40b6c273a2448c5b5bb936c63ceeae37c24379fa78352",
+      "name": "hud\\icon-dpadup.png"
+    },
+    {
+      "sha256": "b7d8cb6d69c5ef156e567bcf0d197d72fe47655dd1199670a1a6890e7b053513",
+      "name": "hud\\icon-l1.png"
+    },
+    {
+      "sha256": "2500433dc71cc3a160c1164502f54ebd1517f931592f5414f5b253662ea96791",
+      "name": "hud\\icon-l2.png"
+    },
+    {
+      "sha256": "b119f10ee0dc9aa4383ce2d09860e28a165dc11bb7958559f4ec23b704826cae",
+      "name": "hud\\icon-l3.png"
+    },
+    {
+      "sha256": "c65ae40f492d665584a9700f4f326d77ab4bb112930e7fa28678e403ae37be25",
+      "name": "hud\\icon-r1.png"
+    },
+    {
+      "sha256": "81ffb0486ea07a0eb13ecf587ef3be2c70510e09ee98ea9f017b16c0b38863e7",
+      "name": "hud\\icon-r2.png"
+    },
+    {
+      "sha256": "29f6378f91d787249cee87b677440df3381d340c635ec9b9a00b3e99f8f5dc24",
+      "name": "hud\\icon-r3.png"
+    },
+    {
+      "sha256": "8ec7fe59f7d11324c3064ca368aed8fa9257459d64ae80b69addf4cb8135fdeb",
+      "name": "hud\\icon-select.png"
+    },
+    {
+      "sha256": "18f574e19af44db9c8bd89ef5fabe9a0ee86125019bbb827a4d30ec72b98823e",
+      "name": "hud\\icon-square.png"
+    },
+    {
+      "sha256": "5ef0a5fcfb609b5d0a26fb5c889da11d26631c468fd50b88a1c13f7f33cc12da",
+      "name": "hud\\icon-start.png"
+    },
+    {
+      "sha256": "7523322cee76826027beafc0ede643a29cc11ae4e719f0f1835548fa8f7cf543",
+      "name": "hud\\icon-triangle.png"
+    },
+    {
+      "sha256": "6ae052bd71124e7bcbe201d5c5be51e152e9f3075e5e6800115cab3dadad40af",
+      "name": "hud\\icons.png"
+    },
+    {
+      "sha256": "695da32f539757ed88bbe9724d21ef5522658cc008ae30ad6fb9bfe7cf2b35c7",
+      "name": "hud\\loading-white.png"
+    },
+    {
+      "sha256": "e4e37f5395e7b930d610d49149294e886b91a8163b3062555c854275522f92b4",
+      "name": "hud\\loading.png"
+    },
+    {
+      "sha256": "09a2f918ad4a4beffdfa5b0bfe7da63ffbb1eb6f8e1be85339d8a6a28497b9ac",
+      "name": "hud\\menu-dim.png"
+    },
+    {
+      "sha256": "fe867af8fcef4163e0934261c8ada74ca88c77289decebcd35b28cc3507c3712",
+      "name": "hud\\pickup.png"
+    },
+    {
+      "sha256": "554131e8bbd87fe2d9ca8a86ce4b9fabc64dc8863bfb9b9f6fcc3b063affeb84",
+      "name": "hud\\save-busy.png"
+    },
+    {
+      "sha256": "ab2105fef732e5c4da8e8e88582c028a69dd3d3e0b8a3eb536dbac1e572f8359",
+      "name": "hud\\save-cursor.png"
+    },
+    {
+      "sha256": "d1fffbf26052414eea1f7d52a1bf78d905c19faa6e8bb22b892d8227a0aabf2a",
+      "name": "hud\\save-error.png"
+    },
+    {
+      "sha256": "29ff58c1fd3e282492a31a2b3503288c260511293a2a402337aa59481c0376e7",
+      "name": "hud\\save-loaded.png"
+    },
+    {
+      "sha256": "0e5c14aa477c67fc2715161398a686627522dcf21695e0681b82d64a665a7cff",
+      "name": "hud\\save-menu.png"
+    },
+    {
+      "sha256": "5aee947be802a7bfea9a399af3a2f67ffc8579ef686b859edc2ea55e9a37f857",
+      "name": "hud\\save-saved.png"
+    },
+    {
+      "sha256": "e9c49f1004d404c813e5153ed43786b6ddbd0219089533cab970e5604110e8a4",
+      "name": "hud\\save-spinner.png"
+    },
+    {
+      "sha256": "92dbe9fecb7761c10ee7239558a648c5f88749fceaadb53d1dec65015bbc4649",
+      "name": "hud\\save-used.png"
+    },
+    {
+      "sha256": "1b90017cbe62be2e7f6e6776826267705e928fb0b7cc3661484274a791b0753e",
+      "name": "hud\\seq-black.png"
+    },
+    {
+      "sha256": "ea6670f8379bf26577b65be4c41bb1bec437a249e42c04056e7421418ae7108f",
+      "name": "hud\\use.png"
+    },
+    {
+      "sha256": "20e9413217348db5bba3285a33269d47c9a8fa2359e047f47d51339b8dec6fbc",
+      "name": "menus\\save.png"
+    },
+    {
+      "sha256": "1ccfcb30c7ebd111b1e614274af52b643c407be60f7c4f44b2bd04c5e004974d",
+      "name": "save\\icon.sys"
+    },
+    {
+      "sha256": "1e82fd6d9580142738568172b9be5f9355a17ad93bc090f1f217431dbb4e3c15",
+      "name": "save\\list.icn"
+    },
+    {
+      "sha256": "a229f9625d17bbfd80f9d1e2eda4146139ab6dcb1d6427fe2c607d5cc12d45bb",
+      "name": "vehicles\\fx-skid.png"
+    },
+    {
+      "sha256": "d5d30b604050559a7c1815b0e67f34498370c019f966df9b194a1cf3c63676d4",
+      "name": "vehicles\\fx-smoke.png"
+    },
+    {
+      "sha256": "6de6ef8ca187db546e3e43a1c208c098334ff8a2702fb71cd030bddfc2907adf",
+      "name": "vehicles\\veh-pica00000001-body.tmdl"
+    },
+    {
+      "sha256": "24b9e7af64290eb260d544eb8311199d27fba2972597fe4ed9bc9cd60aa5bc00",
+      "name": "vehicles\\veh-pica00000001-palette-image-0.png"
+    },
+    {
+      "sha256": "80c07b839f6832bdfa25eb99d4a9952708b388b66ba497509e42e4ed1ae36656",
+      "name": "vehicles\\veh-pica00000001-palette.png"
+    },
+    {
+      "sha256": "073728c7a0b516d3b2ea82e1b5cec283cc1c3c5c54e6895a97bd2d35dd2205e6",
+      "name": "vehicles\\veh-pica00000001-shadow.png"
+    },
+    {
+      "sha256": "1debda041c41361fbaca2dc2f2d0afd0b79ac27151741e6f7c62f4932860f738",
+      "name": "vehicles\\veh-pica00000001-wheel.tmdl"
+    },
+    {
+      "sha256": "21d60f29880a91a6b24772e74fb7522031471f9f1635bc672663ca26cc09df6a",
+      "name": "vehicles\\veh-pica00000001-wheelfast.tmdl"
+    },
+    {
+      "sha256": "208dbe38e706dad2a50096ce656f36849244f94c7973004b9fa10eacda5254ad",
+      "name": "vehicles\\veh-ravager000001-body.tmdl"
+    },
+    {
+      "sha256": "e5805af2bc828e1134441beaae697921fea18e1bc9cc9bb27e5455150ffcb675",
+      "name": "vehicles\\veh-ravager000001-palette-image-0.png"
+    },
+    {
+      "sha256": "2c3cf13a24fe7f38188f640b966cd0bdaaf7561c652633113e0f66c129bf418a",
+      "name": "vehicles\\veh-ravager000001-palette.png"
+    },
+    {
+      "sha256": "1139e9073e3862d01cc92cb61bfb244d33f746155dbd479721783132e6070661",
+      "name": "vehicles\\veh-ravager000001-shadow.png"
+    },
+    {
+      "sha256": "031b63da2fdf17bf8a7bba3c9a2ffdbea5fa5e3fd904a5592d3c961f214be2f5",
+      "name": "vehicles\\veh-ravager000001-wheel.tmdl"
+    },
+    {
+      "sha256": "0288451a9cda47729d3f43370a6fd068557170f25ef1fae5e9b2fa54450a47b9",
+      "name": "vehicles\\veh-ravager000001-wheelfast.tmdl"
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "status": "ROOT_QUALIFIED_BOUNDED_TWO_CARS_MOVING_LIGHT_PHYSICAL_CADENCE",
+  "loops": 5400,
+  "protocolPassed": true,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 2.668698649936252,
+      "chunkMeanEntryMs": 16.683333969116212,
+      "perChunkMeanEntryMs": [
+        16.683534304300945,
+        16.68356704711914,
+        16.68302493625217,
+        16.683534728156197,
+        16.683008829752605
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68356704711914,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683206028408474,
+          "p50Ms": 16.683353000217014,
+          "p95Ms": 16.710098605685765,
+          "maxMs": 16.712890625,
+          "over16_68": 107,
+          "over16_68Percent": 83.59375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.678977807362873,
+          "p50Ms": 16.67920939127604,
+          "p95Ms": 16.70592515733507,
+          "maxMs": 16.708818223741318,
+          "over16_68": 23,
+          "over16_68Percent": 17.96875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 2.6641979217529297,
+          "p50Ms": 2.6642523871527777,
+          "p95Ms": 2.6892608642578124,
+          "maxMs": 2.6932915581597223,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.683332125345867,
+          "p50Ms": 16.683369954427082,
+          "p95Ms": 16.683878919813367,
+          "maxMs": 16.704976399739582,
+          "over16_68": 123,
+          "over16_68Percent": 96.09375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 2.921411609649658,
+      "chunkMeanEntryMs": 16.683331362406413,
+      "perChunkMeanEntryMs": [
+        16.683616002400715,
+        16.68306753370497,
+        16.68344243367513,
+        16.683206770155167,
+        16.683324072096084
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683616002400715,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683558146158855,
+          "p50Ms": 16.683430989583332,
+          "p95Ms": 16.710211520724826,
+          "maxMs": 16.7291259765625,
+          "over16_68": 101,
+          "over16_68Percent": 78.90625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.679053995344375,
+          "p50Ms": 16.679273817274307,
+          "p95Ms": 16.705517578125,
+          "maxMs": 16.724924723307293,
+          "over16_68": 25,
+          "over16_68Percent": 19.53125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 2.912995868259006,
+          "p50Ms": 2.909698486328125,
+          "p95Ms": 2.979168701171875,
+          "maxMs": 2.9973551432291665,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68340555826823,
+          "p50Ms": 16.68335639105903,
+          "p95Ms": 16.700989108615452,
+          "maxMs": 16.704915364583332,
+          "over16_68": 116,
+          "over16_68Percent": 90.625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 2.6660270796881784,
+      "chunkMeanEntryMs": 16.683331934611,
+      "perChunkMeanEntryMs": [
+        16.683337211608887,
+        16.683355225457085,
+        16.683439254760742,
+        16.683195220099556,
+        16.683332761128742
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683439254760742,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683040406968857,
+          "p50Ms": 16.68341742621528,
+          "p95Ms": 16.70506998697917,
+          "maxMs": 16.719319661458332,
+          "over16_68": 97,
+          "over16_68Percent": 75.78125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.67921296755473,
+          "p50Ms": 16.679277208116318,
+          "p95Ms": 16.700924682617188,
+          "maxMs": 16.71512179904514,
+          "over16_68": 36,
+          "over16_68Percent": 28.125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 2.6616079012552896,
+          "p50Ms": 2.6619873046875,
+          "p95Ms": 2.6699205186631945,
+          "maxMs": 2.697574191623264,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68333085378011,
+          "p50Ms": 16.683369954427082,
+          "p95Ms": 16.704063585069445,
+          "maxMs": 16.716695149739582,
+          "over16_68": 101,
+          "over16_68Percent": 78.90625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "rawEntryPeriodsOver25ms": {
+    "0": 0,
+    "1": 0,
+    "2": 0
+  },
+  "approximate59_94HzObservedWindows": true,
+  "oneRuntimePointLight": true,
+  "allFourModelBodyWheelScopesSelectedAndEffectiveAllSixColdFrames": true,
+  "baselineControllerAmbientAndSceneUnchanged": true,
+  "lightMovementRegistrationTrigonometryIncluded": true,
+  "commonObserverFootprintUnpriced": true,
+  "matchedCausalIncrementalLightPrice": false,
+  "everyFrameActivationOrScanoutProved": false,
+  "userVisualConfirmationPending": true,
+  "clientLeftServing": true,
+  "emulatorRootReviewedThreeImages": true,
+  "emulatorOwnedPID1209ExitConfirmed": true
+}

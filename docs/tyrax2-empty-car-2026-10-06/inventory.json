@@ -398,5 +398,173 @@
   {
     "path": "two-cars/reset-audit/ps2link_mainloop.disassembly.txt",
     "sha256": "340115d8f05ed669d7ee761621509e01ce7c56d6eaf4e3b520f2f30db427b132"
+  },
+  {
+    "path": "two-cars-light/preparation/README.md",
+    "sha256": "6fd9f390004216b294dc12198a0694c4c179810d11d6a1c29d0374afdb33dca9"
+  },
+  {
+    "path": "two-cars-light/preparation/source-review.json",
+    "sha256": "73b887a6632761e09ebf8459bc53003a767b53c4daac3d2d894bde604264884e"
+  },
+  {
+    "path": "two-cars-light/preparation/source-content-census.json",
+    "sha256": "10a24550d2a7823b02f2a86d2555e88a23aa4a4879eb247188f599d326831ac0"
+  },
+  {
+    "path": "two-cars-light/preparation/native-proof.json",
+    "sha256": "c53691bcb86b37ee175780ae5354302c1b46d8fba1127510516fefe3a34674df"
+  },
+  {
+    "path": "two-cars-light/preparation/native-proof.py",
+    "sha256": "13a9955b5eeb800b60ce76b77fbf8f0417fbff7e20c2eace7131f310609307d8"
+  },
+  {
+    "path": "two-cars-light/preparation/bin-assets-source-pins.json",
+    "sha256": "91562da8463926d77419d3bfe3563c10a68d02c6342fd994d603c4799b06896c"
+  },
+  {
+    "path": "two-cars-light/preparation/preparation-proof.json",
+    "sha256": "c638d4d5d72297937223ad64bf2af250e77ba96354ed0bf05251bc0d0eda8bcf"
+  },
+  {
+    "path": "two-cars-light/preparation/analyze-light.py",
+    "sha256": "25f799548067f29dc8e09070ffa311df1001d77ac8b17a80b4709b3f9e442482"
+  },
+  {
+    "path": "two-cars-light/preparation/test-parser.py",
+    "sha256": "1a300bc0739d53e200c1482f57d0fbccc02a226ef11110057d10562ab97d8b12"
+  },
+  {
+    "path": "two-cars-light/preparation/parser-controls-v1/proof.json",
+    "sha256": "bc924e209180768e023f90dbd2ec462870dee2742713be698f41848351df22e9"
+  },
+  {
+    "path": "two-cars-light/preparation/root-emulator-review.json",
+    "sha256": "5de5d1d8a98c6775a50ceca8c11468878ebfec1004e185108adcee2154dcc40a"
+  },
+  {
+    "path": "two-cars-light/changed-source/empty-car/src/terrain_game.cpp",
+    "sha256": "6a8988aa68247a6a06a056b7d6a287447a40587ce1c265fd9f5d57b53159f66c"
+  },
+  {
+    "path": "two-cars-light/changed-source/tyra/engine/inc/debug/empty_witness.hpp",
+    "sha256": "8e665d8f44a21fd8cc62022c71167ca1d3867894bbfaefd2f2fe9d3d5bcb5622"
+  },
+  {
+    "path": "two-cars-light/changed-source/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "sha256": "890bf33a9f33c352864ab88faabf07743ab833075e7642fee61c6e94f16e2959"
+  },
+  {
+    "path": "two-cars-light/changed-source/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+    "sha256": "f23826badd5c8ab0b3caf88bfa872cd1bf6b686f7f5371c18d480579a82c71ae"
+  },
+  {
+    "path": "two-cars-light/emulator/owned-launch.json",
+    "sha256": "5606174e568b9b5e9d6110308cbc57b96b857f73583f4c4a3f76f0d303c4efb8"
+  },
+  {
+    "path": "two-cars-light/emulator/owned-stop.json",
+    "sha256": "c9c3493fb2554882cc228422a55a368325bda9d8ae9873047ff02e6df05efd81"
+  },
+  {
+    "path": "two-cars-light/emulator/protocol-analysis.json",
+    "sha256": "b3a5d7e8fcbd859261e0e2ff1418f8a42b1c73a7a223addf1d4d0a9c2a159b83"
+  },
+  {
+    "path": "two-cars-light/emulator/runtime/emulator.log",
+    "sha256": "fcd2ab67f3516502175f32d715917c91374004805e6ffc8becae2107448306b6"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-start/frame.png",
+    "sha256": "834ed81d30b0b72028c1facfea4c6a542eb95d10ad5abac69cae71fff4af1a9c"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-start/observe-proof.json",
+    "sha256": "be8ffee07090dafbe3610f4adb9978e74507d15eec8d091d3d18d48a88e98754"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-drive/frame.png",
+    "sha256": "a861d942c912cc0fda8c08fda5acc73299bdce938bc16f0a4e7da9cd9c2c0e38"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-drive/observe-proof.json",
+    "sha256": "b72e5af390c3a217d9fedd38959965cade4160e243fd5feb84acd0abedfca845"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-final/frame.png",
+    "sha256": "2144cf2c9addfd8b6b483d6387f24638a05f9ae7b89037f98a36fed57111f2a3"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-final/observe-proof.json",
+    "sha256": "c961a2fe966519894d2042e8f0b1dcf29e812d6b1627874c10fdce132723d0d5"
+  },
+  {
+    "path": "two-cars-light/emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "9656dec898d760fbb63c855b7e2fa9497f510427033b5a878668cdb0869aac6a"
+  },
+  {
+    "path": "two-cars-light/physical/completed-stdout.raw",
+    "sha256": "e54c7ba8a46f70dae123bf6b1807496a4ed18bf34c2529ccf40deb994f71e142"
+  },
+  {
+    "path": "two-cars-light/physical/stdout.utf8.log",
+    "sha256": "e54c7ba8a46f70dae123bf6b1807496a4ed18bf34c2529ccf40deb994f71e142"
+  },
+  {
+    "path": "two-cars-light/physical/bin/closeout-samples.txt",
+    "sha256": "0deaf23d4e57760adf16cbd86dff975f6ac67372165bb80fafb7ff930ca07521"
+  },
+  {
+    "path": "two-cars-light/physical/launch-inputs.json",
+    "sha256": "f1a1e225054b0201003d4bfc61f072bf7d469ef6ccf7325942785a09188a8bf8"
+  },
+  {
+    "path": "two-cars-light/physical/owned-launch.json",
+    "sha256": "200d7f25fce3519cc43e2a293223039e940964b99959aad760e2071ff14ddfa3"
+  },
+  {
+    "path": "two-cars-light/physical/protocol-analysis.json",
+    "sha256": "c2c66e07570dfc1817f5678b56e020c396576aac1696ba96b1586455dbaf606d"
+  },
+  {
+    "path": "two-cars-light/physical/physical-review.json",
+    "sha256": "25b551acf1695cf77093b23951fef75f8c98b8feaafb412cfe8113859e5f5ddd"
+  },
+  {
+    "path": "two-cars-light/physical/root-cadence-review.json",
+    "sha256": "43b433ea6fb356dd7ca45e179ec77fc6f32680e95eca53d6b770ece1790a62db"
+  },
+  {
+    "path": "two-cars-light/physical/finish-two-cars-light-physical.py",
+    "sha256": "5cb4cc51f772343d0e10a2e8f162c19363497ab3b0dc60f33ea7d713d7c3e409"
+  },
+  {
+    "path": "two-cars-light/preparation/review-light-root.py",
+    "sha256": "59b2ab735c2ed94a9c557bad236ad883a35eac5b4cd0d055906d6608c8af1cb4"
+  },
+  {
+    "path": "two-cars-light/reset-udp/udp-reset-qualified.py",
+    "sha256": "363ddcf13763974c767066465eb56bd05138bcc20ff0d5181f09daf70203e175"
+  },
+  {
+    "path": "two-cars-light/reset-udp/request.json",
+    "sha256": "d1ee4fdd3a255553cf6ab2d9f2103715bce3281692466f86219f3c8ab663d42d"
+  },
+  {
+    "path": "two-cars-light/reset-udp/owned-stop.json",
+    "sha256": "1160033a975e68f986a49c170f2c092848528f07dd6217dd8f6943e822da2d21"
+  },
+  {
+    "path": "two-cars-light/reset-udp/fresh-start-review.json",
+    "sha256": "9d9a3112e02e31633c5865e09680ec65dd73c7c73300782f4173dbfb2fcf8362"
+  },
+  {
+    "path": "two-cars-light/reset-udp/fresh-owned-launch.json",
+    "sha256": "736b2682cf219e1b4b1ec38344f9d2ace950b96381485700c8c4622f372e3acb"
+  },
+  {
+    "path": "two-cars-light/reset-udp/fresh-launch-inputs.json",
+    "sha256": "532c33f0701b428ecc0d3c880f9b9e6adbc843ae6e2dbf3a28d204367d1e3e3c"
   }
 ]
