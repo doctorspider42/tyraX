@@ -17778,6 +17778,20 @@ void App::buildCharIcon(CharIconJob& j) {
         for (const chargen::Item& it : chargen::hairstyles())
             if (it.id == m.hair) m.gender = sexToGender(it.sex);
         slot = "head";
+    } else if (j.key.rfind("cw:", 0) == 0) {
+        // your own garment: "cw:<mesh>|<texture>|<slot>", on the man (the
+        // reference it is most likely modelled on)
+        const std::string rest = j.key.substr(3);
+        const size_t a = rest.find('|'), b = rest.find('|', a == std::string::npos ? 0 : a + 1);
+        chargen::Params::CustomWear cw;
+        cw.mesh = rest.substr(0, a);
+        if (a != std::string::npos && b != std::string::npos) {
+            cw.texture = rest.substr(a + 1, b - a - 1);
+            cw.slot = rest.substr(b + 1);
+        }
+        m.customWear.push_back(cw);
+        m.gender = 1.0f;
+        slot = cw.slot == "over" ? "top" : cw.slot;
     } else if (j.key.rfind("p:", 0) == 0) {
         const int i = std::atoi(j.key.c_str() + 2);
         if (i >= 0 && i < (int)chargen::presets().size()) m = chargen::presets()[i].params;
@@ -18398,6 +18412,46 @@ void App::drawCharacterGeneratorWindow() {
 
             // Your own clothes (docs/character-generator.md, "Your own clothes")
             ImGui::SeparatorText("Your own clothes");
+            {
+                // Everything in res/models/characters/custom, as cards: a
+                // click wears it (in the slot last chosen for that file, else
+                // one guessed from its name), a second click takes it off.
+                // Re-scanned every second, so a file dropped in shows up.
+                static double scanned = -10.0;
+                static std::string scannedDir;
+                static std::vector<chargen::CustomGarmentFile> files;
+                if (ImGui::GetTime() - scanned > 1.0 || scannedDir != project_.dir) {
+                    files = chargen::listCustomGarments(project_.dir);
+                    scanned = ImGui::GetTime();
+                    scannedDir = project_.dir;
+                }
+                if (files.empty())
+                    ImGui::TextDisabled("Nothing in res/models/characters/custom yet - add one below.");
+                for (const chargen::CustomGarmentFile& f : files) {
+                    int at = -1;
+                    for (int i = 0; i < (int)p.customWear.size(); ++i)
+                        if (p.customWear[(size_t)i].mesh == f.mesh) at = i;
+                    if (card("cw:" + f.mesh + "|" + f.texture + "|" + f.slot, f.label.c_str(), at >= 0)) {
+                        if (at >= 0) {
+                            p.customWear.erase(p.customWear.begin() + at);
+                        } else {
+                            chargen::Params::CustomWear cw;
+                            cw.mesh = f.mesh;
+                            cw.texture = f.texture;
+                            cw.slot = f.slot;
+                            // one per slot: it takes the place of another own garment there
+                            p.customWear.erase(std::remove_if(p.customWear.begin(), p.customWear.end(),
+                                                              [&](const chargen::Params::CustomWear& o) {
+                                                                  return o.slot == cw.slot;
+                                                              }),
+                                               p.customWear.end());
+                            p.customWear.push_back(cw);
+                        }
+                        dirty = true;
+                    }
+                }
+                endCards();
+            }
             int drop = -1;
             for (int i = 0; i < (int)p.customWear.size(); ++i) {
                 chargen::Params::CustomWear& cw = p.customWear[(size_t)i];
@@ -18410,6 +18464,8 @@ void App::drawCharacterGeneratorWindow() {
                     for (int k = 0; k < (int)(sizeof(kSlots) / sizeof(kSlots[0])); ++k)
                         if (ImGui::Selectable(kSlots[k][1], k == si)) {
                             cw.slot = kSlots[k][0];
+                            // the file's slot from now on (its card wears it there)
+                            chargen::rememberCustomSlot(project_.dir, cw.mesh, cw.slot);
                             dirty = true;
                         }
                     ImGui::EndCombo();

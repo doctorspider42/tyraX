@@ -1147,6 +1147,64 @@ float motionStyleFor(const Params& p) {
     return std::clamp((0.5f - p.gender) * 2.0f, -1.0f, 1.0f) * 0.8f * adult;
 }
 
+static std::string guessGarmentSlot(std::string n) {
+    for (char& c : n) c = (char)std::tolower((unsigned char)c);
+    auto has = [&](std::initializer_list<const char*> ws) {
+        for (const char* w : ws)
+            if (n.find(w) != std::string::npos) return true;
+        return false;
+    };
+    if (has({"vest", "jacket", "coat", "cardigan", "parka", "hoodie", "cape", "poncho"})) return "over";
+    if (has({"hat", "cap", "helmet", "beanie", "hood", "crown", "beret"})) return "head";
+    if (has({"glasses", "shades", "goggles", "mask", "visor"})) return "face";
+    if (has({"boot", "shoe", "sneaker", "sandal", "heel", "slipper"})) return "feet";
+    if (has({"glove", "mitten", "gauntlet"})) return "hands";
+    if (has({"dress", "gown", "robe", "jumpsuit", "overall", "suit"})) return "full";
+    if (has({"pants", "trouser", "jeans", "skirt", "shorts", "legging", "kilt"})) return "bottom";
+    return "top";
+}
+
+std::vector<CustomGarmentFile> listCustomGarments(const std::string& projectDir) {
+    namespace fs = std::filesystem;
+    std::vector<CustomGarmentFile> out;
+    const fs::path root(projectDir), dir = root / "res" / "models" / "characters" / "custom";
+    std::error_code ec;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        if (!e.is_regular_file()) continue;
+        std::string ext = e.path().extension().string();
+        for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+        if (ext != ".glb" && ext != ".gltf" && ext != ".obj") continue;
+        const std::string stem = e.path().stem().string();
+        if (stem.rfind("reference-", 0) == 0) continue;  // the bodies to model on
+        CustomGarmentFile f;
+        f.mesh = fs::relative(e.path(), root, ec).generic_string();
+        f.label = stem;
+        const fs::path png = e.path().parent_path() / (stem + ".png");
+        if (fs::exists(png, ec)) f.texture = fs::relative(png, root, ec).generic_string();
+        f.slot = guessGarmentSlot(stem);
+        std::ifstream side(e.path().parent_path() / (stem + ".wear.json"), std::ios::binary);
+        if (side) {
+            std::stringstream ss;
+            ss << side.rdbuf();
+            json::Value v;
+            if (json::parse(ss.str(), v))
+                if (const json::Value* s = v.find("slot")) f.slot = s->stringOr(f.slot);
+        }
+        out.push_back(std::move(f));
+    }
+    std::sort(out.begin(), out.end(),
+              [](const CustomGarmentFile& a, const CustomGarmentFile& b) { return a.label < b.label; });
+    return out;
+}
+
+void rememberCustomSlot(const std::string& projectDir, const std::string& meshRel,
+                        const std::string& slot) {
+    namespace fs = std::filesystem;
+    const fs::path mesh = fs::path(projectDir) / meshRel;
+    std::ofstream side(mesh.parent_path() / (mesh.stem().string() + ".wear.json"), std::ios::binary);
+    side << "{ \"slot\": \"" << json::escape(slot) << "\" }\n";
+}
+
 Params altParams(const Params& p) {
     Params a = p;
     a.bodyChoice = false;

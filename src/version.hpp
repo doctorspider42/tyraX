@@ -5738,7 +5738,10 @@
 // 1.181.2: Character Generator - clothes kept out of the body (garment
 // vertices pushed out of the morphed skin, smoothed), skin under opaque cloth
 // not drawn, and skirt panels lead the striding thigh (1.1x; game twin too).
-#define TYRAX_VERSION_PATCH 0
+// 1.184.1: Character Generator - the project's own garments
+// (res/models/characters/custom) are cards under Your own clothes, with
+// thumbnails; a file's slot is remembered in <name>.wear.json or guessed.
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

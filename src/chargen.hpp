@@ -189,6 +189,17 @@ struct ClipInfo {
 const std::vector<ClipInfo>& kitClips();
 // The default set and the names they are written under.
 const std::vector<std::pair<std::string, std::string>>& defaultClipSet();
+// The project's own garments: every .glb / .obj under
+// res/models/characters/custom (the reference bodies left out), with its
+// texture (a .png of the same name beside it, if any) and its slot - the one
+// last chosen for that file (<stem>.wear.json beside it), else guessed from
+// the name (vest -> over, cap -> head, boots -> feet...). Paths project-relative.
+struct CustomGarmentFile {
+    std::string mesh, texture, slot, label;
+};
+std::vector<CustomGarmentFile> listCustomGarments(const std::string& projectDir);
+void rememberCustomSlot(const std::string& projectDir, const std::string& meshRel,
+                        const std::string& slot);
 // The movement style a recipe builds with: its own, or (auto) from Gender -
 // a woman +0.8, a man -0.8 - and toward 0 for children.
 float motionStyleFor(const Params& p);

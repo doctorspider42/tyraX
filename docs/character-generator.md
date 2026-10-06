@@ -409,6 +409,15 @@ triangles.
 
 ### Your own clothes
 
+Every `.glb` / `.obj` in `res/models/characters/custom` (the reference
+bodies aside) is a **card** under *Outfit > Your own clothes*, with a
+thumbnail like the kit's: a click wears it, a second takes it off, one per
+slot. Its slot is the one last chosen for that file (kept beside it in
+`<name>.wear.json`), else guessed from the name - vest, jacket, coat: Over
+the top; hat, cap: Hat; boots, shoes: Shoes; dress: Outfit; pants, skirt:
+Bottom; glasses: Glasses; gloves: Gloves; anything else: Top. The folder is
+re-read every second, so a file exported there shows up by itself.
+
 *Outfit > Your own clothes > Add your own...* does the same for a garment:
 model it on a reference body (step 1 above), export a static `.glb` or
 `.obj`, pick it, and choose its **slot** - Outfit (full), Top, Bottom, Shoes,
