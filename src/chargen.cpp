@@ -2329,6 +2329,145 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             l = std::sqrt(l);
             for (int c = 0; c < 4; ++c) q[c] = l > 1e-9f ? q[c] / l : (c == 3);
         };
+        // Posture. Quaternius' clips pull the clavicles ~20 degrees back
+        // (the shoulder joint 6 cm behind where the rig rests it) and let
+        // the upper arms hang 14 degrees backwards: on a person the arms
+        // hung behind the body, the hands 11 cm behind the hips. Every clip:
+        // the clavicles come 15 degrees forward, and an upper arm that hangs
+        // down tips 12 degrees forward - scaled by how much it hangs, so an
+        // arm held out (aiming, punching) is left alone. Both turns are in
+        // the parent's frame, before the clip's own rotation.
+        auto qmul = [](const float r[4], float q[4]) {
+            const float o[4] = {q[0], q[1], q[2], q[3]};
+            q[0] = r[3] * o[0] + r[0] * o[3] + r[1] * o[2] - r[2] * o[1];
+            q[1] = r[3] * o[1] - r[0] * o[2] + r[1] * o[3] + r[2] * o[0];
+            q[2] = r[3] * o[2] + r[0] * o[1] - r[1] * o[0] + r[2] * o[3];
+            q[3] = r[3] * o[3] - r[0] * o[0] - r[1] * o[1] - r[2] * o[2];
+        };
+        const float deg = 3.14159265f / 180.0f;
+        // an upper arm's direction under its local rotation q (unit vector),
+        // from its rest direction (the bind is identity: rest = head to child)
+        auto armDir = [&](int bone, const float q[4], float out[3]) -> bool {
+            int child = -1;
+            for (int j = 0; j < k.bones; ++j)
+                if (k.parent[j] == bone) child = j;
+            if (child < 0) return false;
+            float d[3];
+            for (int c = 0; c < 3; ++c) d[c] = heads[(size_t)child * 3 + c] - heads[(size_t)bone * 3 + c];
+            const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (len < 1e-6f) return false;
+            const float x = q[0], y = q[1], z = q[2], w = q[3];
+            out[0] = ((1.0f - 2.0f * (y * y + z * z)) * d[0] + 2.0f * (x * y - w * z) * d[1] + 2.0f * (x * z + w * y) * d[2]) / len;
+            out[1] = (2.0f * (x * y + w * z) * d[0] + (1.0f - 2.0f * (x * x + z * z)) * d[1] + 2.0f * (y * z - w * x) * d[2]) / len;
+            out[2] = (2.0f * (x * z - w * y) * d[0] + 2.0f * (y * z + w * x) * d[1] + (1.0f - 2.0f * (x * x + y * y)) * d[2]) / len;
+            return true;
+        };
+        auto hangOf = [](const float d[3]) { return std::clamp(-d[1] / 0.8f, 0.0f, 1.0f); };
+        // Per arm: how far this clip hangs it back on average (weighted by
+        // how much it hangs), measured against the TORSO - the line from the
+        // hips to the neck - not gravity (a sprint leans the body forward and
+        // its arms are where they should be) and not the chest bone's frame
+        // (the idle tips the chest forward and the arms back).
+        auto rotv = [](const float q[4], const float v[3], float o[3]) {
+            const float x = q[0], y = q[1], z = q[2], w = q[3];
+            o[0] = (1.0f - 2.0f * (y * y + z * z)) * v[0] + 2.0f * (x * y - w * z) * v[1] + 2.0f * (x * z + w * y) * v[2];
+            o[1] = 2.0f * (x * y + w * z) * v[0] + (1.0f - 2.0f * (x * x + z * z)) * v[1] + 2.0f * (y * z - w * x) * v[2];
+            o[2] = 2.0f * (x * z - w * y) * v[0] + 2.0f * (y * z + w * x) * v[1] + (1.0f - 2.0f * (x * x + y * y)) * v[2];
+        };
+        int boneHips = -1, boneNeck = -1, armL = -1, armR = -1;
+        for (int j = 0; j < k.bones; ++j) {
+            const std::string& nm = k.boneNames[(size_t)j];
+            if (nm == "mixamorig:Hips") boneHips = j;
+            if (nm == "mixamorig:Neck") boneNeck = j;
+            if (nm == "mixamorig:LeftArm") armL = j;
+            if (nm == "mixamorig:RightArm") armR = j;
+        }
+        std::map<int, float> armFix;
+        if (boneHips >= 0 && boneNeck >= 0 && armL >= 0 && armR >= 0) {
+            float sum[2] = {0, 0}, wsum[2] = {0, 0};
+            std::vector<float> wq((size_t)k.bones * 4), wp((size_t)k.bones * 3);
+            std::vector<char> done((size_t)k.bones);
+            for (int i = 0; i < keys; ++i) {
+                // forward kinematics, rotations only (the hips sit at 0),
+                // with the clavicles' posture turn
+                std::fill(done.begin(), done.end(), 0);
+                std::function<void(int)> fk = [&](int j) {
+                    if (done[(size_t)j]) return;
+                    float q[4];
+                    sampleRot(j, times[i], q);
+                    relaxShoulder(j, q);
+                    const std::string& nm = k.boneNames[(size_t)j];
+                    if (nm == "mixamorig:LeftShoulder" || nm == "mixamorig:RightShoulder") {
+                        const float cs = (nm == "mixamorig:LeftShoulder" ? -15.0f : 15.0f) * deg;
+                        const float ry[4] = {0.0f, std::sin(cs * 0.5f), 0.0f, std::cos(cs * 0.5f)};
+                        qmul(ry, q);
+                    }
+                    const int pa = k.parent[j];
+                    if (pa >= 0) {
+                        fk(pa);
+                        float qq[4] = {q[0], q[1], q[2], q[3]};
+                        qmul(&wq[(size_t)pa * 4], qq);  // world = parent's world * local
+                        std::copy(qq, qq + 4, &wq[(size_t)j * 4]);
+                        float off[3], r[3];
+                        for (int c = 0; c < 3; ++c) off[c] = heads[(size_t)j * 3 + c] - heads[(size_t)pa * 3 + c];
+                        rotv(&wq[(size_t)pa * 4], off, r);
+                        for (int c = 0; c < 3; ++c) wp[(size_t)j * 3 + c] = wp[(size_t)pa * 3 + c] + r[c];
+                    } else {
+                        std::copy(q, q + 4, &wq[(size_t)j * 4]);
+                        for (int c = 0; c < 3; ++c) wp[(size_t)j * 3 + c] = 0.0f;
+                    }
+                    done[(size_t)j] = 1;
+                };
+                fk(boneNeck);
+                fk(armL);
+                fk(armR);
+                fk(boneHips);
+                float up[3], lat[3], fw[3];
+                for (int c = 0; c < 3; ++c) {
+                    up[c] = wp[(size_t)boneNeck * 3 + c] - wp[(size_t)boneHips * 3 + c];
+                    lat[c] = wp[(size_t)armL * 3 + c] - wp[(size_t)armR * 3 + c];
+                }
+                fw[0] = lat[1] * up[2] - lat[2] * up[1];
+                fw[1] = lat[2] * up[0] - lat[0] * up[2];
+                fw[2] = lat[0] * up[1] - lat[1] * up[0];
+                const float ul = std::sqrt(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+                const float fl = std::sqrt(fw[0] * fw[0] + fw[1] * fw[1] + fw[2] * fw[2]);
+                if (ul < 1e-6f || fl < 1e-6f) continue;
+                for (int s = 0; s < 2; ++s) {
+                    const int arm = s == 0 ? armL : armR;
+                    float local[4], d[3], dw[3];
+                    sampleRot(arm, times[i], local);
+                    relaxShoulder(arm, local);
+                    if (!armDir(arm, local, d)) continue;
+                    rotv(&wq[(size_t)k.parent[arm] * 4], d, dw);
+                    const float du = (dw[0] * up[0] + dw[1] * up[1] + dw[2] * up[2]) / ul;
+                    const float df = (dw[0] * fw[0] + dw[1] * fw[1] + dw[2] * fw[2]) / fl;
+                    const float h = std::clamp(-du / 0.8f, 0.0f, 1.0f);
+                    sum[s] += h * std::atan2(-df, -du);  // + = hanging back
+                    wsum[s] += h;
+                }
+            }
+            for (int s = 0; s < 2; ++s)
+                armFix[s == 0 ? armL : armR] =
+                    wsum[s] > 0.0f ? std::clamp(sum[s] / wsum[s], 0.0f, 25.0f * deg) : 0.0f;
+        }
+        auto posture = [&](int bone, float q[4]) {
+            const std::string& nm = k.boneNames[(size_t)bone];
+            const bool left = nm.rfind("mixamorig:Left", 0) == 0;
+            if (nm == "mixamorig:LeftShoulder" || nm == "mixamorig:RightShoulder") {
+                const float a = (left ? -15.0f : 15.0f) * deg;  // about up (+Y)
+                const float r[4] = {0.0f, std::sin(a * 0.5f), 0.0f, std::cos(a * 0.5f)};
+                qmul(r, q);
+                return;
+            }
+            auto it = armFix.find(bone);
+            if (it == armFix.end() || it->second <= 0.0f) return;
+            float d[3];
+            if (!armDir(bone, q, d)) return;
+            const float a = -it->second * hangOf(d);  // about +X: a hanging arm swings toward +Z
+            const float r[4] = {std::sin(a * 0.5f), 0.0f, 0.0f, std::cos(a * 0.5f)};
+            qmul(r, q);
+        };
         for (int b = 0; b < k.bones; ++b) {
             glbparser::SkelChannel ch;
             ch.node = b;
@@ -2360,6 +2499,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 float q[4];
                 sampleRot(b, times[i], q);
                 relaxShoulder(b, q);
+                posture(b, q);
                 if (finger) {
                     float l = 0.0f;
                     if (partner >= 0) {

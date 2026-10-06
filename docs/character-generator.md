@@ -457,7 +457,7 @@ the EE evaluates them, and all-identity channels are dropped.
 The old analytic idle/walk/run/jump generator is gone; a motion library made by
 an animator beats any sine wave.
 
-Three things the generator changes on the way out of the kit, each from a
+Four things the generator changes on the way out of the kit, each from a
 rendered failure:
 
 - **Fingers.** The rig curls the index finger on its own chain and the other
@@ -469,6 +469,16 @@ rendered failure:
   out from the body (19 in the idle) and the clavicles shrugged up. In clips
   named Jog/Sprint/Run the clavicles take the idle's rotation and the upper
   arms come in by 18 degrees about the forward axis: measured 25 degrees out.
+- **Posture.** Quaternius' clips pull the clavicles about 20 degrees back and
+  hang the arms behind the body: in the idle the shoulder joint sat 6 cm
+  behind the chest and the hands 11 cm behind the hips. Every clip brings the
+  clavicles 15 degrees forward, and tips each upper arm forward by however
+  far that clip hangs it back on average (up to 25 degrees), measured against
+  the torso - the hips-to-neck line, not gravity (a sprint leans forward) and
+  not the chest bone (the idle tips the chest forward and the arms back) -
+  and scaled by how much the arm hangs, so an arm held out (aiming,
+  punching) is untouched. Measured after: elbows straight under the
+  shoulders in the idle and the walk, hands 4-9 cm in front of the hips.
 - **Skirt panels follow the legs** - see [Clothes that move](#clothes-that-move).
 
 ## A living face

@@ -5705,7 +5705,10 @@
 // a fringe gets its blurred shadow, not a hair-coloured blotch), and brows
 // are laid flat through their card binding instead of ray-baked (streaks
 // above every brow). Kit rebuilt; project format unchanged.
-#define TYRAX_VERSION_PATCH 1
+// 1.180.2: Character Generator posture - every clip brings the clavicles 15
+// degrees forward and the hanging upper arms forward by what the clip hangs
+// them back (vs the torso, up to 25): arms no longer hang behind the body.
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
