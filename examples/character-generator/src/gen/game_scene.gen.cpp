@@ -254,6 +254,9 @@ int TerrainGame::creatorRows(int index, int* rows) const {
   const GameAnimModel& gam = gameAnimModels[o.data.animModel];
   const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
   int n = 0;
+#ifdef ANIM_MODEL_ALT_USED
+  if (ANIM_MODEL_ALT[o.data.animModel] >= 0) rows[n++] = 4;  // Body: man or woman
+#endif
   if (variants > 0) rows[n++] = 0;
   for (int s = 1; s <= 3; ++s)
     if (gam.optCount[s] > 0) rows[n++] = s;
@@ -269,7 +272,7 @@ bool TerrainGame::updateCharCreator() {
       if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size() ||
           !objectGeometry[i].animInst)
         return false;
-      int rows[4];
+      int rows[5];
       return creatorRows(i, rows) > 0;
     };
     if (!dressable(idx)) idx = PLAYER_INDEX;
@@ -278,6 +281,7 @@ bool TerrainGame::updateCharCreator() {
       creatorRow = 0;
       creatorYaw = 0.0F;
       for (int s = 0; s < 4; ++s) creatorRestore[s] = runtimeObjects[idx].look[s];
+      creatorRestoreModel = bodyWant >= 0 ? bodyWant : runtimeObjects[idx].data.animModel;
       // A menu as its screen: open it (updateGameMenu takes it next frame)
       // and let its rows do the dressing.
       creatorMenu = scriptCtx.openCreatorMenu < MENU_COUNT ? scriptCtx.openCreatorMenu : -1;
@@ -290,6 +294,7 @@ bool TerrainGame::updateCharCreator() {
   }
   scriptCtx.openCreator = -1;
   scriptCtx.openCreatorMenu = -1;
+  stepBodyLoad();  // a Body-row swap keeps loading after the creator closes
   scriptCtx.creatorOpen = creatorObj >= 0;
   if (creatorObj < 0) return false;
   RuntimeObject& o = runtimeObjects[creatorObj];
@@ -297,7 +302,7 @@ bool TerrainGame::updateCharCreator() {
     creatorObj = -1;
     return false;
   }
-  int rows[4];
+  int rows[5];
   const int n = creatorRows(creatorObj, rows);
   Pad& pad = engine->pad;
   const auto& clicked = pad.getClicked();
@@ -310,7 +315,8 @@ bool TerrainGame::updateCharCreator() {
   };
   auto finish = [&] {
     if (creatorObj == PLAYER_INDEX) {
-      playerLook[0] = o.data.animModel;
+      // the body they chose, even while it is still loading
+      playerLook[0] = bodyWant >= 0 ? bodyWant : o.data.animModel;
       for (int s = 0; s < 4; ++s) playerLook[1 + s] = o.look[s];
     }
     creatorObj = -1;
@@ -336,8 +342,10 @@ bool TerrainGame::updateCharCreator() {
   turn();
   const bool keep = inputClicked(pad, IA_ROLE_CONFIRM) || clicked.Cross || clicked.Start;
   const bool cancel = inputClicked(pad, IA_ROLE_BACK) || clicked.Circle;
-  if (cancel)
+  if (cancel) {
     for (int s = 0; s < 4; ++s) o.look[s] = creatorRestore[s];
+    requestBody(creatorObj, creatorRestoreModel);
+  }
   if (keep || cancel) finish();
   return true;
 }
@@ -346,12 +354,171 @@ int TerrainGame::creatorTarget() const {
   return creatorObj >= 0 ? creatorObj : PLAYER_INDEX;
 }
 
+// The model an authored object is drawn with: the player keeps the body
+// they chose in the creator (playerLook[0], saved with the game) across scene
+// loads; while the creator is open, the body it shows. Everything that loads,
+// frees or sets up the player's model goes through this.
+int TerrainGame::effectiveAnimModel(int index, int authored) const {
+#ifdef ANIM_MODEL_ALT_USED
+  if (index == PLAYER_INDEX && authored >= 0 && authored < ANIM_MODEL_COUNT) {
+    const int alt = ANIM_MODEL_ALT[authored];
+    if (alt >= 0) {
+      if (creatorObj == index && index < (int)runtimeObjects.size()) {
+        const int now = runtimeObjects[index].data.animModel;
+        if (now == alt || now == authored) return now;
+      }
+      if (playerLook[0] == alt) return alt;
+    }
+  }
+#endif
+  (void)index;
+  return authored;
+}
+
+// Ask for a body: the one already drawn cancels a pending load; another
+// starts (or keeps) loading it in the background (stepBodyLoad).
+void TerrainGame::requestBody(int index, int model) {
+  if (index < 0 || index >= (int)runtimeObjects.size() || model < 0 || model >= ANIM_MODEL_COUNT)
+    return;
+  if (runtimeObjects[index].data.animModel == model) {
+    if (bodyLoad.file) fclose(bodyLoad.file);
+    for (const std::string& t : bodyLoad.held) releaseTexture(t);
+    bodyLoad = BodyLoad();
+    bodyWant = -1;
+    bodySpin = 0;
+    return;
+  }
+  bodyWant = model;
+  bodyLoad.target = index;
+}
+
+// One frame of a background body load - no hitch: the .tskl is read 64 KB
+// a frame into memory, parsed the frame after the last slice, its textures
+// loaded into the cache one a frame, the model adopted (every texture a cache
+// hit by then), and only then does the character change bodies. The old body
+// is freed once nobody draws it. Measured in PCSX2 (docs/character-
+// generator.md, "Man or woman"): the 64 KB slices fit the frame; parsing and
+// the bigger textures still cost a frame or two each.
+void TerrainGame::stepBodyLoad() {
+  if (bodyWant < 0) return;
+  const int m = bodyWant;
+  ++bodySpin;
+  BodyLoad& L = bodyLoad;
+  if (animModelLoaded[m] && L.stage < 4) {  // already resident (a crowd member wears it)
+    for (const std::string& t : L.held) releaseTexture(t);
+    L.held.clear();
+    L.stage = 4;
+    L.model = m;
+  }
+  if (L.model != m) {  // a new request: start over
+    if (L.file) fclose(L.file);
+    for (const std::string& t : L.held) releaseTexture(t);
+    const int target = L.target;
+    L = BodyLoad();
+    L.target = target;
+    L.model = m;
+  }
+  if (L.stage == 0) {
+    if (!L.file) {
+      L.file = fopen(FileUtils::fromCwd(ANIM_MODEL_PATHS[m]).c_str(), "rb");
+      if (!L.file) {
+        TYRA_WARN("Character Creator: cannot open ", ANIM_MODEL_PATHS[m]);
+        bodyWant = -1;
+        L = BodyLoad();
+        return;
+      }
+      L.bytes.reserve(1u << 20);
+    }
+    unsigned char chunk[8192];
+    for (int k = 0; k < 8; ++k) {  // 64 KB a frame
+      const size_t got = fread(chunk, 1, sizeof(chunk), L.file);
+      L.bytes.insert(L.bytes.end(), chunk, chunk + got);
+      if (got < sizeof(chunk)) {
+        fclose(L.file);
+        L.file = nullptr;
+        L.stage = 1;
+        break;
+      }
+    }
+    return;
+  }
+  if (L.stage == 1) {
+    L.parsed = TsklLoader::fromMemory(L.bytes, ANIM_MODEL_PATHS[m]);
+    std::vector<u8>().swap(L.bytes);
+    L.stage = 2;
+    return;
+  }
+  if (L.stage == 2) {  // one texture a frame into the cache
+    while (L.parsed && L.texNext < L.parsed->parts.size()) {
+      const std::string& t = L.parsed->parts[L.texNext++].texturePath;
+      if (t.empty()) continue;
+      acquireTexture(t);
+      L.held.push_back(t);
+      return;
+    }
+    L.stage = 3;
+    return;
+  }
+  if (L.stage == 3) {
+    adoptAnimModel(m, std::move(L.parsed));
+    for (const std::string& t : L.held) releaseTexture(t);  // adopt holds its own
+    L.held.clear();
+    L.stage = 4;
+    return;
+  }
+  // stage 4: the body is resident - change into it
+  const int target = L.target;
+  L = BodyLoad();
+  bodyWant = -1;
+  bodySpin = 0;
+  if (!animModelLoaded[m] || !gameAnimModels[m].src) {
+    TYRA_WARN("Character Creator: the other body did not load");
+    return;
+  }
+  swapBody(target, m);
+}
+
+void TerrainGame::swapBody(int index, int model) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  const int old = o.data.animModel;
+  if (old == model) return;
+  int look[4];
+  for (int s = 0; s < 4; ++s) look[s] = o.look[s];
+  o.data.animModel = model;
+  setupAnimObject(index);
+  // in the creator: the same choices on the other body (same options, same
+  // colour looks); otherwise (a loaded save) setupAnimObject has put on the
+  // look saved for this body
+  if (creatorObj == index)
+    for (int s = 0; s < 4; ++s) o.look[s] = look[s];
+  objectGeometry[index].lookShown[0] = -9;  // applyLook redoes them all
+  applyLook(index);
+  // the old body goes when nobody draws it any more
+  bool used = false;
+  for (int i = 0; i < (int)runtimeObjects.size() && !used; ++i)
+    used = runtimeObjects[i].active && runtimeObjects[i].data.animModel == old;
+  if (!used && old >= 0 && old < ANIM_MODEL_COUNT) {
+    freeAnimModelAsset(old);
+    SkelInstance::clearOutputPool();
+  }
+}
+
 // One Left/Right on a creator row. Look: 1..variants+1 (the authored
 // colours are Look 1); hair, hat, glasses: None, then each option.
 void TerrainGame::creatorStep(int index, int slot, int dir) {
-  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 3) return;
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 4) return;
   RuntimeObject& o = runtimeObjects[index];
   if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  if (slot == 4) {  // Body: the other one (two bodies, so either way toggles)
+#ifdef ANIM_MODEL_ALT_USED
+    const int cur = bodyWant >= 0 && bodyLoad.target == index ? bodyWant : o.data.animModel;
+    const int alt = cur >= 0 && cur < ANIM_MODEL_COUNT ? ANIM_MODEL_ALT[cur] : -1;
+    if (alt >= 0) requestBody(index, alt);
+#endif
+    (void)dir;
+    return;
+  }
   const GameAnimModel& gam = gameAnimModels[o.data.animModel];
   if (slot == 0) {
     const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
@@ -370,9 +537,24 @@ void TerrainGame::creatorStep(int index, int slot, int dir) {
 // "None") for the rest, "-" when the model has nothing for that row.
 void TerrainGame::creatorValueText(int index, int slot, char* out, int size) const {
   snprintf(out, (size_t)size, "-");
-  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 3) return;
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 4) return;
   const RuntimeObject& o = runtimeObjects[index];
   if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  if (slot == 4) {
+#ifdef ANIM_MODEL_ALT_USED
+    const bool pending = bodyWant >= 0 && bodyLoad.target == index;
+    const int m = pending ? bodyWant : o.data.animModel;
+    if (ANIM_MODEL_ALT[o.data.animModel] < 0 && !pending) return;
+    const char* who = ANIM_MODEL_WOMAN[m] == 1 ? "Woman" : ANIM_MODEL_WOMAN[m] == 0 ? "Man" : "Other";
+    // loading in the background: the choice, and a spinner beside it
+    static const char kSpin[4] = {'|', '/', '-', '\\'};
+    if (pending)
+      snprintf(out, (size_t)size, "%s %c", who, kSpin[(bodySpin / 6) & 3]);
+    else
+      snprintf(out, (size_t)size, "%s", who);
+#endif
+    return;
+  }
   const GameAnimModel& gam = gameAnimModels[o.data.animModel];
   if (slot == 0) {
     const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
@@ -412,11 +594,11 @@ void TerrainGame::creatorCamera() {
 
 void TerrainGame::renderCharCreator() {
   if (creatorObj < 0 || creatorMenu >= 0) return;  // a menu draws itself
-  int rows[4];
+  int rows[5];
   const int n = creatorRows(creatorObj, rows);
   const auto& scr = engine->renderer.core.getSettings();
   const float w = (float)scr.getWidth(), hgt = (float)scr.getHeight();
-  static const char* const kRow[4] = {"Look", "Hair", "Hat", "Glasses"};
+  static const char* const kRow[5] = {"Look", "Hair", "Hat", "Glasses", "Body"};
   // The project's first font when it has one, the built-in 8x8 HUD strip
   // (capitals, digits, a few symbols) when it does not.
   auto text = [&](const char* s, float cx, float cy, float size, bool lit) {
@@ -1851,6 +2033,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
+    runtimeObjects[i].data.animModel = effectiveAnimModel(i, SCENE_OBJECTS[i].animModel);
     // spawn points and the player are editor markers, not geometry; emitters
     // honor their Enabled flag (Show/Hide Object flips visible at runtime)
     runtimeObjects[i].visible =
@@ -3518,6 +3701,12 @@ void TerrainGame::applySavedObjects() {
   }
   pendingObjState.clear();
   pendingObjScene = -1;
+  // the body the save was made in (the creator's Body row): a load in the
+  // same scene changes into it in the background, like the creator does
+  if (PLAYER_INDEX >= 0) {
+    const int want = effectiveAnimModel(PLAYER_INDEX, SCENE_OBJECTS[PLAYER_INDEX].animModel);
+    if (want != runtimeObjects[PLAYER_INDEX].data.animModel) requestBody(PLAYER_INDEX, want);
+  }
   // the creator's look on the player, when it was chosen in this model
   if (PLAYER_INDEX >= 0 && playerLook[0] == runtimeObjects[PLAYER_INDEX].data.animModel)
     for (int s = 0; s < 4; ++s) runtimeObjects[PLAYER_INDEX].look[s] = playerLook[1 + s];
@@ -3881,8 +4070,10 @@ bool TerrainGame::updateGameMenu() {
         break;
       case 15:  // creator undo: the look it opened with, then close (the
         // creator sees its menu gone and ends)
-        if (creatorObj >= 0)
+        if (creatorObj >= 0) {
           for (int s = 0; s < 4; ++s) runtimeObjects[creatorObj].look[s] = creatorRestore[s];
+          requestBody(creatorObj, creatorRestoreModel);  // and the body it opened in
+        }
         if (m.closeSec > 0.0F) {
           gameMenuClosing = gameMenuIndex;
           gameMenuCloseT = 0.0F;

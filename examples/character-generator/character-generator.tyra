@@ -196,6 +196,7 @@
       "entries": [] },
     { "name": "character", "title": "CHARACTER", "pause": false, "screenPos": [0.72, 0.5], "accent": [0.47, 0.82, 1],
       "entries": [
+        { "label": "BODY", "action": "creator", "param": "body" },
         { "label": "COLOURS", "action": "creator", "param": "look" },
         { "label": "HAIR", "action": "creator", "param": "hair" },
         { "label": "HAT", "action": "creator", "param": "hat" },

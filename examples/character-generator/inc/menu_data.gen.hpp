@@ -119,7 +119,8 @@ inline constexpr MenuEntryData MENU_0_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 // menu "character"
-inline constexpr MenuEntryData MENU_1_ENTRIES[6] = {
+inline constexpr MenuEntryData MENU_1_ENTRIES[7] = {
+    {14, 4, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // BODY
     {14, 0, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // COLOURS
     {14, 1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // HAIR
     {14, 2, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // HAT
@@ -130,7 +131,7 @@ inline constexpr MenuEntryData MENU_1_ENTRIES[6] = {
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
-    {"menus/character.png", 256, 256, 210, 44, 24, 6, MENU_1_ENTRIES, 0, 0, 0.72F, 0.5F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 6, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // character
+    {"menus/character.png", 256, 256, 234, 44, 24, 7, MENU_1_ENTRIES, 0, 0, 0.72F, 0.5F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // character
 };
 
 inline constexpr int TITLE_MENU = -1;

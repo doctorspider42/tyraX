@@ -1901,8 +1901,12 @@ void TerrainGame::freeMaterialAsset(int i) {
 // PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
+  adoptAnimModel(i, TsklLoader::load(ANIM_MODEL_PATHS[i]));
+}
+
+void TerrainGame::adoptAnimModel(int i, std::unique_ptr<SkelModel> model) {
+  if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
   animModelLoaded[i] = 1;
-  auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
@@ -2061,8 +2065,9 @@ void TerrainGame::applyLayerResidency() {
     for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
       if (d.material >= 0 && d.material + f < (int)materialNeed.size())
         materialNeed[d.material + f] = 1;
-    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
-      animNeed[d.animModel] = 1;
+    // the player's chosen body (the creator's Body row), not the authored one
+    const int am = effectiveAnimModel(i, d.animModel);
+    if (am >= 0 && am < (int)animNeed.size()) animNeed[am] = 1;
   }
   // Active spawn-pool clones keep their template's assets resident even when
   // the template's own layer is out (a clone from a no-layer template must
@@ -2202,6 +2207,7 @@ void TerrainGame::activateObject(int i) {
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
+  o.data.animModel = effectiveAnimModel(i, o.data.animModel);  // the chosen body
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;

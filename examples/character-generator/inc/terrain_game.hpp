@@ -527,6 +527,10 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
+  // The rest of a load once the .tskl is parsed: options, textures, palette
+  // variants, cull box (loadAnimModelAsset reads the file in one go; the
+  // creator's Body row reads it a slice per frame and calls this).
+  void adoptAnimModel(int index, std::unique_ptr<Tyra::SkelModel> model);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
@@ -546,6 +550,27 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // character is swapped to - read a slice per frame while they keep moving,
+  // then adopted, set up, and the old body freed. bodyWant = the model asked
+  // for (-1 = none pending); creatorRestoreModel = the body when it opened.
+  struct BodyLoad {
+    int model = -1;   // being loaded
+    int target = -1;  // the object that changes into it
+    int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
+    FILE* file = nullptr;
+    std::vector<u8> bytes;
+    std::unique_ptr<Tyra::SkelModel> parsed;
+    size_t texNext = 0;              // stage 2: the next part's texture
+    std::vector<std::string> held;   // textures acquired ahead (released after adopt)
+  } bodyLoad;
+  int bodyWant = -1;
+  int creatorRestoreModel = -1;
+  int bodySpin = 0;  // frames spent loading: the row's spinner
+  int effectiveAnimModel(int index, int authored) const;
+  void stepBodyLoad();
+  void swapBody(int index, int model);
+  void requestBody(int index, int model);
   float creatorYaw = 0.0F;      // the camera's turn around them, radians
   // The PLAYER's look, kept across scene loads and saved with the game:
   // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.

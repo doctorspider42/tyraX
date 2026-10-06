@@ -12,12 +12,20 @@ headless: `tyrax-editor --build <this folder> --run`.
 ## What to do
 
 The game opens in the **Character Creator**: dress `hero` before you play.
-Up/Down picks a row, Left/Right changes it - four colour looks, five
-hairstyles, three hats, three sets of glasses, or none - L1/R1 turn him round,
-Cross keeps it and Circle puts back what he wore. **Select** opens it again
+Up/Down picks a row, Left/Right changes it - **man or woman**, four colour
+looks, five hairstyles, three hats, three sets of glasses, or none - L1/R1
+turn them round, Cross keeps it and Circle puts back what they wore. **Select** opens it again
 any time. That is the player's own flow graph (On Start and On Button Select
 into a Character Creator node), and `hero.chargen.json` lists the choices in
 its `"options"` (docs/character-generator.md, "In-game character creator").
+
+The **BODY** row swaps the whole model: `"bodyChoice": true` in the hero's
+recipe makes the generator write `hero-alt.glb` beside `hero.glb` - the same
+person as a woman, in the same vest, clothes, options and colour looks. Only
+one body is in memory: switching loads the other in the background (the row
+shows `Woman /` with a spinner while the man keeps idling), then swaps and
+frees the first; the choice sticks across scenes and in saves
+(docs/character-generator.md, "Man or woman").
 
 The screen itself is the `character` **menu**, picked in the node's *Menu*:
 restyle it in *Tools > Menu Editor* like any other menu - stylesheet, labels,
@@ -110,15 +118,15 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
-| `hero` | man, 1.82 m, muscular | an orange **puffer vest of his own** over a polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~6100 as worn (11 767 in the file: the vest, every option, its hat twin and scalp cap) |
-| `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4407 |
-| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4375 |
-| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4221 |
-| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4228 |
-| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4511 |
+| `hero` | man, 1.82 m, muscular | an orange **puffer vest of his own** over a polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~6100 as worn (11 753 in the file: the vest, every option, its hat twin and scalp cap) |
+| `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4401 |
+| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4368 |
+| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4211 |
+| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4212 |
+| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4496 |
 | `commuter` x 8 (+ 6 in `crowd`) | man, 1.78 m, crowd body | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 2504 |
-| `shopper` x 6 (`crowd`) | woman, 1.66 m, crowd body | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 2781 |
-| `pensioner` x 6 (`crowd`) | man, 1.72 m, 82, crowd body | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 2729 |
+| `shopper` x 6 (`crowd`) | woman, 1.66 m, crowd body | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 2775 |
+| `pensioner` x 6 (`crowd`) | man, 1.72 m, 82, crowd body | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 2728 |
 
 Shirts, trousers and suits are **shells** - the body itself, pushed out and
 painted - so they add no triangles (and skin under a mesh garment is not drawn); the counts above are a 3348-triangle woman's body
