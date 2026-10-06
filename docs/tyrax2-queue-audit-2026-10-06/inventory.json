@@ -1,0 +1,371 @@
+{
+  "status": "PINNED_SELECTIVE_QUEUE_AUDIT_EVIDENCE",
+  "parentReferencesVerified": 471,
+  "files": [
+    {
+      "path": "emulator/balance-controls/bad-marker-order.stderr",
+      "sha256": "2ce8175d6b56d9828d1920567f701e76294f1d7f66290c7ec1e46f5a0c410a24",
+      "bytes": 264
+    },
+    {
+      "path": "emulator/balance-controls/controls.json",
+      "sha256": "352c52ab2cc840930415a21682b57dfe826d65aee617904a40ee09d24fc0c3bb",
+      "bytes": 691
+    },
+    {
+      "path": "emulator/balance-controls/duplicate-row.stderr",
+      "sha256": "ef9b964572dc443a7b7626d4908f3b5da15fc106daee53830db47654358f2cba",
+      "bytes": 241
+    },
+    {
+      "path": "emulator/balance-controls/job-owner.stderr",
+      "sha256": "c2355faaf7b78dd3ab83c4b8b3efac4b94922d7b6c4093c2870a0146b6701a4c",
+      "bytes": 279
+    },
+    {
+      "path": "emulator/balance-controls/missing-row.stderr",
+      "sha256": "ef9b964572dc443a7b7626d4908f3b5da15fc106daee53830db47654358f2cba",
+      "bytes": 241
+    },
+    {
+      "path": "emulator/balance-controls/negative-exclusive.stderr",
+      "sha256": "07f2828bdd41cfc878fc5c1ddc1202ee7ec2d8cb923912a9b442014f215c1d37",
+      "bytes": 248
+    },
+    {
+      "path": "emulator/balance-controls/nested-wait.stderr",
+      "sha256": "e81d94f11709fc73461f9c18b9badb1c6f4c23ec08caa9128c6bd808b95868d0",
+      "bytes": 210
+    },
+    {
+      "path": "emulator/balance-controls/pacing-mismatch.stderr",
+      "sha256": "2698e55bb2da114fade5d9a361c51ac36396b53385574c9e42ca6669388e0131",
+      "bytes": 274
+    },
+    {
+      "path": "emulator/balance-controls/read-count.stderr",
+      "sha256": "e81d94f11709fc73461f9c18b9badb1c6f4c23ec08caa9128c6bd808b95868d0",
+      "bytes": 210
+    },
+    {
+      "path": "emulator/completed/bin-closeout-samples.txt",
+      "sha256": "8cc4105ff62d5639432481f0dd20e71fa5923d4e326ac0f3bd97983326f0ad38",
+      "bytes": 352960
+    },
+    {
+      "path": "emulator/completed/frame.png",
+      "sha256": "8dd20411dfbd4e6e6112b9b91ec32627c5ddf913054835d956fc5355076f672b",
+      "bytes": 296782
+    },
+    {
+      "path": "emulator/completed/observe-proof.json",
+      "sha256": "d0b83209b5a54a252500978513f0197f9beee8ebe5836dcdfced6b533b8f9dbf",
+      "bytes": 5438
+    },
+    {
+      "path": "emulator/completed/runtime-emulator.log",
+      "sha256": "de7f17cfd70193fb87feda377625afbae005c7127e9f2a8d6e2bcb0e850c8396",
+      "bytes": 61797
+    },
+    {
+      "path": "emulator/completed/runtime-stdout.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "emulator/launch-attempt.json",
+      "sha256": "981ee11218210069e71a4692dd0353a857aff7771d707dbee8feac03c57bcd4c",
+      "bytes": 666
+    },
+    {
+      "path": "emulator/owned-launch.json",
+      "sha256": "0aff68fc34a95fca5229f160fc12f40175f0eee5a07312dbd522b571a647aba2",
+      "bytes": 1706
+    },
+    {
+      "path": "emulator/owned-stop.json",
+      "sha256": "a25b8fef944e6aa32e42dbc5aa6d67857df7fa8ae34826c9f14a9b6928a427a4",
+      "bytes": 255
+    },
+    {
+      "path": "emulator/queue-controls/controls.json",
+      "sha256": "1a135dedc34ebc1f3fd28a4788b865bc0d14687d85fbc230e0559add4dc17767",
+      "bytes": 740
+    },
+    {
+      "path": "emulator/queue-controls/duplicate.stderr",
+      "sha256": "097c607f9e7919b56175f312044d5454890d1caa30db371d7ae2867d589c2cc5",
+      "bytes": 472
+    },
+    {
+      "path": "emulator/queue-controls/missing.stderr",
+      "sha256": "097c607f9e7919b56175f312044d5454890d1caa30db371d7ae2867d589c2cc5",
+      "bytes": 472
+    },
+    {
+      "path": "emulator/queue-controls/off-clock.stderr",
+      "sha256": "e81371a67a6592e278cdface0f6c6b0382c5c8652756ddfad078a73e0790df93",
+      "bytes": 215
+    },
+    {
+      "path": "emulator/queue-controls/partition.stderr",
+      "sha256": "f366f440705904033cfee11be0fc73bf54acd4502d9a93063006514701e7faf1",
+      "bytes": 215
+    },
+    {
+      "path": "emulator/queue-controls/reads.stderr",
+      "sha256": "e81371a67a6592e278cdface0f6c6b0382c5c8652756ddfad078a73e0790df93",
+      "bytes": 215
+    },
+    {
+      "path": "emulator/queue-controls/recorded-activation.stderr",
+      "sha256": "54487f3b7e50ab2e9ca8b24091032c1ea286af3eec0c11867b9014f7fb87070c",
+      "bytes": 215
+    },
+    {
+      "path": "emulator/queue-controls/scope-calls.stderr",
+      "sha256": "e8b9a13543d2c7a9dadf177e80f7136625f54ec5271d3860dcb5c0f7642277f9",
+      "bytes": 381
+    },
+    {
+      "path": "emulator/queue-controls/snapshot-activation.stderr",
+      "sha256": "394b27f411968922a925e2501a067f53c0370bfe7365346744da90fe16a6cdda",
+      "bytes": 220
+    },
+    {
+      "path": "emulator/queue-controls/wait.stderr",
+      "sha256": "642c71c1b777570fb3c316ae42962a1c14c7e068f142bc31ff9c5a4e19704ce4",
+      "bytes": 245
+    },
+    {
+      "path": "emulator/runtime/profile/PCSX2/inis/PCSX2.ini",
+      "sha256": "b6e9c84730b87c81d5443a99315e3be62debd6743382864488a5d26e5e6a97e3",
+      "bytes": 12052
+    },
+    {
+      "path": "emulator/strict-result.balance.base.json",
+      "sha256": "070a09aaff2f7e80e7159751c212ef01ec1706e2cb2d35647832926a0ae04505",
+      "bytes": 9124
+    },
+    {
+      "path": "emulator/strict-result.balance.json",
+      "sha256": "790b619e5c13ca6718264b494acf5b0055f6a7cdb52f9c3bc15e079dc25d1e9a",
+      "bytes": 64837
+    },
+    {
+      "path": "emulator/strict-result.json",
+      "sha256": "7290def064abf8f088bf82275c172c0c9e8a4815cf2af7aa4ac9c7540c736f0f",
+      "bytes": 217896
+    },
+    {
+      "path": "parent-source-references.json",
+      "sha256": "6c7acb6f771a50f25370d5d548cc53cc76a74639a7fb5da1800d129d89e22d81",
+      "bytes": 138097
+    },
+    {
+      "path": "physical/bin/closeout.cfg",
+      "sha256": "350195e792e3f97da28b8c02fe2f90f2c128d5713ea1414caa32c5c3c98c64cf",
+      "bytes": 4
+    },
+    {
+      "path": "physical/completed-prefix/closeout-samples.txt",
+      "sha256": "bb23e2a3cf4c3f057cf2d2e0f30d4bd22ae5cea2f4e9ad8242d987646ec02521",
+      "bytes": 354093
+    },
+    {
+      "path": "physical/completed-prefix/freeze-proof.json",
+      "sha256": "1f4a93320bcfef42486a0b06ecc613b7201130f7b1557f7a8a53260d75d162ef",
+      "bytes": 781
+    },
+    {
+      "path": "physical/completed-prefix/normalized.log",
+      "sha256": "0bd42e04d2bb6ff5eb6b6c5ecf1ede810f7fc77435e0d21f913c7742c47d5ea0",
+      "bytes": 4512
+    },
+    {
+      "path": "physical/completed-prefix/ps2client.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "physical/completed-prefix/ps2client.stdout",
+      "sha256": "f9056677e3450622593f339c50702aae6294551a0c0baa3e1680ef4897acd250",
+      "bytes": 15172
+    },
+    {
+      "path": "physical/launch-inputs.json",
+      "sha256": "15ba070815647e9642ed6fafe830ad9cf4d152e2378f7a672dec31c0af34014a",
+      "bytes": 48174
+    },
+    {
+      "path": "physical/owned-launch.json",
+      "sha256": "f7da1ec0ede09cc1d6bb0da9d91015b29941047b54d36883eef377274429f36c",
+      "bytes": 355
+    },
+    {
+      "path": "physical/root-qualification.json",
+      "sha256": "7fbf2d0e42fd0271bf9aaa5ae0c40637204f8f448b6803a0614b7d8df748875e",
+      "bytes": 1003
+    },
+    {
+      "path": "physical/strict-result.balance.base.json",
+      "sha256": "e4a74fd8d2bd2a9292fad0a23558eb5bafdd764a6f20d92816a7d91c37dedca3",
+      "bytes": 9212
+    },
+    {
+      "path": "physical/strict-result.balance.json",
+      "sha256": "b0e48f6e141907ad1b4a3b2d37d96c46999c9509f3bdcca490c2f2ba6d77dcd9",
+      "bytes": 66394
+    },
+    {
+      "path": "physical/strict-result.json",
+      "sha256": "3d7eca2172e933c3ba0ffaac5904c515b49f00e74b79f4ba1a5d576d3f5e1ac8",
+      "bytes": 221696
+    },
+    {
+      "path": "preparation/analyze-balance.py",
+      "sha256": "a077847526ff127eca96f1b1e945ff757116ed91ae5a8cefca9df64d2364fa44",
+      "bytes": 4518
+    },
+    {
+      "path": "preparation/analyze-day-drive.py",
+      "sha256": "c4703d7e448717e6676ac3f76d78b8a3f275ee5e135351740e238e39fbd3e35d",
+      "bytes": 9480
+    },
+    {
+      "path": "preparation/analyze-queue.py",
+      "sha256": "291666aedf1ae2717e3fb7e24a6a8f610f55405b9b345e60d82ad82bf1f41f24",
+      "bytes": 5265
+    },
+    {
+      "path": "preparation/archive-queue-audit.py",
+      "sha256": "3a91872480291bee683dc295d47730f35681964f2cecccd6b87ebdc3feb951ab",
+      "bytes": 2954
+    },
+    {
+      "path": "preparation/freeze-physical.py",
+      "sha256": "792e081c34e3d0a176c310bea0eeb5c50f0f46925fb0875e2d664021da4442eb",
+      "bytes": 1748
+    },
+    {
+      "path": "preparation/inspect-strip-assets.py",
+      "sha256": "1cb5f70eae4b0f4ee6258a566efb1ad686d34a5d7452dd701d0373ef8ae1bf6d",
+      "bytes": 1559
+    },
+    {
+      "path": "preparation/launch-closeout-physical.ps1",
+      "sha256": "269e4df8fb17c513d60498a8d06ac39924375f42cf23997650a64c9fefbd30ab",
+      "bytes": 2662
+    },
+    {
+      "path": "preparation/parser-controls.py",
+      "sha256": "2da020712828f5a75ef4260aface8c1258146ecb7ba0f18e40e4b8540f6040ca",
+      "bytes": 1728
+    },
+    {
+      "path": "preparation/parser-queue-controls.py",
+      "sha256": "b46df7a626d6360160239b9edf8328a18ae01fef6ffbd693d98f22e86c0dce62",
+      "bytes": 1563
+    },
+    {
+      "path": "preparation/prepare-queue-audit-v2.py",
+      "sha256": "80f370f378f1cc23d74eca64e0db98f241252fc3553ff8bb8d2167013e747096",
+      "bytes": 1003
+    },
+    {
+      "path": "preparation/prepare-queue-audit.py",
+      "sha256": "4408d99cb5b4bafee61801c8770da8328e92b60b4d8463b306eeae29bdd6744e",
+      "bytes": 6182
+    },
+    {
+      "path": "preparation/prove-native.py",
+      "sha256": "4df55db2e0b0a15a6641e1097499f440696b90f820f7bac8352a3ed0abcb7e88",
+      "bytes": 5534
+    },
+    {
+      "path": "preparation/qualify-queue-physical.py",
+      "sha256": "aa10fd781d57a079b1a7d2dd2f53339012e90b1c57e5653265abfaf5892b087e",
+      "bytes": 2399
+    },
+    {
+      "path": "preparation/queue-audit-header.hpp",
+      "sha256": "6839980ac99721742bdece89cc0ecbc83c3fdcd2b75bce5eb5cd191c417e2487",
+      "bytes": 4011
+    },
+    {
+      "path": "preparation/review-queue-coverage.py",
+      "sha256": "76e6e9b4a3af61b8f1a65d79345b037a6776d6a23db862d766dc319677b177fd",
+      "bytes": 3779
+    },
+    {
+      "path": "preparation/root-release.py",
+      "sha256": "9437dd34e91afb474778d488ff1ce41a56136ab533d3150d567cfe2bd2ab0318",
+      "bytes": 3130
+    },
+    {
+      "path": "README.md",
+      "sha256": "3253cf282bfb317e50409cc02921f16d8df504e51f6cc11e00ab83231a38ba1f",
+      "bytes": 9407
+    },
+    {
+      "path": "rejected-size-guard-v1/tyra/engine/inc/debug/render_audit.hpp",
+      "sha256": "6839980ac99721742bdece89cc0ecbc83c3fdcd2b75bce5eb5cd191c417e2487",
+      "bytes": 4011
+    },
+    {
+      "path": "rejected-size-guard-v1/vehicle/native-build-v1.log",
+      "sha256": "074fb7494c02fd004d1bbf6afe4a70dcc31254ac2e0438bd2ac444fbfaed1153",
+      "bytes": 45370
+    },
+    {
+      "path": "rejected-size-guard-v1/vehicle/source-review.json",
+      "sha256": "a2c1bae9c8d148b2dfd9ab3e34b4a1101b5c0886170a8e714406fe83f8a9f2cd",
+      "bytes": 63412
+    },
+    {
+      "path": "root-review.json",
+      "sha256": "a1728aa6d285e48a2e979cd5ea0e54eeb936ebbcc0e3fda05c81ce3d3b89e072",
+      "bytes": 78732
+    },
+    {
+      "path": "source/tyra/engine/inc/debug/render_audit.hpp",
+      "sha256": "e16527dc798db69c9890e0553fd434a4dc09ac8ea2c9ccb4bd362dc1a783f54f",
+      "bytes": 4011
+    },
+    {
+      "path": "source/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "sha256": "07155bc9ae8873d35e2b240f445c65fea14583403daa3b42e32f4fc6c4d78468",
+      "bytes": 137483
+    },
+    {
+      "path": "source/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "sha256": "75efed824cdc29aa18b90ec7bd2edc4196f2762b2b866312edb36836a8e9e3d5",
+      "bytes": 35801
+    },
+    {
+      "path": "strip-asset-inventory.json",
+      "sha256": "6a1ed434fd97c72341079849444f5e277fda596bf4031d6015dda9ead6ce0169",
+      "bytes": 2065
+    },
+    {
+      "path": "vehicle/native-build-v1.log",
+      "sha256": "a6dfb5ab0ea229b1e5528e5ff01d82ea80e8c418486513bf4957a80f2e9d3b02",
+      "bytes": 74824
+    },
+    {
+      "path": "vehicle/native-proof.json",
+      "sha256": "5454855ab70923394883f6f9f8fd074261cdd9b804b4a0f198dae7206a3443a9",
+      "bytes": 157252
+    },
+    {
+      "path": "vehicle/queue-coverage-review.json",
+      "sha256": "8bb6e3cac2a3f71bb1b801e950a78ed0e55b0513fb25dcfb969c7537a1ba54e3",
+      "bytes": 2501
+    },
+    {
+      "path": "vehicle/source-review.json",
+      "sha256": "ba96a0b845fd1cf949150961770ef5a659f07770c0dcb8bcfcd009ca6e5606b7",
+      "bytes": 63412
+    }
+  ]
+}

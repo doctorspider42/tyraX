@@ -3062,3 +3062,12 @@ ownership and enclosing closure. The dense observer changes deadline crossings;
 do not infer normal-game missed-frame counts or subtract a uniform scalar tax.
 Stable full-night60 and physical TV/audio inspection remain open; no new
 production optimization accepted.
+
+TyraX2 selective queue attribution: [completed PS2 audit](tyrax2-queue-audit-2026-10-06/README.md)
+places2.5777 ms driving mean in snapshot ownership/copy,0.5645 ms in native
+emission and one recorded VIF1 flush/enqueue per active row. Zero extra sizing
+entries or snapshot failures/retries; closure/launch is not the main queue lead.
+Next qualify snapshot preflight/lease versus copy/fixup, or a single-lookup
+ImmutableSpanTable borrow candidate with range/retirement/bank-reader controls.
+Active parked perturbations0.7865/0.4152 ms remain nonuniform; do not subtract
+them from moving rows. Full-night stable60 and public optimization remain open.

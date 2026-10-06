@@ -1,0 +1,9 @@
+{
+  "status": "OWNED_PROCESS_ABSENCE_VERIFIED_AFTER_STOP",
+  "pid": 14766,
+  "procStartTicks": "9347171",
+  "UTC": "2026-10-06T21:48:27.5455788Z",
+  "procAbsentIndependentlyChecked": true,
+  "terminalExitCodeKnown": false,
+  "XvfbRetained": true
+}

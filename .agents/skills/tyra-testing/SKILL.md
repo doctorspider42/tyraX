@@ -4779,3 +4779,15 @@ use selective coarse scopes next, price their active cost and keep residual
 buckets explicit. Stage and work type are alternative partitions, never additive.
 Submission/recording elapsed includes queue preparation, not just DMA launch;
 no pure EE/VU/GS price or stable-60 claim follows from that label.
+
+Selective queue follow-up: `docs/tyrax2-queue-audit-2026-10-06/README.md`
+completes 5400 physical loops with one recorded VIF1 flush/enqueue per active
+row, zero extra sizing loops, and snapshot ownership/copy as the largest queue
+scope (2.58 ms driving mean). Snapshot includes preflight, lease lookup and
+fixup, not memcpy alone; counted sizing and quadword copies already exist.
+Dense Stage/Work/count APIs are compiled no-ops in this private fixture.
+Active parked net perturbations are 0.79/0.42 ms, with different active submit
+counts; fixed camera witnesses do not prove identical workload. Preserve
+scope/event activation equalities and residuals. A single-lookup borrow
+candidate must retain all range, retirement and bank-reader semantics and be
+priced independently; never remove lifetime checks based on a large copy span.

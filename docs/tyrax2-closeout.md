@@ -215,7 +215,15 @@ Objects/terrain average6.227/3.055 ms; engine submission/recording averages
 3.760 ms, Core preparation2.643 ms and bounds1.720 ms. These are alternative
 partitions, never additive. Dense instrumentation adds1.753/1.403 ms in parked
 forward/reverse controls and changes deadline crossings; no scalar subtraction
-or normal-game heavy-frame comparison is accepted. Next selectively split
-submission recording, Core preparation and the explicit unannotated render
-bucket with calibrated coarse scopes. Full-night stable60, physical TV and
+or normal-game heavy-frame comparison is accepted. The
+[selective queue audit](tyrax2-queue-audit-2026-10-06/README.md) completes that
+hardware follow-up: snapshot ownership/copy averages2.5777 ms during driving,
+native emission0.5645 ms, submit/send remainders0.3927/0.2988 ms. Every enabled
+row has one recorded VIF1 flush/enqueue, zero snapshot failures/retries and no
+extra sizing loop. Snapshot is preflight/ownership/copy/fixup, not memcpy alone.
+Active parked perturbations are0.7865/0.4152 ms, with different active submit
+counts; no uniform correction or pixel-identical workload claim is accepted.
+Next test snapshot preflight/lease versus copy/fixup, or an exact single-lookup
+borrow candidate preserving retirement and bank-reader safety. Core preparation
+and unannotated render remain separate leads. Full-night stable60, physical TV and
 audio inspection remain pending; no production optimization ships here.

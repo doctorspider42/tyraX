@@ -18,10 +18,13 @@ for people building games with it. Internals live in code comments, the git log
 - [Daylight vehicle substep attribution](tyrax2-city-physics-2026-10-06/physical/README.md) —
   PS2 scopes show small vehicle-update cost and prior cadence loss before
   two-step activation; most heavy-loop work remains outside that wrapper.
+- [Daylight queue audit](tyrax2-queue-audit-2026-10-06/README.md) — calibrated
+  selective PS2 scopes identify snapshot ownership/copy at2.58 ms driving mean,
+  with one recorded VIF1 chain enqueue per active row and preserved lifetime checks.
 - [Daylight render audit](tyrax2-render-audit-2026-10-06/README.md) — completed PS2
   game-stage and engine-work partitions, corrected presentation wait ownership,
   native/emulator/parser evidence and measured1.40–1.75 ms active observer cost.
-  Objects/terrain and submission/recording lead; selective low-cost follow-up remains.
+  Objects/terrain and submission/recording lead; the selective queue follow-up is complete.
 - [Daylight loop balance](tyrax2-loop-balance-2026-10-06/README.md) — PS2
   update/render/wait/pacing categories place17.41 of18.75 ms in the render phase
   on heavy driving rows; opposing observer contrasts prevent a scalar tax correction.

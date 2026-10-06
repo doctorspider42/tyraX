@@ -1,0 +1,45 @@
+{
+  "status": "PRIMARY_REVIEWED_SELECTIVE_QUEUE_COVERAGE",
+  "nativeProofSha256": "5454855ab70923394883f6f9f8fd074261cdd9b804b4a0f198dae7206a3443a9",
+  "changedEngineSources": [
+    {
+      "path": "tyra/engine/inc/debug/render_audit.hpp",
+      "sha256": "e16527dc798db69c9890e0553fd434a4dc09ac8ea2c9ccb4bd362dc1a783f54f",
+      "parentSha256": "676a3f486c1faa7e094f26cf63739e08308ed04403a9bfe3fa65622fc5d5b73e"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "sha256": "07155bc9ae8873d35e2b240f445c65fea14583403daa3b42e32f4fc6c4d78468",
+      "parentSha256": "4cc9cf7229d6ad226f6adc75477e98ec425b1f454a739fab1b4837bdda35a2af"
+    },
+    {
+      "path": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "sha256": "75efed824cdc29aa18b90ec7bd2edc4196f2762b2b866312edb36836a8e9e3d5",
+      "parentSha256": "9fd33c33bda23d773ae5cc1796af808c1130143d451d41b9eae405568eaa20b4"
+    }
+  ],
+  "linkedArchiveMembers": {
+    "engine/renderer/core/paths/path1/vif1_queue": "b7f5c94876a11270abb6ea6fc6e7c54ccb1708651ea6b47883b874763ab1766d",
+    "engine/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer": "4648c88fefe2eef2f778e144452ab5796b411ecc61531f54298a7cd1d1d16e3c"
+  },
+  "noAddedWaits": true,
+  "denseTags": "Stage/Work/count are empty inline APIs; actual queue scope edges are independently counted and parsed.",
+  "timedPaths": [
+    "sendPacket function including reuse bookkeeping, exclusive of children/waits",
+    "Vif1Queue submit remainder, exclusive of children",
+    "closeOpenChain callback only after nonnull gate",
+    "copyForNativeRecording all counted-copy branches",
+    "native sizing fallback only if snapshotCounted is false",
+    "native emission loop after capacity admission",
+    "flushRecording only after nonzero nativePendingSequence",
+    "enqueue including completion callback, excluding covered waits/cache",
+    "existing queue FlushCache calls"
+  ],
+  "counters": "Calls at original path gates; copied/borrowed bytes from actual Snapshot result; no extra chain walker.",
+  "pacing": "Unchanged v2 guard excludes presentation before flip and counts covered GIF calls without leaf clocks.",
+  "limits": [
+    "Elapsed, not instruction retirement or pure DMA hardware time.",
+    "ProducerSend/Submit/Seal values are exclusive remainders. UnobservedRender is all other render work.",
+    "Common footprint remains unpriced; calibrate active clocks/counters in both parked orders."
+  ]
+}
