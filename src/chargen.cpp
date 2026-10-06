@@ -1279,6 +1279,103 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // triangle's point and normal plus the kit's offset (normal, u, w) - and,
     // for hair under a hat, the offset pressed by `cap` (hatCap).
     constexpr float kNoCap = 1e30f;
+    // Clothes kept out of the body. An item rides the triangle it was bound
+    // to on the average body; where this body grows past that (a larger
+    // bust, wider hips, a belly) the cloth between its bound points stayed
+    // where it was and the skin came through. Every vertex of a garment is
+    // checked against the MORPHED body - the nearest skin vertex's tangent
+    // plane - and pushed out to a small gap; the pushes are then smoothed
+    // over the garment's own edges so the cloth bulges instead of kinking.
+    // Hair and glasses keep their authored fit (a fringe sits on the face).
+    constexpr float kCell = 0.04f;
+    std::unordered_map<long long, std::vector<int>> skinGrid;
+    auto cellKey = [](int x, int y, int z) {
+        return ((long long)(x + 4096) << 26) | ((long long)(y + 4096) << 13) | (long long)(z + 4096);
+    };
+    auto buildSkinGrid = [&]() {
+        if (!skinGrid.empty()) return;
+        std::vector<char> eye((size_t)b.verts, 0);
+        for (int t = 0; t < b.tris; ++t)
+            if (b.part[t] != 0)
+                for (int c = 0; c < 3; ++c) eye[(size_t)b.tri[t * 3 + c]] = 1;
+        for (int v = 0; v < b.verts; ++v) {
+            if (eye[(size_t)v]) continue;
+            const float* q = &pos[(size_t)v * 3];
+            skinGrid[cellKey((int)std::floor(q[0] / kCell), (int)std::floor(q[1] / kCell),
+                             (int)std::floor(q[2] / kCell))]
+                .push_back(v);
+        }
+    };
+    auto conformItem = [&](const GarmentData* g, std::vector<float>& gp) {
+        const std::string& slot = g->item.slot;
+        if (slot == "hair" || slot == "face") return;
+        buildSkinGrid();
+        const float gap = slot == "shoes" ? 0.003f : 0.005f;
+        const size_t gv = gp.size() / 3;
+        std::vector<float> req(gv * 3, 0.0f), dir(gv * 3, 0.0f);
+        bool any = false;
+        for (size_t v = 0; v < gv; ++v) {
+            const float* q = &gp[v * 3];
+            const int cx = (int)std::floor(q[0] / kCell), cy = (int)std::floor(q[1] / kCell),
+                      cz = (int)std::floor(q[2] / kCell);
+            int best = -1;
+            float bd = 0.05f * 0.05f;
+            for (int dx = -1; dx <= 1; ++dx)
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        auto it = skinGrid.find(cellKey(cx + dx, cy + dy, cz + dz));
+                        if (it == skinGrid.end()) continue;
+                        for (int sv : it->second) {
+                            const float* s = &pos[(size_t)sv * 3];
+                            const float d = (q[0] - s[0]) * (q[0] - s[0]) + (q[1] - s[1]) * (q[1] - s[1]) +
+                                            (q[2] - s[2]) * (q[2] - s[2]);
+                            if (d < bd) bd = d, best = sv;
+                        }
+                    }
+            if (best < 0) continue;
+            const float* s = &pos[(size_t)best * 3];
+            const float* n = &nrm[(size_t)best * 3];
+            const float d = (q[0] - s[0]) * n[0] + (q[1] - s[1]) * n[1] + (q[2] - s[2]) * n[2];
+            // deeper than 4 cm is another surface's business (between the legs)
+            if (d >= gap || d < -0.04f) continue;
+            for (int a = 0; a < 3; ++a) {
+                req[v * 3 + a] = n[a] * (gap - d);
+                dir[v * 3 + a] = n[a];
+            }
+            any = true;
+        }
+        if (!any) return;
+        // smooth over the garment's edges (twice), never below what a vertex needs
+        std::vector<std::vector<int>> nb(gv);
+        for (size_t t = 0; t + 2 < g->tri.size(); t += 3)
+            for (int c = 0; c < 3; ++c) {
+                const int a = g->tri[t + c], o = g->tri[t + (c + 1) % 3];
+                if (a < 0 || o < 0 || (size_t)a >= gv || (size_t)o >= gv) continue;
+                nb[(size_t)a].push_back(o);
+                nb[(size_t)o].push_back(a);
+            }
+        std::vector<float> cur(req), nxt(gv * 3);
+        for (int it = 0; it < 2; ++it) {
+            for (size_t v = 0; v < gv; ++v) {
+                float s[3] = {cur[v * 3], cur[v * 3 + 1], cur[v * 3 + 2]};
+                for (int o : nb[v])
+                    for (int a = 0; a < 3; ++a) s[a] += cur[(size_t)o * 3 + a];
+                const float inv = 1.0f / (float)(nb[v].size() + 1);
+                for (int a = 0; a < 3; ++a) nxt[v * 3 + a] = s[a] * inv;
+                // at least the required push along its own direction
+                const float need = std::sqrt(req[v * 3] * req[v * 3] + req[v * 3 + 1] * req[v * 3 + 1] +
+                                             req[v * 3 + 2] * req[v * 3 + 2]);
+                if (need > 0.0f) {
+                    const float* dv = &dir[v * 3];
+                    const float have = nxt[v * 3] * dv[0] + nxt[v * 3 + 1] * dv[1] + nxt[v * 3 + 2] * dv[2];
+                    if (have < need)
+                        for (int a = 0; a < 3; ++a) nxt[v * 3 + a] += dv[a] * (need - have);
+                }
+            }
+            cur.swap(nxt);
+        }
+        for (size_t i = 0; i < gp.size(); ++i) gp[i] += cur[i];
+    };
     auto itemPositions = [&](const GarmentData* g, const std::vector<float>* cap) {
         const GarmentBody& gb = g->body[bi];
         const float offScale = g->offMeters ? 1.0f : scale;  // a custom item's offsets are metres
@@ -1354,6 +1451,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             for (int a = 0; a < 3; ++a)
                 gp[v * 3 + a] = s[a] + (nn[a] * lift + u[a] * off[1] + w[a] * off[2]) * offScale;
         }
+        conformItem(g, gp);
         return gp;
     };
 
@@ -1441,6 +1539,104 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     const int v = b.tri[t * 3 + c];
                     if (in[(size_t)v] < 0) in[(size_t)v] = inside(v) ? 1 : 0;
                     all = in[(size_t)v] == 1;
+                }
+                if (all) hidden[t] = 1;
+            }
+        }
+    }
+
+    // Skin under cloth is not drawn. The kit hides only what each item's
+    // stand-in covered on the average body; anything else under a top, a
+    // dress, trousers or shoes was still there to poke through when a slider
+    // or a pose moved it. A body vertex is covered when a ray out along its
+    // normal meets the garment within 4 cm on an opaque texel (lace and
+    // cut-outs keep their skin); a triangle with all three corners covered
+    // is dropped - which also saves its triangles.
+    {
+        for (size_t gi = 0; gi < worn.size(); ++gi) {
+            const GarmentData* g = worn[gi];
+            const std::string& slot = g->item.slot;
+            if (isOpt[gi] || g->kind != "mesh" || g->tri.empty() ||
+                (slot != "top" && slot != "bottom" && slot != "full" && slot != "shoes"))
+                continue;
+            const std::vector<float> gp = itemPositions(g, nullptr);
+            const size_t gt = g->tri.size() / 3;
+            int tw = 0, th = 0;
+            std::shared_ptr<std::vector<uint8_t>> tex;
+            if (g->cutout) tex = image("g/" + g->item.id, &tw, &th);
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (size_t i = 0; i < gp.size(); ++i) {
+                lo[i % 3] = std::min(lo[i % 3], gp[i]);
+                hi[i % 3] = std::max(hi[i % 3], gp[i]);
+            }
+            // per-triangle bounds for a cheap reject
+            std::vector<float> tb(gt * 6);
+            for (size_t t = 0; t < gt; ++t)
+                for (int a = 0; a < 3; ++a) {
+                    float mn = 1e30f, mx = -1e30f;
+                    for (int c = 0; c < 3; ++c) {
+                        const float x = gp[(size_t)g->tri[t * 3 + c] * 3 + a];
+                        mn = std::min(mn, x), mx = std::max(mx, x);
+                    }
+                    tb[t * 6 + a] = mn, tb[t * 6 + 3 + a] = mx;
+                }
+            constexpr float kReach = 0.04f;
+            auto covered = [&](int v) {
+                const float* o = &pos[(size_t)v * 3];
+                const float* n = &nrm[(size_t)v * 3];
+                for (int a = 0; a < 3; ++a)
+                    if (o[a] < lo[a] - kReach || o[a] > hi[a] + kReach) return false;
+                float sl[3], sh[3];  // the ray segment's bounds
+                for (int a = 0; a < 3; ++a) {
+                    const float e = o[a] + n[a] * kReach;
+                    sl[a] = std::min(o[a], e), sh[a] = std::max(o[a], e);
+                }
+                for (size_t t = 0; t < gt; ++t) {
+                    bool off = false;
+                    for (int a = 0; a < 3 && !off; ++a) off = tb[t * 6 + 3 + a] < sl[a] || tb[t * 6 + a] > sh[a];
+                    if (off) continue;
+                    // Moller-Trumbore
+                    const float* A = &gp[(size_t)g->tri[t * 3] * 3];
+                    const float* B = &gp[(size_t)g->tri[t * 3 + 1] * 3];
+                    const float* C = &gp[(size_t)g->tri[t * 3 + 2] * 3];
+                    float e1[3], e2[3], pv[3], tv[3], qv[3];
+                    for (int a = 0; a < 3; ++a) e1[a] = B[a] - A[a], e2[a] = C[a] - A[a];
+                    pv[0] = n[1] * e2[2] - n[2] * e2[1];
+                    pv[1] = n[2] * e2[0] - n[0] * e2[2];
+                    pv[2] = n[0] * e2[1] - n[1] * e2[0];
+                    const float det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+                    if (std::fabs(det) < 1e-12f) continue;
+                    const float inv = 1.0f / det;
+                    for (int a = 0; a < 3; ++a) tv[a] = o[a] - A[a];
+                    const float uu = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) * inv;
+                    if (uu < 0.0f || uu > 1.0f) continue;
+                    qv[0] = tv[1] * e1[2] - tv[2] * e1[1];
+                    qv[1] = tv[2] * e1[0] - tv[0] * e1[2];
+                    qv[2] = tv[0] * e1[1] - tv[1] * e1[0];
+                    const float vv = (n[0] * qv[0] + n[1] * qv[1] + n[2] * qv[2]) * inv;
+                    if (vv < 0.0f || uu + vv > 1.0f) continue;
+                    const float dist = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) * inv;
+                    if (dist < -0.002f || dist > kReach) continue;
+                    if (tex && tw > 0 && th > 0) {  // a cut-out: only where the texel is solid
+                        const float w0 = 1.0f - uu - vv;
+                        const float su = g->uv[t * 6] * w0 + g->uv[t * 6 + 2] * uu + g->uv[t * 6 + 4] * vv;
+                        const float sv = g->uv[t * 6 + 1] * w0 + g->uv[t * 6 + 3] * uu + g->uv[t * 6 + 5] * vv;
+                        const int x = std::clamp((int)(su * tw), 0, tw - 1);
+                        const int y = std::clamp((int)((1.0f - sv) * th), 0, th - 1);
+                        if (px01(tex->data(), (size_t)y * tw + x, 3) < 0.5f) continue;
+                    }
+                    return true;
+                }
+                return false;
+            };
+            std::vector<signed char> cov((size_t)b.verts, -1);
+            for (int t = 0; t < b.tris; ++t) {
+                if (hidden[t] || b.part[t] != 0) continue;
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    const int v = b.tri[t * 3 + c];
+                    if (cov[(size_t)v] < 0) cov[(size_t)v] = covered(v) ? 1 : 0;
+                    all = cov[(size_t)v] == 1;
                 }
                 if (all) hidden[t] = 1;
             }
@@ -2232,10 +2428,13 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 qrot(inv, dm, dl);
                 swing[leg] = std::atan2(dl[2], -dl[1]);
             }
-            drive[0].push_back(std::max(std::max(swing[0], swing[1]), 0.0f) * 0.85f);
-            drive[1].push_back(std::min(std::min(swing[0], swing[1]), 0.0f) * 0.85f);
-            drive[2].push_back(swing[0] * 0.7f);
-            drive[3].push_back(swing[1] * 0.7f);
+            // the front a little AHEAD of the thigh: at 0.85 a short dress's
+            // hem lagged and the striding thigh came through (twin of the
+            // game's updateSprings)
+            drive[0].push_back(std::max(std::max(swing[0], swing[1]), 0.0f) * 1.1f);
+            drive[1].push_back(std::min(std::min(swing[0], swing[1]), 0.0f) * 1.0f);
+            drive[2].push_back(swing[0] * 0.85f);
+            drive[3].push_back(swing[1] * 0.85f);
         }
         for (int s = 0; s < 4; ++s) {
             if (skirtBones[s] < 0) continue;

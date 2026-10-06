@@ -5716,7 +5716,10 @@
 // 1.181.1: Character Generator - walking hands no longer pass through wide
 // hips: per key the wrist and knuckles are checked against the body's own
 // width and the upper arm turns out by just enough.
-#define TYRAX_VERSION_PATCH 1
+// 1.181.2: Character Generator - clothes kept out of the body (garment
+// vertices pushed out of the morphed skin, smoothed), skin under opaque cloth
+// not drawn, and skirt panels lead the striding thigh (1.1x; game twin too).
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

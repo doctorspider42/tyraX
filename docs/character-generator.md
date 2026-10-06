@@ -329,8 +329,9 @@ Two things keep them inside:
   that is covered. A sector with no cloth (a real slit, a cut-out) keeps its
   leg. 130-290 triangles fewer per dressed character, too.
 - **The panels swing with the thighs in every clip.** The front panel follows
-  whichever thigh reaches furthest forward, the back one the furthest back,
-  each side its own (0.85 / 0.7 of the swing) - the drive the game's
+  whichever thigh reaches furthest forward - a little ahead of it, 1.1x: at
+  0.85 a short dress's hem lagged and the striding thigh came through - the
+  back one the furthest back (1.0x), each side its own (0.85x) - the drive the game's
   `updateSprings` computes, baked into the clips as the four skirt bones'
   rotations. So the editor's preview, an exported `.glb` and a character
   beyond the game's 10 m spring range all show a skirt that rides up over the
@@ -338,6 +339,22 @@ Two things keep them inside:
   (`SkelInstance::setRotationOverride(..., replace = true)`) - the drive plus
   the lag and the bounce, no double swing. Only characters wearing something
   weighted to the panels get the channels: the EE pays per channel.
+
+And two for every mesh garment - tops, dresses, trousers, shoes, hats:
+
+- **The cloth is kept out of the body.** An item rides the triangles it was
+  bound to on the average body, so where a body grows past that - a larger
+  bust, wider hips, a belly - the cloth between its bound points stayed put
+  and the skin came through. Every garment vertex is checked against the
+  MORPHED body (the nearest skin vertex's tangent plane, through a 4 cm grid)
+  and pushed out to a 5 mm gap (3 mm for shoes); the pushes are smoothed
+  twice over the garment's own edges, never below what a vertex needs, so the
+  cloth bulges instead of kinking. Hair and glasses keep their authored fit.
+- **Skin under cloth is not drawn.** A body vertex is covered when a ray out
+  along its normal meets a top, a dress, trousers or shoes within 4 cm on an
+  opaque texel (lace and cut-outs keep their skin); a triangle with all three
+  corners covered is dropped - nothing left to poke through in any pose, and
+  120-280 triangles fewer under a dress.
 
 A backless dress (the halter and midi dresses) shows the back's skin by design.
 

@@ -9750,10 +9750,12 @@ void TerrainGame::updateSprings(int index, float dist2) {
     // the target the spring pulls to: the rest tip, swung by the legs for a
     // skirt panel (about the hips' X axis; a positive swing is forward)
     float drive = 0.0F;
-    if (s == 2) drive = fmaxf(fmaxf(thighSwing[0], thighSwing[1]), 0.0F) * 0.85F;
-    if (s == 3) drive = fminf(fminf(thighSwing[0], thighSwing[1]), 0.0F) * 0.85F;
-    if (s == 4) drive = thighSwing[0] * 0.7F;
-    if (s == 5) drive = thighSwing[1] * 0.7F;
+    // (the front a little AHEAD of the thigh: at 0.85 a short dress's hem
+    // lagged and the striding thigh came through it - twin of bakeSkirt)
+    if (s == 2) drive = fmaxf(fmaxf(thighSwing[0], thighSwing[1]), 0.0F) * 1.1F;
+    if (s == 3) drive = fminf(fminf(thighSwing[0], thighSwing[1]), 0.0F) * 1.0F;
+    if (s == 4) drive = thighSwing[0] * 0.85F;
+    if (s == 5) drive = thighSwing[1] * 0.85F;
     const float cd = cosf(drive), sd = sinf(drive);
     const float driven[3] = {sp.rest[0], sp.rest[1] * cd + sp.rest[2] * sd,
                              -sp.rest[1] * sd + sp.rest[2] * cd};
