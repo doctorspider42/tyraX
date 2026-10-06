@@ -1,0 +1,202 @@
+{
+  "status": "ROOT_QUALIFIED_BOUNDED_ROAD_CAR_PHYSICAL_CADENCE",
+  "loops": 5400,
+  "protocolPassed": true,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 1.3847517437405057,
+      "chunkMeanEntryMs": 16.683333587646487,
+      "perChunkMeanEntryMs": [
+        16.683331807454426,
+        16.683354748619927,
+        16.683326085408527,
+        16.68331660164727,
+        16.683338695102268
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683354748619927,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68334738413493,
+          "p50Ms": 16.683329264322918,
+          "p95Ms": 16.71163092719184,
+          "maxMs": 16.731302897135418,
+          "over16_68": 97,
+          "over16_68Percent": 75.78125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.678859763675266,
+          "p50Ms": 16.679080539279514,
+          "p95Ms": 16.707103135850694,
+          "maxMs": 16.727003309461807,
+          "over16_68": 30,
+          "over16_68Percent": 23.4375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 1.3828900125291612,
+          "p50Ms": 1.3767225477430556,
+          "p95Ms": 1.4494957817925347,
+          "maxMs": 1.4748569064670138,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.683334403567844,
+          "p50Ms": 16.683302137586807,
+          "p95Ms": 16.7012454562717,
+          "maxMs": 16.72448052300347,
+          "over16_68": 113,
+          "over16_68Percent": 88.28125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 2.404569869571262,
+      "chunkMeanEntryMs": 16.68326933119032,
+      "perChunkMeanEntryMs": [
+        16.683425691392685,
+        16.683096832699245,
+        16.683584213256836,
+        16.683330800798203,
+        16.682909117804634
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683584213256836,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683339224921333,
+          "p50Ms": 16.683275010850693,
+          "p95Ms": 16.71113077799479,
+          "maxMs": 16.71277533637153,
+          "over16_68": 104,
+          "over16_68Percent": 81.25,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.67864063051012,
+          "p50Ms": 16.678999159071182,
+          "p95Ms": 16.702248467339412,
+          "maxMs": 16.70819769965278,
+          "over16_68": 22,
+          "over16_68Percent": 17.1875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 2.4644362131754556,
+          "p50Ms": 2.431396484375,
+          "p95Ms": 2.7771925184461805,
+          "maxMs": 3.6508348253038196,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68332952923245,
+          "p50Ms": 16.68332248263889,
+          "p95Ms": 16.701480441623264,
+          "maxMs": 16.706156412760418,
+          "over16_68": 115,
+          "over16_68Percent": 89.84375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 1.3297109074062772,
+      "chunkMeanEntryMs": 16.68333339691162,
+      "perChunkMeanEntryMs": [
+        16.683757464090984,
+        16.683375093672012,
+        16.68288771311442,
+        16.683314694298637,
+        16.683332019382053
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683757464090984,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683347278171116,
+          "p50Ms": 16.683308919270832,
+          "p95Ms": 16.70688239203559,
+          "maxMs": 16.71310085720486,
+          "over16_68": 98,
+          "over16_68Percent": 76.5625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.67909786436293,
+          "p50Ms": 16.679039849175346,
+          "p95Ms": 16.702557373046876,
+          "maxMs": 16.70893012152778,
+          "over16_68": 33,
+          "over16_68Percent": 25.78125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 1.325831757651435,
+          "p50Ms": 1.3259412977430556,
+          "p95Ms": 1.3534915500217015,
+          "maxMs": 1.3584493001302083,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68333207236396,
+          "p50Ms": 16.68334282769097,
+          "p95Ms": 16.703533596462673,
+          "maxMs": 16.712727864583332,
+          "over16_68": 106,
+          "over16_68Percent": 82.8125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "rawEntryPeriodsOver25ms": {
+    "0": 0,
+    "1": 0,
+    "2": 0
+  },
+  "ordinaryCadenceApproximately59_94Hz": true,
+  "allSixColdPaved": 4,
+  "allSixColdGrounded": 1,
+  "actualEndpointBeyondBothBends": true,
+  "roadAndCarAcceptedAtAllSixColdWitnesses": true,
+  "controllerChangedIncludedAndUnpriced": true,
+  "noCausalRoadOnlySubtraction": true,
+  "everyFrameTrajectoryAndPhysicalScanoutProved": false,
+  "commonObserverFootprintUnpriced": true,
+  "userVisualReport": "Droga jest cała biała a wszystko inne całe czarne - pojazd normalny",
+  "visualScope": "User reports uniform bright untextured road, empty black surrounding and normal car; does not certify every frame or pixel.",
+  "firstNetworkStartRejected": true,
+  "clientLeftServing": true
+}

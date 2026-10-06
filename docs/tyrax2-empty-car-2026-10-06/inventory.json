@@ -110,5 +110,133 @@
   {
     "path": "rejected-first-start.json",
     "sha256": "40fc92a41d42e880526b64311682503437bedded02483ee01dbe5cb2977d2b19"
+  },
+  {
+    "path": "road/preparation/README.md",
+    "sha256": "ad6b27646c40702f464a08e58f3411f959e28c77b65881168686f16bed968908"
+  },
+  {
+    "path": "road/preparation/source-review.json",
+    "sha256": "d7c0bdb4720ecb8e7c96cdc2a65b764aedcdec5373e03804203d79b54365061c"
+  },
+  {
+    "path": "road/preparation/source-content-census.json",
+    "sha256": "05cd3fe4f0c8936121dd9e03dcdae197c95cc8d183003594efda66d3b04f35bb"
+  },
+  {
+    "path": "road/preparation/native-proof.json",
+    "sha256": "89edabba3cc203cecb05885ddfa67e75d88276c9c8c368bd031e43dbeb9f7695"
+  },
+  {
+    "path": "road/preparation/bin-assets-source-pins.json",
+    "sha256": "e0bef4dbf34633bc248254881dff0615e0d808a6fa8e427531de7ebe3bddb2ad"
+  },
+  {
+    "path": "road/preparation/preparation-proof.json",
+    "sha256": "7acf15d1c75dec1e7a8f298d3ec317570e6be47888a1c8c97d46fb2e331c2f29"
+  },
+  {
+    "path": "road/preparation/analyze-road.py",
+    "sha256": "61611e4c75394a23358ae2caf34eccaed6c1e762616c7706b29c1f102f8d609d"
+  },
+  {
+    "path": "road/preparation/parser-controls-v1/proof.json",
+    "sha256": "f5bb53bc0bdb006ea3f483b10957ed3a2970237d21ed6eec0b7d212b04c870da"
+  },
+  {
+    "path": "road/preparation/root-emulator-review.json",
+    "sha256": "322ccf9169251c827df3b43f74813d174f75c8935d5d1a524a338f77307fd54d"
+  },
+  {
+    "path": "road/emulator/owned-launch.json",
+    "sha256": "c168bdf1c3c0e392a0ccaca6b94afd90b93f9807a4e374cd056cbf9114521e95"
+  },
+  {
+    "path": "road/emulator/protocol-analysis.json",
+    "sha256": "bf342d43ff8eaaf4bc02cdb5cc5ce4e70d347ebde3f5f1c04e55849b6a2c4b7a"
+  },
+  {
+    "path": "road/emulator/capture-final/runtime-emulator.log",
+    "sha256": "3f7733b1430ba944ebbe56f1743d439655994275ded522a00416768f2f5020b8"
+  },
+  {
+    "path": "road/emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "a3f059a1f1bdce5e83041918e3522f8c5d27c3cf60fdd873b7dff1a78c36f37c"
+  },
+  {
+    "path": "road/emulator/capture-final/observe-proof.json",
+    "sha256": "c4c3bf963a1c8f9870e1d4087d15690c4db4807e779487ee7a9d45509e3b5ce9"
+  },
+  {
+    "path": "road/emulator/capture-start/frame.png",
+    "sha256": "44f58e70e72c1660f72b00ea4943ad98acfb3aa9836d5c703e01874154ba607f"
+  },
+  {
+    "path": "road/emulator/capture-drive/frame.png",
+    "sha256": "5038dd1a61f28d472839a370e34ee16ce96fec3e31e09a2ba4f8278f3e5e994d"
+  },
+  {
+    "path": "road/emulator/capture-final/frame.png",
+    "sha256": "67108349d8733a928f6d7350c8e9ecd2f3a94870b3d312bde4bf6b48686b7574"
+  },
+  {
+    "path": "road/rejected-physical-start.json",
+    "sha256": "321bd83e1d91837949a7c19c6beadd6bc4b1d15e1222b52327a0519710667d0a"
+  },
+  {
+    "path": "road/authored-road.json",
+    "sha256": "6d87b6c7da28225cbed2b82feebee36f715057a751aa780549c2bd1746a57083"
+  },
+  {
+    "path": "road/empty_route.hpp",
+    "sha256": "d2d2cb46c05230492768da1a0cc4547e77b4fab64142b56919e6263bb4f19b16"
+  },
+  {
+    "path": "road/empty_witness.hpp",
+    "sha256": "aea7cd46c83b37021a865e297a787e91af6cbf7a895130a14c5340f49ef31395"
+  },
+  {
+    "path": "road/root-runtime-review.json",
+    "sha256": "e85aeaad9de9c40e571fe3a8a72bece82622e4a89aa9708fac9ef5119c5361c3"
+  },
+  {
+    "path": "road/physical/completed-stdout.raw",
+    "sha256": "7471a0fe96969eaa85683cd51babbc1e587316776d58e92060c327e4dbee3a2e"
+  },
+  {
+    "path": "road/physical/stdout.utf8.log",
+    "sha256": "7471a0fe96969eaa85683cd51babbc1e587316776d58e92060c327e4dbee3a2e"
+  },
+  {
+    "path": "road/physical/bin/closeout-samples.txt",
+    "sha256": "eb8e19e9aa50f4bc6a7390b452caf7e7571a43908cef1e59bd77d9cb3166a294"
+  },
+  {
+    "path": "road/physical/launch-inputs.json",
+    "sha256": "0996ff9f29c9a1f5f6853fcc21869d21f3cc728633117745fdd1f7b6b8507512"
+  },
+  {
+    "path": "road/physical/owned-launch.json",
+    "sha256": "92124a0861af694fff47dbc162d70c69b4f4054e840f3602eb8d84fd2decd5a5"
+  },
+  {
+    "path": "road/physical/protocol-analysis.json",
+    "sha256": "e9b9a378b4cfce081c0e3ebad83745146d663f381bd2b1a31d43590f01e7c228"
+  },
+  {
+    "path": "road/physical/physical-review.json",
+    "sha256": "6337b20d288fc63d7d59c34fe977feb35d0770c2be60de8e45b506e5f348c119"
+  },
+  {
+    "path": "road/physical/root-cadence-review.json",
+    "sha256": "ab930ecce1135970f4380766865a21c89397609a896d1e5e5105a432b325f501"
+  },
+  {
+    "path": "road/physical/finish-road-physical.py",
+    "sha256": "85842ec285f5558d1aa7174c13a96c4f7096307b2a42b2e3cbe206c1df354cea"
+  },
+  {
+    "path": "road/physical/launch-closeout-physical.ps1",
+    "sha256": "269e4df8fb17c513d60498a8d06ac39924375f42cf23997650a64c9fefbd30ab"
   }
 ]

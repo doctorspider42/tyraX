@@ -1,0 +1,36 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/source-review.json",
+      "sha256": "d7c0bdb4720ecb8e7c96cdc2a65b764aedcdec5373e03804203d79b54365061c"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/native-proof.json",
+      "sha256": "89edabba3cc203cecb05885ddfa67e75d88276c9c8c368bd031e43dbeb9f7695"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/empty-car/bin/empty-car.elf",
+      "sha256": "de46615bfff61c6ff6c4dc6d153c4ca500848a7f4d6e4991a534798f86ef5649"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "50fc3a8895babb43ba009ea9c44b79b9983a3a7f7bf83f88ba4e2f4f01d7944b"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-car-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "reviewScope": "Same one-car plus one public S road; retained analytic floor and cosmetic cuts, bounded feedback virtual Pad steering/braking, cold road and car bag identity after main cull, contact queries outside timed windows; no new clocks or waits; separate ELF/controller and no causal road-only subtraction"
+}

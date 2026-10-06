@@ -509,6 +509,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   A [fresh one-car map](tyrax2-empty-car-2026-10-06/README.md) subsequently holds
   approximately59.94Hz in parked/driving/post-drive PS2 windows at1.19/1.83/1.19ms
   non-pacing work, narrowing remaining performance work to populated-scene costs.
+  Adding one untextured S road also holds approximately59.94Hz at1.38/2.40/1.33ms,
+  including normal road contact queries and bounded feedback steering; large
+  networks, terrain and scene effects remain outside this isolation result.
   The host-crash partial attempt is preserved and excluded; its fresh retry completes.
 
   The [eleven-box main-only batching trial](tyrax2-main11-batch.md) completes
