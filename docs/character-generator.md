@@ -457,7 +457,7 @@ the EE evaluates them, and all-identity channels are dropped.
 The old analytic idle/walk/run/jump generator is gone; a motion library made by
 an animator beats any sine wave.
 
-Four things the generator changes on the way out of the kit, each from a
+Five things the generator changes on the way out of the kit, each from a
 rendered failure:
 
 - **Fingers.** The rig curls the index finger on its own chain and the other
@@ -479,6 +479,14 @@ rendered failure:
   and scaled by how much the arm hangs, so an arm held out (aiming,
   punching) is untouched. Measured after: elbows straight under the
   shoulders in the idle and the walk, hands 4-9 cm in front of the hips.
+- **Hands out of the body.** The clips were captured on a slim mannequin; on
+  wide hips - and with the feminine style's elbows in - a walking hand swung
+  through the hip and thigh. Per key, the wrist and the knuckles are placed
+  by forward kinematics of the final rotations, in the hips' frame, and
+  checked against this body's own width at that height and depth (its rest
+  vertices, the arms left out); a point inside it, or within a hand's
+  half-thickness (3.5 cm wrist, 2.5 cm knuckles), turns the upper arm out by
+  just enough, smoothed over neighbouring keys.
 - **Skirt panels follow the legs** - see [Clothes that move](#clothes-that-move).
 
 ### Movement style

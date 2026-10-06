@@ -5713,7 +5713,10 @@
 // 1.180.2: Character Generator posture - every clip brings the clavicles 15
 // degrees forward and the hanging upper arms forward by what the clip hangs
 // them back (vs the torso, up to 25): arms no longer hang behind the body.
-#define TYRAX_VERSION_PATCH 0
+// 1.181.1: Character Generator - walking hands no longer pass through wide
+// hips: per key the wrist and knuckles are checked against the body's own
+// width and the upper arm turns out by just enough.
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

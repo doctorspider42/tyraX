@@ -2572,6 +2572,117 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             for (int i = 0; i < clip->frames; ++i) hipsMeanX += clip->hips[i * 3];
             hipsMeanX /= (float)std::max(1, clip->frames);
         }
+        // Hands out of the body. The clips were captured on a slim mannequin;
+        // on wide hips (and with the feminine style's elbows in) a walking
+        // hand swung through the hip and thigh. Per key: the wrist and the
+        // knuckles by forward kinematics of the FINAL rotations, in the
+        // hips' frame, against this body's own width at that height and
+        // depth (its rest vertices, arms left out); a point inside, or
+        // closer than a hand's half-thickness, turns the upper arm out by
+        // just enough - smoothed over neighbouring keys.
+        std::map<int, std::vector<float>> armOut;
+        {
+            std::vector<char> armBone((size_t)k.bones, 0);
+            for (int j = 0; j < k.bones; ++j)
+                for (int a = j; a >= 0; a = k.parent[a])
+                    if (k.boneNames[(size_t)a] == "mixamorig:LeftShoulder" ||
+                        k.boneNames[(size_t)a] == "mixamorig:RightShoulder")
+                        armBone[(size_t)j] = 1;
+            const float binH = 0.02f;
+            std::map<int, std::vector<std::array<float, 2>>> bins;  // y bin -> (z, x)
+            for (int v = 0; v < b.verts; ++v) {
+                float onArm = 0.0f;
+                for (int i = 0; i < 4; ++i) {
+                    const int j = b.joints[(size_t)v * 4 + i];
+                    if (j >= 0 && j < k.bones && armBone[(size_t)j]) onArm += b.weights[(size_t)v * 4 + i];
+                }
+                if (onArm > 0.2f) continue;
+                const float* q = &pos[(size_t)v * 3];
+                bins[(int)std::floor(q[1] / binH)].push_back({q[2], q[0]});
+            }
+            // the body's extent toward one side (+1 / -1) at a height and depth
+            auto extent = [&](float y, float z, float side) {
+                float best = 0.0f;
+                const int yb = (int)std::floor(y / binH);
+                for (int dy = -1; dy <= 1; ++dy) {
+                    auto it = bins.find(yb + dy);
+                    if (it == bins.end()) continue;
+                    for (const auto& zx : it->second)
+                        if (std::fabs(zx[0] - z) < 0.06f) best = std::max(best, zx[1] * side);
+                }
+                return best;
+            };
+            auto finalLocal = [&](int j, float t, float q[4]) {
+                sampleRot(j, t, q);
+                relaxShoulder(j, q);
+                styleAmp(j, q);
+                posture(j, q);
+                stylePose(j, q);
+            };
+            int root = -1;
+            for (int j = 0; j < k.bones; ++j)
+                if (k.parent[j] < 0) root = j;
+            for (const char* side : {"Left", "Right"}) {
+                const std::string pre = std::string("mixamorig:") + side;
+                int arm = -1, hand = -1, knuckle = -1;
+                for (int j = 0; j < k.bones; ++j) {
+                    const std::string& nm = k.boneNames[(size_t)j];
+                    if (nm == pre + "Arm") arm = j;
+                    if (nm == pre + "Hand") hand = j;
+                    if (nm == pre + "HandMiddle1") knuckle = j;
+                }
+                if (arm < 0 || hand < 0 || root < 0) continue;
+                const float sgn = side[0] == 'L' ? 1.0f : -1.0f;  // the left side is +X
+                std::vector<float> th((size_t)keys, 0.0f);
+                for (int i = 0; i < keys; ++i) {
+                    // FK in the hips' frame: the root's rotation left out
+                    std::map<int, std::pair<std::array<float, 4>, std::array<float, 3>>> w;
+                    std::function<void(int)> fk = [&](int j) {
+                        if (w.count(j)) return;
+                        const int pa = k.parent[j];
+                        if (pa < 0) {
+                            w[j] = {{0, 0, 0, 1}, {heads[(size_t)j * 3], heads[(size_t)j * 3 + 1], heads[(size_t)j * 3 + 2]}};
+                            return;
+                        }
+                        fk(pa);
+                        const auto& [pq, pp] = w[pa];
+                        float q[4], wq[4], off[3], r[3];
+                        finalLocal(j, times[i], q);
+                        std::copy(q, q + 4, wq);
+                        qmul(pq.data(), wq);
+                        for (int c = 0; c < 3; ++c) off[c] = heads[(size_t)j * 3 + c] - heads[(size_t)pa * 3 + c];
+                        rotv(pq.data(), off, r);
+                        w[j] = {{wq[0], wq[1], wq[2], wq[3]}, {pp[0] + r[0], pp[1] + r[1], pp[2] + r[2]}};
+                    };
+                    fk(hand);
+                    if (knuckle >= 0) fk(knuckle);
+                    const auto& ap = w[arm].second;
+                    float need = 0.0f;
+                    for (int pt : {hand, knuckle}) {
+                        if (pt < 0) continue;
+                        const auto& pp = w[pt].second;
+                        const float x = pp[0] * sgn;
+                        if (x <= 0.0f) continue;  // across the midline: not a hip collision
+                        const float clear = pt == hand ? 0.035f : 0.025f;
+                        const float deficit = extent(pp[1], pp[2], sgn) + clear - x;
+                        if (deficit <= 0.0f) continue;
+                        const float L = std::max(0.15f, std::hypot(pp[0] - ap[0], pp[1] - ap[1]));
+                        need = std::max(need, std::asin(std::min(1.0f, deficit / L)));
+                    }
+                    th[(size_t)i] = need;
+                }
+                // a key's neighbours share its correction (dilate one key, then blur)
+                std::vector<float> d(th);
+                for (int i = 0; i < keys; ++i)
+                    d[(size_t)i] = std::max({th[(size_t)i], th[(size_t)std::max(0, i - 1)], th[(size_t)std::min(keys - 1, i + 1)]});
+                for (int i = 0; i < keys; ++i)
+                    th[(size_t)i] = 0.25f * d[(size_t)std::max(0, i - 1)] + 0.5f * d[(size_t)i] +
+                                    0.25f * d[(size_t)std::min(keys - 1, i + 1)];
+                bool any = false;
+                for (float v : th) any |= v > 0.0f;
+                if (any) armOut[arm] = std::move(th);
+            }
+        }
         for (int b = 0; b < k.bones; ++b) {
             glbparser::SkelChannel ch;
             ch.node = b;
@@ -2606,6 +2717,13 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 styleAmp(b, q);
                 posture(b, q);
                 stylePose(b, q);
+                if (auto ao = armOut.find(b); ao != armOut.end()) {
+                    // out: toward +X for the left arm, -X for the right
+                    const float a = ao->second[(size_t)i] *
+                                    (k.boneNames[(size_t)b].rfind("mixamorig:Left", 0) == 0 ? 1.0f : -1.0f);
+                    const float r[4] = {0.0f, 0.0f, std::sin(a * 0.5f), std::cos(a * 0.5f)};
+                    qmul(r, q);
+                }
                 if (finger) {
                     float l = 0.0f;
                     if (partner >= 0) {
