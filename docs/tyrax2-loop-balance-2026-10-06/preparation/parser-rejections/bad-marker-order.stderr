@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-loop-balance-v1\analyze-balance.py", line 33, in <module>
+    gs,rs,ge=b['gameStart'],b['renderStart'],b['gameEnd'];assert 0<=gs<=rs<=ge<=r['wholeLoop']<0x80000000
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

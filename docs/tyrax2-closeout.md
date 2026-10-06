@@ -196,3 +196,15 @@ dominant spike source. Parked forward/reverse active observer contrasts are
 +0.06753/-0.00523 ms with reverse outer spread0.13196 ms, so no clean scalar
 tax or uniform correction is accepted. Next partition remaining game update
 from render preparation/submission and existing waits. Physical TV remains pending.
+
+The [complete daylight loop balance](tyrax2-loop-balance-2026-10-06/README.md)
+now qualifies384 raw rows and256 active partitions through native, emulator and
+physical5400-loop runs. Heavy driving rows average18.7498 ms non-pacing work:
+17.4102 ms render phase,1.2952 ms pre-render update,0.0363 ms engine remainder
+and0.0081 ms explicit VIF/GIF/GS waits. Actual completed jobs belong to the
+preceding EE loop. Existing pacing agrees exactly with the independent ordinary
+sampler; no waits/fairness drain were added. Parked Off/On/Off and reverse
+contrasts are-0.08331/+0.09376 ms, so no scalar tax is subtracted. Render includes
+its own logic/HUD/effects and elapsed preemption; this is not a pure EE bill.
+Next partition the interior render phase, retaining the enclosing balance and
+wait ownership. Full-night stable60 and physical TV inspection remain pending.

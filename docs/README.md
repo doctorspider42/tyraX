@@ -18,6 +18,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Daylight vehicle substep attribution](tyrax2-city-physics-2026-10-06/physical/README.md) —
   PS2 scopes show small vehicle-update cost and prior cadence loss before
   two-step activation; most heavy-loop work remains outside that wrapper.
+- [Daylight loop balance](tyrax2-loop-balance-2026-10-06/README.md) — disjoint PS2
+  update/render/wait/pacing categories place17.41 of18.75 ms in the render phase
+  on heavy driving rows; opposing observer contrasts prevent a scalar tax correction.
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.

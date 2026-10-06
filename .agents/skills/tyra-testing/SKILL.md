@@ -19,6 +19,15 @@ description: >
 
 # Building, running and verifying
 
+Loop-balance diagnostics: `docs/tyrax2-loop-balance-2026-10-06/README.md`
+separates pre-render update, render phase, leaf VIF/GIF/GS waits and existing
+pacing. Reuse enclosing/pacing stamps, end GS scope before clear callbacks,
+exclude queue flush/reset from wait spans, and record the actual pending job's
+EE owner. Algebraic closure needs a separate source-coverage review. Render
+includes its own logic/HUD/effects; elapsed work includes preemption. Account
+dynamic extra Count reads separately and reject mixed/nested or crossing waits.
+Opposing same-ELF observer contrasts do not justify a scalar tax subtraction.
+
 Claude-trial boundaries: `docs/tyrax2-claude-trials.md` records twelve original
 Core assertions (the inherited comment says thirteen), private bypass prices
 with no production safety claim, and sparse nonempty-entered companion census.

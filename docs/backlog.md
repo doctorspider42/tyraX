@@ -3046,3 +3046,12 @@ TyraX2 isolation follow-up: [stationary batching ON/OFF](tyrax2-empty-car-2026-1
 TyraX2 batching isolation: [first physical ON/OFF/ON](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md) measures15.4751/20.0728/15.4748 ms with matching80187 inputs,37/313 carriers and zero synthetic completions. Net representation difference4.5978 ms; reverse-order hardware and TV remain pending. No production optimization or fixed packet-price extrapolation accepted.
 
 TyraX2 batching isolation: [both hardware orders complete](tyrax2-empty-car-2026-10-06/batch/physical-order1/README.md),37/313 carriers at matching80187 inputs and ON~59.94/OFF~29.97 Hz. Reverse corroborates direction with a lazy-residency caveat; order0's4.5978 ms is the cleaner contrast. Authored Vehicle Playground already enables batching; remaining merge candidates require material/cell/light/reflection eligibility review and direct production pricing. Physical TV inspection is pending; no public renderer optimization accepted.
+
+TyraX2 daylight attribution: [complete loop balance](tyrax2-loop-balance-2026-10-06/README.md)
+places17.4102 of18.7498 ms heavy-loop work in the render phase, with1.2952 ms
+pre-render update and0.0081 ms explicit VIF/GIF/GS waits. Next split frame setup/
+day-night evaluation, renderScene preparation/drawing, HUD/effects and endFrame;
+then partition the largest region's visibility, clipping and packet production.
+Retain the enclosing balance, actual pending-job ownership and same-ELF observer
+controls. Opposite active contrasts prevent a scalar tax correction. Stable
+full-night60 and physical TV inspection remain open; no new optimization accepted.
