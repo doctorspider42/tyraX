@@ -3,7 +3,8 @@
 Six people, all made by *Tools > Character Generator* - the
 [character generator](../../docs/character-generator.md) end to end: bodies,
 faces, skin and makeup from sliders, clothes and hair from the CC0 wardrobe,
-motion-captured clips, and nothing hand-made.
+motion-captured clips (the women move with the feminine *Movement style*, the
+men with the masculine one - Auto, from Gender), and nothing hand-made.
 
 Open `character-generator.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor --build <this folder> --run`.
