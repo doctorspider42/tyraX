@@ -33,6 +33,9 @@ SYS, DATA, STAGE = argv[0], argv[1], argv[2]
 SIZE = int(argv[3]) if len(argv) > 3 else 1024
 # KIT_QUICK=1: pack + one skin only, for iterating on the atlas layout.
 QUICK = bool(os.environ.get('KIT_QUICK'))
+# KIT_ONLY=brows: re-bake only the brow layers into an existing stage (its
+# body.npz is checked, not rewritten - the garment layers depend on it).
+ONLY = os.environ.get('KIT_ONLY', '')
 os.makedirs(STAGE, exist_ok=True)
 
 # Which MakeHuman proxy is the game body: female1605 for women, male1591 for
@@ -311,13 +314,26 @@ bpy.ops.object.mode_set(mode='OBJECT')
 
 # --- export the geometry -------------------------------------------------------
 import json  # noqa: E402
-with open(os.path.join(STAGE, 'body.json'), 'w') as fh:
-    json.dump({'proxy': BODY_PROXY}, fh)
 loop_new = np.zeros(len(me.loops) * 2, dtype=np.float32)
 me.uv_layers['new'].data.foreach_get('uv', loop_new)
 loop_new = loop_new.reshape(-1, 2)
 face_loops = [list(p.loop_indices) for p in me.polygons]
-np.savez_compressed(
+if ONLY:
+    # The layers must land in the atlas the stage already has, and packing is
+    # not repeatable - so take the stage's atlas UVs back onto the mesh.
+    had = np.load(os.path.join(STAGE, 'body.npz'), allow_pickle=True)['uv_new']
+    assert len(had) == len(face_loops), 'a different body - rebuild the stage'
+    for fl, uvs in zip(face_loops, had):
+        assert len(fl) == len(uvs)
+        for li, uv in zip(fl, uvs):
+            loop_new[li] = uv
+    me.uv_layers['new'].data.foreach_set('uv', loop_new.ravel())
+    print('ONLY', ONLY, 'atlas from', STAGE)
+else:
+    with open(os.path.join(STAGE, 'body.json'), 'w') as fh:
+        json.dump({'proxy': BODY_PROXY}, fh)
+if not ONLY:
+  np.savez_compressed(
     os.path.join(STAGE, 'body.npz'),
     verts=verts_rest, nbody=nb, faces=np.array(faces, dtype=object), part=part,
     uv_new=np.array([[loop_new[li] for li in fl] for fl in face_loops], dtype=object),
@@ -377,9 +393,101 @@ def bake_emit_from_old(img_path, name, eye_only=False, use_alpha=False):
     save(im, name)
 
 
+# Base-mesh vertex -> its UV in MakeHuman's layout (the skins' layout).
+base_vuv = np.full((len(base), 2), np.nan)
+for f, t in zip(base_obj.faces, base_obj.ftex):
+    if t:
+        for vi, ti in zip(f, t):
+            if np.isnan(base_vuv[vi, 0]):
+                base_vuv[vi] = base_obj.vt[ti]
+
+
+def bake_brow_flat(asset_dir, name, HI=2048):
+    """A brow card laid flat into MakeHuman's layout through its own .mhclo
+    binding, then re-sampled into the atlas like a skin. Ray-baking the card
+    onto the body (selected-to-active) smeared it: the card floats above the
+    low-poly chord, so rays reach it at a grazing angle and stretch its alpha
+    into streaks - visible above every brow, worst at 512 on a hero face."""
+    pf = [f for f in os.listdir(asset_dir) if f.endswith('.mhclo') or f.endswith('.proxy')][0]
+    px = mhkit.load_proxy(os.path.join(asset_dir, pf))
+    stem = os.path.basename(asset_dir.rstrip('/\\'))
+    co = mhkit.load_obj(os.path.join(asset_dir, px.obj_file or stem + '.obj'))
+    wn = px.w / np.maximum(px.w.sum(axis=1, keepdims=True), 1e-9)
+    duv = (base_vuv[px.ref] * wn[:, :, None]).sum(axis=1)  # card vertex -> base UV
+    tim = bpy.data.images.load(bmh.find_texture(asset_dir), check_existing=True)
+    tw, th = tim.size
+    alpha = np.array(tim.pixels[:], dtype=np.float32).reshape(th, tw, 4)[:, :, 3]
+
+    def sample(u, v):  # bilinear, rows bottom-up like Blender's pixels
+        x = np.clip(u * tw - 0.5, 0, tw - 1.001)
+        y = np.clip(v * th - 0.5, 0, th - 1.001)
+        x0, y0 = x.astype(int), y.astype(int)
+        fx, fy = x - x0, y - y0
+        a = alpha[y0, x0] * (1 - fx) + alpha[y0, x0 + 1] * fx
+        b = alpha[y0 + 1, x0] * (1 - fx) + alpha[y0 + 1, x0 + 1] * fx
+        return a * (1 - fy) + b * fy
+
+    out_a = np.zeros((HI, HI), dtype=np.float32)
+    for f, t in zip(co.faces, co.ftex):
+        if not t:
+            continue
+        for k in range(1, len(f) - 1):  # fan
+            c = [0, k, k + 1]
+            d = np.array([duv[f[i]] for i in c]) * HI - 0.5
+            s = np.array([co.vt[t[i]] for i in c])
+            if np.isnan(d).any():
+                continue
+            x0, y0 = np.floor(d.min(axis=0)).astype(int)
+            x1, y1 = np.ceil(d.max(axis=0)).astype(int)
+            x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, HI - 1), min(y1, HI - 1)
+            if x1 < x0 or y1 < y0:
+                continue
+            gx, gy = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1))
+            m = np.array([[d[1, 0] - d[0, 0], d[2, 0] - d[0, 0]],
+                          [d[1, 1] - d[0, 1], d[2, 1] - d[0, 1]]])
+            if abs(np.linalg.det(m)) < 1e-9:
+                continue
+            inv = np.linalg.inv(m)
+            px_ = np.stack([gx - d[0, 0], gy - d[0, 1]])
+            b1 = inv[0, 0] * px_[0] + inv[0, 1] * px_[1]
+            b2 = inv[1, 0] * px_[0] + inv[1, 1] * px_[1]
+            inside = (b1 >= -1e-4) & (b2 >= -1e-4) & (b1 + b2 <= 1 + 1e-4)
+            if not inside.any():
+                continue
+            b0 = 1 - b1 - b2
+            su = b0 * s[0, 0] + b1 * s[1, 0] + b2 * s[2, 0]
+            sv = b0 * s[0, 1] + b1 * s[1, 1] + b2 * s[2, 1]
+            val = np.where(inside, sample(su, sv), 0.0)
+            reg = out_a[y0:y1 + 1, x0:x1 + 1]
+            np.maximum(reg, val, out=reg)
+    im = bpy.data.images.new(name + '_mh', HI, HI, alpha=False)
+    im.colorspace_settings.name = 'Non-Color'
+    px4 = np.ones((HI, HI, 4), dtype=np.float32)
+    px4[:, :, 0] = px4[:, :, 1] = px4[:, :, 2] = out_a
+    im.pixels.foreach_set(px4.ravel())
+    path = os.path.join(STAGE, name + '_mh.png')
+    im.filepath_raw = path
+    im.file_format = 'PNG'
+    im.save()
+    bake_emit_from_old(path, name)
+
+
 bpy.ops.object.select_all(action='DESELECT')
 body.select_set(True)
 bpy.context.view_layer.objects.active = body
+
+def bake_all_brows():
+    for d in sorted(os.listdir(os.path.join(SYS, 'eyebrows'))):
+        p = os.path.join(SYS, 'eyebrows', d)
+        if os.path.isdir(p):
+            bake_brow_flat(p, 'brow_' + d)
+            print('BAKED brow', d)
+
+
+if ONLY == 'brows':
+    bake_all_brows()
+    print('DONE brows')
+    sys.exit(0)
 
 # Skins: every CC0 diffuse in the pack, re-sampled into the atlas. build_kit.py
 # decomposes them into tone and detail.
@@ -452,10 +560,10 @@ def bake_cards(asset_dir, name, extrusion=0.012, dist=0.03):
     bpy.data.objects.remove(obj)
 
 
-for d in sorted(os.listdir(os.path.join(SYS, 'eyebrows'))):
-    p = os.path.join(SYS, 'eyebrows', d)
-    if os.path.isdir(p):
-        bake_cards(p, 'brow_' + d)
+bpy.ops.object.select_all(action='DESELECT')
+body.select_set(True)
+bpy.context.view_layer.objects.active = body
+bake_all_brows()
 for d in sorted(os.listdir(os.path.join(SYS, 'eyelashes'))):
     p = os.path.join(SYS, 'eyelashes', d)
     if os.path.isdir(p):

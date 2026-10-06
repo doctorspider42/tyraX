@@ -55,6 +55,15 @@ sets a cutout item's alpha threshold (3D glasses keep their 0.5-alpha lenses).
 
 ## Traps (each cost a broken bake)
 
+- Brows are NOT ray-baked (selected-to-active) from their cards: the card
+  floats above the low-poly chord, rays meet it at a grazing angle and its
+  alpha smears into streaks a centimetre above every brow (on every body;
+  the hero face at 512 made it obvious). `bake_brow_flat` lays the card flat
+  through its own `.mhclo` binding into MakeHuman's layout and re-samples
+  that like a skin. `KIT_ONLY=brows` re-bakes just the brows into an existing
+  stage, taking the stage's atlas UVs from its `body.npz` - re-packing is not
+  repeatable, and a re-packed atlas would not match the garment layers.
+
 - The hero bodies are `<proxy>@sub`: the standard proxy subdivided over head,
   torso, arms and legs, every new vertex bound to the nearest point of the
   reference surface. MakeHuman's 13.8k-quad generic proxies, un-subdivided,

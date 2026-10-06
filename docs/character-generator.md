@@ -218,7 +218,10 @@ The atlas is composed at 512 and box-filtered to the chosen size:
    reads as hair at 512 and as a shadow at 128, and painted strong and dark -
    a faint one is simply not there on the console.
 3. **Brows and lashes**: MakeHuman's alpha-card meshes, baked onto the skin as
-   masks and tinted by the hair colour.
+   masks and tinted by the hair colour. A brow card is laid flat through its
+   own binding to the reference mesh, not ray-baked: rays from the low-poly
+   body met the floating card at a grazing angle and smeared it into streaks
+   above every brow.
 4. **Ambient occlusion** from the 13k-quad reference body - nostrils, lips,
    ears and the gaps between fingers keep their shading though the low-poly
    mesh cannot.
@@ -348,8 +351,13 @@ plus the skin the hair's vertices are actually bound to (not the face - a
 fringe binds to the forehead, which stays skin), closed by 10 texels so gaps
 up to 20 close without the outline growing, kept to the head's texels (the
 body triangles skinned to the Head bone, rasterized in UV - it no longer
-spills into the island next to the head in the atlas), softened. The gaps take
-the hair's colour darkened like roots. An option hairstyle in the
+spills into the island next to the head in the atlas), softened, and kept to the **scalp** - head
+triangles facing up, facing back, or facing sideways above the brows. The gaps
+take the hair's colour darkened like roots. Off the scalp a hairstyle paints
+no colour: a fringe or a long cut hanging over the face left a hair-coloured
+blotch on the cheek there, so the face gets the hair's **shadow** instead -
+the layer's coverage blurred (two 9-texel boxes) and darkening the skin by up
+to 45%. An option hairstyle in the
 [creator](#in-game-character-creator) cannot paint the skin (the player may
 take it off), so it brings a **scalp cap**: the covered scalp triangles, 4 mm
 out, on the darkest solid texel of its own texture, shown and hidden with it.

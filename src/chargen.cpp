@@ -1490,7 +1490,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 if (l0 >= e && l1 >= e && l2 >= e) mask[(size_t)y * S + x] = 1;
             }
     };
-    std::vector<uint8_t> headMask;
+    std::vector<uint8_t> headMask, scalpMask;
     auto headTexels = [&]() -> const std::vector<uint8_t>& {
         if (!headMask.empty()) return headMask;
         const int S = kLayer;
@@ -1509,13 +1509,44 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             }
             return sum > 0.0f ? w / sum : 0.0f;
         };
+        // The scalp - where hair may colour the skin; the rest of the head
+        // is face, and a fringe hanging over it only shades it. On the
+        // head: facing up, facing back, or facing sideways above the brows.
+        // Heights from the eyes (the eyeball vertices) to the crown.
+        scalpMask.assign((size_t)S * S, 0);
+        float eyeY = 0.0f, topY = -1e9f;
+        int eyeN = 0;
+        for (int t = 0; t < b.tris; ++t)
+            for (int c = 0; c < 3; ++c) {
+                const int v = b.tri[t * 3 + c];
+                if (b.part[t] != 0) {
+                    eyeY += pos[(size_t)v * 3 + 1];
+                    ++eyeN;
+                } else {
+                    topY = std::max(topY, pos[(size_t)v * 3 + 1]);
+                }
+            }
+        eyeY = eyeN ? eyeY / (float)eyeN : topY;
+        const float browY = eyeY + (topY - eyeY) * 0.25f;
         for (int t = 0; t < b.tris; ++t) {
             if (b.part[t] != 0) continue;
-            float hw = 0.0f;
-            for (int c = 0; c < 3; ++c) hw += headWeight(b.tri[t * 3 + c]) / 3.0f;
-            if (hw >= 0.5f) rasterTri(t, headMask);
+            float hw = 0.0f, y = 0.0f, ny = 0.0f, nz = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                const int v = b.tri[t * 3 + c];
+                hw += headWeight(v) / 3.0f;
+                y += pos[(size_t)v * 3 + 1] / 3.0f;
+                ny += nrm[(size_t)v * 3 + 1] / 3.0f;
+                nz += nrm[(size_t)v * 3 + 2] / 3.0f;
+            }
+            if (hw < 0.5f) continue;
+            rasterTri(t, headMask);
+            if (ny > 0.55f || nz < -0.2f || (nz < 0.35f && y > browY)) rasterTri(t, scalpMask);
         }
         return headMask;
+    };
+    auto scalpTexels = [&]() -> const std::vector<uint8_t>& {
+        headTexels();
+        return scalpMask;
     };
     auto scalpCover = [&](size_t gi, const uint8_t* paint) -> const std::vector<float>& {
         auto it = scalpCache.find(gi);
@@ -1588,8 +1619,12 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         // then keep it on the head
         pass(10, true);
         pass(10, false);
+        // ...on the scalp only: a fringe's layer reaches the forehead, the
+        // eyes and the cheeks, and painted there it was a hair-coloured
+        // blotch on the face (the face gets the fringe's shadow instead)
         const std::vector<uint8_t>& head = headTexels();
-        for (size_t i = 0; i < m.size(); ++i) m[i] *= head[i];
+        const std::vector<uint8_t>& scalp = scalpTexels();
+        for (size_t i = 0; i < m.size(); ++i) m[i] *= scalp[i];
         for (int k = 0; k < 2; ++k) {  // soften the edge: a 3x3 box, twice
             for (int y = 0; y < S; ++y)
                 for (int x = 0; x < S; ++x) {
@@ -1730,6 +1765,33 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const std::vector<float>& cover = scalpCover(gi, paint);
             float root[3] = {g->item.color.r * 0.6f, g->item.color.g * 0.6f, g->item.color.b * 0.6f};
             if (g->item.dyeable) dye(root, 1.0f, g->luma, all[gi].color, g->cutout ? 0.55f : 1.0f);
+            {
+                // Off the scalp the hair's layer is a shadow: where a fringe
+                // or a long cut hangs over the face, the skin darkens - a
+                // soft one, blurred so the strands do not print.
+                const int S = kLayer;
+                std::vector<float> sh(n), tmp(n);
+                for (size_t i = 0; i < n; ++i) sh[i] = std::min(1.0f, px01(paint, i, 3)) * (1.0f - cover[i]);
+                for (int pass = 0; pass < 2; ++pass) {
+                    const int r = 4;
+                    for (int y = 0; y < S; ++y)
+                        for (int x = 0; x < S; ++x) {
+                            float s = 0.0f;
+                            for (int d = -r; d <= r; ++d) s += sh[(size_t)y * S + std::clamp(x + d, 0, S - 1)];
+                            tmp[(size_t)y * S + x] = s / (2 * r + 1);
+                        }
+                    for (int y = 0; y < S; ++y)
+                        for (int x = 0; x < S; ++x) {
+                            float s = 0.0f;
+                            for (int d = -r; d <= r; ++d) s += tmp[(size_t)std::clamp(y + d, 0, S - 1) * S + x];
+                            sh[(size_t)y * S + x] = s / (2 * r + 1);
+                        }
+                }
+                for (size_t i = 0; i < n; ++i) {
+                    const float o = 1.0f - 0.45f * sh[i] * (1.0f - cover[i]);
+                    for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] *= o;
+                }
+            }
             for (size_t i = 0; i < n; ++i) {
                 const float ca = cover[i];
                 if (ca <= 0.0f) continue;

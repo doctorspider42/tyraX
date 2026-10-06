@@ -5701,7 +5701,11 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+// 1.180.1: Character Generator - hair colours only the scalp (the face under
+// a fringe gets its blurred shadow, not a hair-coloured blotch), and brows
+// are laid flat through their card binding instead of ray-baked (streaks
+// above every brow). Kit rebuilt; project format unchanged.
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
