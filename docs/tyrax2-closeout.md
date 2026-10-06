@@ -157,4 +157,7 @@ All three workloads retain approximately 59.94 Hz in the observed physical windo
 
 The earlier full-night census accepted 134 carriers, versus 36 in the 80k fixture. Different geometry, materials, receiver paths and effects confound that contrast. The next useful controlled experiment is identical geometry with batching enabled/disabled, preserving lighting and pass semantics. A confirmed carrier-count cost would motivate merging eligible small submissions while preserving dynamic receivers and reflection carriers. Distant geometry LOD is another practical load reduction, but imported per-object LOD can demote static batching; it must be measured rather than assumed to improve cadence. No such optimization is implemented by this ladder.
 
-The requested blob continuation currently has native and clean emulator qualification only. Its first physical run is rejected for a missing default glow resource; do not use its timing to price the shadow. The unchanged ELF has a corrected, pinned runtime closure and awaits a fresh physical start.
+The corrected blob continuation completes 5400 clean PS2 loops at 15.4753/15.4872/15.4859 ms non-pacing work, approximately 59.94 Hz in all observed windows, zero synthetic measured completions and zero raw entry periods above 25 ms. All six cold observations retain 80,133 parent inputs plus one accepted 54-vertex normal blob. The original missing-resource runs remain rejected. The separate-ELF comparison is not a causal shadow-only price; physical TV confirmation remains pending.
+
+
+The [clean physical blob result](tyrax2-empty-car-2026-10-06/README.md#clean-physical-blob-result) supersedes the earlier pending hardware checkpoint, preserving all rejected resource-failure evidence.

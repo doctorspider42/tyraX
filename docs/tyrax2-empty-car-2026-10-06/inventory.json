@@ -2706,5 +2706,49 @@
   {
     "path": "buildings-80k-shadow/preparation/referenced-runtime-assets.json",
     "sha256": "f2351d34df3772d0ce8c9b392b8703414001d862b1b02d2f5a22171a6f84f2eb"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/launch-inputs.json",
+    "sha256": "75e8effbcddb23d84907141ea087a2102c9b13c4470db6f17d4fd52e31d340a2"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/owned-launch.json",
+    "sha256": "06914c9d8739c5ace866d8f1cd80d02a83f6d20b49be2f14fe264e922be97e29"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/completed-stdout.raw",
+    "sha256": "363457e0353ba2325e9353f17b3d6b345bb20029f223219250893790dc5ab392"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/stdout.utf8.log",
+    "sha256": "363457e0353ba2325e9353f17b3d6b345bb20029f223219250893790dc5ab392"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/physical-review.json",
+    "sha256": "69b3762ed1af22034d390474abcb002d2b94f4aafed29b48793877c7adfe5211"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/protocol-analysis.json",
+    "sha256": "d0b3a6752a87a3ad2003e06e9a706a455dbc4dd4a1c2b106d8a1be14a2776d42"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/root-cadence-review.json",
+    "sha256": "8c04361dbd05afeec622c0957159077f2f2fb507f5aa81f66f6ed379bc2ea2d4"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/bin/closeout-samples.txt",
+    "sha256": "2cd3e46d7b2288aed0f7ab2b682d4411d8c2b232ee0cbdd8cb13383c651b69c6"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/finish-shadow-physical.py",
+    "sha256": "c55b5bdee0089399bcc9df5b62ae8b5f192309f72c29b81f913cd9973c502e58"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/qualify-shadow-physical-root.py",
+    "sha256": "5cff31b7d214218e3428ff74183449ff95429c1ca4fdc19f4a45e8d22314d411"
+  },
+  {
+    "path": "buildings-80k-shadow/physical/archive-physical-shadow-root.py",
+    "sha256": "3f42d38727c9122d57ec19743cc990b15028bd857654f56bbfac6ac1268cba16"
   }
 ]
