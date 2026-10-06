@@ -16,7 +16,7 @@
   <a href="https://github.com/doctorspider42/tyraX/releases"><img src="https://img.shields.io/github/downloads/doctorspider42/tyraX/total?style=flat-square&label=downloads&color=26d9ff" alt="Total downloads"></a>
   <a href="https://github.com/doctorspider42/tyraX/commits/main"><img src="https://img.shields.io/github/commit-activity/m/doctorspider42/tyraX?style=flat-square&label=commits&color=26d9ff" alt="Commit activity"></a>
   <a href="https://github.com/doctorspider42/tyraX/commits/main"><img src="https://img.shields.io/github/last-commit/doctorspider42/tyraX?style=flat-square&color=26d9ff" alt="Last commit"></a>
-  <a href="https://discord.gg/PpTAkQh6u"><img src="https://img.shields.io/badge/Tyra-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Tyra Discord"></a>
+  <a href="https://discord.gg/2vgMERQPtz"><img src="https://img.shields.io/badge/Tyra-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Tyra Discord"></a>
   <a href="https://github.com/sponsors/doctorspider42"><img src="https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?style=flat-square&logo=githubsponsors&logoColor=white" alt="Sponsor"></a>
 </p>
 
@@ -689,7 +689,7 @@ This project stands on the shoulders of the PS2 homebrew community:
   [ufbx](https://github.com/ufbx/ufbx),
   [miniaudio](https://github.com/mackron/miniaudio).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
-- **[Tyra Discord](https://discord.gg/PpTAkQh6u)** — the amazing project community.
+- **[Tyra Discord](https://discord.gg/2vgMERQPtz)** — the amazing project community.
 
 Every notice, full license text and exact redistribution term — plus the
 file-by-file policy for third-party assets — is in
