@@ -127,6 +127,14 @@ class TsklLoader {
    * @return parsed model, or nullptr when the file is missing/malformed
    */
   static std::unique_ptr<SkelModel> load(const std::string& relativePath);
+
+  /**
+   * Modified by TyraX: parses a .tskl already in memory - a game that reads
+   * the file a slice per frame (no hitch) hands the bytes over here.
+   * @param relativePath where it came from: its textures resolve beside it
+   */
+  static std::unique_ptr<SkelModel> fromMemory(const std::vector<u8>& file,
+                                               const std::string& relativePath);
 };
 
 }  // namespace Tyra

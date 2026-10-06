@@ -202,6 +202,11 @@ std::string bake(const Project& p,
     std::map<std::string, std::string> quality;
     auto assetQuality = [&](const std::string& assetRel) -> std::string {
         auto it = p.textureQuality.find(assetRel);
+        // a character's other body ("<x>-alt.glb", the creator's Body row)
+        // bakes like the body it stands in for
+        if (it == p.textureQuality.end() && assetRel.size() > 8 &&
+            assetRel.compare(assetRel.size() - 8, 8, "-alt.glb") == 0)
+            it = p.textureQuality.find(assetRel.substr(0, assetRel.size() - 8) + ".glb");
         return it == p.textureQuality.end() ? "" : it->second;
     };
     auto claim = [&](const std::string& pngRel, const std::string& q) {

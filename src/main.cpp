@@ -4838,6 +4838,14 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return 1;
         }
+        int variantCount = 0;
+        for (int i = 4; i + 1 < argc; ++i)
+            if (std::strcmp(argv[i], "--variants") == 0) variantCount = std::atoi(argv[i + 1]);
+        // the Body row's other body, "<out>-alt.glb" (or a stale one removed)
+        if (!chargen::writeBodyChoice(params, argv[3], variantCount, err)) {
+            std::fprintf(stderr, "other body: %s\n", err.c_str());
+            return 1;
+        }
         for (int i = 4; i + 1 < argc; ++i) {
             if (std::strcmp(argv[i], "--recipe-out") == 0) {
                 std::ofstream o(argv[i + 1], std::ios::binary);

@@ -12501,8 +12501,8 @@ int addCreatorMenu(Project& p) {
     m.pauseGame = false;
     m.screenPos[0] = 0.72f;  // the creator's camera keeps the character on the left
     m.screenPos[1] = 0.5f;
-    static const char* kRows[][2] = {
-        {"COLOURS", "look"}, {"HAIR", "hair"}, {"HAT", "hat"}, {"GLASSES", "glasses"}};
+    static const char* kRows[][2] = {{"BODY", "body"},  {"COLOURS", "look"}, {"HAIR", "hair"},
+                                     {"HAT", "hat"},    {"GLASSES", "glasses"}};
     for (const auto& r : kRows) {
         MenuEntry en;
         en.label = r[0];
@@ -13102,13 +13102,13 @@ void App::drawMenusWindow() {
                         "Its default is the initial state; flow graphs react\n"
                         "via Value At Least -> On Condition.");
             } else if (en.action == MenuEntry::CreatorOption) {
-                static const char* kSlots[] = {"look", "hair", "hat", "glasses"};
+                static const char* kSlots[] = {"look", "hair", "hat", "glasses", "body"};
                 int slot = 0;
-                for (int k = 0; k < 4; ++k)
+                for (int k = 0; k < 5; ++k)
                     if (en.param == kSlots[k]) slot = k;
                 ImGui::SetNextItemWidth(scaled(90.0f));
-                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses"};
-                if (ImGui::Combo("##creatorslot", &slot, kSlotNames, 4)) {
+                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses", "Body"};
+                if (ImGui::Combo("##creatorslot", &slot, kSlotNames, 5)) {
                     en.param = kSlots[slot];
                     changed = true;
                 }
@@ -18913,6 +18913,14 @@ void App::drawCharacterGeneratorWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Other skin, hair and clothing colours to choose from,\n"
                               "beside the character's own - a 1 KB palette each.");
+        ImGui::Checkbox(p.gender >= 0.5f ? "Man or woman (adds her body)" : "Woman or man (adds his body)",
+                        &p.bodyChoice);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A Body row in the creator: the same person in the other\n"
+                              "sex, written beside the model as <name>-alt.glb with the\n"
+                              "same clothes, options and colour looks. The game loads the\n"
+                              "other body in the background when they switch and frees\n"
+                              "the first - a second model on disc, not in memory.");
         ImGui::TextDisabled("Opens in the game with the Character Creator flow\n"
                             "node (Animation category). The choice survives\n"
                             "scene changes and is saved with the game.");
@@ -18941,6 +18949,11 @@ void App::drawCharacterGeneratorWindow() {
 // "Add to scene" from the Character Generator. Same shape as addTreeToScene:
 // a distinct asset file per generated character so two of them never overwrite
 // each other, then the ordinary Model insert path.
+// "res/.../hero.glb" -> "res/.../hero-alt.glb": a Body-row character's other body
+static std::string altRel(const std::string& rel) {
+    return std::filesystem::path(chargen::altModelPath(rel)).generic_string();
+}
+
 void App::addCharacterToScene() {
     std::string base = sanitizeAssetName(charName_);
     if (base.empty()) base = "character";
@@ -18972,6 +18985,11 @@ void App::addCharacterToScene() {
     // same 256x256 atlas at 64 KB of GS VRAM (texbake claims the .glb's
     // extracted images through this override).
     project_.textureQuality[rel] = "8bit";
+    if (!chargen::writeBodyChoice(charParams_, (std::filesystem::path(project_.dir) / rel).string(), 0, err)) {
+        statusMessage_ = "Character's other body failed: " + err;
+        return;
+    }
+    if (charParams_.bodyChoice) project_.textureQuality[altRel(rel)] = "8bit";
     addModelObject(rel);  // creates the Model object + commitChange()
     const int tris = charSkel_.totalVertexCount() / 3;
     statusMessage_ =
@@ -19100,6 +19118,12 @@ void App::makeCreatorPlayer() {
             return;
         }
     project_.textureQuality[rel] = "8bit";
+    // the Body row's other body, with as many colour looks
+    if (!chargen::writeBodyChoice(charParams_, glb, charCreatorLooks_, err)) {
+        statusMessage_ = "Player's other body failed: " + err;
+        return;
+    }
+    if (charParams_.bodyChoice) project_.textureQuality[altRel(rel)] = "8bit";
     SceneObject* player = nullptr;
     for (SceneObject& o : project_.objects())
         if (o.type == PrimitiveType::Player) {

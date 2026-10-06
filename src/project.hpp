@@ -3519,7 +3519,8 @@ struct MenuEntry {
         // graph - harmless, and a no-op when nothing is playing.
         SkipCutscene = 13,
         // In-game Character Creator rows (docs/character-generator.md, "The
-        // creator as a menu"). param = "look", "hair", "hat" or "glasses":
+        // creator as a menu"). param = "look", "hair", "hat", "glasses" or
+        // "body" (man or woman: the model's other body, chargen bodyChoice):
         // Left/Right (and Cross) change that part of the look of the
         // character being dressed - the player when the menu was opened some
         // other way - and the row draws the current choice as runtime text

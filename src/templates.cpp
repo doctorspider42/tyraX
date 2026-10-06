@@ -262,6 +262,15 @@ static bool hasAnimBody(const SceneObject& o) {
 // models.md), so the PAIR is the identity: the same .glb with two different
 // overrides bakes to two distinct .tskl files (see animBakedTsklRel). Empty
 // override = the model's own (built-in) materials.
+// "res/.../hero.glb" -> "res/.../hero-alt.glb" (chargen::altModelPath, kept
+// generic-slashed for the key); "" for anything that cannot have one.
+static std::string altModelRel(const std::string& rel) {
+    const size_t dot = rel.rfind('.');
+    if (dot == std::string::npos || rel.compare(dot, std::string::npos, ".glb") != 0) return "";
+    if (dot >= 4 && rel.compare(dot - 4, 4, "-alt") == 0) return "";  // an alt has no alt
+    return rel.substr(0, dot) + "-alt.glb";
+}
+
 static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
     const Project& p) {
     std::vector<std::pair<std::string, std::string>> keys;
@@ -274,6 +283,21 @@ static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
             for (const auto& e : keys) seen |= (e == key);
             if (!seen) keys.push_back(key);
         }
+    // A generated character with a Body row (chargen Params::bodyChoice) has
+    // its other body beside it, "<stem>-alt.glb": no object names it, but the
+    // creator swaps the player to it - so it is baked and listed too, AFTER
+    // every placed model (their indices stay what the scene table says).
+    const size_t placed = keys.size();
+    for (size_t i = 0; i < placed; ++i) {
+        const std::string alt = altModelRel(keys[i].first);
+        if (alt.empty()) continue;
+        std::error_code ec;
+        if (!std::filesystem::exists(std::filesystem::path(p.dir) / alt, ec)) continue;
+        const std::pair<std::string, std::string> key{alt, keys[i].second};
+        bool seen = false;
+        for (const auto& e : keys) seen |= (e == key);
+        if (!seen) keys.push_back(key);
+    }
     return keys;
 }
 
@@ -1629,6 +1653,10 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
+  // The rest of a load once the .tskl is parsed: options, textures, palette
+  // variants, cull box (loadAnimModelAsset reads the file in one go; the
+  // creator's Body row reads it a slice per frame and calls this).
+  void adoptAnimModel(int index, std::unique_ptr<Tyra::SkelModel> model);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
@@ -1648,6 +1676,27 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // character is swapped to - read a slice per frame while they keep moving,
+  // then adopted, set up, and the old body freed. bodyWant = the model asked
+  // for (-1 = none pending); creatorRestoreModel = the body when it opened.
+  struct BodyLoad {
+    int model = -1;   // being loaded
+    int target = -1;  // the object that changes into it
+    int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
+    FILE* file = nullptr;
+    std::vector<u8> bytes;
+    std::unique_ptr<Tyra::SkelModel> parsed;
+    size_t texNext = 0;              // stage 2: the next part's texture
+    std::vector<std::string> held;   // textures acquired ahead (released after adopt)
+  } bodyLoad;
+  int bodyWant = -1;
+  int creatorRestoreModel = -1;
+  int bodySpin = 0;  // frames spent loading: the row's spinner
+  int effectiveAnimModel(int index, int authored) const;
+  void stepBodyLoad();
+  void swapBody(int index, int model);
+  void requestBody(int index, int model);
   float creatorYaw = 0.0F;      // the camera's turn around them, radians
   // The PLAYER's look, kept across scene loads and saved with the game:
   // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
@@ -3554,6 +3603,10 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
+  // The rest of a load once the .tskl is parsed: options, textures, palette
+  // variants, cull box (loadAnimModelAsset reads the file in one go; the
+  // creator's Body row reads it a slice per frame and calls this).
+  void adoptAnimModel(int index, std::unique_ptr<Tyra::SkelModel> model);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
@@ -3573,6 +3626,27 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // character is swapped to - read a slice per frame while they keep moving,
+  // then adopted, set up, and the old body freed. bodyWant = the model asked
+  // for (-1 = none pending); creatorRestoreModel = the body when it opened.
+  struct BodyLoad {
+    int model = -1;   // being loaded
+    int target = -1;  // the object that changes into it
+    int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
+    FILE* file = nullptr;
+    std::vector<u8> bytes;
+    std::unique_ptr<Tyra::SkelModel> parsed;
+    size_t texNext = 0;              // stage 2: the next part's texture
+    std::vector<std::string> held;   // textures acquired ahead (released after adopt)
+  } bodyLoad;
+  int bodyWant = -1;
+  int creatorRestoreModel = -1;
+  int bodySpin = 0;  // frames spent loading: the row's spinner
+  int effectiveAnimModel(int index, int authored) const;
+  void stepBodyLoad();
+  void swapBody(int index, int model);
+  void requestBody(int index, int model);
   float creatorYaw = 0.0F;      // the camera's turn around them, radians
   // The PLAYER's look, kept across scene loads and saved with the game:
   // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
@@ -30007,6 +30081,48 @@ static std::string modelDataHeader(const Project& p) {
         }
     }
     out << "};\n\n";
+    // The creator's Body row (docs/character-generator.md, "Man or woman"):
+    // each model's other body (-1 none) and whether a model is a woman's
+    // (1), a man's (0) or unknown (-1) - from the recipe beside the base
+    // model; its "-alt" is the other sex. Emitted only when a pair exists.
+    {
+        std::vector<int> alt(animKeys.size(), -1), woman(animKeys.size(), -1);
+        bool anyAlt = false;
+        auto genderOf = [&](const std::string& glbRel) -> float {
+            std::string recipe = glbRel.substr(0, glbRel.size() - 4) + ".chargen.json";
+            std::ifstream f(std::filesystem::path(p.dir) / recipe, std::ios::binary);
+            if (!f) return -1.0f;
+            std::stringstream ss;
+            ss << f.rdbuf();
+            chargen::Params cp;
+            std::string err;
+            if (!chargen::fromJson(ss.str(), cp, err)) return -1.0f;
+            return cp.gender;
+        };
+        for (size_t i = 0; i < animKeys.size(); ++i) {
+            const std::string a = altModelRel(animKeys[i].first);
+            if (a.empty()) continue;
+            for (size_t j = 0; j < animKeys.size(); ++j)
+                if (animKeys[j].first == a && animKeys[j].second == animKeys[i].second) {
+                    alt[i] = (int)j;
+                    alt[j] = (int)i;
+                    anyAlt = true;
+                    const float g = genderOf(animKeys[i].first);
+                    if (g >= 0.0f) {
+                        woman[i] = g < 0.5f ? 1 : 0;
+                        woman[j] = g < 0.5f ? 0 : 1;
+                    }
+                }
+        }
+        if (anyAlt) {
+            out << "#define ANIM_MODEL_ALT_USED 1\n"
+                << "inline const int ANIM_MODEL_ALT[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < alt.size(); ++i) out << (i ? ", " : "") << alt[i];
+            out << "};\ninline const int ANIM_MODEL_WOMAN[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < woman.size(); ++i) out << (i ? ", " : "") << woman[i];
+            out << "};\n\n";
+        }
+    }
     // In-game creator option labels (kit id -> what the creator screen shows),
     // for the kit items some character in this project was built with as an
     // option ("<stem>_opt-<slot>-<id>.png" beside its .glb).
@@ -32939,11 +33055,13 @@ static std::string menuDataHeader(const Project& p) {
                     case MenuEntry::RebindKey: param = valueIndexOf(en.param); break;
                     case MenuEntry::PlayCredits: param = creditsIndexOf(en.param); break;
                     // Creator rows: param = the look slot (0 colours, 1 hair,
-                    // 2 hat, 3 glasses), what RuntimeObject::look indexes.
+                    // 2 hat, 3 glasses), what RuntimeObject::look indexes -
+                    // or 4, the Body row (the model itself, ANIM_MODEL_ALT).
                     case MenuEntry::CreatorOption:
                         param = en.param == "hair"      ? 1
                                 : en.param == "hat"     ? 2
                                 : en.param == "glasses" ? 3
+                                : en.param == "body"    ? 4
                                                         : 0;
                         break;
                     default: break;

@@ -125,6 +125,11 @@ struct Params {
     // "In-game character creator"). A worn item in a slot that has options
     // becomes that slot's default choice. Empty = an ordinary character.
     std::vector<std::string> options;
+    // The creator's Body row: a second model of the same person in the other
+    // sex (altParams), written beside this one as "<name>-alt.glb" - the game
+    // swaps between them, loading the other in the background
+    // (docs/character-generator.md, "Man or woman").
+    bool bodyChoice = false;
 
     // ---- animation ----
     // Kit clip names to include ("" list = the default locomotion set). The
@@ -187,6 +192,15 @@ const std::vector<std::pair<std::string, std::string>>& defaultClipSet();
 // The movement style a recipe builds with: its own, or (auto) from Gender -
 // a woman +0.8, a man -0.8 - and toward 0 for children.
 float motionStyleFor(const Params& p);
+// The other body of a Body-row character: the same recipe in the other sex -
+// height, muscle and the sex-specific paint and macros adjusted, everything
+// worn kept. "<x>.glb" -> "<x>-alt.glb" is where it is written.
+Params altParams(const Params& p);
+std::string altModelPath(const std::string& glbPath);
+// Writes (or, without bodyChoice, removes a stale) "<x>-alt.glb" beside
+// `glbPath`, with the same number of palette variants. False + error on failure.
+bool writeBodyChoice(const Params& p, const std::string& glbPath, int variants,
+                     std::string& error);
 
 // The rig's bone names in palette order (Mixamo naming, "mixamorig:Hips", ...).
 const std::vector<std::string>& boneNames();

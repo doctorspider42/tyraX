@@ -1102,7 +1102,7 @@ bool Params::operator==(const Params& o) const {
            lipColor == o.lipColor && eyeShadow == o.eyeShadow &&
            eyeShadowColor == o.eyeShadowColor && blush == o.blush &&
            textureSize == o.textureSize && outfit == o.outfit && hair == o.hair &&
-           options == o.options && customHair == o.customHair &&
+           options == o.options && bodyChoice == o.bodyChoice && customHair == o.customHair &&
            customHairTexture == o.customHairTexture && customWear == o.customWear &&
            clips == o.clips && defaultClips == o.defaultClips && animFps == o.animFps &&
            motionStyleAuto == o.motionStyleAuto && motionStyle == o.motionStyle &&
@@ -1145,6 +1145,51 @@ float motionStyleFor(const Params& p) {
     if (!p.motionStyleAuto) return std::clamp(p.motionStyle, -1.0f, 1.0f);
     const float adult = std::clamp((p.age - 0.19f) / (0.5f - 0.19f), 0.0f, 1.0f);
     return std::clamp((0.5f - p.gender) * 2.0f, -1.0f, 1.0f) * 0.8f * adult;
+}
+
+Params altParams(const Params& p) {
+    Params a = p;
+    a.bodyChoice = false;
+    a.name = p.name.empty() ? std::string() : p.name + "-alt";
+    const bool toWoman = p.gender >= 0.5f;
+    a.gender = toWoman ? 0.0f : 1.0f;
+    // the same person, the other sex: the average gap in height, a little
+    // less (or more) muscle, and what only one of them wore on the skin
+    a.heightMeters = toWoman ? p.heightMeters * 0.93f : p.heightMeters / 0.93f;
+    a.muscle = toWoman ? p.muscle * 0.75f : std::min(1.0f, p.muscle / 0.75f);
+    a.breastSize = a.breastFirmness = 0.5f;
+    a.shape.erase("bust");  // a man's chest slider is no woman's
+    if (toWoman) {
+        a.stubble = 0.0f;
+    } else {
+        a.lipstick = a.eyeShadow = a.blush = 0.0f;
+    }
+    a.motionStyleAuto = p.motionStyleAuto;  // auto moves with the new gender
+    return a;
+}
+
+std::string altModelPath(const std::string& glbPath) {
+    namespace fs = std::filesystem;
+    const fs::path g(glbPath);
+    return (g.parent_path() / (g.stem().string() + "-alt" + g.extension().string())).string();
+}
+
+bool writeBodyChoice(const Params& p, const std::string& glbPath, int variants, std::string& error) {
+    namespace fs = std::filesystem;
+    const std::string alt = altModelPath(glbPath);
+    std::error_code ec;
+    if (!p.bodyChoice) {  // no Body row: no other body, and no stale one either
+        fs::remove(alt, ec);
+        return true;
+    }
+    const Params a = altParams(p);
+    glbparser::Skel skel;
+    std::vector<std::string> warnings;
+    if (!build(a, skel, warnings, error)) return false;
+    if (!gltfwrite::writeGlbFile(alt, skel, "TyraX Character Generator", error)) return false;
+    for (int k = 1; k <= variants && k < 100; ++k)
+        if (!writeVariantTextures(paletteVariant(a, (unsigned)k), alt, k, error)) return false;
+    return true;
 }
 
 const std::vector<std::pair<std::string, std::string>>& defaultClipSet() {
@@ -1382,17 +1427,18 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         buildSkinGrid();
         const float gap = (slot == "feet" || slot == "hands") ? 0.003f : 0.005f;
         const size_t gv = gp.size() / 3;
-        std::vector<float> req(gv * 3, 0.0f), dir(gv * 3, 0.0f);
+        std::vector<float> req(gv * 3, 0.0f), dir(gv * 3, 0.0f), gn;
+        vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
         bool any = false;
         for (size_t v = 0; v < gv; ++v) {
             const float* q = &gp[v * 3];
             const int cx = (int)std::floor(q[0] / kCell), cy = (int)std::floor(q[1] / kCell),
                       cz = (int)std::floor(q[2] / kCell);
             int best = -1;
-            float bd = 0.05f * 0.05f;
-            for (int dx = -1; dx <= 1; ++dx)
-                for (int dy = -1; dy <= 1; ++dy)
-                    for (int dz = -1; dz <= 1; ++dz) {
+            float bd = 0.10f * 0.10f;  // a woman's bust under a man's garment is that deep
+            for (int dx = -2; dx <= 2; ++dx)
+                for (int dy = -2; dy <= 2; ++dy)
+                    for (int dz = -2; dz <= 2; ++dz) {
                         auto it = skinGrid.find(cellKey(cx + dx, cy + dy, cz + dz));
                         if (it == skinGrid.end()) continue;
                         for (int sv : it->second) {
@@ -1406,8 +1452,15 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const float* s = &pos[(size_t)best * 3];
             const float* n = &nrm[(size_t)best * 3];
             const float d = (q[0] - s[0]) * n[0] + (q[1] - s[1]) * n[1] + (q[2] - s[2]) * n[2];
-            // deeper than 4 cm is another surface's business (between the legs)
-            if (d >= gap || d < -0.04f) continue;
+            if (d >= gap) continue;
+            // Deeper than 4 cm it may be another surface's business (between
+            // the legs the nearest skin is the OTHER leg) - unless cloth and
+            // skin face the same way: then it is this skin, grown past the
+            // garment (a woman's bust under a vest modelled on a man).
+            if (d < -0.04f) {
+                const float* cn = &gn[v * 3];
+                if (d < -0.12f || cn[0] * n[0] + cn[1] * n[1] + cn[2] * n[2] < 0.6f) continue;
+            }
             for (int a = 0; a < 3; ++a) {
                 req[v * 3 + a] = n[a] * (gap - d);
                 dir[v * 3 + a] = n[a];
@@ -1650,7 +1703,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     }
                     tb[t * 6 + a] = mn, tb[t * 6 + 3 + a] = mx;
                 }
-            constexpr float kReach = 0.04f;
+            constexpr float kReach = 0.04f, kBehind = 0.03f;
             auto covered = [&](int v) {
                 const float* o = &pos[(size_t)v * 3];
                 const float* n = &nrm[(size_t)v * 3];
@@ -1658,8 +1711,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     if (o[a] < lo[a] - kReach || o[a] > hi[a] + kReach) return false;
                 float sl[3], sh[3];  // the ray segment's bounds
                 for (int a = 0; a < 3; ++a) {
-                    const float e = o[a] + n[a] * kReach;
-                    sl[a] = std::min(o[a], e), sh[a] = std::max(o[a], e);
+                    const float b0 = o[a] - n[a] * kBehind, e = o[a] + n[a] * kReach;
+                    sl[a] = std::min(b0, e), sh[a] = std::max(b0, e);
                 }
                 for (size_t t = 0; t < gt; ++t) {
                     bool off = false;
@@ -1686,7 +1739,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     const float vv = (n[0] * qv[0] + n[1] * qv[1] + n[2] * qv[2]) * inv;
                     if (vv < 0.0f || uu + vv > 1.0f) continue;
                     const float dist = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) * inv;
-                    if (dist < -0.002f || dist > kReach) continue;
+                    // behind the skin too: skin poking THROUGH the cloth (a
+                    // bust tip between a coarse garment's vertices) is covered
+                    if (dist < -kBehind || dist > kReach) continue;
                     if (tex && tw > 0 && th > 0) {  // a cut-out: only where the texel is solid
                         const float w0 = 1.0f - uu - vv;
                         const float su = g->uv[t * 6] * w0 + g->uv[t * 6 + 2] * uu + g->uv[t * 6 + 4] * vv;
@@ -3168,6 +3223,7 @@ std::string toJson(const Params& p) {
         }
         o << "],\n";
     }
+    if (p.bodyChoice) o << "  \"bodyChoice\": true,\n";  // only when set
     if (!p.options.empty()) {  // written only when used: older sidecars stay byte-identical
         o << "  \"options\": [";
         for (size_t i = 0; i < p.options.size(); ++i)
@@ -3249,6 +3305,7 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
             cw.color = rgbOf(e.find("color"), cw.color);
             if (!cw.mesh.empty()) d.customWear.push_back(cw);
         }
+    if (const json::Value* x = v.find("bodyChoice")) d.bodyChoice = x->boolOr(false);
     if (const json::Value* o = v.find("options"))
         for (const json::Value& x : o->arr)
             if (!x.stringOr("").empty()) d.options.push_back(x.stringOr(""));

@@ -72,7 +72,11 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
     TYRA_WARN("TsklLoader: cannot read ", relativePath.c_str());
     return nullptr;
   }
+  return fromMemory(file, relativePath);
+}
 
+std::unique_ptr<SkelModel> TsklLoader::fromMemory(const std::vector<u8>& file,
+                                                  const std::string& relativePath) {
   Reader in{file.data(), file.size()};
   char magic[4];
   u32 version = 0, nodeCount = 0, paletteCount = 0, partCount = 0,

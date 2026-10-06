@@ -5515,7 +5515,16 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 183
+#define TYRAX_VERSION_MINOR 184
+// 1.184.0: the Character Creator's Body row - man or woman
+// (docs/character-generator.md, "Man or woman"). Recipes gain "bodyChoice";
+// the generator writes "<name>-alt.glb" (altParams), the build bakes it and
+// emits ANIM_MODEL_ALT / ANIM_MODEL_WOMAN, and the game swaps bodies loading
+// the other in the background (64 KB slices, textures one a frame,
+// TsklLoader::fromMemory) with a spinner on the row; the choice survives
+// scene loads and saves. Menu creator rows gain param "body". Garment
+// conform reaches 12 cm where cloth and skin face the same way; skin poking
+// through cloth is hidden. Project format unchanged.
 // 1.183.0: Character Generator - your own clothes gain the "over" slot (a
 // vest or a jacket over the kit's top, replacing nothing); imported meshes
 // are welded on import (coincident corners share one binding - a collar no

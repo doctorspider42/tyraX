@@ -3259,6 +3259,8 @@ megabytes free); `SkelInstance::clearOutputPool()` hands them to the heap and
 the game calls it on a scene change. Skinning one LOD level gives the other
 levels' outputs back to the pool - a walker crossing the LOD distance held both.
 
+`TsklLoader::fromMemory(bytes, path)` (1.184.0) parses a .tskl already in memory - the game's background body load reads the file 64 KB a frame and hands it over (`load` is now read + fromMemory).
+
 TsklLoader merges parts that share texture and colour - except a part with
 `:opt` in its name (1.177.0): creator options are shown one by one, and a
 hairstyle and its under-a-hat twin deliberately share one texture.

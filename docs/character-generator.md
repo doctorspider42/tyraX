@@ -349,9 +349,13 @@ And two for every mesh garment - tops, dresses, trousers, shoes, hats:
   MORPHED body (the nearest skin vertex's tangent plane, through a 4 cm grid)
   and pushed out to a 5 mm gap (3 mm for shoes and gloves); the pushes are smoothed
   twice over the garment's own edges, never below what a vertex needs, so the
-  cloth bulges instead of kinking. Hair and glasses keep their authored fit.
+  cloth bulges instead of kinking. Deeper than 4 cm only when cloth and skin
+  face the same way (up to 12 cm - a woman's bust under a man's garment);
+  between the legs the nearest skin is the other leg. Hair and glasses keep
+  their authored fit.
 - **Skin under cloth is not drawn.** A body vertex is covered when a ray out
-  along its normal meets a top, a dress, trousers, shoes or gloves within 4 cm on an
+  along its normal meets a top, a dress, trousers, shoes or gloves within 4 cm (or
+  3 cm behind it: skin poking through the cloth) on an
   opaque texel (lace and cut-outs keep their skin); a triangle with all three
   corners covered is dropped - nothing left to poke through in any pose, and
   120-280 triangles fewer under a dress.
@@ -774,14 +778,14 @@ real console.
 
 The built-in screen is fixed. To restyle it, make the creator a **menu**:
 *Tools > Menu Editor > **+ Character creator menu*** scaffolds one -
-COLOURS / HAIR / HAT / GLASSES rows, DONE and UNDO, not pausing, panel on the
+BODY / COLOURS / HAIR / HAT / GLASSES rows, DONE and UNDO, not pausing, panel on the
 right - and the **Character Creator** node's *Menu* picks it. From then on it
 is an ordinary menu: stylesheet, font, title, row labels and order, icons,
 descriptions, images, position, open and close motion
 ([menu-styles.md](menu-styles.md)).
 
-- A **Character creator option** row (`"action": "creator"`, param `look`,
-  `hair`, `hat` or `glasses`) changes that part of the look with Left/Right
+- A **Character creator option** row (`"action": "creator"`, param `body`,
+  `look`, `hair`, `hat` or `glasses`) changes that part of the look with Left/Right
   (Cross steps forward) and draws the current choice right-aligned in the
   menu's font as runtime text - the path a *Rebind key* row uses, so the
   menu's font gets an atlas for it. A row the model has nothing for shows
@@ -795,6 +799,48 @@ descriptions, images, position, open and close motion
   menu) they dress the player.
 
 ![The Character Creator as a menu in PCSX2](img/chargen-creator-menu.png)
+
+### Man or woman
+
+The creator's **Body** row swaps the character between two whole models: the
+person as made and the same person in the other sex. The game cannot rebuild
+a mesh, so the generator makes both - tick *Man or woman* (*Woman or man*) in
+*Player creator...*, or `"bodyChoice": true` in the recipe, and beside
+`hero.glb` it writes `hero-alt.glb` with the same clothes, creator options and
+colour looks (`altParams`: the other gender, about 7% shorter or taller, a
+quarter less or more muscle, no stubble on her and no lipstick on him, the
+bust slider and the breast macro reset; movement style follows on Auto).
+
+The build bakes the `-alt` model whenever it sits beside a placed one (it
+inherits the base's texture quality), and the game gets the pair in
+`ANIM_MODEL_ALT` / `ANIM_MODEL_WOMAN`. Only one body is in memory at a time:
+
+- **Switching loads the other body in the background.** The `.tskl` is read
+  64 KB a frame, parsed the frame after the last slice, its textures loaded
+  into the cache one a frame, then adopted - and only then does the
+  character change bodies, keeping every choice (the options and colour looks
+  match). The old body is freed once nobody draws it. Meanwhile the
+  character keeps idling on the old body and the row shows the choice with a
+  spinner (`Woman /`). Measured in PCSX2 for the example hero (1.5 MB
+  `.tskl`, 14 textures): the reading costs nothing; parsing, the larger
+  textures and the adoption cost a frame or two each (40-60 ms frames, about
+  a dozen of them over ~1.5 s) - no freeze. Before the slicing, one 160 KB
+  read cost a frame and adopting the textures in one go cost four.
+- **It sticks.** The chosen body is the player's from then on - across scene
+  loads and in save games (`playerLook[0]`, no new save format): every
+  residency pass, scene load and object activation asks
+  `effectiveAnimModel`, and a save loaded in the same scene changes body in
+  the background like the creator does. Undo / Circle goes back to the body
+  the creator opened with.
+- **Clothes made on the other body.** Your own garments are modelled on one
+  reference body; on the other they are bound like on any other body and
+  the two garment passes keep them over it - deeper than usual where a
+  woman's bust sits under a man's vest (cloth and skin facing the same way
+  count up to 12 cm deep), and skin poking through a coarse garment between
+  its vertices is hidden.
+
+A model without a pair shows `-` in a BODY row and the built-in screen leaves
+the row out.
 
 ## Hat hair
 
