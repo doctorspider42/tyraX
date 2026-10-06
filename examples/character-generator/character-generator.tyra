@@ -1,7 +1,7 @@
 {
   "name": "character-generator",
-  "formatVersion": 98,
-  "editorVersion": "1.179.0",
+  "formatVersion": 99,
+  "editorVersion": "1.185.0",
   "template": "fpp",
   "projectId": "8507910aa48421be",
   "settings": {
@@ -196,7 +196,7 @@
       "entries": [] },
     { "name": "character", "title": "CHARACTER", "pause": false, "screenPos": [0.72, 0.5], "accent": [0.47, 0.82, 1],
       "entries": [
-        { "label": "BODY", "action": "creator", "param": "body" },
+        { "label": "CHARACTER", "action": "creator", "param": "body" },
         { "label": "COLOURS", "action": "creator", "param": "look" },
         { "label": "HAIR", "action": "creator", "param": "hair" },
         { "label": "HAT", "action": "creator", "param": "hat" },

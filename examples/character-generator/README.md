@@ -12,20 +12,22 @@ headless: `tyrax-editor --build <this folder> --run`.
 ## What to do
 
 The game opens in the **Character Creator**: dress `hero` before you play.
-Up/Down picks a row, Left/Right changes it - **man or woman**, four colour
+Up/Down picks a row, Left/Right changes it - **who** (the hero, her, or the clerk), four colour
 looks, five hairstyles, three hats, three sets of glasses, or none - L1/R1
 turn them round, Cross keeps it and Circle puts back what they wore. **Select** opens it again
 any time. That is the player's own flow graph (On Start and On Button Select
 into a Character Creator node), and `hero.chargen.json` lists the choices in
 its `"options"` (docs/character-generator.md, "In-game character creator").
 
-The **BODY** row swaps the whole model: `"bodyChoice": true` in the hero's
-recipe makes the generator write `hero-alt.glb` beside `hero.glb` - the same
-person as a woman, in the same vest, clothes, options and colour looks. Only
-one body is in memory: switching loads the other in the background (the row
-shows `Woman /` with a spinner while the man keeps idling), then swaps and
-frees the first; the choice sticks across scenes and in saves
-(docs/character-generator.md, "Man or woman").
+The **CHARACTER** row swaps the whole model, between three: the hero, the
+same person as a woman, and the clerk. `"bodyChoice": true` in the hero's
+recipe makes the generator write `hero-alt.glb` beside `hero.glb` (same vest,
+clothes, options and colour looks); the clerk is on the Player's *Characters
+to choose from* (Inspector) - an ordinary model of the cast, with no creator
+options, so her other rows show `-`. Only one body is in memory: a choice is
+loaded in the background (the row shows it with a spinner while the old one
+keeps idling), then swapped in and the old one freed; it sticks across scenes
+and in saves (docs/character-generator.md, "Choosing a character").
 
 The screen itself is the `character` **menu**, picked in the node's *Menu*:
 restyle it in *Tools > Menu Editor* like any other menu - stylesheet, labels,

@@ -120,7 +120,7 @@ inline constexpr MenuEntryData MENU_0_ENTRIES[1] = {
 };
 // menu "character"
 inline constexpr MenuEntryData MENU_1_ENTRIES[7] = {
-    {14, 4, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // BODY
+    {14, 4, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // CHARACTER
     {14, 0, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // COLOURS
     {14, 1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // HAIR
     {14, 2, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // HAT

@@ -36,9 +36,13 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
 };
 inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5, 5, 5, 3};
 
-#define ANIM_MODEL_ALT_USED 1
-inline const int ANIM_MODEL_ALT[ANIM_MODEL_COUNT] = {9, -1, -1, -1, -1, -1, -1, -1, -1, 0};
-inline const int ANIM_MODEL_WOMAN[ANIM_MODEL_COUNT] = {0, -1, -1, -1, -1, -1, -1, -1, -1, 1};
+#define ANIM_MODEL_GROUPS_USED 1
+inline const int ANIM_MODEL_GROUP[ANIM_MODEL_COUNT] = {0, 0, -1, -1, -1, -1, -1, -1, -1, 0};
+inline constexpr int ANIM_GROUP_COUNT = 1;
+inline const int ANIM_GROUP_FIRST[ANIM_GROUP_COUNT] = {0};
+inline const int ANIM_GROUP_SIZE[ANIM_GROUP_COUNT] = {3};
+inline const int ANIM_GROUP_MEMBERS[3] = {0, 9, 1};
+inline const char* ANIM_MODEL_LABEL[ANIM_MODEL_COUNT] = {"Hero (man)", "Clerk", "Dockhand", "Kid", "Punk", "Elder", "Commuter", "Shopper", "Pensioner", "Hero (woman)"};
 
 struct CreatorLabel {
   const char* id;

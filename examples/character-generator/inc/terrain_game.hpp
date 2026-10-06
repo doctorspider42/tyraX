@@ -550,7 +550,7 @@ class TerrainGame : public Tyra::Game {
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
-  // The Body row (docs/character-generator.md, "Man or woman"): the model a
+  // The Character row (docs/character-generator.md, "Choosing a character"): the model a
   // character is swapped to - read a slice per frame while they keep moving,
   // then adopted, set up, and the old body freed. bodyWant = the model asked
   // for (-1 = none pending); creatorRestoreModel = the body when it opened.
