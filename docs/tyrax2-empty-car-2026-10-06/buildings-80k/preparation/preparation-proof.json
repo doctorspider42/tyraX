@@ -1,0 +1,21 @@
+{
+  "status": "PASS_PRIVATE_FIFTY_BUILDINGS_80K_PREPARATION_NATIVE_PARSER_MASK_CONTROLS",
+  "files": {
+    "source-review.json": "09a847968b6272156233e97f317f9c812b0b41beb686aa8c38a9765df3ed3eb6",
+    "source-content-census.json": "d3df46b59e6b7837c3caf179d430fb4bf5d220ffbb4c8e725d7bb687c6f7dd16",
+    "building-assets-proof.json": "f2c904e41c661d6028d31a3e6f2a4dc913611aaf729f35ddd20202735186d237",
+    "bin-assets-source-pins.json": "3df700309da6ad946b6cc9f75e7f647fa3d28796469043744f93a65baa2e45b9",
+    "native-proof.json": "92f8e6ab2ca47003c1a8e8b447c41bea2c31da61bd059835e3cc8449d28dc96d",
+    "native-proof.py": "1b6b472f7caaa89f1c37c03f050b2fbc452b7d1026a8188386f0acf04a12c3c7",
+    "analyze-80k.py": "7dce39a3afbb504351b0b475cf0cd7d261757afa2010821ab34c0ba62a8d4b7c",
+    "test-parser.py": "dc1bf0822b4e22f18a3e062aa3d349b61fcb5ea7db2a924e731f3fe8eaa231ae",
+    "parser-controls-v1/proof.json": "6674e13a02a869825fab8578c151cd905c14c0e46332ad5f6d48eca414679392",
+    "mask-host-controls-v1/proof.json": "7490ce7d795c3d50b8ada2ef64fc15e53eb2e86e53488dfb6130562c6de9e071",
+    "README.md": "403390298257c7ab0e7a4d0b21c87dfec91f6bdf95aecbf9d52b8b5cd8db30e5"
+  },
+  "actualELFSha256": "108425457964332a68f2507970f2aa7168760e10dd35777cb8db810e012f3c0e",
+  "runtimeReleased": false,
+  "devicesExecutedByPreparationAgent": false,
+  "actualAccepted80133NotProven": true,
+  "hardwareTimingQualified": false
+}

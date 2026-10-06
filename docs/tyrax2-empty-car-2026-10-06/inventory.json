@@ -2010,5 +2010,433 @@
   {
     "path": "buildings/physical/archive-buildings-physical.py",
     "sha256": "b2ab7096eb63261dcb79abf410f012f647f52eac4501a1564d8663c3513f8ae3"
+  },
+  {
+    "path": "buildings-80k/preparation/README.md",
+    "sha256": "403390298257c7ab0e7a4d0b21c87dfec91f6bdf95aecbf9d52b8b5cd8db30e5"
+  },
+  {
+    "path": "buildings-80k/preparation/source-review.json",
+    "sha256": "09a847968b6272156233e97f317f9c812b0b41beb686aa8c38a9765df3ed3eb6"
+  },
+  {
+    "path": "buildings-80k/preparation/source-content-census.json",
+    "sha256": "d3df46b59e6b7837c3caf179d430fb4bf5d220ffbb4c8e725d7bb687c6f7dd16"
+  },
+  {
+    "path": "buildings-80k/preparation/native-proof.json",
+    "sha256": "92f8e6ab2ca47003c1a8e8b447c41bea2c31da61bd059835e3cc8449d28dc96d"
+  },
+  {
+    "path": "buildings-80k/preparation/native-proof.py",
+    "sha256": "1b6b472f7caaa89f1c37c03f050b2fbc452b7d1026a8188386f0acf04a12c3c7"
+  },
+  {
+    "path": "buildings-80k/preparation/building-assets-proof.json",
+    "sha256": "f2c904e41c661d6028d31a3e6f2a4dc913611aaf729f35ddd20202735186d237"
+  },
+  {
+    "path": "buildings-80k/preparation/bin-assets-source-pins.json",
+    "sha256": "3df700309da6ad946b6cc9f75e7f647fa3d28796469043744f93a65baa2e45b9"
+  },
+  {
+    "path": "buildings-80k/preparation/preparation-proof.json",
+    "sha256": "501ee1f5af2ebf17475570e0a02760f3be4f63da784c9c21cc6a519c48b9b9a8"
+  },
+  {
+    "path": "buildings-80k/preparation/analyze-80k.py",
+    "sha256": "7dce39a3afbb504351b0b475cf0cd7d261757afa2010821ab34c0ba62a8d4b7c"
+  },
+  {
+    "path": "buildings-80k/preparation/test-parser.py",
+    "sha256": "dc1bf0822b4e22f18a3e062aa3d349b61fcb5ea7db2a924e731f3fe8eaa231ae"
+  },
+  {
+    "path": "buildings-80k/preparation/parser-controls-v1/proof.json",
+    "sha256": "6674e13a02a869825fab8578c151cd905c14c0e46332ad5f6d48eca414679392"
+  },
+  {
+    "path": "buildings-80k/preparation/run-mask-host-controls.py",
+    "sha256": "8c6e33b5cad37a1f4abda0ba895fdfc00df660551dfb0417fa854ba537131b92"
+  },
+  {
+    "path": "buildings-80k/preparation/mask-host-controls-v1/proof.json",
+    "sha256": "7490ce7d795c3d50b8ada2ef64fc15e53eb2e86e53488dfb6130562c6de9e071"
+  },
+  {
+    "path": "buildings-80k/preparation/mask-host-controls-v1/controls.cpp",
+    "sha256": "e61748fada351fcc2f7c3b1677c0af9d96dd2748059485717dc1e3171db0f072"
+  },
+  {
+    "path": "buildings-80k/preparation/mask-host-controls-v1/stub/debug/night_sampler.hpp",
+    "sha256": "a17b0e3f986e173f7c10c72c834bc5fe7ba511e7fe85b7e120473945637fdb0d"
+  },
+  {
+    "path": "buildings-80k/preparation/root-emulator-review.json",
+    "sha256": "e2e80f4b6eb093d6d128131e2a9f4ad61d31bf285cbacc8e3e811b02e6d2be51"
+  },
+  {
+    "path": "buildings-80k/preparation/root-runtime-review.json",
+    "sha256": "b44972014ff54c07e0bd66d398c27d2eeeaa4dd7e7e74a5849e17146b3321bea"
+  },
+  {
+    "path": "buildings-80k/changed-source/empty-car/src/terrain_game.cpp",
+    "sha256": "66e8ae029b200911df5e215f3c0ca9a64192721a214c7906860779da3262d6ae"
+  },
+  {
+    "path": "buildings-80k/changed-source/empty-car/src/gen/game_collision.gen.cpp",
+    "sha256": "6106478aca41fef4369cc7f7d85926277deea9e910b1cd990e7df4c4f72803b1"
+  },
+  {
+    "path": "buildings-80k/changed-source/empty-car/src/gen/game_scene.gen.cpp",
+    "sha256": "c939eea16a9e391d5532527ebcba53e54fd74c284915de6b568892000f42054d"
+  },
+  {
+    "path": "buildings-80k/changed-source/empty-car/src/gen/scene_objects.gen.cpp",
+    "sha256": "6b2fb6aba0025cbaeb808cd826b870227ae01e801994da2e6c65043dd1118ce7"
+  },
+  {
+    "path": "buildings-80k/changed-source/empty-car/empty-car.tyra",
+    "sha256": "ba63c419f88217db8c7ab1a402367b280c617d6a78ec6527c429bf9c3495024f"
+  },
+  {
+    "path": "buildings-80k/changed-source/tyra/engine/inc/debug/empty_witness.hpp",
+    "sha256": "0478afc181f71b043a52bd192737d04d95865cc1504ab5a706215b9f75fa5fd7"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding000.json",
+    "sha256": "e3f160db0bc722db6785b239804b22c94079fbb94bf2c2f12e1d291a78b54dfa"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding001.json",
+    "sha256": "dd73ba6b87919da245e47c3e8caf987ab61f23a17a75aaeab19f599d6065961f"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding002.json",
+    "sha256": "43fe6de1186d9b28922dbcd3d07e2c98b69f1b045e293e12cae0e39edbc1006b"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding003.json",
+    "sha256": "69fd1eb211ee1b3428750be53291f0da15d161c7c740f6984e309463c938be37"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding004.json",
+    "sha256": "a644503403ad21b52e4fba268aed3109cc783db54a74622bdeeada90286b6e2f"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding005.json",
+    "sha256": "e4f24e829b2bbe43ef4d274097ba5fcf7126a3e1db61e3ddea9c2448b93fbffc"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding006.json",
+    "sha256": "19134943dcb415f90a39c529db6e830ad45bb44f3845f031ba4a4d5d1b1c6949"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding007.json",
+    "sha256": "d7a78f61bd1ec58073ef55ffebfb51966d9df1448ab979b929dc3fc36d02e6b9"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding008.json",
+    "sha256": "b09013b3bc24a3f194302de3e6a88600418f1dc7939a339b5416395b26df0c18"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding009.json",
+    "sha256": "e48508f2ccb20f5c375b2fbd694e04a7d755af63493d5b53a34e9fa83c4fc174"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding010.json",
+    "sha256": "4ec748d50b875c7f28bde71c87766796661eace6b7c16a0a70b4af2277c78693"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding011.json",
+    "sha256": "1f0a6194b5464f4efd182b288c9a05340667e24ffaf39cfd255af2d95aae97df"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding012.json",
+    "sha256": "e1ab580badcef48eb640e5c3802d653954407dad71dd7b583faa478c0f7cfe9f"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding013.json",
+    "sha256": "9c59eea9c76502264641c8361d94601f86bed0584b4802e71e085d89b0168438"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding014.json",
+    "sha256": "e3745e05afd8ba684c414ea9275c724211c066d373d2ce18f0bd7ca26b823be4"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding015.json",
+    "sha256": "bc73c122483a0aa7daab6d3d44d49f94ee2bb4ce1b628f1381d7ba21962e0328"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding016.json",
+    "sha256": "b91ebea01ab5a7bac06aeb3c92bfb5cc8f5f1ce3f026134635cfa29eca447dd7"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding017.json",
+    "sha256": "20609ac1e2b4b680cf4149f788df1b58cde9f6915d1bba15c810fce3d5365b12"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding018.json",
+    "sha256": "71435c4b8c7e09c3c61a1060352bf1279465da416b29e70998a5587644cd091a"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding019.json",
+    "sha256": "708a729a48a14b4a23114fec6929b277beb0f8ae19fe70ea5a03345246b6fcf7"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding020.json",
+    "sha256": "1a4b0ae08014c08bb1e104cfb7b080609d4d1fd8995da539f89de88f17f4ab74"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding021.json",
+    "sha256": "7daefcc1acd5f048ad8e3ccef09964db790037bc3027a3edc1df6e18301d5b00"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding022.json",
+    "sha256": "acc943ff5fa673ece642edf52d5c4de639a421d7255b1e7f92df6b1396e7941c"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding023.json",
+    "sha256": "616a43c5b0ca50a46661d5636798334df799bc3d0c4dc5a198533562ed659e21"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding024.json",
+    "sha256": "ec4d54bda53ad33807a72a68a37a3821c10e84de57c99ad2942673fab7c56d35"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding025.json",
+    "sha256": "848ac184b1d37e2fdba358d2f9b747a480b7bd650225fa8817569e2f3720f5da"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding026.json",
+    "sha256": "a8a26dc8feca6f36e89b2626ef9e8813b51f39f2284a22bf8997ce2975e2c017"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding027.json",
+    "sha256": "ae17979af52709e16fd06dfce20c58ff5d6e70c758f56bb516c1ac70637a4da1"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding028.json",
+    "sha256": "4a5114510b28fb6aa07880d4903e1b0173b6f58465b9024e7195c994efa9cacd"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding029.json",
+    "sha256": "63ce854bdd51c374c791d9dce7044d8315a95749b40076711dc735d1926b848e"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding030.json",
+    "sha256": "6ec7b436dec488f8faab733966f9d35f01b4c31f7d62460db534e6c1838fa83f"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding031.json",
+    "sha256": "924a94e7c26a388baafea098f363ae16de02fdca4329dbf404bb759aef7fe82b"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding032.json",
+    "sha256": "f3f770139c6a17b1c0ad7fb2d460de6b5456904835ab37faff3b854d20b740bf"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding033.json",
+    "sha256": "9578ae35a085cd4edba998a4d9f70ba32b0d8359ef2009baff69b3969a1bab09"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding034.json",
+    "sha256": "ae2216f62811c92cc3c75d96f930802473e50c6b610a3e17b1598d82f1e90684"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding035.json",
+    "sha256": "bd1f73752ee13a76d18d13e7a7759950c958f342ce24a2583b07dd52d06e0bcd"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding036.json",
+    "sha256": "ccf61e5f31dbf0269e51a8849bed0871d1bf39222ba321b70622e78bcff00a3b"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding037.json",
+    "sha256": "93b65f42002f6fb5c68b582a851ceeccdef425791ba6099a511c5802a077662a"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding038.json",
+    "sha256": "759a2d9b7fe2b88da526f32bd198a826b3f28f7c2e449ef9a836f83ed2313ed7"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding039.json",
+    "sha256": "fcb05c3dca37bd33e30d816acdad242f98c42400281f423cb30486f9904d6990"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding040.json",
+    "sha256": "f671aaa7aba56ff8bd3ef48ff87d9606cd7842d9dbc73766c68f8a09894e5cff"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding041.json",
+    "sha256": "d51d863fdec84ddf694a6730796ae7cc94b982580735ebfbfd19bc48cff2b522"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding042.json",
+    "sha256": "bef80d0a558a58cf09f9f366a6cfa14282bb7e5253428a8f933776c6a8a13929"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding043.json",
+    "sha256": "10343affbed266d43eb153c5cdfcfb053a9168421749f394bd784cae6ac67b0f"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding044.json",
+    "sha256": "d677c9778ac71a97941d73662a7cf7b51784a912ce25ff0836006f0db0e99903"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding045.json",
+    "sha256": "c35afc20ece1b667172d7a3396893e36560a829edf0008e16ba2a7ea4452c6d2"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding046.json",
+    "sha256": "57b3137f4fe979c9e65dc6835cc515202f942bf42550ca152a81f0caf392d905"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding047.json",
+    "sha256": "a0ca839037931dfe033c0f11e4f7ab38c4d40fc98c2a67df983daef7c4cd1401"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding048.json",
+    "sha256": "14b9f225ef14296b74e584579d65705c82d7f85bed26b61738c84641779d16a7"
+  },
+  {
+    "path": "buildings-80k/authored-source/empty-car/objects/onlybuilding049.json",
+    "sha256": "82fc9bba93ae1000e3793d162ee4e2e9409683fb86a6d93acda435dbe034d7fc"
+  },
+  {
+    "path": "buildings-80k/emulator/owned-launch.json",
+    "sha256": "93654411ac4e65631bdd9d0a8ceb6beed90b8d7a10376c125f34c832e70c9531"
+  },
+  {
+    "path": "buildings-80k/emulator/owned-stop.json",
+    "sha256": "75b24dde69012d0a42992697ded76bae750dd7c1478dec3178f0baf10f872154"
+  },
+  {
+    "path": "buildings-80k/emulator/protocol-analysis.json",
+    "sha256": "1e92e64146801b24edabbcffaf4d4c107186c9f1e4624d2c8a7252743f4d700d"
+  },
+  {
+    "path": "buildings-80k/emulator/runtime/emulator.log",
+    "sha256": "abeab64f3939bf6f3f0a1e900ed1a7e488cef6db5a1d74717d4078a1a2b2373b"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-start/frame.png",
+    "sha256": "5f9477e09f14fa300298e02486979682a2ec40826bce75eacab9b38004b1a63f"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-start/observe-proof.json",
+    "sha256": "ac8608abd1136b6608f5e6f156b2954456bb30f51b62b378b9185dcdfdb27e32"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-drive/frame.png",
+    "sha256": "e027a838712473856464b681fbf9dca2cc4cb4002730acfe1c5ce967e5d65497"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-drive/observe-proof.json",
+    "sha256": "a95d4fb05bbf117f3cfc901b2d45143020277f15e9a440ab601af111ca8c4d69"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-final/frame.png",
+    "sha256": "f0c6dca03bf6da6e22150e251d1b0b60ce318bcb5f6cd05ed99d8b0a1bf1d526"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-final/observe-proof.json",
+    "sha256": "fd4e28eaf1df60f6f3d17e814e57f744834a6c93adc94a08a995f56dd5114dd3"
+  },
+  {
+    "path": "buildings-80k/emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "4a6f5b9efb9ad0c19b7998cc23e270416826788bb8023bbb6b5da9acbecec793"
+  },
+  {
+    "path": "buildings-80k/rejected-physical-v1/launch-inputs.json",
+    "sha256": "5e180665f576cc8e53c1a110cc0f87974c7a693ecd53b23cc218d96d12c7336c"
+  },
+  {
+    "path": "buildings-80k/rejected-physical-v1/owned-launch.json",
+    "sha256": "b3c961b9802bca1d5e2a7b1068dc2411d84aff186d7f88f7e3b43d2eec08fe7f"
+  },
+  {
+    "path": "buildings-80k/rejected-physical-v1/ps2client.stdout",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k/rejected-physical-v1/ps2client.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k/rejected-physical-v1/rejected-launch.json",
+    "sha256": "41a760f1b7b113356bc903c3b89d01d7ffb7184a1c1f0c9c884645753ace4be3"
+  },
+  {
+    "path": "buildings-80k/reset-without-usb/attempt.json",
+    "sha256": "9294903b3d117cbf540f2f522da8b7855d3fddccac91c2d8ba4ac6901e2c1061"
+  },
+  {
+    "path": "buildings-80k/reset-without-usb/reset.stdout",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k/reset-without-usb/reset.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k/preparation/review-buildings-80k-root.py",
+    "sha256": "d1a42f43f856eb8352d2198ae6168ae13c84e864944da3cb6a8f15de1553e0ee"
+  },
+  {
+    "path": "buildings-80k/preparation/prepare-buildings-80k.py",
+    "sha256": "bdbfbf9b739d04df9d5cd785a247291f72e152f28df2911b274c515bd213f9ab"
+  },
+  {
+    "path": "buildings-80k/preparation/finish-buildings-80k-physical.py",
+    "sha256": "64952a94b513cbe1d07dc1db23479db1d60eaaa60d61c1c31b955abd024903eb"
+  },
+  {
+    "path": "buildings-80k/preparation/qualify-80k-physical-root.py",
+    "sha256": "deba5f2570e10c622c9d5e019fa0f8deba8dda514b1ad32f54fd90fb0244f0e4"
+  },
+  {
+    "path": "buildings-80k/preparation/try-reset-without-usb.ps1",
+    "sha256": "527f571aa894a08d1685fd93a5cf895834c97c4185f8efacae5e688273ae1a24"
+  },
+  {
+    "path": "buildings-80k/preparation/archive80k.py",
+    "sha256": "88333553970c339eb661e80daed4b4b58d942de8de34d893a3b646f676b9e745"
+  },
+  {
+    "path": "buildings-80k/physical-v2/launch-inputs.json",
+    "sha256": "27e099730e207f6ad4c8eb257599b4d809e7244d6f822740cf5b5d29c7017035"
+  },
+  {
+    "path": "buildings-80k/physical-v2/owned-launch.json",
+    "sha256": "6405809b0581f329a936d773bb5e6480fbe1a3fe8250537bf29dc486166fec8b"
+  },
+  {
+    "path": "buildings-80k/physical-v2/completed-stdout.raw",
+    "sha256": "408b2b7a13a8ea8c9f14158c7fd060af98647766a0f4e1b1c369aa6de99539f4"
+  },
+  {
+    "path": "buildings-80k/physical-v2/stdout.utf8.log",
+    "sha256": "408b2b7a13a8ea8c9f14158c7fd060af98647766a0f4e1b1c369aa6de99539f4"
+  },
+  {
+    "path": "buildings-80k/physical-v2/physical-review.json",
+    "sha256": "36ea6cb8dc71900a5689600aaab0b4f637579a8548b3452ab8b881463fff94cb"
+  },
+  {
+    "path": "buildings-80k/physical-v2/protocol-analysis.json",
+    "sha256": "283ff0112df8f08ed38e481160afa2386aca0b1c8dd6cc40a24a2ef3f93ee3d9"
+  },
+  {
+    "path": "buildings-80k/physical-v2/root-cadence-review.json",
+    "sha256": "2da5cc663e4cfffbf773c0db310c35b0f5e5469d5b40e8c9ad4a3528aabb0a83"
+  },
+  {
+    "path": "buildings-80k/physical-v2/bin/closeout-samples.txt",
+    "sha256": "5d63ec621422aa1f3a71110a22baab9add6c31ec2b05665b9d13b9a9250c33fe"
+  },
+  {
+    "path": "buildings-80k/preparation/referenced-runtime-assets.json",
+    "sha256": "ee75575c05c4f63a7bca0908a43a664c8f0738d664e5c8aa125f49a240f09895"
   }
 ]

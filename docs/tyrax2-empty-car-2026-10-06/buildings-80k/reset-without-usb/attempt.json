@@ -1,0 +1,25 @@
+{
+  "freshElfQualified": false,
+  "exitedWithin15Seconds": false,
+  "previousClient": {
+    "pid": 61996,
+    "run": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-two-cars-light-buildings-v1",
+    "elf": "empty-car",
+    "started": "2026-10-06T18:08:14.8083553Z",
+    "executable": "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe",
+    "bin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-two-cars-light-buildings-v1\\bin"
+  },
+  "status": "BOUNDED_STANDARD_NETWORK_RESET_ATTEMPT_NOT_FRESH_ELF_QUALIFICATION",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "-t",
+    "10",
+    "reset"
+  ],
+  "usbRemovedUserReported": true,
+  "USBFailureCauseEstablished": false,
+  "resetClientPid": 22688,
+  "resetClientStarted": "2026-10-06T18:16:31.0205003Z",
+  "executable": "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe"
+}

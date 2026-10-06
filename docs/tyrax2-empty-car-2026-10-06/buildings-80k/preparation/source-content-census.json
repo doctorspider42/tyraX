@@ -1,0 +1,531 @@
+{
+  "status": "PASS_PRIVATE_FIFTY_BUILDINGS_80K_TARGET_SOURCE_CENSUS",
+  "generatedCounts": {
+    "SCENE_COUNT": 1,
+    "VEHICLE_DEF_COUNT": 2,
+    "VEHICLE_COUNT": 2,
+    "PORTAL_COUNT": 0,
+    "MIRROR_COUNT": 0,
+    "CAM_FEED_COUNT": 0,
+    "OBJECT_FEED_COUNT": 0,
+    "RT_PROXY_COUNT": 0,
+    "RT_ANIM_PROXY_COUNT": 0,
+    "SND_COUNT": 0,
+    "EMITTER_LAYER_COUNT": 0,
+    "BLOB_SHADOWS_USED": 0,
+    "PROJ_SHADOWS_USED": 0,
+    "VEHICLE_LAMP_GLOW_COUNT": 0,
+    "VEHICLE_NOS_FLAME_USED": 0,
+    "MODEL_COUNT": 9,
+    "ROAD_COUNT": 1,
+    "ROAD_TEXTURE_COUNT": 0,
+    "ROAD_JUNCTION_COUNT": 0,
+    "ROAD_SPILL_COUNT": 0
+  },
+  "modelCountExplanation": "Nine loaded slots: pine0, north1, west2, Ravager body3/wheel4, Pica body5/wheel6, unused fast wheels7/8.",
+  "ordinaryRenderableMapObjects": 52,
+  "logicalCameraPlayer": 1,
+  "terrain": "Authored disabled; retained analytic y0 query only; road boot geometry lies at normal +0.12 surface.",
+  "engineDiffsFromCurrentPublicHEAD": {
+    "src/engine.cpp": {
+      "privateSha256": "be029cb07fab79e6e469b155f6808f12e81f6e8fc0e03beae4ba2048364ba893",
+      "productionSha256": "98e839006ff1d571afdb1cf776c3033b962de854c65b01f9c4f3a4dee8343cee"
+    },
+    "inc/debug/closeout.hpp": {
+      "privateSha256": "c198ec2fdccdec72f7c5f5d10802af3f8fa2f0d460514d3243bc848865d88be2",
+      "productionSha256": null
+    },
+    "inc/debug/debug.hpp": {
+      "privateSha256": "a763910c638504b7d6c1ab2e5b82611aabbdc2ee322cd8b9d4a835862c239139",
+      "productionSha256": "6b2eabefd5743644b612d24d9637e2bea67a0b5b805a1901f7fa974c32dfacc2"
+    },
+    "inc/debug/empty_witness.hpp": {
+      "privateSha256": "0478afc181f71b043a52bd192737d04d95865cc1504ab5a706215b9f75fa5fd7",
+      "productionSha256": null
+    },
+    "inc/debug/night_sampler.hpp": {
+      "privateSha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+      "productionSha256": null
+    },
+    "src/renderer/core/renderer_core.cpp": {
+      "privateSha256": "b7a31d9e892bab8dae340df49cf0905629c710a8756f75b4ea5645438d74f425",
+      "productionSha256": "e4c97f885a2d022c9191fd95034a675337577a1c1507281d13548ac37a3b09b9"
+    },
+    "src/renderer/3d/pipeline/static/core/stapip_core.cpp": {
+      "privateSha256": "890bf33a9f33c352864ab88faabf07743ab833075e7642fee61c6e94f16e2959",
+      "productionSha256": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be"
+    },
+    "src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": {
+      "privateSha256": "f23826badd5c8ab0b3caf88bfa872cd1bf6b686f7f5371c18d480579a82c71ae",
+      "productionSha256": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d"
+    },
+    "src/renderer/core/paths/path1/vif1_queue.cpp": {
+      "privateSha256": "050e4e587d300dcb43bf39de57940e9445d479d1121beb5599ec8c6f930a316b",
+      "productionSha256": "949fe358e54a6af5f28103ceb855f943b7498034625b6a55a4fc2222cc8dc4b7"
+    }
+  },
+  "VU_sourcesChanged": false,
+  "noHiddenDrawRuntimeClaim": false,
+  "coldAcceptedBagPlusRootImageQualificationPending": true,
+  "mapRenderableExplanation": "Same road and pine plus50 facades,25 north/25 west, no collisions, source corridor z12..204 beyond unchangedroadend80.",
+  "sourceHead": "9ec74c3946cec2aaca6ccc1b518d4c5783884338",
+  "renderableVehicleInstances": 2,
+  "sameControllerAsParentRoad": false,
+  "noCausalIncrementalSubtraction": true,
+  "runtimeDynamicPointLights": 1,
+  "authoredLightObjects": 0,
+  "privateRegistrationInjection": true,
+  "sameControllerAsTwoCarParent": true,
+  "settingsDifferencesFromMovingLightParent": [],
+  "staticModelImported": {
+    "status": "PASS_PUBLIC_PREBAKED_STATIC_MODEL_AND_TEXTURE_CLOSURE",
+    "version": 3,
+    "bounds": [
+      -0.6499999761581421,
+      0.0,
+      -0.6499999761581421,
+      0.6499999761581421,
+      1.7000000476837158,
+      0.6499999761581421
+    ],
+    "parts": [
+      {
+        "name": "treeB",
+        "texture": "models/kenney/Textures/treeB.png",
+        "reflectionTexture": "",
+        "kd": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "ke": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "reflectionStrength": 0.0,
+        "flags": 0,
+        "vertices": 96,
+        "triangles": 32,
+        "aoBytes": 0,
+        "lods": [],
+        "stripRun": 0,
+        "stripMeshes": []
+      }
+    ],
+    "runtimeFiles": {
+      "models/kenney/tree-pine-large.tmdl": {
+        "source": "F:\\Projects\\tyra-editor\\examples\\night-walk\\bin\\models\\kenney\\tree-pine-large.tmdl",
+        "sha256": "0f8cfea74d49a2d0b168a4a50fd748c342d40a51fd3f4681195892bf5e7dcab5",
+        "destinationSha256": "0f8cfea74d49a2d0b168a4a50fd748c342d40a51fd3f4681195892bf5e7dcab5"
+      },
+      "models/kenney/tree-pine-large.mtl": {
+        "source": "F:\\Projects\\tyra-editor\\examples\\night-walk\\bin\\models\\kenney\\tree-pine-large.mtl",
+        "sha256": "7b5b64ad2b4c720aa78c5a40259276445fe7071c2b0fbf228b13ecf34ae68e4f",
+        "destinationSha256": "7b5b64ad2b4c720aa78c5a40259276445fe7071c2b0fbf228b13ecf34ae68e4f"
+      },
+      "models/kenney/Textures/treeB.png": {
+        "source": "F:\\Projects\\tyra-editor\\examples\\night-walk\\bin\\models\\kenney\\Textures\\treeB.png",
+        "sha256": "0674ee0ca5c4651c1541ba63407fc9c132515bed8ae4e039fb0d385c4dee01da",
+        "destinationSha256": "0674ee0ca5c4651c1541ba63407fc9c132515bed8ae4e039fb0d385c4dee01da"
+      }
+    },
+    "authoredOBJ": "F:\\Projects\\tyra-editor\\examples\\night-walk\\res\\models\\kenney\\tree-pine-large.obj",
+    "authoredOBJSha256": "ebb6c0bb5ca22aa0bd4f7a81b03c030c3f9525803a5d556d41e0f6766e954375",
+    "mode": "Reuse public example shipped .tmdl and already quantized texture, no AO/prelit bake or project settings change. Generated model loader retains normal imported table path.",
+    "runtimeClaims": false
+  },
+  "buildingImports": {
+    "status": "PASS_PUBLIC_FIFTY_BUILDING_PREBAKE_PARTS_AND_TEXTURE_CLOSURE",
+    "models": {
+      "facade-north": {
+        "version": 3,
+        "bounds": [
+          -3.0,
+          0.0,
+          -0.5,
+          3.0,
+          2.0,
+          0.5
+        ],
+        "parts": [
+          {
+            "name": "wall_lines",
+            "texture": "models/kenney/Textures/wall_lines.png",
+            "textureSha256": "7da9b8941f196e3632b1301b99b30eb803f071a3b7dd77a249523424c6fb2302",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 696,
+            "triangles": 232,
+            "aoBytes": 0,
+            "lods": [
+              [
+                402,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "concrete",
+            "texture": "models/kenney/Textures/concrete.png",
+            "textureSha256": "6c945026c68f2b3ab64cdca3d9bc941f7756724a3a4c8a9000a99a1f38d8da4a",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 360,
+            "triangles": 120,
+            "aoBytes": 0,
+            "lods": [
+              [
+                228,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "metal",
+            "texture": "models/kenney/Textures/metal.png",
+            "textureSha256": "9ba8501e99905fd40ebcd3e5fcdeab92ca6bbd11d95378e1a7ff22ec7a35a9cb",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 456,
+            "triangles": 152,
+            "aoBytes": 0,
+            "lods": [
+              [
+                162,
+                0
+              ],
+              [
+                162,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "doors",
+            "texture": "models/kenney/Textures/doors.png",
+            "textureSha256": "661b440dc569f14918c734f5e75ca9ad318629674f7ff576e58a68a47acd270e",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 12,
+            "triangles": 4,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "wall_garage",
+            "texture": "models/kenney/Textures/wall_garage.png",
+            "textureSha256": "b293409fe036ecb48d9795a131b141c44509613fefc9ee71136a4e2d4ea55ccf",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 48,
+            "triangles": 16,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "wall",
+            "texture": "models/kenney/Textures/wall.png",
+            "textureSha256": "1c57f50a696e4ce98194dec9b5977527e3ca700610a36a473b468beea54c10e1",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 60,
+            "triangles": 20,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "windows",
+            "texture": "models/kenney/Textures/windows.png",
+            "textureSha256": "441e127a928fd98f3920d5cb6f33d9eeedde2555f1c51ff2fd2d8acbbbdc8fc6",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 48,
+            "triangles": 16,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          }
+        ],
+        "sourceFaces": 560,
+        "sourceTriangulatedBudget": 560,
+        "loadedVerticesPerInstance": 1680,
+        "sourceOBJ": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-road-two-cars-light-buildings-v1\\empty-car\\res\\models\\kenney\\facade-north.obj",
+        "sourceOBJSha256": "2e278137ed9fdbb5066fed72a6d2c71cf371a849e7b033112d106d36466854d1",
+        "runtimeTMDLSha256": "6177a837b63071376cf7f7bc4b312fd4432cc96a1f039bc3c7263831ebbcb9e8",
+        "publicPrebake": "F:\\Projects\\tyra-editor\\examples\\night-walk\\bin\\models\\kenney\\facade-north.tmdl",
+        "publicPrebakeSha256": "6177a837b63071376cf7f7bc4b312fd4432cc96a1f039bc3c7263831ebbcb9e8"
+      },
+      "facade-west": {
+        "version": 3,
+        "bounds": [
+          -2.0,
+          0.0,
+          -0.5,
+          2.0,
+          2.0,
+          0.5
+        ],
+        "parts": [
+          {
+            "name": "wall_lines",
+            "texture": "models/kenney/Textures/wall_lines.png",
+            "textureSha256": "7da9b8941f196e3632b1301b99b30eb803f071a3b7dd77a249523424c6fb2302",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 516,
+            "triangles": 172,
+            "aoBytes": 0,
+            "lods": [
+              [
+                300,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "concrete",
+            "texture": "models/kenney/Textures/concrete.png",
+            "textureSha256": "6c945026c68f2b3ab64cdca3d9bc941f7756724a3a4c8a9000a99a1f38d8da4a",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 228,
+            "triangles": 76,
+            "aoBytes": 0,
+            "lods": [
+              [
+                138,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "metal",
+            "texture": "models/kenney/Textures/metal.png",
+            "textureSha256": "9ba8501e99905fd40ebcd3e5fcdeab92ca6bbd11d95378e1a7ff22ec7a35a9cb",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 360,
+            "triangles": 120,
+            "aoBytes": 0,
+            "lods": [
+              [
+                138,
+                0
+              ],
+              [
+                138,
+                0
+              ]
+            ],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "windows",
+            "texture": "models/kenney/Textures/windows.png",
+            "textureSha256": "441e127a928fd98f3920d5cb6f33d9eeedde2555f1c51ff2fd2d8acbbbdc8fc6",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 36,
+            "triangles": 12,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          },
+          {
+            "name": "doors",
+            "texture": "models/kenney/Textures/doors.png",
+            "textureSha256": "661b440dc569f14918c734f5e75ca9ad318629674f7ff576e58a68a47acd270e",
+            "reflectionTexture": "",
+            "kd": [
+              1.0,
+              1.0,
+              1.0
+            ],
+            "ke": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "reflectionStrength": 0.0,
+            "flags": 0,
+            "vertices": 12,
+            "triangles": 4,
+            "aoBytes": 0,
+            "lods": [],
+            "stripRun": 0,
+            "strips": []
+          }
+        ],
+        "sourceFaces": 384,
+        "sourceTriangulatedBudget": 384,
+        "loadedVerticesPerInstance": 1152,
+        "sourceOBJ": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-road-two-cars-light-buildings-v1\\empty-car\\res\\models\\kenney\\facade-west.obj",
+        "sourceOBJSha256": "f2e3b7f044acfb9307cb2575e13a1d63e8ab6b42548d6cfcfac4b51fac5e722d",
+        "runtimeTMDLSha256": "d279f70c6312ca3fd088b1e74d5d3739cfbd8bf5133b9106fd3821a193f9a07f",
+        "publicPrebake": "F:\\Projects\\tyra-editor\\examples\\night-walk\\bin\\models\\kenney\\facade-west.tmdl",
+        "publicPrebakeSha256": "d279f70c6312ca3fd088b1e74d5d3739cfbd8bf5133b9106fd3821a193f9a07f"
+      }
+    },
+    "instancesPerModel": 25,
+    "instanceBudgetVertices": 70800,
+    "instanceSourceFaceBudget": 23600,
+    "noCurrentFrameAcceptedCountClaim": true,
+    "runtimeClaims": false
+  },
+  "staticBatchingRetained": true,
+  "buildingOwnerRefsMeaning": "Actual shown owner membership in post-main-cull accepted carrier; each shared carrier input counted once, not per-owner pixel visibility or postclip triangles.",
+  "nominalBuildingVertices": 70800,
+  "nominalTotalTarget": 80133,
+  "actualAcceptedTargetNotProven": true,
+  "maskPolicy": {
+    "bits": 64,
+    "checkedOwnerIndices": [
+      0,
+      49
+    ],
+    "ownerRefs": 50,
+    "registryCapacity": 512,
+    "authoredPartMembershipUpperBound": 300
+  }
+}

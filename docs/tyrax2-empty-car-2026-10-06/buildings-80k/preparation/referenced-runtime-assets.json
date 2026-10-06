@@ -1,0 +1,50 @@
+{
+  "status": "VERIFIED_PRIOR_IMMUTABLE_RUNTIME_ASSETS_IDENTICAL",
+  "references": [
+    {
+      "runtimePath": "models/kenney/Textures/concrete.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/concrete.png",
+      "sha256": "6c945026c68f2b3ab64cdca3d9bc941f7756724a3a4c8a9000a99a1f38d8da4a"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/doors.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/doors.png",
+      "sha256": "661b440dc569f14918c734f5e75ca9ad318629674f7ff576e58a68a47acd270e"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/metal.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/metal.png",
+      "sha256": "9ba8501e99905fd40ebcd3e5fcdeab92ca6bbd11d95378e1a7ff22ec7a35a9cb"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/wall.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/wall.png",
+      "sha256": "1c57f50a696e4ce98194dec9b5977527e3ca700610a36a473b468beea54c10e1"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/wall_garage.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/wall_garage.png",
+      "sha256": "b293409fe036ecb48d9795a131b141c44509613fefc9ee71136a4e2d4ea55ccf"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/wall_lines.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/wall_lines.png",
+      "sha256": "7da9b8941f196e3632b1301b99b30eb803f071a3b7dd77a249523424c6fb2302"
+    },
+    {
+      "runtimePath": "models/kenney/Textures/windows.png",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/Textures/windows.png",
+      "sha256": "441e127a928fd98f3920d5cb6f33d9eeedde2555f1c51ff2fd2d8acbbbdc8fc6"
+    },
+    {
+      "runtimePath": "models/kenney/facade-north.tmdl",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/facade-north.tmdl",
+      "sha256": "6177a837b63071376cf7f7bc4b312fd4432cc96a1f039bc3c7263831ebbcb9e8"
+    },
+    {
+      "runtimePath": "models/kenney/facade-west.tmdl",
+      "existingArchivePath": "buildings/runtime-assets/models/kenney/facade-west.tmdl",
+      "sha256": "d279f70c6312ca3fd088b1e74d5d3739cfbd8bf5133b9106fd3821a193f9a07f"
+    }
+  ]
+}
