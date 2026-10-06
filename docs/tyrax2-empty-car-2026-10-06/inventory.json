@@ -938,5 +938,41 @@
   {
     "path": "resetdiag/preparation/review-resetdiag-root.py",
     "sha256": "1ef2a49487095f77e3e809ff0b21e33e4761bb1ebfa545ac45899e405622f3cb"
+  },
+  {
+    "path": "two-cars-light-model/physical/completed-stdout.raw",
+    "sha256": "b8d9bd98519ce25d31dfadc448b17b6c2fc10dc895ee4b5f67c2064332dc5cc2"
+  },
+  {
+    "path": "two-cars-light-model/physical/stdout.utf8.log",
+    "sha256": "b8d9bd98519ce25d31dfadc448b17b6c2fc10dc895ee4b5f67c2064332dc5cc2"
+  },
+  {
+    "path": "two-cars-light-model/physical/bin/closeout-samples.txt",
+    "sha256": "b2f2c79a357a4c3256aa3929d900d7617391ca3bbab0a3f0c0c6b31dd5b4cebb"
+  },
+  {
+    "path": "two-cars-light-model/physical/launch-inputs.json",
+    "sha256": "1772fe1dd1d7642f135703be4e2dd0d9c13bb0cc3917fdad5d35c1971065eaf2"
+  },
+  {
+    "path": "two-cars-light-model/physical/owned-launch.json",
+    "sha256": "1ced2f64997ec49003e222e5ff66c0fea177fd666b2f447e98d2ab083d975ff8"
+  },
+  {
+    "path": "two-cars-light-model/physical/protocol-analysis.json",
+    "sha256": "9ec9b999145c162eabf47c129740e356f0c0a9256483fb05d49ef624304c222f"
+  },
+  {
+    "path": "two-cars-light-model/physical/physical-review.json",
+    "sha256": "ea47fbc6e8a438beb562b2c5c9fe9f043a04fc85f775b1ca43731568bfc9473e"
+  },
+  {
+    "path": "two-cars-light-model/physical/root-cadence-review.json",
+    "sha256": "367d27a764afd34d05ba60ef45f9de6770e75936ef9c9aefc7509e3cfb99bb6a"
+  },
+  {
+    "path": "two-cars-light-model/physical/finish-two-cars-light-model-physical.py",
+    "sha256": "1353d4c8ce8a90d6738eb1d80330ef7aa462694d564c13e8f0be7b2e930c67b0"
   }
 ]
