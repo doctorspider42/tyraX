@@ -12,12 +12,15 @@
 
 #include <memory>
 #include <string>
+#include <memory>
 #include <vector>
 #include <tamtypes.h>
 
 #include "math/m4x4.hpp"
 
 namespace Tyra {
+
+struct SkelBindCache;  // skel_instance.hpp
 
 /** One node of the model's hierarchy with its bind-pose local transform. */
 struct SkelNode {
@@ -92,6 +95,21 @@ struct SkelModel {
   // padded, for whole-instance frustum culling.
   float min[3] = {0.0F, 0.0F, 0.0F};
   float max[3] = {0.0F, 0.0F, 0.0F};
+  // Modified by TyraX: node names (v3 files; empty for v1/v2). Lets game code
+  // find a rig's face or spring bones by name - "mixamorig:Jaw" - instead of
+  // by an index that differs per model.
+  std::vector<std::string> nodeNames;
+  // Modified by TyraX: skinning bind data, built by the first SkelInstance,
+  // which then frees `parts`' raw vertex arrays (skel_instance.cpp). Only the
+  // part metadata (name, texture, color, vertex counts) survives it.
+  mutable std::shared_ptr<SkelBindCache> bindCache;
+
+  /** Node index by exact name, -1 when absent (or the file carries none). */
+  s32 findNode(const char* name) const {
+    for (size_t i = 0; i < nodeNames.size(); i++)
+      if (nodeNames[i] == name) return (s32)i;
+    return -1;
+  }
 };
 
 /**
@@ -109,6 +127,14 @@ class TsklLoader {
    * @return parsed model, or nullptr when the file is missing/malformed
    */
   static std::unique_ptr<SkelModel> load(const std::string& relativePath);
+
+  /**
+   * Modified by TyraX: parses a .tskl already in memory - a game that reads
+   * the file a slice per frame (no hitch) hands the bytes over here.
+   * @param relativePath where it came from: its textures resolve beside it
+   */
+  static std::unique_ptr<SkelModel> fromMemory(const std::vector<u8>& file,
+                                               const std::string& relativePath);
 };
 
 }  // namespace Tyra

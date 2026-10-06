@@ -2138,6 +2138,8 @@ void App::drawFlowGraphWindow() {
                     if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
                     if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
                     if (std::string(t.key) == "Animation") n.num[1] = 1.0f;  // speed
+                    if (std::string(t.key) == "Emote") n.num[0] = 1.0f, n.num[1] = 3.0f;
+                    if (std::string(t.key) == "Talk") n.num[0] = 3.0f;
                     if (std::string(t.key) == "DisplayText") {
                         n.num[0] = 0.5f;   // centered
                         n.num[1] = 0.85f;  // near the bottom, like a subtitle

@@ -341,6 +341,8 @@ void App::rebuildAssetUsage() {
             const SceneObject& o = scene.objects[oi];
             const std::string where = sn + " / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)", si, oi);
+            for (const std::string& c : o.playerCharacters)
+                note(c, 0, where + " (creator character)", si, oi);
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)", si, oi);
             if (!o.blobShadowTexture.empty())
                 note(o.blobShadowTexture, 0, where + " (blob shadow)", si, oi);
@@ -388,6 +390,7 @@ void App::rebuildAssetUsage() {
         for (const SceneObject& o : pf.objects) {
             const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
+            for (const std::string& c : o.playerCharacters) note(c, 0, where + " (creator character)");
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)");
             if (!o.blobShadowTexture.empty())
                 note(o.blobShadowTexture, 0, where + " (blob shadow)");
@@ -676,6 +679,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (SceneData& scene : project_.scenes) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
+            for (std::string& c : o.playerCharacters) swap(c);
             swap(o.impostorPath);
             swapBlob(o);
             swap(o.materialPath);
@@ -708,6 +712,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (Prefab& pf : project_.prefabs)
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
+            for (std::string& c : o.playerCharacters) swap(c);
             swap(o.impostorPath);
             swapBlob(o);
             swap(o.materialPath);

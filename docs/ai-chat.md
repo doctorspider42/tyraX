@@ -35,6 +35,12 @@ With **Allow project edits** enabled, it can:
 - edit menus, ambience, loading screens, HUD, input, saves and other sections;
 - create, insert or flatten prefabs;
 - bake procedural volumes;
+- **generate characters from a description** - "an old fisherman in a blue
+  work suit, three of them" - through the Character Generator: it reads the
+  kit's catalogue (`character_kit`) and writes a recipe (`create_character`),
+  one character or a crowd in colour variants (optionally walking about as
+  pedestrians, or as a player with in-game creator options), with its `.chargen.json`
+  beside it so you can keep editing it in Tools > Character Generator;
 - select objects and open tool windows;
 - regenerate sources and save when asked.
 

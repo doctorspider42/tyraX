@@ -5515,7 +5515,118 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 169
+#define TYRAX_VERSION_MINOR 185
+// 1.185.0: the Character Creator's CHARACTER row chooses among N models
+// (docs/character-generator.md, "Choosing a character"): a Player's
+// player.characters (Inspector > Characters to choose from; the generator's
+// Add as a character choice) plus every choice's "-alt" body, baked as
+// groups (ANIM_MODEL_GROUP / ANIM_GROUP_* / ANIM_MODEL_LABEL) and loaded in
+// the background as before. A model of your own needs only the clips; the
+// creator contract (opt- parts, .v<k> looks) is documented. Format v99.
+// 1.184.0: the Character Creator's Body row - man or woman
+// (docs/character-generator.md, "Man or woman"). Recipes gain "bodyChoice";
+// the generator writes "<name>-alt.glb" (altParams), the build bakes it and
+// emits ANIM_MODEL_ALT / ANIM_MODEL_WOMAN, and the game swaps bodies loading
+// the other in the background (64 KB slices, textures one a frame,
+// TsklLoader::fromMemory) with a spinner on the row; the choice survives
+// scene loads and saves. Menu creator rows gain param "body". Garment
+// conform reaches 12 cm where cloth and skin face the same way; skin poking
+// through cloth is hidden. Project format unchanged.
+// 1.183.0: Character Generator - your own clothes gain the "over" slot (a
+// vest or a jacket over the kit's top, replacing nothing); imported meshes
+// are welded on import (coincident corners share one binding - a collar no
+// longer tears); --chargen resolves recipe paths project-relative like the
+// editor. Project format unchanged.
+// 1.182.0: Character Generator - your own clothes (docs/character-generator.md,
+// "Your own clothes"): a .glb/.obj modelled on a reference body, in a slot of
+// its own choosing, bound/skinned/recoloured like the kit's (key colour = the
+// texture's most common). Recipes gain "customWear" (only when used); project
+// format unchanged.
+// 1.181.0: Character Generator movement style (docs/character-generator.md,
+// "Movement style"): -1 masculine .. +1 feminine on the kit's clips - hip
+// sway, step width, arm swing, chest turn, elbows - Auto from Gender (the
+// default). Recipes gain "motionStyle" (only when set); project format
+// unchanged.
+// 1.180.0: Character Generator detail levels (docs/character-generator.md,
+// "Detail: crowd, standard, hero"). The kit carries five bodies: the crowd
+// body (proxy741, ~1600 triangles), the standard woman/man (~3300) and hero
+// woman/man (~9500, the standard ones subdivided and bound to MakeHuman's
+// reference surface). Body tab "Detail", the Crowd... dialog's "Light crowd
+// body" (default on), the AI crowd defaults to it; recipes gain "detail"
+// (written only when not standard). Hero scalp caps use the standard
+// topology; a LOD chain only when a non-player object uses the model.
+// SkelInstance pools trimmed skin outputs (clearOutputPool on a scene change)
+// and frees other LOD levels' outputs. Project format unchanged.
+// 1.179.0: the Character Generator, polished from a play-through
+// (docs/character-generator.md): legs hidden inside skirts and the panels'
+// leg-driven swing baked into the clips (+ SkelInstance's replace override),
+// the scalp closed under holey hair (and a scalp cap on option hairstyles),
+// relaxed fingers and running shoulders, glasses with clear lenses, the
+// breast macro, your own hair (.glb/.obj on a reference body,
+// --chargen-reference), preview pan + Face close-up; the tall hat is gone.
+// Recipes gain breastSize/breastFirmness/customHair (written only when set).
+// Crowds: wanderers phase-locked (animSync, SkelInstance::setTime), live
+// faces for the five nearest, trimOutputs for followers - 30 pedestrians no
+// longer run the EE out of memory. Project format unchanged.
+// 1.178.0: the Character Creator as a menu (docs/character-generator.md, "The
+// creator as a menu"). Menu rows "Character creator option" (colours, hair,
+// hat, glasses - the choice drawn as runtime text in the menu's font) and
+// "Character creator undo"; the Character Creator node's Menu makes such a
+// menu its screen; Menus > "+ Character creator menu" scaffolds one.
+// Format v98.
+// 1.177.0: hat hair (docs/character-generator.md, "Hat hair"). Hats press the
+// hair under them instead of letting it poke through: a worn hat fits the
+// hairstyle outright, hat options give every hairstyle a pressed
+// "opth-hair-<id>" twin the game shows under a hat. Creator options are now
+// recognised by part name; TsklLoader never merges ":opt" parts; the
+// editor's viewport draws a creator character as it starts. Project format
+// unchanged.
+// 1.176.0: the in-game Character Creator (docs/character-generator.md,
+// "In-game character creator"). A recipe's "options" builds extra hair, hats
+// and glasses as separate parts; the generator's Player creator... writes
+// them plus colour looks onto the scene's Player; the Character Creator flow
+// node (openCharacterCreator()) opens a D-pad screen in the game; the choice
+// is RuntimeObject::look, kept across scenes and saved (SAVE_VERSION 5).
+// Hidden parts are not skinned (SkelInstance::setPartSkipped). Project
+// format unchanged.
+// 1.175.0: pedestrians (docs/navigation-ai.md, "Wandering"). An animated
+// model's Wander property (format v97) walks it around its spot on the nav
+// grid - walk/idle clips, random stops, passing others on the right; the
+// Crowd button's Walk around and the AI's create_character set it.
+// 1.174.0: expressions and characters from words. The generated rig gains
+// brows and mouth corners (50 bones); the Emote node / emote() helper puts a
+// smile, anger, surprise or sadness on top of any clip, the Talk node starts
+// and stops the syllable jaw. The AI Assistant gains character_kit (the kit's
+// catalogue) and create_character (a recipe -> a character or a crowd).
+// 1.173.0: the Character Generator's window, redone (docs/character-
+// generator.md, "Using it"): thumbnail cards for clothes, hairstyles and the
+// starting bodies (built on a worker, rendered by Viewport::renderCharacterIcon,
+// framed where the item is worn), a colour row of As made / swatches / picker,
+// one-click patterns, folding face sections, Randomize locks and undo/redo.
+// 1.172.0: spring bones (docs/character-generator.md, "Spring bones"). The
+// generated rig gains a hair chain and four skirt panels (46 bones); long hair,
+// braids, skirts and dresses are weighted to them; the game's updateSprings
+// swings each tip in world space and drives a skirt's panels from the thighs,
+// so a dress flares with a running stride instead of the legs going through.
+// 1.171.0: crowds (docs/character-generator.md, "Crowds"). The Character
+// Generator's Crowd button writes a character once plus N colour variants
+// ("<texture>.v<k>.png"); texbake fits each into a 1 KB palette against the
+// base's own quantization; objects pick one with Palette variant (format v96)
+// and the engine draws the base's texels through it (Texture palette
+// variants, RendererCoreTexture::useVariant - one copy of the texels in VRAM).
+// SkelInstance shares its bind data per model, packed by unique corner, frees
+// the loader's raw arrays and allocates skin buffers per level on first use:
+// a generated character went from ~2.4 MB per object to ~0.7 MB per model
+// plus its skin buffers - twelve bystanders no longer run the EE out of RAM.
+// 1.170.0: living faces (docs/character-generator.md, "A living face").
+// Generated characters get a jaw, eyes and upper lids (rig 35 -> 40 bones, the
+// mouth tube capped); the game blinks them, turns head and eyes to the player
+// within 4.5 m and moves the jaw while a "Talk" clip plays, after the talk()
+// script helper, or with a sound emitter's loudness - the new Speaker field
+// (format v95), the envelope measured from the WAV at build time (LIP_SYNCS).
+// Engine: .tskl v3 carries node names (SkelModel::findNode) and SkelInstance
+// takes per-node rotation overrides; a live face never shares its pose and is
+// dropped beyond 10 m.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5621,6 +5732,22 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
+// 1.180.1: Character Generator - hair colours only the scalp (the face under
+// a fringe gets its blurred shadow, not a hair-coloured blotch), and brows
+// are laid flat through their card binding instead of ray-baked (streaks
+// above every brow). Kit rebuilt; project format unchanged.
+// 1.180.2: Character Generator posture - every clip brings the clavicles 15
+// degrees forward and the hanging upper arms forward by what the clip hangs
+// them back (vs the torso, up to 25): arms no longer hang behind the body.
+// 1.181.1: Character Generator - walking hands no longer pass through wide
+// hips: per key the wrist and knuckles are checked against the body's own
+// width and the upper arm turns out by just enough.
+// 1.181.2: Character Generator - clothes kept out of the body (garment
+// vertices pushed out of the morphed skin, smoothed), skin under opaque cloth
+// not drawn, and skirt panels lead the striding thigh (1.1x; game twin too).
+// 1.184.1: Character Generator - the project's own garments
+// (res/models/characters/custom) are cards under Your own clothes, with
+// thumbnails; a file's slot is remembered in <name>.wear.json or guessed.
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -6114,7 +6241,23 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 (docs/character-generator.md, "A living face"): a sound emitter's
+// "speaker" (the name of the character it lip-syncs), written only when set.
+// Missing = nobody, as before. Additive; no migration step.
+// v96 (docs/character-generator.md, "Crowds"): a Model object's
+// anim.paletteVariant, written only when > 0. Missing = the model's own
+// colours, as before. Additive; no migration step.
+// v97 (docs/navigation-ai.md, "Wandering"): a Model object's anim.wander
+// { radius, speed }, written only when the radius is > 0. Missing = it stays
+// put, as before. Additive; no migration step.
+// v98 (docs/character-generator.md, "The creator as a menu"): menu entry
+// actions "creator" (param look/hair/hat/glasses) and "creator-undo". An
+// older editor would read them as Close. Additive; no migration step.
+// v99 (docs/character-generator.md, "Choosing a character"): a Player
+// object's player.characters - the other models the Character Creator may
+// turn it into - written only when non-empty. Missing = its own model only
+// (plus a generated "-alt" body), as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 99;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

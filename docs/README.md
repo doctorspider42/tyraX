@@ -172,6 +172,10 @@ for people building games with it. Internals live in code comments, the git log
 - [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
 - [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
   ordinary `.obj` + textures.
+- [Character Generator](character-generator.md) — rigged, dressed, animated
+  people from sliders: the embedded CC0 kit, the PS2 atlas, shell and mesh
+  garments, motion-captured clips, recipes and `--chargen`; plus phone motion
+  capture and the Mocap window.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
   generator: signal chain, gliding chords, timeline automation, seamless loops.
 - [Cutscenes](cutscenes.md) — the Cutscene Director's sequence options: hiding

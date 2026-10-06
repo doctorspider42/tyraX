@@ -381,12 +381,52 @@ PS2SDK repository.
 
 ---
 
+## The Character Generator kit — CC0 1.0 sources only
+
+`resources/chargen-kit.bin` is **redistributed**: it is committed here, linked
+into the editor binary, and parts of it (a body, its textures, garments, clips)
+end up inside every game that uses a generated character. It is built by
+[`tools/chargen-kit/`](tools/chargen-kit/README.md) from these sources, every
+one of them released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/):
+
+| Source | What the kit derives from it |
+| --- | --- |
+| [MakeHuman](http://www.makehumancommunity.org/) — the `data/` directory of [makehuman](https://github.com/makehumancommunity/makehuman) (base mesh, macro and detail targets, skeleton, vertex weights) | the body's morph targets as deltas on its own vertices, the rig's joints and skin weights, the face-paint masks |
+| MakeHuman *system assets* pack (`makehuman_system_assets_cc0.zip`) | the `female1605` proxy topology, low-poly eyes, eyebrows, eyelashes, 18 skins, system clothes and hair |
+| MakeHuman community asset packs — **only the `*_cc0` builds** (shirts01, pants01, suits01, dress01, skirts01, shoes01, hats01, glasses01, gloves01, hair01) | converted garments and hairstyles: textures re-baked, meshes remeshed and bound to the body |
+| [Quaternius — Universal Animation Library 1 + 2 \[Standard\]](https://quaternius.com/packs/universalanimationlibrary.html) | 87 motion clips, retargeted onto the rig |
+
+The exact garment list, with each item's source asset, is
+[`tools/chargen-kit/catalog.py`](tools/chargen-kit/catalog.py). Several
+MakeHuman community packs also exist in CC-BY builds (`hair02`, `shirts02`,
+...); the kit uses none of them, and `fetch_sources.py` only ever requests
+`<pack>_cc0.zip`.
+
+**The distinction that matters: MakeHuman's data is CC0, the MakeHuman
+*program* is AGPL-3.0, and none of the program is used.** Nothing from the
+`makehuman` application's source tree is read, linked, copied or translated -
+TyraX implements the morph blending, the proxy fit, the rig collapse, the
+garment conversion and the glTF export itself. The assets were relicensed to
+CC0 in 2020 by Data Collection AB, Joel Palmius and Jonas Hauquier, with
+original work by Manuel Bastioni. MakeHuman also states that it claims nothing
+over characters made from that data.
+
+CC0 is a public-domain dedication and **requires no attribution**. MakeHuman
+and Quaternius are credited in [`README.md`](README.md) anyway, because this
+feature would not exist without them. A character exported by the generator is
+a derivative of CC0 data and carries no third-party obligation of its own.
+
+---
+
 ## A note on assets
 
-Everything above is **code**. Assets are a separate problem and the rules are
-not the same: a permissive code license on a project says nothing about the
-license on the models, textures or sounds it ships, and asset collections are
-routinely *mixed* — most files under one license, a long tail under another.
+Everything above is **code**, except the Character Generator kit directly above.
+Assets are a separate problem and the rules are not the same: a permissive code license
+on a project says nothing about the license on the models, textures or sounds it
+ships, and asset collections are routinely *mixed* — most files under one
+license, a long tail under another. MakeHuman is the exact illustration: its
+assets are CC0 while the application around them is AGPL.
 
 The policy: an asset pack is verified file-by-file, not project-by-project,
 before anything from it is committed here, and anything that cannot be

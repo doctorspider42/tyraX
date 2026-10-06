@@ -336,6 +336,18 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
+- **[Character Generator](docs/character-generator.md)** — rigged, dressed,
+  animated people at a PS2 hero budget: a game-topology body at three detail
+  levels (crowd ~1.6k, standard ~3.3k, hero ~9.5k triangles) with real eyes and
+  76 face/body sliders on top of MakeHuman's macros, one atlas with the face
+  given the texels (skin mix, makeup, stubble, brows), 82 garments and
+  hairstyles that are either part of the body (shells - zero triangles, no skin
+  poke-through) or bound to its surface, recolourable with patterns, and 87
+  motion-captured clips with a feminine-to-masculine movement style - and a face that blinks, looks at you and lip-syncs
+  its sound, hair and skirts that swing. Crowds in other colours cost one mesh and one atlas plus 1 KB a
+  person, and an in-game creator lets the player pick man or woman, colours, hair, a hat
+  and glasses. Bring your own hairstyle and clothes as a .glb or .obj. Randomize, a recipe beside every model, and
+  `--chargen` for the command line. All CC0, embedded in the editor.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
 
@@ -545,6 +557,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [character-generator](examples/character-generator) | Six generated people - you play one, five stand about doing their own thing - from six recipe files you can open in the generator |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI
@@ -560,6 +573,7 @@ tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
 tyrax-editor --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
 tyrax-editor --vu-check                   # run every VU1 microprogram in the host simulator
 tyrax-editor --vu-replay <projectDir>     # re-run a console VU1 capture on the host and diff it
+tyrax-editor --chargen <recipe.json|preset:N|random:SEED> <out.glb> [--variants N]  # a generated character (+ crowd colour variants), no GUI
 tyrax-editor <projectDir|project.tyra>    # open the GUI with a project loaded
 ```
 
@@ -689,6 +703,13 @@ This project stands on the shoulders of the PS2 homebrew community:
   [ufbx](https://github.com/ufbx/ufbx),
   [miniaudio](https://github.com/mackron/miniaudio).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
+- **[MakeHuman](http://www.makehumancommunity.org/)** — the Character
+  Generator's bodies, targets, skins, clothes and hair are built from the
+  MakeHuman community's CC0 data and asset packs (data only; the AGPL program is
+  not used). Thanks to Data Collection AB, Joel Palmius, Jonas Hauquier, Manuel
+  Bastioni and every asset author who chose CC0.
+- **[Quaternius](https://quaternius.com)** — the Universal Animation Library
+  (CC0) is every generated character's motion.
 - **[Tyra Discord](https://discord.gg/PpTAkQh6u)** — the amazing project community.
 
 Every notice, full license text and exact redistribution term — plus the

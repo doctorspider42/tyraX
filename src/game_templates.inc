@@ -4623,6 +4623,10 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  // The in-game Character Creator owns the pad but not the clock: the world
+  // (and the character being dressed) keeps moving behind it.
+  const bool creatorWasOpen = creatorObj >= 0;
+  const bool creatorOwnsPad = updateCharCreator() || creatorWasOpen;
   // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
   // the halt, and a halt then freezes the world exactly the way a pausing menu
   // does - scripts, walker, particles and animation stop while frames keep
@@ -4639,7 +4643,8 @@ void TerrainGame::loop() {
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted ||
+      creatorOwnsPad;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -4876,6 +4881,7 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  creatorCamera();  // the Character Creator frames who it dresses
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -5163,6 +5169,7 @@ void TerrainGame::loop() {
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
+    renderCharCreator();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine, cameraPosition, cameraLookAt);
@@ -6133,11 +6140,51 @@ void TerrainGame::freeMaterialAsset(int i) {
 // PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
+  adoptAnimModel(i, TsklLoader::load(ANIM_MODEL_PATHS[i]));
+}
+
+void TerrainGame::adoptAnimModel(int i, std::unique_ptr<SkelModel> model) {
+  if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
   animModelLoaded[i] = 1;
-  auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
+  // Creator options: the generator names an option's part (material)
+  // "<kind>:opt-<slot>-<id>" - "optd-" = worn as built, "opth-" = a
+  // hairstyle's twin pressed under a hat, which comes after its plain part.
+  gam.optSlot.assign(model->parts.size(), 0);
+  gam.optIndex.assign(model->parts.size(), -1);
+  gam.optUnderHat.assign(model->parts.size(), 0);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& nm = model->parts[m].name;
+    size_t at = nm.find(":opt");
+    if (at == std::string::npos) continue;
+    at += 4;
+    const char kind = at < nm.size() ? nm[at] : 0;
+    if (kind == 'd' || kind == 'h') ++at;
+    if (at >= nm.size() || nm[at] != '-') continue;
+    const size_t dash = nm.find('-', at + 1);
+    if (dash == std::string::npos) continue;
+    const std::string slot = nm.substr(at + 1, dash - at - 1);
+    const std::string id = nm.substr(dash + 1);
+    const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
+    if (s == 0) continue;
+    if (kind == 'h') {
+      for (int k = 0; k < gam.optCount[s]; ++k)
+        if (gam.optIds[s][k] == id) {
+          gam.optSlot[m] = (s8)s;
+          gam.optIndex[m] = (s8)k;
+          gam.optUnderHat[m] = 1;
+          gam.hatHair = true;
+        }
+      continue;
+    }
+    gam.optSlot[m] = (s8)s;
+    gam.optIndex[m] = (s8)gam.optCount[s];
+    if (kind == 'd') gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(id);
+    ++gam.optCount[s];
+  }
   for (size_t m = 0; m < model->parts.size(); ++m) {
     const std::string& path = model->parts[m].texturePath;
     if (path.empty()) continue;
@@ -6147,6 +6194,27 @@ void TerrainGame::loadAnimModelAsset(int i) {
       gam.textures[m] = t;
     else  // missing texture degrades the part to its plain color
       model->parts[m].texturePath.clear();
+  }
+  // Crowd palette variants: "<texture>.v<k>.pal" beside each palettized
+  // texture - a Texture that borrows the base's texels and brings only its
+  // CLUT (1 KB of VRAM per person; docs/character-generator.md, "Crowds").
+  for (int v = 1; v <= ANIM_MODEL_VARIANTS[i]; ++v) {
+    std::vector<Texture*> vt(model->parts.size(), nullptr);
+    for (size_t m = 0; m < model->parts.size(); ++m) {
+      Texture* base = gam.textures[m];
+      if (!base || !base->clut || base->clut->width == 0) continue;
+      const std::string& tp = model->parts[m].texturePath;
+      if (tp.size() < 4) continue;
+      const std::string pal =
+          tp.substr(0, tp.size() - 4) + ".v" + std::to_string(v) + ".pal";
+      unsigned char rgba[1024];
+      FILE* f = fopen(FileUtils::fromCwd(pal).c_str(), "rb");
+      if (!f) continue;
+      const size_t got = fread(rgba, 1, sizeof(rgba), f);
+      fclose(f);
+      if (got >= 64) vt[m] = new Texture(base, rgba, (int)(got / 4));
+    }
+    gam.variants.push_back(std::move(vt));
   }
   // Local-space cull box: the .tskl AABB is a union over every clip
   // (sampled by the baker), padded 10% per axis for pose positions
@@ -6175,6 +6243,14 @@ void TerrainGame::loadAnimModelAsset(int i) {
 void TerrainGame::freeAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
   GameAnimModel& gam = gameAnimModels[i];
+  // variants first: each borrows its base's texels
+  for (auto& vt : gam.variants)
+    for (Texture* t : vt)
+      if (t) {
+        engine->renderer.core.texture.freeTextureBuffers(t->id);
+        delete t;
+      }
+  gam.variants.clear();
   for (const std::string& path : gam.texPaths) releaseTexture(path);
   gam = GameAnimModel();
   animModelLoaded[i] = 0;
@@ -6228,8 +6304,9 @@ void TerrainGame::applyLayerResidency() {
     for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
       if (d.material >= 0 && d.material + f < (int)materialNeed.size())
         materialNeed[d.material + f] = 1;
-    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
-      animNeed[d.animModel] = 1;
+    // the player's chosen body (the creator's Body row), not the authored one
+    const int am = effectiveAnimModel(i, d.animModel);
+    if (am >= 0 && am < (int)animNeed.size()) animNeed[am] = 1;
   }
   // Active spawn-pool clones keep their template's assets resident even when
   // the template's own layer is out (a clone from a no-layer template must
@@ -6299,6 +6376,7 @@ void TerrainGame::applyLayerResidency() {
     if (!materialNeed[i] && materialLoaded[i]) freeMaterialAsset(i);
   for (int i = 0; i < (int)animNeed.size(); ++i)
     if (!animNeed[i] && animModelLoaded[i]) freeAnimModelAsset(i);
+  SkelInstance::clearOutputPool();  // the old crowd's skin buffers
   for (int i = 0; i < (int)texNeed.size(); ++i)
     if (!texNeed[i] && sceneTexLoaded[i]) freeSceneTexture(i);
 
@@ -6368,6 +6446,7 @@ void TerrainGame::activateObject(int i) {
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
+  o.data.animModel = effectiveAnimModel(i, o.data.animModel);  // the chosen body
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
@@ -6924,6 +7003,10 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  // The in-game Character Creator owns the pad but not the clock: the world
+  // (and the character being dressed) keeps moving behind it.
+  const bool creatorWasOpen = creatorObj >= 0;
+  const bool creatorOwnsPad = updateCharCreator() || creatorWasOpen;
   // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
   // the halt, and a halt then freezes the world exactly the way a pausing menu
   // does - scripts, walker, particles and animation stop while frames keep
@@ -6940,7 +7023,8 @@ void TerrainGame::loop() {
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted ||
+      creatorOwnsPad;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -7232,6 +7316,7 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  creatorCamera();  // the Character Creator frames who it dresses
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -7521,6 +7606,7 @@ void TerrainGame::loop() {
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
+    renderCharCreator();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine, cameraPosition, cameraLookAt);
@@ -8491,11 +8577,51 @@ void TerrainGame::freeMaterialAsset(int i) {
 // PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
+  adoptAnimModel(i, TsklLoader::load(ANIM_MODEL_PATHS[i]));
+}
+
+void TerrainGame::adoptAnimModel(int i, std::unique_ptr<SkelModel> model) {
+  if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
   animModelLoaded[i] = 1;
-  auto model = TsklLoader::load(ANIM_MODEL_PATHS[i]);
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
+  // Creator options: the generator names an option's part (material)
+  // "<kind>:opt-<slot>-<id>" - "optd-" = worn as built, "opth-" = a
+  // hairstyle's twin pressed under a hat, which comes after its plain part.
+  gam.optSlot.assign(model->parts.size(), 0);
+  gam.optIndex.assign(model->parts.size(), -1);
+  gam.optUnderHat.assign(model->parts.size(), 0);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& nm = model->parts[m].name;
+    size_t at = nm.find(":opt");
+    if (at == std::string::npos) continue;
+    at += 4;
+    const char kind = at < nm.size() ? nm[at] : 0;
+    if (kind == 'd' || kind == 'h') ++at;
+    if (at >= nm.size() || nm[at] != '-') continue;
+    const size_t dash = nm.find('-', at + 1);
+    if (dash == std::string::npos) continue;
+    const std::string slot = nm.substr(at + 1, dash - at - 1);
+    const std::string id = nm.substr(dash + 1);
+    const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
+    if (s == 0) continue;
+    if (kind == 'h') {
+      for (int k = 0; k < gam.optCount[s]; ++k)
+        if (gam.optIds[s][k] == id) {
+          gam.optSlot[m] = (s8)s;
+          gam.optIndex[m] = (s8)k;
+          gam.optUnderHat[m] = 1;
+          gam.hatHair = true;
+        }
+      continue;
+    }
+    gam.optSlot[m] = (s8)s;
+    gam.optIndex[m] = (s8)gam.optCount[s];
+    if (kind == 'd') gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(id);
+    ++gam.optCount[s];
+  }
   for (size_t m = 0; m < model->parts.size(); ++m) {
     const std::string& path = model->parts[m].texturePath;
     if (path.empty()) continue;
@@ -8505,6 +8631,27 @@ void TerrainGame::loadAnimModelAsset(int i) {
       gam.textures[m] = t;
     else  // missing texture degrades the part to its plain color
       model->parts[m].texturePath.clear();
+  }
+  // Crowd palette variants: "<texture>.v<k>.pal" beside each palettized
+  // texture - a Texture that borrows the base's texels and brings only its
+  // CLUT (1 KB of VRAM per person; docs/character-generator.md, "Crowds").
+  for (int v = 1; v <= ANIM_MODEL_VARIANTS[i]; ++v) {
+    std::vector<Texture*> vt(model->parts.size(), nullptr);
+    for (size_t m = 0; m < model->parts.size(); ++m) {
+      Texture* base = gam.textures[m];
+      if (!base || !base->clut || base->clut->width == 0) continue;
+      const std::string& tp = model->parts[m].texturePath;
+      if (tp.size() < 4) continue;
+      const std::string pal =
+          tp.substr(0, tp.size() - 4) + ".v" + std::to_string(v) + ".pal";
+      unsigned char rgba[1024];
+      FILE* f = fopen(FileUtils::fromCwd(pal).c_str(), "rb");
+      if (!f) continue;
+      const size_t got = fread(rgba, 1, sizeof(rgba), f);
+      fclose(f);
+      if (got >= 64) vt[m] = new Texture(base, rgba, (int)(got / 4));
+    }
+    gam.variants.push_back(std::move(vt));
   }
   // Local-space cull box: the .tskl AABB is a union over every clip
   // (sampled by the baker), padded 10% per axis for pose positions
@@ -8533,6 +8680,14 @@ void TerrainGame::loadAnimModelAsset(int i) {
 void TerrainGame::freeAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
   GameAnimModel& gam = gameAnimModels[i];
+  // variants first: each borrows its base's texels
+  for (auto& vt : gam.variants)
+    for (Texture* t : vt)
+      if (t) {
+        engine->renderer.core.texture.freeTextureBuffers(t->id);
+        delete t;
+      }
+  gam.variants.clear();
   for (const std::string& path : gam.texPaths) releaseTexture(path);
   gam = GameAnimModel();
   animModelLoaded[i] = 0;
@@ -8586,8 +8741,9 @@ void TerrainGame::applyLayerResidency() {
     for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
       if (d.material >= 0 && d.material + f < (int)materialNeed.size())
         materialNeed[d.material + f] = 1;
-    if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
-      animNeed[d.animModel] = 1;
+    // the player's chosen body (the creator's Body row), not the authored one
+    const int am = effectiveAnimModel(i, d.animModel);
+    if (am >= 0 && am < (int)animNeed.size()) animNeed[am] = 1;
   }
   // Active spawn-pool clones keep their template's assets resident even when
   // the template's own layer is out (a clone from a no-layer template must
@@ -8657,6 +8813,7 @@ void TerrainGame::applyLayerResidency() {
     if (!materialNeed[i] && materialLoaded[i]) freeMaterialAsset(i);
   for (int i = 0; i < (int)animNeed.size(); ++i)
     if (!animNeed[i] && animModelLoaded[i]) freeAnimModelAsset(i);
+  SkelInstance::clearOutputPool();  // the old crowd's skin buffers
   for (int i = 0; i < (int)texNeed.size(); ++i)
     if (!texNeed[i] && sceneTexLoaded[i]) freeSceneTexture(i);
 
@@ -8726,6 +8883,7 @@ void TerrainGame::activateObject(int i) {
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
+  o.data.animModel = effectiveAnimModel(i, o.data.animModel);  // the chosen body
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
@@ -9096,11 +9254,22 @@ void TerrainGame::setupAnimObject(int index) {
 
   g.animInst = std::make_unique<SkelInstance>(gam.src.get());
   DynamicMesh* mesh = g.animInst->mesh.get();
+  // A crowd member draws through its palette variant (OBJECT_PALETTES).
+  int variant = 0;
+  for (int k = 0; k < OBJECT_PALETTE_COUNT; ++k)
+    if (OBJECT_PALETTES[k].scene == g_activeScene && OBJECT_PALETTES[k].object == index)
+      variant = OBJECT_PALETTES[k].variant;
+  auto partTexture = [&](size_t m) -> Texture* {
+    if (m >= gam.textures.size()) return nullptr;
+    if (variant > 0 && variant <= (int)gam.variants.size() &&
+        gam.variants[variant - 1][m])
+      return gam.variants[variant - 1][m];
+    return gam.textures[m];
+  };
   for (size_t m = 0; m < mesh->materials.size(); ++m) {
     MeshMaterial* mat = mesh->materials[m];
     // texture links are per material id and every instance has fresh ids
-    if (m < gam.textures.size() && gam.textures[m])
-      gam.textures[m]->addLink(mat->id);
+    if (partTexture(m)) partTexture(m)->addLink(mat->id);
     // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
     // this single color - it rides in the per-part light colors below - but
     // it is kept in sync for any single-color path that may read it.
@@ -9156,9 +9325,9 @@ void TerrainGame::setupAnimObject(int index) {
     ap.bag->vertices = frame->vertices;
     ap.bag->count = frame->count;
     ap.bag->lighting = ap.lightBag.get();
-    if (m < gam.textures.size() && gam.textures[m] && frame->textureCoords) {
+    if (partTexture(m) && frame->textureCoords) {
       ap.texBag = std::make_unique<StaPipTextureBag>();
-      ap.texBag->texture = gam.textures[m];
+      ap.texBag->texture = partTexture(m);
       ap.texBag->coordinates = frame->textureCoords;
       ap.bag->texture = ap.texBag.get();
     }
@@ -9176,6 +9345,923 @@ void TerrainGame::setupAnimObject(int index) {
   o.animRestart = true;  // clip applied on the first anim update
   o.animFinished = false;
   o.animFade = 0.0F;
+
+  // A living face, if the rig has one (the Character Generator's does):
+  // nodes by name, so any .glb with these bones gets it.
+  const SkelModel* sm = gam.src.get();
+  g.faceHead = (s16)sm->findNode("mixamorig:Head");
+  g.faceJaw = (s16)sm->findNode("mixamorig:Jaw");
+  g.faceEye[0] = (s16)sm->findNode("mixamorig:LeftEye");
+  g.faceEye[1] = (s16)sm->findNode("mixamorig:RightEye");
+  g.faceLid[0] = (s16)sm->findNode("mixamorig:LeftEyelid");
+  g.faceLid[1] = (s16)sm->findNode("mixamorig:RightEyelid");
+  g.faceBrow[0] = (s16)sm->findNode("mixamorig:LeftBrow");
+  g.faceBrow[1] = (s16)sm->findNode("mixamorig:RightBrow");
+  g.faceCorner[0] = (s16)sm->findNode("mixamorig:LeftMouthCorner");
+  g.faceCorner[1] = (s16)sm->findNode("mixamorig:RightMouthCorner");
+  for (int e = 0; e < 5; ++e) g.emoteW[e] = e == 0 ? 1.0F : 0.0F;
+  g.faceLive = false;
+  g.faceSeed = 2654435761u * (u32)(index + 1);
+  g.blinkIn = 0.5F + (float)(g.faceSeed >> 28) * 0.3F;  // never in unison
+  g.blinkT = -1.0F;
+  g.lookYaw = g.lookPitch = g.jawOpen = g.talkPhase = 0.0F;
+  g.lipEnv = nullptr;
+  g.lipLen = 0;
+
+  // Spring bones, also by name: a ponytail's chain and a skirt's panels.
+  static const char* const kSpringNames[6] = {
+      "mixamorig:HairTail1", "mixamorig:HairTail2", "mixamorig:SkirtFront",
+      "mixamorig:SkirtBack", "mixamorig:SkirtLeft", "mixamorig:SkirtRight"};
+  // Where each tip rests in its bone's frame (metres; the rig binds with
+  // identity rotations, so +X is the character's left and +Z forward): the
+  // hair hangs down the back, a skirt panel reaches its hem 35 cm down and a
+  // hand's breadth out in its own direction.
+  static const float kSpringRest[6][3] = {
+      {0.0F, -0.14F, -0.01F}, {0.0F, -0.16F, -0.02F}, {0.0F, -0.35F, 0.14F},
+      {0.0F, -0.35F, -0.14F}, {0.14F, -0.35F, 0.0F},  {-0.14F, -0.35F, 0.0F}};
+  for (int s = 0; s < 6; ++s) {
+    ObjectGeometry::Spring& sp = g.springs[s];
+    sp = ObjectGeometry::Spring();
+    sp.node = (s16)sm->findNode(kSpringNames[s]);
+    if (sp.node >= 0) sp.parent = (s16)sm->nodes[sp.node].parent;
+    for (int a = 0; a < 3; ++a) sp.rest[a] = kSpringRest[s][a];
+  }
+  // HairTail1's tip is where HairTail2 begins, when the rig has both
+  if (g.springs[0].node >= 0 && g.springs[1].node >= 0)
+    for (int a = 0; a < 3; ++a) g.springs[0].rest[a] = sm->nodes[g.springs[1].node].t[a];
+  g.legNode[0] = (s16)sm->findNode("mixamorig:LeftUpLeg");
+  g.legNode[1] = (s16)sm->findNode("mixamorig:LeftLeg");
+  g.legNode[2] = (s16)sm->findNode("mixamorig:RightUpLeg");
+  g.legNode[3] = (s16)sm->findNode("mixamorig:RightLeg");
+
+  // The look: as authored, unless this is the player and the creator dressed
+  // them in this model before (playerLook survives scene loads and saves).
+  g.animVariant = variant;
+  for (int s = 0; s < 4; ++s) g.lookShown[s] = -9;
+  if (index == PLAYER_INDEX && playerLook[0] == o.data.animModel)
+    for (int s = 0; s < 4; ++s) o.look[s] = playerLook[1 + s];
+  applyLook(index);
+}
+
+
+
+// RuntimeObject::look -> what draws: options not chosen are hidden, and the
+// texture bags point at the chosen palette variant. Cheap when nothing
+// changed (four compares), so it runs every frame for every drawn model.
+void TerrainGame::applyLook(int index) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.animInst || o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size())
+    return;
+  if (o.look[0] == g.lookShown[0] && o.look[1] == g.lookShown[1] &&
+      o.look[2] == g.lookShown[2] && o.look[3] == g.lookShown[3])
+    return;
+  GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  for (int s = 0; s < 4; ++s) g.lookShown[s] = o.look[s];
+  // palette: -1 = the authored crowd variant
+  int variant = o.look[0];
+  if (variant < 0) {
+    variant = 0;
+    for (int k = 0; k < OBJECT_PALETTE_COUNT; ++k)
+      if (OBJECT_PALETTES[k].scene == g_activeScene && OBJECT_PALETTES[k].object == index)
+        variant = OBJECT_PALETTES[k].variant;
+  }
+  if (variant > (int)gam.variants.size()) variant = 0;
+  DynamicMesh* mesh = g.animInst->mesh.get();
+  if (variant != g.animVariant) {
+    for (size_t m = 0; m < g.animParts.size() && m < gam.textures.size(); ++m) {
+      ObjectGeometry::AnimPart& ap = g.animParts[m];
+      if (!ap.texBag) continue;
+      Texture* want = gam.textures[m];
+      if (variant > 0 && gam.variants[variant - 1][m]) want = gam.variants[variant - 1][m];
+      if (!want || want == ap.texBag->texture) continue;
+      const u32 id = mesh->materials[m]->id;
+      if (ap.texBag->texture && ap.texBag->texture->isLinkedWith(id))
+        ap.texBag->texture->removeLinkById(id);
+      if (!want->isLinkedWith(id)) want->addLink(id);
+      ap.texBag->texture = want;
+    }
+    g.animVariant = variant;
+  }
+  // options: one per slot (or none) - and under a hat, the hairstyle's
+  // pressed twin instead of the plain one
+  const int hat = o.look[2] == -2 ? gam.optDefault[2] : o.look[2];
+  const bool underHat = gam.hatHair && hat >= 0;
+  for (size_t m = 0; m < g.animParts.size() && m < gam.optSlot.size(); ++m) {
+    const int s = gam.optSlot[m];
+    if (s == 0) continue;
+    const int pick = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
+    g.animParts[m].hidden =
+        gam.optIndex[m] != pick || (s == 1 && (gam.optUnderHat[m] != 0) != underHat);
+    g.animInst->setPartSkipped((u32)m, g.animParts[m].hidden);  // nor skinned
+  }
+}
+
+
+
+// In-game Character Creator (docs/character-generator.md, "In-game character
+// creator"). Rows: Look (the colour variants) and Hair / Hat / Glasses - only
+// the ones the model has. Up/Down picks a row, Left/Right the choice, L1/R1
+// or the right stick turn them round, Cross keeps it, Circle puts back what
+// they wore when it opened. The world keeps running behind it: they idle,
+// blink and look at the camera while being dressed.
+int TerrainGame::creatorRows(int index, int* rows) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return 0;
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+  int n = 0;
+#ifdef ANIM_MODEL_GROUPS_USED
+  // Character: one of the models this one may become (a group of 2+)
+  if (ANIM_MODEL_GROUP[o.data.animModel] >= 0) rows[n++] = 4;
+#endif
+  if (variants > 0) rows[n++] = 0;
+  for (int s = 1; s <= 3; ++s)
+    if (gam.optCount[s] > 0) rows[n++] = s;
+  return n;
+}
+
+bool TerrainGame::updateCharCreator() {
+  if (scriptCtx.openCreator != -1 && creatorObj < 0) {
+    int idx = scriptCtx.openCreator;
+    auto dressable = [&](int i) {
+      if (i < 0 || i >= (int)runtimeObjects.size()) return false;
+      const RuntimeObject& o = runtimeObjects[i];
+      if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size() ||
+          !objectGeometry[i].animInst)
+        return false;
+      int rows[5];
+      return creatorRows(i, rows) > 0;
+    };
+    if (!dressable(idx)) idx = PLAYER_INDEX;
+    if (dressable(idx)) {
+      creatorObj = idx;
+      creatorRow = 0;
+      creatorYaw = 0.0F;
+      for (int s = 0; s < 4; ++s) creatorRestore[s] = runtimeObjects[idx].look[s];
+      creatorRestoreModel = bodyWant >= 0 ? bodyWant : runtimeObjects[idx].data.animModel;
+      // A menu as its screen: open it (updateGameMenu takes it next frame)
+      // and let its rows do the dressing.
+      creatorMenu = scriptCtx.openCreatorMenu < MENU_COUNT ? scriptCtx.openCreatorMenu : -1;
+      creatorMenuSeen = false;
+      creatorMenuWait = 4;
+      if (creatorMenu >= 0) scriptCtx.openMenu = creatorMenu;
+    } else {
+      TYRA_WARN("Character Creator: no character with creator options or colour variants");
+    }
+  }
+  scriptCtx.openCreator = -1;
+  scriptCtx.openCreatorMenu = -1;
+  stepBodyLoad();  // a Body-row swap keeps loading after the creator closes
+  scriptCtx.creatorOpen = creatorObj >= 0;
+  if (creatorObj < 0) return false;
+  RuntimeObject& o = runtimeObjects[creatorObj];
+  if (!objectGeometry[creatorObj].animInst || o.data.animModel < 0) {
+    creatorObj = -1;
+    return false;
+  }
+  int rows[5];
+  const int n = creatorRows(creatorObj, rows);
+  Pad& pad = engine->pad;
+  const auto& clicked = pad.getClicked();
+  const auto& held = pad.getPressed();
+  auto turn = [&] {
+    if (held.L1) creatorYaw -= 2.2F * g_frameDt;
+    if (held.R1) creatorYaw += 2.2F * g_frameDt;
+    const float rx = ((float)pad.getRightJoyPad().h - 128.0F) / 128.0F;
+    if (rx > 0.25F || rx < -0.25F) creatorYaw += rx * 2.2F * g_frameDt;
+  };
+  auto finish = [&] {
+    if (creatorObj == PLAYER_INDEX) {
+      // the body they chose, even while it is still loading
+      playerLook[0] = bodyWant >= 0 ? bodyWant : o.data.animModel;
+      for (int s = 0; s < 4; ++s) playerLook[1 + s] = o.look[s];
+    }
+    creatorObj = -1;
+    creatorMenu = -1;
+    scriptCtx.creatorOpen = false;
+  };
+  if (creatorMenu >= 0) {
+    // The menu is the screen: its rows dress (updateGameMenu), the camera
+    // still turns, and the creator ends when the menu goes away - by a Close
+    // row, Back, or the Undo row (which has put the old look back first).
+    turn();
+    if (gameMenuIndex == creatorMenu) creatorMenuSeen = true;
+    else if (creatorMenuSeen || --creatorMenuWait <= 0) finish();
+    return true;
+  }
+  if (inputClicked(pad, IA_ROLE_MENU_UP) || clicked.DpadUp) creatorRow = (creatorRow + n - 1) % n;
+  if (inputClicked(pad, IA_ROLE_MENU_DOWN) || clicked.DpadDown) creatorRow = (creatorRow + 1) % n;
+  if (creatorRow >= n) creatorRow = 0;
+  int step = 0;
+  if (inputClicked(pad, IA_ROLE_MENU_LEFT) || clicked.DpadLeft) step = -1;
+  if (inputClicked(pad, IA_ROLE_MENU_RIGHT) || clicked.DpadRight) step = 1;
+  if (step != 0) creatorStep(creatorObj, rows[creatorRow], step);
+  turn();
+  const bool keep = inputClicked(pad, IA_ROLE_CONFIRM) || clicked.Cross || clicked.Start;
+  const bool cancel = inputClicked(pad, IA_ROLE_BACK) || clicked.Circle;
+  if (cancel) {
+    for (int s = 0; s < 4; ++s) o.look[s] = creatorRestore[s];
+    requestBody(creatorObj, creatorRestoreModel);
+  }
+  if (keep || cancel) finish();
+  return true;
+}
+
+int TerrainGame::creatorTarget() const {
+  return creatorObj >= 0 ? creatorObj : PLAYER_INDEX;
+}
+
+// The model an authored object is drawn with: the player keeps the body
+// they chose in the creator (playerLook[0], saved with the game) across scene
+// loads; while the creator is open, the body it shows. Everything that loads,
+// frees or sets up the player's model goes through this.
+int TerrainGame::effectiveAnimModel(int index, int authored) const {
+#ifdef ANIM_MODEL_GROUPS_USED
+  if (index == PLAYER_INDEX && authored >= 0 && authored < ANIM_MODEL_COUNT) {
+    const int g = ANIM_MODEL_GROUP[authored];
+    auto inGroup = [&](int m) {
+      return g >= 0 && m >= 0 && m < ANIM_MODEL_COUNT && ANIM_MODEL_GROUP[m] == g;
+    };
+    if (g >= 0) {
+      if (creatorObj == index && index < (int)runtimeObjects.size()) {
+        const int now = runtimeObjects[index].data.animModel;
+        if (inGroup(now)) return now;
+      }
+      if (inGroup(playerLook[0])) return playerLook[0];
+    }
+  }
+#endif
+  (void)index;
+  return authored;
+}
+
+// Ask for a body: the one already drawn cancels a pending load; another
+// starts (or keeps) loading it in the background (stepBodyLoad).
+void TerrainGame::requestBody(int index, int model) {
+  if (index < 0 || index >= (int)runtimeObjects.size() || model < 0 || model >= ANIM_MODEL_COUNT)
+    return;
+  if (runtimeObjects[index].data.animModel == model) {
+    if (bodyLoad.file) fclose(bodyLoad.file);
+    for (const std::string& t : bodyLoad.held) releaseTexture(t);
+    bodyLoad = BodyLoad();
+    bodyWant = -1;
+    bodySpin = 0;
+    return;
+  }
+  bodyWant = model;
+  bodyLoad.target = index;
+}
+
+// One frame of a background body load - no hitch: the .tskl is read 64 KB
+// a frame into memory, parsed the frame after the last slice, its textures
+// loaded into the cache one a frame, the model adopted (every texture a cache
+// hit by then), and only then does the character change bodies. The old body
+// is freed once nobody draws it. Measured in PCSX2 (docs/character-
+// generator.md, "Choosing a character"): the 64 KB slices fit the frame; parsing and
+// the bigger textures still cost a frame or two each.
+void TerrainGame::stepBodyLoad() {
+  if (bodyWant < 0) return;
+  const int m = bodyWant;
+  ++bodySpin;
+  BodyLoad& L = bodyLoad;
+  if (animModelLoaded[m] && L.stage < 4) {  // already resident (a crowd member wears it)
+    for (const std::string& t : L.held) releaseTexture(t);
+    L.held.clear();
+    L.stage = 4;
+    L.model = m;
+  }
+  if (L.model != m) {  // a new request: start over
+    if (L.file) fclose(L.file);
+    for (const std::string& t : L.held) releaseTexture(t);
+    const int target = L.target;
+    L = BodyLoad();
+    L.target = target;
+    L.model = m;
+  }
+  if (L.stage == 0) {
+    if (!L.file) {
+      L.file = fopen(FileUtils::fromCwd(ANIM_MODEL_PATHS[m]).c_str(), "rb");
+      if (!L.file) {
+        TYRA_WARN("Character Creator: cannot open ", ANIM_MODEL_PATHS[m]);
+        bodyWant = -1;
+        L = BodyLoad();
+        return;
+      }
+      L.bytes.reserve(1u << 20);
+    }
+    unsigned char chunk[8192];
+    for (int k = 0; k < 8; ++k) {  // 64 KB a frame
+      const size_t got = fread(chunk, 1, sizeof(chunk), L.file);
+      L.bytes.insert(L.bytes.end(), chunk, chunk + got);
+      if (got < sizeof(chunk)) {
+        fclose(L.file);
+        L.file = nullptr;
+        L.stage = 1;
+        break;
+      }
+    }
+    return;
+  }
+  if (L.stage == 1) {
+    L.parsed = TsklLoader::fromMemory(L.bytes, ANIM_MODEL_PATHS[m]);
+    std::vector<u8>().swap(L.bytes);
+    L.stage = 2;
+    return;
+  }
+  if (L.stage == 2) {  // one texture a frame into the cache
+    while (L.parsed && L.texNext < L.parsed->parts.size()) {
+      const std::string& t = L.parsed->parts[L.texNext++].texturePath;
+      if (t.empty()) continue;
+      acquireTexture(t);
+      L.held.push_back(t);
+      return;
+    }
+    L.stage = 3;
+    return;
+  }
+  if (L.stage == 3) {
+    adoptAnimModel(m, std::move(L.parsed));
+    for (const std::string& t : L.held) releaseTexture(t);  // adopt holds its own
+    L.held.clear();
+    L.stage = 4;
+    return;
+  }
+  // stage 4: the body is resident - change into it
+  const int target = L.target;
+  L = BodyLoad();
+  bodyWant = -1;
+  bodySpin = 0;
+  if (!animModelLoaded[m] || !gameAnimModels[m].src) {
+    TYRA_WARN("Character Creator: the other body did not load");
+    return;
+  }
+  swapBody(target, m);
+}
+
+void TerrainGame::swapBody(int index, int model) {
+  if (index < 0 || index >= (int)runtimeObjects.size()) return;
+  RuntimeObject& o = runtimeObjects[index];
+  const int old = o.data.animModel;
+  if (old == model) return;
+  int look[4];
+  for (int s = 0; s < 4; ++s) look[s] = o.look[s];
+  o.data.animModel = model;
+  setupAnimObject(index);
+  // in the creator: the same choices on the other body (same options, same
+  // colour looks); otherwise (a loaded save) setupAnimObject has put on the
+  // look saved for this body
+  if (creatorObj == index)
+    for (int s = 0; s < 4; ++s) o.look[s] = look[s];
+  objectGeometry[index].lookShown[0] = -9;  // applyLook redoes them all
+  applyLook(index);
+  // the old body goes when nobody draws it any more
+  bool used = false;
+  for (int i = 0; i < (int)runtimeObjects.size() && !used; ++i)
+    used = runtimeObjects[i].active && runtimeObjects[i].data.animModel == old;
+  if (!used && old >= 0 && old < ANIM_MODEL_COUNT) {
+    freeAnimModelAsset(old);
+    SkelInstance::clearOutputPool();
+  }
+}
+
+// One Left/Right on a creator row. Look: 1..variants+1 (the authored
+// colours are Look 1); hair, hat, glasses: None, then each option.
+void TerrainGame::creatorStep(int index, int slot, int dir) {
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 4) return;
+  RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  if (slot == 4) {  // Character: the next (or previous) model of its group
+#ifdef ANIM_MODEL_GROUPS_USED
+    const int cur = bodyWant >= 0 && bodyLoad.target == index ? bodyWant : o.data.animModel;
+    const int g = cur >= 0 && cur < ANIM_MODEL_COUNT ? ANIM_MODEL_GROUP[cur] : -1;
+    if (g < 0) return;
+    const int n = ANIM_GROUP_SIZE[g], first = ANIM_GROUP_FIRST[g];
+    int at = 0;
+    for (int k = 0; k < n; ++k)
+      if (ANIM_GROUP_MEMBERS[first + k] == cur) at = k;
+    requestBody(index, ANIM_GROUP_MEMBERS[first + ((at + dir) % n + n) % n]);
+#endif
+    (void)dir;
+    return;
+  }
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (slot == 0) {
+    const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+    if (variants <= 0) return;
+    const int v = o.look[0] < 0 ? 0 : o.look[0];
+    o.look[0] = ((v + dir) % (variants + 1) + variants + 1) % (variants + 1);
+    return;
+  }
+  if (gam.optCount[slot] <= 0) return;
+  const int v = o.look[slot] == -2 ? gam.optDefault[slot] : o.look[slot];
+  const int count = gam.optCount[slot] + 1;
+  o.look[slot] = ((v + 1 + dir) % count + count) % count - 1;
+}
+
+// What a creator row shows: "2 / 4" for the colours, the option's label (or
+// "None") for the rest, "-" when the model has nothing for that row.
+void TerrainGame::creatorValueText(int index, int slot, char* out, int size) const {
+  snprintf(out, (size_t)size, "-");
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 4) return;
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  if (slot == 4) {
+#ifdef ANIM_MODEL_GROUPS_USED
+    const bool pending = bodyWant >= 0 && bodyLoad.target == index;
+    const int m = pending ? bodyWant : o.data.animModel;
+    if (ANIM_MODEL_GROUP[o.data.animModel] < 0 && !pending) return;
+    const char* who = ANIM_MODEL_LABEL[m];
+    // loading in the background: the choice, and a spinner beside it
+    static const char kSpin[4] = {'|', '/', '-', '\\'};
+    if (pending)
+      snprintf(out, (size_t)size, "%s %c", who, kSpin[(bodySpin / 6) & 3]);
+    else
+      snprintf(out, (size_t)size, "%s", who);
+#endif
+    return;
+  }
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (slot == 0) {
+    const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+    if (variants > 0)
+      snprintf(out, (size_t)size, "%d / %d", (o.look[0] < 0 ? 0 : o.look[0]) + 1, variants + 1);
+    return;
+  }
+  if (gam.optCount[slot] <= 0) return;
+  const int v = o.look[slot] == -2 ? gam.optDefault[slot] : o.look[slot];
+  const char* label = "None";
+  if (v >= 0 && v < (int)gam.optIds[slot].size()) {
+    label = gam.optIds[slot][v].c_str();
+    for (int k = 0; k < CREATOR_LABEL_COUNT; ++k)
+      if (gam.optIds[slot][v] == CREATOR_LABELS[k].id) label = CREATOR_LABELS[k].label;
+  }
+  snprintf(out, (size_t)size, "%s", label);
+}
+
+void TerrainGame::creatorCamera() {
+  if (creatorObj < 0) return;
+  const RuntimeObject& o = runtimeObjects[creatorObj];
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const float h = gam.src ? (gam.src->max[1] - gam.src->min[1]) * o.data.scale[1] : 1.8F;
+  // in front of them, a little to their left, and turned by L1/R1
+  const float yaw = o.data.rotation[1] * PI / 180.0F + 0.35F + creatorYaw;
+  const float dist = h * 1.25F;
+  // aimed past their side, so they stand in the left half and the rows
+  // have the right half to themselves
+  const float side = dist * 0.32F;
+  cameraLookAt = Vec4(o.data.position[0] + cosf(yaw) * side, o.data.position[1] + h * 0.55F,
+                      o.data.position[2] - sinf(yaw) * side);
+  cameraPosition = Vec4(o.data.position[0] + sinf(yaw) * dist,
+                        o.data.position[1] + h * 0.68F,
+                        o.data.position[2] + cosf(yaw) * dist);
+  cameraUp = Vec4(0.0F, 1.0F, 0.0F);
+}
+
+void TerrainGame::renderCharCreator() {
+  if (creatorObj < 0 || creatorMenu >= 0) return;  // a menu draws itself
+  int rows[5];
+  const int n = creatorRows(creatorObj, rows);
+  const auto& scr = engine->renderer.core.getSettings();
+  const float w = (float)scr.getWidth(), hgt = (float)scr.getHeight();
+  static const char* const kRow[5] = {"Look", "Hair", "Hat", "Glasses", "Body"};
+  // The project's first font when it has one, the built-in 8x8 HUD strip
+  // (capitals, digits, a few symbols) when it does not.
+  auto text = [&](const char* s, float cx, float cy, float size, bool lit) {
+    if (FONT_COUNT > 0) {
+      drawFontText(engine, 0, s, cx, cy, size, 1.0F, lit ? 128.0F : 72.0F);
+      return;
+    }
+    char up[64];
+    int k = 0;
+    for (; s[k] && k < 63; ++k) up[k] = (s[k] >= 'a' && s[k] <= 'z') ? (char)(s[k] - 32) : s[k];
+    up[k] = 0;
+    drawHudText(engine, up, cx - hudTextWidth(up) * 0.5F, cy - 8.0F);
+  };
+  const float size = hgt * 0.045F;
+  const float x = w * 0.74F;
+  float y = hgt * 0.5F - (float)n * size * 0.9F;
+  text("CHARACTER", x, y - size * 1.6F, size * 1.1F, true);
+  for (int r = 0; r < n; ++r, y += size * 1.8F) {
+    const int s = rows[r];
+    char value[48];
+    creatorValueText(creatorObj, s, value, sizeof(value));
+    const bool lit = r == creatorRow;
+    char line[72];
+    snprintf(line, sizeof(line), lit ? "- %s -" : "%s", kRow[s]);
+    text(line, x, y, size * 0.8F, lit);
+    text(value, x, y + size * 0.8F, size, lit);
+  }
+  text("X KEEP   O UNDO   L1 R1 TURN", w * 0.5F, hgt * 0.92F, size * 0.7F, false);
+}
+
+
+
+// Spring bones: a ponytail and a skirt swing with what the body does. Each
+// spring is a TIP point simulated in WORLD space (so walking, turning and the
+// clip's own sway all set it moving) - pulled back to where the bone's rest
+// would put it, damped, a little gravity, held at the bone's length - and the
+// bone is then turned to point at it (a rotation override, like the face).
+// Skirt tips are pushed out of the thighs, which is what makes a long skirt
+// part around a stepping leg instead of the leg going through it. Same
+// 10 m cut-off as the face: beyond it the bones rest and the pose is shared.
+void TerrainGame::updateSprings(int index, float dist2) {
+  ObjectGeometry& g = objectGeometry[index];
+  SkelInstance* inst = g.animInst.get();
+  if (!inst || g.animLastTick == 0) return;
+  bool any = false;
+  for (const auto& sp : g.springs) any |= sp.node >= 0;
+  if (!any) return;
+  if (dist2 > 10.0F * 10.0F) {
+    for (auto& sp : g.springs) sp.live = false;  // restarts from rest
+    return;  // updateFace drops the overrides with the face's
+  }
+  const float dt = (splitSecondPass || g_gameplayPaused) ? 0.0F : g_frameDt;
+  const M4x4& m = g.animMat;
+
+  auto toWorld = [&m](const float* p, float* o) {
+    for (int a = 0; a < 3; ++a)
+      o[a] = m.data[a] * p[0] + m.data[4 + a] * p[1] + m.data[8 + a] * p[2] +
+             m.data[12 + a];
+  };
+  auto dirToModel = [&m](const float* d, float* o) {  // orthogonal columns
+    for (int a = 0; a < 3; ++a) {
+      const float* c = &m.data[a * 4];
+      const float l2 = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+      o[a] = l2 > 1e-12F ? (d[0] * c[0] + d[1] * c[1] + d[2] * c[2]) / l2 : 0.0F;
+    }
+  };
+  // a node's frame: rotation columns + origin, model space, column-major
+  auto apply = [](const float* g16, const float* v, float w, float* o) {
+    for (int a = 0; a < 3; ++a)
+      o[a] = g16[a] * v[0] + g16[4 + a] * v[1] + g16[8 + a] * v[2] + g16[12 + a] * w;
+  };
+  auto applyT = [](const float* g16, const float* v, float* o) {  // R^T v
+    for (int a = 0; a < 3; ++a)
+      o[a] = g16[a * 4] * v[0] + g16[a * 4 + 1] * v[1] + g16[a * 4 + 2] * v[2];
+  };
+  auto norm = [](float* v) {
+    const float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (l > 1e-9F)
+      for (int a = 0; a < 3; ++a) v[a] /= l;
+    return l;
+  };
+
+  // The thighs, as world-space capsules (hip -> knee), for the skirt.
+  float thigh[2][2][3];
+  const bool legs = g.legNode[0] >= 0 && g.legNode[1] >= 0 &&
+                    g.legNode[2] >= 0 && g.legNode[3] >= 0;
+  if (legs)
+    for (int s = 0; s < 2; ++s)
+      for (int e = 0; e < 2; ++e)
+        toWorld(&inst->nodeGlobal((u32)g.legNode[s * 2 + e]).data[12], thigh[s][e]);
+  const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                            m.data[2] * m.data[2]);
+
+  // How far each thigh swings forward (+) or back (-), radians, in the hips'
+  // frame: a skirt panel is DRIVEN by the legs (the front one by whichever
+  // thigh reaches furthest forward, the back one by the one furthest back,
+  // each side by its own) and the spring only adds the lag and the bounce. A
+  // collision alone came too late - the knee is gone before the hem hits it.
+  float thighSwing[2] = {0.0F, 0.0F};
+  if (legs && g.springs[2].parent >= 0) {
+    const float* hipsG = inst->nodeGlobal((u32)g.springs[2].parent).data;
+    for (int leg = 0; leg < 2; ++leg) {
+      const float* hip = &inst->nodeGlobal((u32)g.legNode[leg * 2]).data[12];
+      const float* knee = &inst->nodeGlobal((u32)g.legNode[leg * 2 + 1]).data[12];
+      const float dm[3] = {knee[0] - hip[0], knee[1] - hip[1], knee[2] - hip[2]};
+      float dl[3];
+      applyT(hipsG, dm, dl);
+      thighSwing[leg] = atan2f(dl[2], -dl[1]);
+    }
+  }
+
+  float hair1G[16];  // HairTail1's global this frame (HairTail2's parent)
+  bool haveHair1 = false;
+  for (int s = 0; s < 6; ++s) {
+    ObjectGeometry::Spring& sp = g.springs[s];
+    if (sp.node < 0 || sp.parent < 0) continue;
+    const bool hair = s < 2;
+    const float* parentG = (s == 1 && haveHair1)
+                               ? hair1G
+                               : inst->nodeGlobal((u32)sp.parent).data;
+    // The bone's origin and rest tip (its local rotation is identity in every
+    // clip - no clip animates a spring bone - so its frame is its parent's).
+    const float* t = inst->model->nodes[sp.node].t;
+    float origin[3], restTip[3], tipLocal[3];
+    apply(parentG, t, 1.0F, origin);
+    // the target the spring pulls to: the rest tip, swung by the legs for a
+    // skirt panel (about the hips' X axis; a positive swing is forward)
+    float drive = 0.0F;
+    // (the front a little AHEAD of the thigh: at 0.85 a short dress's hem
+    // lagged and the striding thigh came through it - twin of bakeSkirt)
+    if (s == 2) drive = fmaxf(fmaxf(thighSwing[0], thighSwing[1]), 0.0F) * 1.1F;
+    if (s == 3) drive = fminf(fminf(thighSwing[0], thighSwing[1]), 0.0F) * 1.0F;
+    if (s == 4) drive = thighSwing[0] * 0.85F;
+    if (s == 5) drive = thighSwing[1] * 0.85F;
+    const float cd = cosf(drive), sd = sinf(drive);
+    const float driven[3] = {sp.rest[0], sp.rest[1] * cd + sp.rest[2] * sd,
+                             -sp.rest[1] * sd + sp.rest[2] * cd};
+    for (int a = 0; a < 3; ++a) tipLocal[a] = t[a] + driven[a];
+    apply(parentG, tipLocal, 1.0F, restTip);
+    float originW[3], restW[3];
+    toWorld(origin, originW);
+    toWorld(restTip, restW);
+    float len = 0.0F;
+    for (int a = 0; a < 3; ++a) len += (restW[a] - originW[a]) * (restW[a] - originW[a]);
+    len = sqrtf(len);
+    if (!sp.live) {
+      for (int a = 0; a < 3; ++a) sp.tip[a] = restW[a], sp.vel[a] = 0.0F;
+      sp.live = true;
+    }
+    // Hair is lighter and livelier than a skirt panel.
+    const float k = hair ? 45.0F : 70.0F, damp = hair ? 5.0F : 9.0F;
+    const float grav = (hair ? 3.0F : 2.0F) * scale;
+    const int steps = dt > 0.0F ? (int)(dt / 0.0167F) + 1 : 0;
+    const float h = steps ? dt / (float)steps : 0.0F;
+    for (int it = 0; it < steps; ++it) {
+      for (int a = 0; a < 3; ++a) {
+        const float acc = k * (restW[a] - sp.tip[a]) - damp * sp.vel[a] -
+                          (a == 1 ? grav : 0.0F);
+        sp.vel[a] += acc * h;
+        sp.tip[a] += sp.vel[a] * h;
+      }
+      // out of the thighs (skirt panels only)
+      if (!hair && legs)
+        for (int leg = 0; leg < 2; ++leg) {
+          const float* a0 = thigh[leg][0];
+          const float* a1 = thigh[leg][1];
+          float ab[3], ap[3];
+          for (int a = 0; a < 3; ++a) ab[a] = a1[a] - a0[a], ap[a] = sp.tip[a] - a0[a];
+          const float abab = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+          float u = abab > 1e-9F ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / abab : 0.0F;
+          u = u < 0.0F ? 0.0F : (u > 1.0F ? 1.0F : u);
+          float d[3];
+          for (int a = 0; a < 3; ++a) d[a] = sp.tip[a] - (a0[a] + ab[a] * u);
+          const float r = 0.11F * scale;
+          const float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+          if (dl < r && dl > 1e-6F)
+            for (int a = 0; a < 3; ++a) sp.tip[a] += d[a] / dl * (r - dl);
+        }
+      // held at the bone's length
+      float d[3];
+      for (int a = 0; a < 3; ++a) d[a] = sp.tip[a] - originW[a];
+      const float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      if (dl > 1e-6F)
+        for (int a = 0; a < 3; ++a) sp.tip[a] = originW[a] + d[a] / dl * len;
+    }
+    // Point the bone at the tip: the rotation taking its rest direction to the
+    // simulated one, expressed in the bone's own (= parent's) frame.
+    float simW[3], simM[3], simL[3], restL[3];
+    for (int a = 0; a < 3; ++a) simW[a] = sp.tip[a] - originW[a];
+    dirToModel(simW, simM);
+    applyT(parentG, simM, simL);
+    for (int a = 0; a < 3; ++a) restL[a] = sp.rest[a];
+    norm(simL);
+    norm(restL);
+    float q[4] = {restL[1] * simL[2] - restL[2] * simL[1],
+                  restL[2] * simL[0] - restL[0] * simL[2],
+                  restL[0] * simL[1] - restL[1] * simL[0],
+                  1.0F + restL[0] * simL[0] + restL[1] * simL[1] + restL[2] * simL[2]};
+    if (q[3] < 1e-4F) {  // opposite: no swing that big is plausible - rest
+      q[0] = q[1] = q[2] = 0.0F;
+      q[3] = 1.0F;
+    }
+    const float ql = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    for (int a = 0; a < 4; ++a) q[a] /= ql;
+    // replace: a generated clip carries the panel's leg-driven swing for
+    // far instances and the editor; up close the spring computes it here
+    inst->setRotationOverride((u32)sp.node, q, true);
+    if (s == 0) {
+      // HairTail1's global for its child: parent * T(t) * R(q)
+      const float x = q[0], y = q[1], z = q[2], w = q[3];
+      const float r[9] = {1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+                          2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+                          2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)};
+      for (int c = 0; c < 3; ++c) {
+        const float col[3] = {r[c * 3], r[c * 3 + 1], r[c * 3 + 2]};
+        apply(parentG, col, 0.0F, &hair1G[c * 4]);
+        hair1G[c * 4 + 3] = 0.0F;
+      }
+      for (int a = 0; a < 3; ++a) hair1G[12 + a] = origin[a];
+      hair1G[15] = 1.0F;
+      haveHair1 = true;
+    }
+  }
+  g.faceLive = true;  // updateFace's far branch clears these overrides too
+}
+
+
+
+// A generated character's face: it blinks, its eyes and head turn to the
+// player, its jaw talks. Rotation overrides on top of whatever clip plays
+// (SkelInstance::setRotationOverride), on the nodes setupAnimObject found
+// by name. Beyond FACE_DISTANCE a face is a few pixels at PS2 resolution:
+// the overrides are dropped and the instance shares its pose again.
+void TerrainGame::updateFace(int index, float dist2) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  SkelInstance* inst = g.animInst.get();
+  if (!inst || (g.faceHead < 0 && g.faceJaw < 0 && g.faceLid[0] < 0)) return;
+  const float FACE_DISTANCE = 10.0F;
+  if (dist2 > FACE_DISTANCE * FACE_DISTANCE || g.animLastTick == 0) {
+    // (animLastTick 0: never skinned - node globals hold nothing yet)
+    if (g.lipEnv && !splitSecondPass && !g_gameplayPaused) g.lipT += g_frameDt;
+    if (g.faceLive) {
+      inst->clearRotationOverrides();
+      g.faceLive = false;
+    }
+    return;
+  }
+  // One clock per frame: the split screen's second pass re-renders the
+  // same instant (and sets the very same overrides).
+  const float dt = (splitSecondPass || g_gameplayPaused) ? 0.0F : g_frameDt;
+  auto rnd = [&g]() {
+    g.faceSeed = g.faceSeed * 1664525u + 1013904223u;
+    return (float)((g.faceSeed >> 8) & 0xFFFF) / 65535.0F;
+  };
+
+  // Blink every 2-6 s (one in six comes as a double): 60 ms closing, 30 ms
+  // shut, 80 ms opening - the shape of a real one.
+  float lid = 0.0F;
+  g.blinkIn -= dt;
+  if (g.blinkT < 0.0F && g.blinkIn <= 0.0F) {
+    g.blinkT = 0.0F;
+    g.blinkIn = rnd() < 0.17F ? 0.3F : 2.0F + 4.0F * rnd();
+  }
+  if (g.blinkT >= 0.0F) {
+    g.blinkT += dt;
+    const float t = g.blinkT;
+    lid = t < 0.06F   ? t / 0.06F
+          : t < 0.09F ? 1.0F
+          : t < 0.17F ? 1.0F - (t - 0.09F) / 0.08F
+                      : 0.0F;
+    if (t >= 0.17F) g.blinkT = -1.0F;
+  }
+
+  // Look at the player (the camera: in third person the character meets
+  // your eye, which is the point). Within 4.5 m and in front of the face;
+  // the player's own avatar looks where it goes.
+  float wantYaw = 0.0F, wantPitch = 0.0F;
+  if (o.data.type != 6 && g.faceHead >= 0) {
+    const M4x4& m = g.animMat;
+    const float d[3] = {cameraPosition.x - m.data[12],
+                        cameraPosition.y - m.data[13],
+                        cameraPosition.z - m.data[14]};
+    float local[3];  // the camera in model space (columns are orthogonal)
+    for (int a = 0; a < 3; ++a) {
+      const float* c = &m.data[a * 4];
+      const float l2 = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+      local[a] = l2 > 1e-12F ? (d[0] * c[0] + d[1] * c[1] + d[2] * c[2]) / l2
+                             : 0.0F;
+    }
+    // from between the eyes (or the head joint, on a rig without eyes)
+    float from[3];
+    if (g.faceEye[0] >= 0 && g.faceEye[1] >= 0) {
+      const M4x4& a = inst->nodeGlobal((u32)g.faceEye[0]);
+      const M4x4& b = inst->nodeGlobal((u32)g.faceEye[1]);
+      for (int k = 0; k < 3; ++k) from[k] = 0.5F * (a.data[12 + k] + b.data[12 + k]);
+    } else {
+      const M4x4& h = inst->nodeGlobal((u32)g.faceHead);
+      for (int k = 0; k < 3; ++k) from[k] = h.data[12 + k];
+    }
+    const float v[3] = {local[0] - from[0], local[1] - from[1],
+                        local[2] - from[2]};
+    const float flat = sqrtf(v[0] * v[0] + v[2] * v[2]);
+    const float yaw = atan2f(v[0], v[2]);  // model forward is +Z
+    if (dist2 < 4.5F * 4.5F && fabsf(yaw) < 1.75F && flat > 0.05F) {
+      wantYaw = yaw;
+      wantPitch = atan2f(v[1], flat);
+    }
+  }
+  const float lookRate = dt * 4.0F < 1.0F ? dt * 4.0F : 1.0F;
+  g.lookYaw += (wantYaw - g.lookYaw) * lookRate;
+  g.lookPitch += (wantPitch - g.lookPitch) * lookRate;
+  auto clampf = [](float x, float lo, float hi) {
+    return x < lo ? lo : (x > hi ? hi : x);
+  };
+  // The head takes most of a turn, the eyes the rest (and lead it: they are
+  // clamped tighter but never smoothed twice).
+  const float headYaw = clampf(g.lookYaw * 0.65F, -0.8F, 0.8F);
+  const float headPitch = clampf(g.lookPitch * 0.5F, -0.35F, 0.35F);
+  const float eyeYaw = clampf(g.lookYaw - headYaw, -0.4F, 0.4F);
+  const float eyePitch = clampf(g.lookPitch - headPitch, -0.25F, 0.25F);
+
+  // Talking: a scripted talk(), or a clip named like "Idle_Talking_Loop".
+  bool talking = o.talkTime > 0.0F;
+  if (o.talkTime > 0.0F) o.talkTime -= dt;
+  if (!talking && o.animClip >= 0 &&
+      o.animClip < (int)inst->model->clips.size() &&
+      strstr(inst->model->clips[o.animClip].name.c_str(), "Talk"))
+    talking = true;
+  float wantJaw = 0.0F;
+  if (g.lipEnv) {
+    // lip-sync: the speaking sound's loudness, sampled where it is now
+    const int at = (int)(g.lipT * (float)LIP_SYNC_RATE);
+    if (at < g.lipLen) {
+      wantJaw = (float)g.lipEnv[at] / 255.0F;
+      talking = false;  // the real voice wins over the syllable machine
+    } else {
+      g.lipEnv = nullptr;
+    }
+    g.lipT += dt;
+  }
+  if (talking) {
+    // syllables (~4 a second, uneven) with breaths between phrases
+    g.talkPhase += dt;
+    const float t = g.talkPhase;
+    const float syllable = fabsf(sinf(t * 8.5F + 1.6F * sinf(t * 2.1F)));
+    const float phrase = sinf(t * 1.1F) + sinf(t * 0.63F + 2.0F);
+    wantJaw = syllable * (phrase > -0.9F ? 1.0F : 0.1F);
+  } else {
+    g.talkPhase = 0.0F;
+  }
+  const float jawRate = dt * 22.0F < 1.0F ? dt * 22.0F : 1.0F;
+  g.jawOpen += (wantJaw - g.jawOpen) * jawRate;
+
+  // Expressions: each one's weight eases towards 1 (the one shown) or 0, so
+  // a smile fades into surprise instead of snapping. Per expression, in
+  // radians on each bone's own axes (+X turns a point in front of the pivot
+  // DOWN, +Y turns it towards the character's left): brow raise and inward
+  // pull, mouth corner raise and outward pull, extra lid, extra jaw.
+  if (o.emoteTime > 0.0F) {
+    o.emoteTime -= dt;
+    if (o.emoteTime <= 0.0F) o.emote = 0, o.emoteTime = 0.0F;
+  }
+  static const float kEmote[5][6] = {
+      //  brow X, brow in, corner X, corner out, lid, jaw
+      {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F},           // neutral
+      {-0.045F, 0.0F, -0.25F, 0.21F, 0.24F, 0.0F},    // smile
+      {0.12F, 0.09F, 0.11F, 0.0F, 0.36F, 0.0F},       // angry
+      {-0.16F, 0.0F, 0.0F, 0.0F, -0.24F, 0.21F},      // surprised
+      {-0.06F, -0.07F, 0.19F, -0.06F, 0.28F, 0.0F}};  // sad
+  // (measured in PCSX2 at 512x448: the Blender-tuned values read as a
+  // twitch at that size - these are ~30% bolder)
+  const float emoteRate = dt * 6.0F < 1.0F ? dt * 6.0F : 1.0F;
+  float ex[6] = {0, 0, 0, 0, 0, 0};
+  for (int e = 0; e < 5; ++e) {
+    g.emoteW[e] += ((e == o.emote ? 1.0F : 0.0F) - g.emoteW[e]) * emoteRate;
+    for (int k = 0; k < 6; ++k) ex[k] += kEmote[e][k] * g.emoteW[e];
+  }
+
+  // Overrides, in each bone's own frame (the rig binds with identity
+  // rotations: +X is the character's left-right axis, +Y up, +Z forward).
+  float q[4];
+  auto axisQuat = [&q](int axis, float angle) {
+    q[0] = q[1] = q[2] = 0.0F;
+    q[axis] = sinf(angle * 0.5F);
+    q[3] = cosf(angle * 0.5F);
+  };
+  // a turn about +X, then about +Y (both in the bone's own frame)
+  auto xyQuat = [&q](float ax, float ay) {
+    const float sx = sinf(ax * 0.5F), cx = cosf(ax * 0.5F);
+    const float sy = sinf(ay * 0.5F), cy = cosf(ay * 0.5F);
+    q[0] = sx * cy;
+    q[1] = cx * sy;
+    q[2] = sx * sy;
+    q[3] = cx * cy;
+  };
+  auto yawPitchQuat = [&q](float yaw, float pitch) {
+    // yaw about +Y, then pitch about +X (a positive X turn tips the face
+    // down, so looking up is a negative one)
+    const float sy = sinf(yaw * 0.5F), cy = cosf(yaw * 0.5F);
+    const float sx = sinf(-pitch * 0.5F), cx = cosf(-pitch * 0.5F);
+    q[0] = cy * sx;
+    q[1] = sy * cx;
+    q[2] = -sy * sx;
+    q[3] = cy * cx;
+  };
+  if (g.faceHead >= 0) {
+    yawPitchQuat(headYaw, headPitch);
+    inst->setRotationOverride((u32)g.faceHead, q);
+  }
+  for (int s = 0; s < 2; ++s) {
+    if (g.faceEye[s] >= 0) {
+      yawPitchQuat(eyeYaw, eyePitch);
+      inst->setRotationOverride((u32)g.faceEye[s], q);
+    }
+    if (g.faceLid[s] >= 0) {
+      // 54 degrees shuts it; the lid also rides the eye up and down a little,
+      // and an expression narrows (or widens) it
+      axisQuat(0, clampf(ex[4] + lid * 0.95F - eyePitch * 0.6F, -0.25F, 0.95F));
+      inst->setRotationOverride((u32)g.faceLid[s], q);
+    }
+    // s = 0 is the character's left: "inward" and "outward" mirror
+    const float side = s == 0 ? 1.0F : -1.0F;
+    if (g.faceBrow[s] >= 0) {
+      xyQuat(ex[0], -ex[1] * side);
+      inst->setRotationOverride((u32)g.faceBrow[s], q);
+    }
+    if (g.faceCorner[s] >= 0) {
+      xyQuat(ex[2], ex[3] * side);
+      inst->setRotationOverride((u32)g.faceCorner[s], q);
+    }
+  }
+  if (g.faceJaw >= 0) {
+    axisQuat(0, g.jawOpen * 0.21F + ex[5]);  // 12 degrees: speech, not a yawn
+    inst->setRotationOverride((u32)g.faceJaw, q);
+  }
+  g.faceLive = true;
 }
 
 
@@ -9344,6 +10430,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
   static std::vector<VisibleAnim> inView;
   inView.clear();
 
+  if (!splitSecondPass && !g_gameplayPaused) animClock += g_frameDt;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
@@ -9369,6 +10456,12 @@ void TerrainGame::updateAndRenderAnimObjects() {
       const float step =
           (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
       o.animFinished = inst->advance(step);
+      // a phase-locked pedestrian: the same formula for every member of its
+      // group gives bit-identical times, so they share one skinned mesh
+      if (o.animSync >= 0.0F && o.animPlaying) {
+        const float dur = gam.src->clips[(size_t)o.animClip].duration;
+        if (dur > 0.0F) inst->setTime(animClock * o.animSpeed + o.animSync * dur);
+      }
     }
 
     // draw-distance cut-off (same rule as the static path in renderScene);
@@ -9449,11 +10542,24 @@ void TerrainGame::updateAndRenderAnimObjects() {
   static std::vector<RenderedAnim> rendered;
   rendered.clear();
 
+  // A live face and springs make a pose of its own - a skin of its own. Only
+  // the few NEAREST characters get them (and keep them until two more are
+  // nearer, so the one at the edge does not flicker): a crowd standing within
+  // 10 m otherwise skinned every person every frame - half a 50 ms frame,
+  // measured with 30 pedestrians.
+  const int kLiveNear = 5;
+  int liveRank = 0;
   for (const VisibleAnim& va : inView) {
     const int i = va.obj;
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
     SkelInstance* inst = g.animInst.get();
+    // before the pose-sharing test: a live face is a pose of its own
+    const bool near = liveRank < kLiveNear || (g.faceLive && liveRank < kLiveNear + 2);
+    const float liveDist2 = near ? va.dist2 : 1e30F;
+    if (g.faceHead >= 0 || g.faceJaw >= 0) ++liveRank;
+    updateFace(i, liveDist2);
+    updateSprings(i, liveDist2);
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
     // clamps per part - a file without chains always renders the full mesh).
@@ -9478,6 +10584,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
       meshOwner = r.meshOwner;
       break;
     }
+    // a follower for five seconds gives its own skin outputs back: a crowd
+    // member that skinned itself once (a crossfade, up close) would hold
+    // them for good - 30 pedestrians ran the EE out of memory that way
+    const bool trimmed = g.followFrames >= 300;  // its outputs were given back
+    if (meshOwner != i) {
+      if (g.followFrames < 0xFFFF && ++g.followFrames == 300) inst->trimOutputs();
+    } else {
+      g.followFrames = 0;
+    }
 
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
@@ -9489,7 +10604,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     bool allowSkin = !splitSecondPass;
     const float animLodDist =
         o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
-    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i && !trimmed &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
       const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)
@@ -9555,9 +10670,10 @@ void TerrainGame::updateAndRenderAnimObjects() {
             128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
       }
     }
+    applyLook(i);  // a script or the creator may have changed it
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
-      if (!ap.bag) continue;
+      if (!ap.bag || ap.hidden) continue;
       // bags may point at another frame's group leader or tier - re-aim
       const SkelInstance::LodArrays la = ownerInst->lodArrays(p, meshLod);
       ap.bag->vertices = la.vertices;
@@ -10143,6 +11259,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     runtimeObjects[i].data = SCENE_OBJECTS[i];
+    runtimeObjects[i].data.animModel = effectiveAnimModel(i, SCENE_OBJECTS[i].animModel);
     // spawn points and the player are editor markers, not geometry; emitters
     // honor their Enabled flag (Show/Hide Object flips visible at runtime)
     runtimeObjects[i].visible =
@@ -10497,7 +11614,17 @@ void TerrainGame::updateSoundEmitters() {
     // the generated graphs, and a second cache would let the two clobber each
     // other's bits.
     engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
-    engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
+    if (engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch) == ADPCM_OK)
+      // It really started: a Speaker (lip-sync) starts reading its envelope.
+      for (int k = 0; k < LIP_SYNC_COUNT; ++k) {
+        const LipSyncData& ls = LIP_SYNCS[k];
+        if (ls.scene != g_activeScene || ls.emitter != owner) continue;
+        if (ls.speaker < 0 || ls.speaker >= (int)objectGeometry.size()) continue;
+        ObjectGeometry& sg = objectGeometry[ls.speaker];
+        sg.lipEnv = &LIP_ENVELOPES[ls.first];
+        sg.lipLen = ls.count;
+        sg.lipT = 0.0F;
+      }
     sndTimers[owner] = everyFrames(o.data.sndInterval);
   }
 }
@@ -11700,6 +12827,7 @@ void TerrainGame::captureState(SaveGameData& d) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
+  for (int a = 0; a < 5; ++a) d.playerLook[a] = playerLook[a];
 }
 
 
@@ -11776,6 +12904,7 @@ void TerrainGame::applyState(SaveGameData& d) {
   scriptCtx.teleport = true;
   scriptCtx.teleportPos = Vec4(d.playerPos[0], d.playerPos[1], d.playerPos[2]);
   scriptCtx.teleportYaw = d.playerYaw;
+  for (int a = 0; a < 5; ++a) playerLook[a] = d.playerLook[a];
   if (d.scene != currentScene)
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
@@ -11798,6 +12927,15 @@ void TerrainGame::applySavedObjects() {
   }
   pendingObjState.clear();
   pendingObjScene = -1;
+  // the body the save was made in (the creator's Body row): a load in the
+  // same scene changes into it in the background, like the creator does
+  if (PLAYER_INDEX >= 0) {
+    const int want = effectiveAnimModel(PLAYER_INDEX, SCENE_OBJECTS[PLAYER_INDEX].animModel);
+    if (want != runtimeObjects[PLAYER_INDEX].data.animModel) requestBody(PLAYER_INDEX, want);
+  }
+  // the creator's look on the player, when it was chosen in this model
+  if (PLAYER_INDEX >= 0 && playerLook[0] == runtimeObjects[PLAYER_INDEX].data.animModel)
+    for (int s = 0; s < 4; ++s) runtimeObjects[PLAYER_INDEX].look[s] = playerLook[1 + s];
 }
 
 
@@ -12026,6 +13164,10 @@ bool TerrainGame::updateGameMenu() {
       if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT)) cycleValue(cur, -1);
       if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT)) cycleValue(cur, 1);
     }
+    if (cur.action == 14) {  // a Character Creator row (docs/character-generator.md)
+      if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT)) creatorStep(creatorTarget(), cur.param, -1);
+      if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT)) creatorStep(creatorTarget(), cur.param, 1);
+    }
     // A rebind row also accepts "clear back to the preset binding" sideways,
     // so a player can undo an override without hunting for the same button.
     if (cur.action == 10 && cur.param >= 0 && cur.param < SAVE_VALUE_COUNT &&
@@ -12148,6 +13290,22 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStackDepth = 0;
           credits::play(e.param);
         }
+        break;
+      case 14:  // creator row: Cross steps forward like Right
+        creatorStep(creatorTarget(), e.param, 1);
+        break;
+      case 15:  // creator undo: the look it opened with, then close (the
+        // creator sees its menu gone and ends)
+        if (creatorObj >= 0) {
+          for (int s = 0; s < 4; ++s) runtimeObjects[creatorObj].look[s] = creatorRestore[s];
+          requestBody(creatorObj, creatorRestoreModel);  // and the body it opened in
+        }
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
         break;
       case 13:  // confirm a cutscene skip: end it and close the menu. Anything
         // that dismisses the menu instead (a Close row, "back") declines and
@@ -12623,10 +13781,14 @@ void TerrainGame::renderGameMenu() {
     const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
     for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
-      if (e.action != 10) continue;
+      if (e.action != 10 && e.action != 14) continue;
       const char* txt = "PRESS...";
       char iconTok[40];
-      if (menuRebindRow != i) {
+      char creatorTxt[48];
+      if (e.action == 14) {  // the choice a Character Creator row shows
+        creatorValueText(creatorTarget(), e.param, creatorTxt, sizeof(creatorTxt));
+        txt = creatorTxt;
+      } else if (menuRebindRow != i) {
         // The LIVE pad binding (inputRebuild already folded the player's
         // override in), shown as the button's ICON when the project has one and
         // as its name otherwise. Never the word "Default" - the row should say
@@ -17193,7 +18355,8 @@ void TerrainGame::renderProjShadows() {
 #endif
     };
     if (anim) {
-      for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
+      for (auto& ap : g.animParts)
+        if (!ap.hidden) renderAtFloor(ap.bag.get());
     } else {
       for (GeoPart& part : g.parts)
         if (!part.lodHidden) renderAtFloor(casterBag(part));
@@ -24172,7 +25335,7 @@ void TerrainGame::renderMirroredObject(int index) {
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -24556,7 +25719,7 @@ void TerrainGame::renderFeedObject(int index) {
     if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
 
@@ -25232,7 +26395,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+        if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   };
   // Two-sided carry: if the object in the hands is passing through THIS
   // portal, its through-view draws it mapped to the FAR side - the half that

@@ -116,6 +116,40 @@ void EngineLoop::update(float idlePitch, float highPitch, float highMix, float v
     d_->highMix.store(std::clamp(highMix, 0.0f, 1.0f));
     d_->volume.store(std::clamp(volume / 100.0f, 0.0f, 1.0f));
 }
+bool speechEnvelope(const std::string& path, int rate, std::vector<unsigned char>& out) {
+    out.clear();
+    if (rate <= 0) return false;
+    const int sampleRate = 22050;
+    auto cfg = ma_decoder_config_init(ma_format_f32, 1, sampleRate);
+    ma_uint64 frames = 0;
+    void* pcm = nullptr;
+    if (ma_decode_file(path.c_str(), &cfg, &frames, &pcm) != MA_SUCCESS || !frames) {
+        if (pcm) ma_free(pcm, nullptr);
+        return false;
+    }
+    const float* s = (const float*)pcm;
+    const size_t window = (size_t)(sampleRate / rate);
+    std::vector<float> rms;
+    for (size_t at = 0; at < (size_t)frames; at += window) {
+        double sum = 0.0;
+        const size_t end = std::min((size_t)frames, at + window);
+        for (size_t i = at; i < end; ++i) sum += (double)s[i] * s[i];
+        rms.push_back((float)std::sqrt(sum / (double)std::max<size_t>(1, end - at)));
+    }
+    ma_free(pcm, nullptr);
+    std::vector<float> sorted = rms;
+    std::sort(sorted.begin(), sorted.end());
+    const float loud = std::max(sorted[(size_t)((sorted.size() - 1) * 0.95)], 1e-4f);
+    const float floor = sorted[(size_t)((sorted.size() - 1) * 0.10)];
+    for (float r : rms) {
+        // Above the room tone, as a fraction of the loud end; a square root,
+        // because a jaw opens on the first syllable of a word, not its peak.
+        const float v = (r - floor * 1.5f) / std::max(loud - floor * 1.5f, 1e-4f);
+        out.push_back((unsigned char)std::lround(255.0f * std::sqrt(std::clamp(v, 0.0f, 1.0f))));
+    }
+    return true;
+}
+
 bool EngineLoop::start(const std::string& idle, const std::string& high) {
     stop();
     d_->error.clear();

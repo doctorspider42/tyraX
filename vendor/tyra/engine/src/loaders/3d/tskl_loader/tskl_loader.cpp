@@ -72,14 +72,18 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
     TYRA_WARN("TsklLoader: cannot read ", relativePath.c_str());
     return nullptr;
   }
+  return fromMemory(file, relativePath);
+}
 
+std::unique_ptr<SkelModel> TsklLoader::fromMemory(const std::vector<u8>& file,
+                                                  const std::string& relativePath) {
   Reader in{file.data(), file.size()};
   char magic[4];
   u32 version = 0, nodeCount = 0, paletteCount = 0, partCount = 0,
       clipCount = 0;
   auto model = std::make_unique<SkelModel>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TSKL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 2 ||
+      !in.u32le(&version) || version < 1 || version > 3 ||
       !in.u32le(&nodeCount) || !in.u32le(&paletteCount) ||
       !in.u32le(&partCount) || !in.u32le(&clipCount)) {
     TYRA_WARN("TsklLoader: bad header in ", relativePath.c_str());
@@ -239,17 +243,37 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
     model->parts.push_back(std::move(part));
   }
 
+  // v3: one 32-byte name per node, at the very end (read before the part
+  // merge below, which does not touch nodes).
+  if (version >= 3) {
+    u32 nameCount = 0;
+    if (!in.u32le(&nameCount) || nameCount != nodeCount) {
+      TYRA_WARN("TsklLoader: bad node-name table in ", relativePath.c_str());
+      return nullptr;
+    }
+    model->nodeNames.resize(nodeCount);
+    for (u32 i = 0; i < nodeCount; i++)
+      if (!in.fixedString(&model->nodeNames[i], 32)) return nullptr;
+  }
+
   // Merge parts that share texture and color: every part becomes a draw bag
   // per instance per frame (object-data DMA + packager run each), and models
   // commonly split one material into several tiny parts. Merging is safe -
   // vertices carry their own joints/weights and draw order among equal
   // materials is irrelevant under z-testing.
+  // Modified by TyraX: except a Character Generator creator option ("...:opt"
+  // in the name) - the game shows and hides those one by one, and a hairstyle
+  // and its pressed under-a-hat twin share one texture.
+  auto switchable = [](const SkelPart& p) {
+    return p.name.find(":opt") != std::string::npos;
+  };
   for (size_t a = 0; a + 1 < model->parts.size(); a++) {
     SkelPart& dst = model->parts[a];
+    if (switchable(dst)) continue;
     for (size_t b = a + 1; b < model->parts.size();) {
       SkelPart& src = model->parts[b];
       const bool same =
-          dst.texturePath == src.texturePath &&
+          !switchable(src) && dst.texturePath == src.texturePath &&
           memcmp(dst.color, src.color, sizeof(dst.color)) == 0;
       if (!same) {
         ++b;

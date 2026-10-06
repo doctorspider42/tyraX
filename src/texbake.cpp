@@ -69,6 +69,25 @@ int nearestValidDim(int v) {
 // engine's LeanObjLoader applies it per material - see texatlas.hpp).
 // Returns false when the file references no atlas member (caller copies
 // verbatim). dirRel = res-relative directory of the .mtl.
+// A crowd palette variant: "<base>.v<k>.png" beside "<base>.png" (the
+// Character Generator writes them, docs/character-generator.md "Crowds").
+// Returns k (1..99), or 0 for any other file; `base` gets the base's path.
+int paletteVariantOf(const fs::path& p, fs::path* base) {
+    const std::string name = p.filename().string();
+    if (name.size() < 8 || lowerExt(p) != ".png") return 0;
+    const std::string stem = name.substr(0, name.size() - 4);  // "x.v3"
+    const size_t dot = stem.rfind(".v");
+    if (dot == std::string::npos || dot + 2 >= stem.size()) return 0;
+    int k = 0;
+    for (size_t i = dot + 2; i < stem.size(); ++i) {
+        if (stem[i] < '0' || stem[i] > '9') return 0;
+        k = k * 10 + (stem[i] - '0');
+    }
+    if (k < 1 || k > 99) return 0;
+    if (base) *base = p.parent_path() / (stem.substr(0, dot) + ".png");
+    return k;
+}
+
 bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
                         const std::string& dirRel,
                         const texatlas::Plan& plan) {
@@ -183,6 +202,11 @@ std::string bake(const Project& p,
     std::map<std::string, std::string> quality;
     auto assetQuality = [&](const std::string& assetRel) -> std::string {
         auto it = p.textureQuality.find(assetRel);
+        // a character's other body ("<x>-alt.glb", the creator's Body row)
+        // bakes like the body it stands in for
+        if (it == p.textureQuality.end() && assetRel.size() > 8 &&
+            assetRel.compare(assetRel.size() - 8, 8, "-alt.glb") == 0)
+            it = p.textureQuality.find(assetRel.substr(0, assetRel.size() - 8) + ".glb");
         return it == p.textureQuality.end() ? "" : it->second;
     };
     auto claim = [&](const std::string& pngRel, const std::string& q) {
@@ -212,6 +236,27 @@ std::string bake(const Project& p,
                 texturesOf(e.path().parent_path(), tex, &rel);
                 for (const std::string& r : rel) claim(r, q);
             }
+        }
+    }
+    // animated models (.glb / .fbx): the animated-model bake extracts their
+    // embedded images next to the .tskl as "<stem>_<image>.png" (also with a
+    // material-override suffix), so an override of the MODEL claims every PNG
+    // carrying its stem. This is how a generated character's skin atlas gets
+    // the 8 bits a face needs (docs/character-generator.md) while the project
+    // stays at 4.
+    for (const auto& e : fs::recursive_directory_iterator(res / "models", ec)) {
+        if (!e.is_regular_file()) continue;
+        const std::string ext = lowerExt(e.path());
+        if (ext != ".glb" && ext != ".fbx") continue;
+        const std::string q =
+            assetQuality(fs::relative(e.path(), fs::path(p.dir), ec).generic_string());
+        if (q.empty()) continue;
+        const std::string prefix = e.path().stem().string() + "_";
+        for (const auto& s : fs::directory_iterator(e.path().parent_path(), ec)) {
+            const std::string name = s.path().filename().string();
+            if (s.is_regular_file() && lowerExt(s.path()) == ".png" &&
+                name.compare(0, prefix.size(), prefix) == 0)
+                claim(fs::relative(s.path(), fs::path(p.dir), ec).generic_string(), q);
         }
     }
     // standalone material libraries (res/materials + mtls next to models)
@@ -390,6 +435,11 @@ std::string bake(const Project& p,
         const std::string relRes = ("res/" + rel.generic_string());
         const std::string top = rel.begin()->generic_string();
 
+        // crowd palette variants ship as a .pal fitted below, never as a PNG
+        if (paletteVariantOf(e.path(), nullptr) > 0) {
+            fs::remove(dst, ec);
+            continue;
+        }
         // atlas members ship only inside their page
         if (atlasPlan.find(relRes)) {
             fs::remove(dst, ec);  // a pre-atlas bake may have mirrored it
@@ -556,6 +606,91 @@ std::string bake(const Project& p,
     }
 
 
+    // Crowd palette variants (docs/character-generator.md, "Crowds"): for each
+    // "<base>.v<k>.png" the base is quantized again - the SAME pixels the loop
+    // above wrote (model AO multiplied in, resized to a PS2 size) through the
+    // SAME deterministic quantizer, so the indices are the shipped ones - and
+    // the variant's palette is the variant image averaged over each index.
+    // The game loads it as <base>.v<k>.pal (256 x RGBA, PNG order) and draws
+    // the base's texels through it: a recoloured person for 1 KB of VRAM.
+    {
+        auto prepare = [&](const fs::path& src, const std::string& aoKey, int& w,
+                           int& h) {
+            std::vector<unsigned char> buf;
+            int comp = 0;
+            unsigned char* px = stbi_load(src.string().c_str(), &w, &h, &comp, 4);
+            if (!px) return buf;
+            buf.assign(px, px + (size_t)w * h * 4);
+            stbi_image_free(px);
+            if (auto aoIt = aoMaps.find(aoKey); aoIt != aoMaps.end())
+                modelao::applyMapFile(aoIt->second, buf.data(), w, h,
+                                      aoParams.strength);
+            const int tw = nearestValidDim(w), th = nearestValidDim(h);
+            if (tw != w || th != h) {
+                buf = pngquant::resizeRGBA(buf.data(), w, h, tw, th);
+                w = tw, h = th;
+            }
+            return buf;
+        };
+        int fitted = 0;
+        for (const auto& e : fs::recursive_directory_iterator(res, ec)) {
+            fs::path basePath;
+            const int k = e.is_regular_file() ? paletteVariantOf(e.path(), &basePath) : 0;
+            if (k == 0) continue;
+            const fs::path rel = fs::relative(basePath, res, ec);
+            const std::string relRes = "res/" + rel.generic_string();
+            std::string q = defaultQ;
+            if (auto it = quality.find(relRes); it != quality.end()) q = it->second;
+            const int colors = colorsOf(q);
+            const fs::path palDst =
+                baked / rel.parent_path() /
+                (rel.stem().string() + ".v" + std::to_string(k) + ".pal");
+            if (colors != 256 && colors != 16) {
+                log("[editor] crowd palette: " + relRes +
+                    " is not palettized (Texture depth) - variant " +
+                    std::to_string(k) + " skipped");
+                fs::remove(palDst, ec);
+                continue;
+            }
+            int bw = 0, bh = 0, vw = 0, vh = 0;
+            const std::vector<unsigned char> base = prepare(basePath, relRes, bw, bh);
+            const std::vector<unsigned char> var = prepare(e.path(), relRes, vw, vh);
+            if (base.empty() || var.empty() || bw != vw || bh != vh) {
+                log("[editor] crowd palette: " + e.path().filename().string() +
+                    " does not match its base - skipped");
+                continue;
+            }
+            std::vector<unsigned char> idx, pal;
+            std::string err;
+            if (!pngquant::quantizeIndices(base.data(), bw, bh, colors, idx, pal, err)) {
+                log("[editor] crowd palette: " + relRes + ": " + err);
+                continue;
+            }
+            const size_t entries = pal.size() / 4;
+            std::vector<double> sum(entries * 3, 0.0);
+            std::vector<int> count(entries, 0);
+            for (size_t i = 0; i < idx.size(); ++i) {
+                const size_t c = idx[i];
+                for (int ch = 0; ch < 3; ++ch) sum[c * 3 + ch] += var[i * 4 + ch];
+                ++count[c];
+            }
+            std::vector<unsigned char> out(entries * 4);
+            for (size_t c = 0; c < entries; ++c) {
+                for (int ch = 0; ch < 3; ++ch)
+                    out[c * 4 + ch] = count[c] ? (unsigned char)std::lround(
+                                                     sum[c * 3 + ch] / count[c])
+                                               : pal[c * 4 + ch];
+                out[c * 4 + 3] = pal[c * 4 + 3];  // cut-outs keep the base's
+            }
+            fs::create_directories(palDst.parent_path(), ec);
+            std::ofstream f(palDst, std::ios::binary | std::ios::trunc);
+            f.write((const char*)out.data(), (std::streamsize)out.size());
+            ++fitted;
+        }
+        if (fitted)
+            log("[editor] crowd palettes: " + std::to_string(fitted) + " fitted");
+    }
+
     // drop baked files whose source vanished (they would still reach bin/) -
     // and editor-only files a pre-exclusion bake may have mirrored
     std::vector<fs::path> stale;
@@ -587,6 +722,13 @@ std::string bake(const Project& p,
         // ones the current plan no longer produces
         if (rel.filename().string().rfind("tyra-atlas-", 0) == 0) continue;
         std::error_code sec;
+        // crowd palettes: their source is "<base>.v<k>.png", not a .pal
+        if (lowerExt(e.path()) == ".pal") {
+            fs::path pngRel = rel;
+            pngRel.replace_extension(".png");
+            if (!fs::exists(res / pngRel, sec)) stale.push_back(e.path());
+            continue;
+        }
         // "<model>.aov" AO sidecars: model self-AO is disabled for now (the
         // per-vertex bake reads as triangulated shading on authored meshes -
         // see aobake::modelAO), so any previously baked sidecar is stale.

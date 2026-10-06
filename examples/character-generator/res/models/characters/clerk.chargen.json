@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "name": "clerk",
+  "gender": 0, "age": 0.42, "muscle": 0.45, "weight": 0.45,
+  "african": 0.1, "asian": 0.6, "caucasian": 0.3, "height": 1.65, "dimorphism": 0.6,
+  "shape": {"cheekBones": 0.3, "eyeSize": 0.2, "noseSize": -0.3, "upperLip": 0.3},
+  "skinTone": 0, "skinWarmth": 0, "aging": 0,
+  "brows": 4, "browDensity": 0.9, "lashes": 1,
+  "hairColor": [0.05,0.04,0.04], "eyeColor": [0.18,0.12,0.07], "stubble": 0,
+  "lipstick": 0.55, "lipColor": [0.62,0.1,0.15], "eyeShadow": 0.3, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0.3,
+  "textureSize": 128,
+  "hair": "bun",
+  "outfit": [{"id": "fsuit", "color": [0.12,0.14,0.24], "color2": [1,1,1], "pattern": 0}, {"id": "tbar", "color": [0.08,0.08,0.1], "color2": [1,1,1], "pattern": 0}, {"id": "glasses2", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "defaultClips": true, "clips": [],
+  "animFps": 15,
+  "animSource": ""
+}

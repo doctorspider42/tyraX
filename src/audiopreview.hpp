@@ -4,6 +4,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <vector>
 
 // The editor's only audio OUTPUT path: a playback device that pulls interleaved
 // float frames from a callback (miniaudio under the hood - WASAPI on Windows,
@@ -67,5 +68,12 @@ class EngineLoop {
     struct Impl;
     std::unique_ptr<Impl> d_;
 };
+
+// Lip-sync input: decodes a sound file and returns its loudness `rate` times a
+// second, 0..255 - RMS per window, normalised to the clip's loud end (the 95th
+// percentile, so one shout does not flatten the rest), with a gate under the
+// room tone so a pause shuts the mouth. False (and `out` empty) when the file
+// cannot be decoded. Host-only, offline: no device involved.
+bool speechEnvelope(const std::string& path, int rate, std::vector<unsigned char>& out);
 
 }  // namespace audiopreview

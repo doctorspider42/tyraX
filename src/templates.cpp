@@ -1,4 +1,5 @@
 #include "templates.hpp"
+#include "audiopreview.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,7 @@
 #include <map>
 
 #include "animedit.hpp"
+#include "chargen.hpp"  // creator option labels
 #include "aobake.hpp"
 #include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
@@ -260,6 +262,15 @@ static bool hasAnimBody(const SceneObject& o) {
 // models.md), so the PAIR is the identity: the same .glb with two different
 // overrides bakes to two distinct .tskl files (see animBakedTsklRel). Empty
 // override = the model's own (built-in) materials.
+// "res/.../hero.glb" -> "res/.../hero-alt.glb" (chargen::altModelPath, kept
+// generic-slashed for the key); "" for anything that cannot have one.
+static std::string altModelRel(const std::string& rel) {
+    const size_t dot = rel.rfind('.');
+    if (dot == std::string::npos || rel.compare(dot, std::string::npos, ".glb") != 0) return "";
+    if (dot >= 4 && rel.compare(dot - 4, 4, "-alt") == 0) return "";  // an alt has no alt
+    return rel.substr(0, dot) + "-alt.glb";
+}
+
 static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
     const Project& p) {
     std::vector<std::pair<std::string, std::string>> keys;
@@ -272,6 +283,34 @@ static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
             for (const auto& e : keys) seen |= (e == key);
             if (!seen) keys.push_back(key);
         }
+    // The Character Creator's choices (docs/character-generator.md,
+    // "Choosing a character"): a Player's other characters, and a generated
+    // character's other body beside it ("<stem>-alt.glb", the generator's Man
+    // or woman). No object names them, but the creator swaps the player to
+    // them - so they are baked and listed too, AFTER every placed model (their
+    // indices stay what the scene table says).
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (!hasAnimBody(o)) continue;
+            for (const std::string& c : o.playerCharacters) {
+                if (c.empty()) continue;
+                const std::pair<std::string, std::string> key{c, std::string()};
+                bool seen = false;
+                for (const auto& e : keys) seen |= (e == key);
+                if (!seen) keys.push_back(key);
+            }
+        }
+    const size_t placed = keys.size();
+    for (size_t i = 0; i < placed; ++i) {
+        const std::string alt = altModelRel(keys[i].first);
+        if (alt.empty()) continue;
+        std::error_code ec;
+        if (!std::filesystem::exists(std::filesystem::path(p.dir) / alt, ec)) continue;
+        const std::pair<std::string, std::string> key{alt, keys[i].second};
+        bool seen = false;
+        for (const auto& e : keys) seen |= (e == key);
+        if (!seen) keys.push_back(key);
+    }
     return keys;
 }
 
@@ -1470,12 +1509,50 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
       Tyra::Vec4 litDirs[3];
+      // A creator option this object is not wearing (applyLook): skinned
+      // with the rest, never drawn.
+      bool hidden = false;
     };
     std::vector<AnimPart> animParts;
+    // What applyLook last applied: the palette variant the texture bags point
+    // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
+    int animVariant = 0;
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
+    int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    // A generated character's living face (updateFace): rig nodes found by
+    // name at setup (-1 = this rig has no such bone - any .glb works, a rig
+    // without them simply keeps a still face), plus the smoothed state.
+    s16 faceHead = -1, faceJaw = -1;
+    s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    s16 faceBrow[2] = {-1, -1}, faceCorner[2] = {-1, -1};  // expressions
+    float emoteW[5] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F};       // eased weights
+    bool faceLive = false;  // overrides set on animInst right now
+    u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
+    float blinkIn = 2.0F;   // seconds to the next blink
+    float blinkT = -1.0F;   // seconds into the current blink, < 0 = open
+    float lookYaw = 0.0F, lookPitch = 0.0F;  // where the head+eyes point (rad)
+    float jawOpen = 0.0F;   // 0 = closed, 1 = fully open (smoothed)
+    float talkPhase = 0.0F; // the syllable clock while talking
+    const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
+    int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
+    float lipT = 0.0F;      // seconds since that sound started
+    // Spring bones (updateSprings): a ponytail's two links, a skirt's four
+    // panels. Each swings a TIP point in world space - so walking, turning
+    // and the clip's own motion all set it going - and the bone is turned to
+    // point at it. -1 = this rig has no such bone.
+    struct Spring {
+      s16 node = -1, parent = -1;
+      float rest[3] = {0.0F, -0.15F, 0.0F};  // tip offset in the bone's frame
+      float tip[3] = {0.0F, 0.0F, 0.0F};     // world
+      float vel[3] = {0.0F, 0.0F, 0.0F};
+      bool live = false;
+    };
+    Spring springs[6];
+    s16 legNode[4] = {-1, -1, -1, -1};  // LeftUpLeg, LeftLeg, RightUpLeg, RightLeg
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -1571,12 +1648,72 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    // Crowd palette variants: [k - 1][part] = textures[part]'s texels through
+    // the k-th .pal (nullptr = that part has none). Owned here.
+    std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // In-game creator options (the generator's "opt-<slot>-<id>" parts;
+    // docs/character-generator.md, "In-game character creator"): per part
+    // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
+    // that slot; per slot the option count, the one worn as built (-1 =
+    // none) and each option's kit id.
+    std::vector<s8> optSlot, optIndex;
+    std::vector<s8> optUnderHat;  // the part is a hairstyle pressed under a hat
+    bool hatHair = false;         // the model has such twins
+    int optCount[4] = {0, 0, 0, 0};
+    int optDefault[4] = {-1, -1, -1, -1};
+    std::vector<std::string> optIds[4];
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
+  // The rest of a load once the .tskl is parsed: options, textures, palette
+  // variants, cull box (loadAnimModelAsset reads the file in one go; the
+  // creator's Body row reads it a slice per frame and calls this).
+  void adoptAnimModel(int index, std::unique_ptr<Tyra::SkelModel> model);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
+  void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
+  void updateSprings(int index, float dist2);  // ponytails and skirts swing
+  // In-game Character Creator (the Character Creator flow node).
+  void applyLook(int index);    // RuntimeObject::look -> hidden parts + palette
+  bool updateCharCreator();     // true while the creator screen owns the pad
+  void creatorCamera();         // frames the character while it is open
+  void renderCharCreator();
+  int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorTarget() const;  // who creator menu rows dress (the player if none)
+  void creatorStep(int index, int slot, int dir);  // one Left/Right on a row
+  void creatorValueText(int index, int slot, char* out, int size) const;
+  int creatorMenu = -1;       // the menu that is the creator's screen, -1 = built in
+  int creatorMenuWait = 0;    // frames until that menu must have opened
+  bool creatorMenuSeen = false;
+  int creatorObj = -1;          // the object being dressed, -1 = closed
+  int creatorRow = 0;
+  int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  // The Character row (docs/character-generator.md, "Choosing a character"): the model a
+  // character is swapped to - read a slice per frame while they keep moving,
+  // then adopted, set up, and the old body freed. bodyWant = the model asked
+  // for (-1 = none pending); creatorRestoreModel = the body when it opened.
+  struct BodyLoad {
+    int model = -1;   // being loaded
+    int target = -1;  // the object that changes into it
+    int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
+    FILE* file = nullptr;
+    std::vector<u8> bytes;
+    std::unique_ptr<Tyra::SkelModel> parsed;
+    size_t texNext = 0;              // stage 2: the next part's texture
+    std::vector<std::string> held;   // textures acquired ahead (released after adopt)
+  } bodyLoad;
+  int bodyWant = -1;
+  int creatorRestoreModel = -1;
+  int bodySpin = 0;  // frames spent loading: the row's spinner
+  int effectiveAnimModel(int index, int authored) const;
+  void stepBodyLoad();
+  void swapBody(int index, int model);
+  void requestBody(int index, int model);
+  float creatorYaw = 0.0F;      // the camera's turn around them, radians
+  // The PLAYER's look, kept across scene loads and saved with the game:
+  // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
+  int playerLook[5] = {-1, -1, -2, -2, -2};
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -1588,6 +1725,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
   u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
+  float animClock = 0.0F;  // seconds of unpaused animation (RuntimeObject::animSync)
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -3321,12 +3459,50 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
       Tyra::Vec4 litDirs[3];
+      // A creator option this object is not wearing (applyLook): skinned
+      // with the rest, never drawn.
+      bool hidden = false;
     };
     std::vector<AnimPart> animParts;
+    // What applyLook last applied: the palette variant the texture bags point
+    // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
+    int animVariant = 0;
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
+    int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    // A generated character's living face (updateFace): rig nodes found by
+    // name at setup (-1 = this rig has no such bone - any .glb works, a rig
+    // without them simply keeps a still face), plus the smoothed state.
+    s16 faceHead = -1, faceJaw = -1;
+    s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    s16 faceBrow[2] = {-1, -1}, faceCorner[2] = {-1, -1};  // expressions
+    float emoteW[5] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F};       // eased weights
+    bool faceLive = false;  // overrides set on animInst right now
+    u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
+    float blinkIn = 2.0F;   // seconds to the next blink
+    float blinkT = -1.0F;   // seconds into the current blink, < 0 = open
+    float lookYaw = 0.0F, lookPitch = 0.0F;  // where the head+eyes point (rad)
+    float jawOpen = 0.0F;   // 0 = closed, 1 = fully open (smoothed)
+    float talkPhase = 0.0F; // the syllable clock while talking
+    const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
+    int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
+    float lipT = 0.0F;      // seconds since that sound started
+    // Spring bones (updateSprings): a ponytail's two links, a skirt's four
+    // panels. Each swings a TIP point in world space - so walking, turning
+    // and the clip's own motion all set it going - and the bone is turned to
+    // point at it. -1 = this rig has no such bone.
+    struct Spring {
+      s16 node = -1, parent = -1;
+      float rest[3] = {0.0F, -0.15F, 0.0F};  // tip offset in the bone's frame
+      float tip[3] = {0.0F, 0.0F, 0.0F};     // world
+      float vel[3] = {0.0F, 0.0F, 0.0F};
+      bool live = false;
+    };
+    Spring springs[6];
+    s16 legNode[4] = {-1, -1, -1, -1};  // LeftUpLeg, LeftLeg, RightUpLeg, RightLeg
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -3422,12 +3598,72 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    // Crowd palette variants: [k - 1][part] = textures[part]'s texels through
+    // the k-th .pal (nullptr = that part has none). Owned here.
+    std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // In-game creator options (the generator's "opt-<slot>-<id>" parts;
+    // docs/character-generator.md, "In-game character creator"): per part
+    // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
+    // that slot; per slot the option count, the one worn as built (-1 =
+    // none) and each option's kit id.
+    std::vector<s8> optSlot, optIndex;
+    std::vector<s8> optUnderHat;  // the part is a hairstyle pressed under a hat
+    bool hatHair = false;         // the model has such twins
+    int optCount[4] = {0, 0, 0, 0};
+    int optDefault[4] = {-1, -1, -1, -1};
+    std::vector<std::string> optIds[4];
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
+  // The rest of a load once the .tskl is parsed: options, textures, palette
+  // variants, cull box (loadAnimModelAsset reads the file in one go; the
+  // creator's Body row reads it a slice per frame and calls this).
+  void adoptAnimModel(int index, std::unique_ptr<Tyra::SkelModel> model);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
+  void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
+  void updateSprings(int index, float dist2);  // ponytails and skirts swing
+  // In-game Character Creator (the Character Creator flow node).
+  void applyLook(int index);    // RuntimeObject::look -> hidden parts + palette
+  bool updateCharCreator();     // true while the creator screen owns the pad
+  void creatorCamera();         // frames the character while it is open
+  void renderCharCreator();
+  int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorTarget() const;  // who creator menu rows dress (the player if none)
+  void creatorStep(int index, int slot, int dir);  // one Left/Right on a row
+  void creatorValueText(int index, int slot, char* out, int size) const;
+  int creatorMenu = -1;       // the menu that is the creator's screen, -1 = built in
+  int creatorMenuWait = 0;    // frames until that menu must have opened
+  bool creatorMenuSeen = false;
+  int creatorObj = -1;          // the object being dressed, -1 = closed
+  int creatorRow = 0;
+  int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  // The Character row (docs/character-generator.md, "Choosing a character"): the model a
+  // character is swapped to - read a slice per frame while they keep moving,
+  // then adopted, set up, and the old body freed. bodyWant = the model asked
+  // for (-1 = none pending); creatorRestoreModel = the body when it opened.
+  struct BodyLoad {
+    int model = -1;   // being loaded
+    int target = -1;  // the object that changes into it
+    int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
+    FILE* file = nullptr;
+    std::vector<u8> bytes;
+    std::unique_ptr<Tyra::SkelModel> parsed;
+    size_t texNext = 0;              // stage 2: the next part's texture
+    std::vector<std::string> held;   // textures acquired ahead (released after adopt)
+  } bodyLoad;
+  int bodyWant = -1;
+  int creatorRestoreModel = -1;
+  int bodySpin = 0;  // frames spent loading: the row's spinner
+  int effectiveAnimModel(int index, int authored) const;
+  void stepBodyLoad();
+  void swapBody(int index, int model);
+  void requestBody(int index, int model);
+  float creatorYaw = 0.0F;      // the camera's turn around them, radians
+  // The PLAYER's look, kept across scene loads and saved with the game:
+  // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
+  int playerLook[5] = {-1, -1, -2, -2, -2};
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -3439,6 +3675,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
   u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
+  float animClock = 0.0F;  // seconds of unpaused animation (RuntimeObject::animSync)
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -5434,8 +5671,26 @@ struct RuntimeObject {
   float animSpeed = 1.0F;    // multiplier on the authored playback speed
   bool animRestart = false;  // (re)start animClip on the next frame
   float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
+  // Phase lock (pedestrians): >= 0 puts the playing clip at the shared
+  // animation clock * speed + this fraction of the clip, every frame - so
+  // walkers of one model in one phase group share a single skinned pose.
+  float animSync = -1.0F;
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
+  // Seconds of talking left: a generated character's jaw moves in syllables
+  // while > 0 (the talk() helper below). A playing clip whose name contains
+  // "Talk" talks by itself; a sound emitter with a Speaker lip-syncs it.
+  float talkTime = 0.0F;
+  // An expression on a generated character's face (the Emote node, the
+  // emote() helper): 0 neutral, 1 smile, 2 angry, 3 surprised, 4 sad - held
+  // for emoteTime seconds (< 0 = until changed), then back to neutral.
+  int emote = 0;
+  float emoteTime = 0.0F;
+  // A generated character's look (the in-game Character Creator, setLook()):
+  // look[0] = palette variant (-1 = as authored), look[1..3] = the hair /
+  // hat / glasses option worn (-2 = as built, -1 = none, k = the slot's k-th
+  // option). docs/character-generator.md, "In-game character creator".
+  int look[4] = {-1, -2, -2, -2};
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -5704,6 +5959,12 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // The in-game Character Creator: write an object index into openCreator
+  // to open it on that character (the game applies and clears it);
+  // creatorOpen reads true while it is up.
+  int openCreator = -1;
+  int openCreatorMenu = -1;  // with openCreator: the menu that is its screen
+  bool creatorOpen = false;
   // A flow event queued from OUTSIDE a menu row - today a credits roll whose
   // finish action is "fire a flow event". updateGameMenu promotes it into
   // menuEvent (the one place that clears it), so the trigger side needs to
@@ -5801,6 +6062,41 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
   o.animFade = fade > 0.0F ? fade : 0.0F;
   o.animPlaying = true;
   o.animRestart = true;
+}
+
+/** Makes a generated character talk for `seconds`: its jaw moves in
+ * syllables over whatever clip plays (docs/character-generator.md). Models
+ * without a Jaw bone ignore it. 0 stops. */
+inline void talk(ScriptContext& ctx, int objectIndex, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  ctx.objects[objectIndex].talkTime = seconds > 0.0F ? seconds : 0.0F;
+}
+
+/** Puts an expression on a generated character's face: 0 neutral, 1 smile,
+ * 2 angry, 3 surprised, 4 sad, for `seconds` (<= 0 = until the next one).
+ * It eases in and out. Models without face bones ignore it. */
+inline void emote(ScriptContext& ctx, int objectIndex, int expression, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  RuntimeObject& o = ctx.objects[objectIndex];
+  o.emote = expression < 0 || expression > 4 ? 0 : expression;
+  o.emoteTime = seconds > 0.0F ? seconds : -1.0F;
+}
+
+/** A generated character's look: slot 0 = palette variant (-1 = as
+ * authored), 1 hair, 2 hat, 3 glasses (-2 = as built, -1 = none, k = the
+ * slot's k-th creator option). docs/character-generator.md. */
+inline void setLook(ScriptContext& ctx, int objectIndex, int slot, int value) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount || slot < 0 || slot > 3) return;
+  ctx.objects[objectIndex].look[slot] = value;
+}
+
+/** Opens the in-game Character Creator on a generated character (one built
+ * with creator options or colour variants; the player when the object is
+ * neither). `menu` (a menu_data index) makes that menu its screen - rows of
+ * the Character creator option kind - instead of the built-in one. */
+inline void openCharacterCreator(ScriptContext& ctx, int objectIndex, int menu = -1) {
+  ctx.openCreator = objectIndex < 0 ? 0x7fffffff : objectIndex;
+  ctx.openCreatorMenu = menu;  // a menu (menu_data order) as its screen, -1 = built in
 }
 
 /** Freezes an animated model object on its current pose. */
@@ -6274,10 +6570,21 @@ static const char* TPL_RES_GITIGNORE =
 /credits/pages/
 
 # Baked model output - the .glb/.obj next to it is the source, these are
-# regenerated on every build (docs/model-pipeline.md).
-/models/*.tskl
-/models/*.tanm
-/models/*.tmdl
+# regenerated on every build (docs/model-pipeline.md). Matched at ANY depth:
+# the Character Generator writes into models/characters/, and a rule anchored
+# to /models/ would quietly commit a megabyte of bake per character.
+*.tskl
+*.tanm
+*.tmdl
+
+# The Character Generator's folder: only the .glb is a source there, and it
+# EMBEDS its textures - the loose PNGs beside it are unpacked from the .glb by
+# the bake (docs/character-generator.md).
+/models/characters/*.png
+# ...except a crowd's colour variants: SOURCES the generator wrote, which
+# texbake fits into palettes (docs/character-generator.md, "Crowds").
+!/models/characters/*.v[0-9].png
+!/models/characters/*.v[0-9][0-9].png
 )";
 
 // The attribution a shipped game owes to the code inside it, written into every
@@ -8552,6 +8859,71 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         if (n) out << rows.str();
         else writeObjectDataRow(out, p, SceneObject{}, -1, -1, 0);
         out << "};\n\n";
+    }
+
+    // Lip-sync (docs/character-generator.md): a sound emitter with a Speaker
+    // moves that character's jaw with the sound's loudness. The envelope is
+    // measured HERE from the WAV (30 per second, 0..255); the game starts
+    // reading it the frame the emitter's sample really starts (tryPlay OK).
+    // Keyed by authored (scene, object) index, like EMITTER_LAYERS.
+    {
+        std::ostringstream rows, env;
+        std::map<std::string, std::pair<int, int>> cache;  // sound -> first, count
+        int n = 0, total = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[(size_t)si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::SoundEmitter || o.soundSpeaker.empty() ||
+                    o.soundPath.empty())
+                    continue;
+                int speaker = -1;
+                for (size_t k = 0; k < objs.size(); ++k)
+                    if (objs[k].name == o.soundSpeaker) { speaker = (int)k; break; }
+                if (speaker < 0) continue;  // a dangling name talks to nobody
+                auto it = cache.find(o.soundPath);
+                if (it == cache.end()) {
+                    std::vector<unsigned char> e;
+                    audiopreview::speechEnvelope(
+                        (std::filesystem::path(p.dir) / o.soundPath).string(), 30, e);
+                    for (size_t k = 0; k < e.size(); ++k)
+                        env << ((total + k) ? "," : "") << ((total + k) % 32 ? "" : "\n    ")
+                            << (int)e[k];
+                    it = cache.emplace(o.soundPath, std::make_pair(total, (int)e.size())).first;
+                    total += (int)e.size();
+                }
+                rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", " << speaker
+                     << ", " << it->second.first << ", " << it->second.second << "}";
+                ++n;
+            }
+        }
+        out << "struct LipSyncData { int scene; int emitter; int speaker; int first; int count; };\n"
+            << "constexpr int LIP_SYNC_RATE = 30;  // envelope samples per second\n"
+            << "constexpr int LIP_SYNC_COUNT = " << n << ";\n"
+            << "constexpr LipSyncData LIP_SYNCS[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, -1, 0, 0}")) << "\n};\n"
+            << "constexpr unsigned char LIP_ENVELOPES[" << (total ? total : 1) << "] = {"
+            << (total ? env.str() : std::string("0")) << "\n};\n\n";
+    }
+
+    // Crowd palette variants (docs/character-generator.md, "Crowds"): which
+    // authored objects draw their model through palette k instead of its own.
+    {
+        std::ostringstream rows;
+        int n = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[(size_t)si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi)
+                if (objs[oi].paletteVariant > 0 && objs[oi].type == PrimitiveType::Model) {
+                    rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", "
+                         << objs[oi].paletteVariant << "}";
+                    ++n;
+                }
+        }
+        out << "struct ObjectPaletteData { int scene; int object; int variant; };\n"
+            << "constexpr int OBJECT_PALETTE_COUNT = " << n << ";\n"
+            << "constexpr ObjectPaletteData OBJECT_PALETTES[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, 0}")) << "\n};\n\n";
     }
 
     // Stable per-object identity for Live Link (docs/live-link.md): FNV-1a 64
@@ -23663,6 +24035,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
+            } else if (n.type == "Emote") {
+                // num[0] = expression (0 neutral .. 4 sad), num[1] = seconds
+                // (0 = until the next Emote)
+                c << pad << "emote(ctx, " << objIdx << ", " << (int)n.num[0] << ", "
+                  << floatLit(n.num[1]) << ");\n";
+            } else if (n.type == "CharacterCreator") {
+                // the target is the character; an object that is not one
+                // (self on a trigger) falls back to the player at runtime.
+                // str = a menu to use as its screen ("" = the built-in one)
+                const int mi = n.str.empty() ? -1 : menuIndexOf(n.str);
+                c << pad << "openCharacterCreator(ctx, " << objIdx << ", " << mi << ");"
+                  << (n.str.empty() ? "" : "  // menu \"" + n.str + "\"") << "\n";
+            } else if (n.type == "Talk") {
+                c << pad << "talk(ctx, " << objIdx << ", "
+                  << (pin == 1 ? std::string("0.0F") : floatLit(n.num[0])) << ");\n";
             } else if (n.type == "Animation") {
                 if (pin == 1) {
                     c << pad << "stopAnimation(ctx, " << objIdx << ");\n";
@@ -29692,8 +30079,170 @@ static std::string modelDataHeader(const Project& p) {
             out << "    \"" << binPathOf(animBakedTsklRel(key.first, key.second))
                 << "\",\n";
     }
-    out << "};\n\n"
-        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+    // Crowd palette variants per animated model (loadAnimModelAsset reads
+    // "<texture>.v<k>.pal" for k = 1..n; docs/character-generator.md).
+    out << "};\n"
+        << "inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? "
+           "ANIM_MODEL_COUNT : 1] = {";
+    if (animKeys.empty()) {
+        out << "0";
+    } else {
+        bool first = true;
+        for (const auto& key : animKeys) {
+            out << (first ? "" : ", ") << project::paletteVariantCount(p, key.first);
+            first = false;
+        }
+    }
+    out << "};\n\n";
+    // The creator's CHARACTER row (docs/character-generator.md, "Choosing a
+    // character"): GROUPS of models one character may switch between - a
+    // Player's own model, its player.characters, and each one's generated
+    // "-alt" body; and for any other model with an "-alt" beside it, that
+    // pair. ANIM_MODEL_GROUP[m] = its group (-1 none; the first wins), the
+    // members in ANIM_GROUP_MEMBERS[FIRST..FIRST+SIZE), and a label per model
+    // for the row ("Man"/"Woman" for a lone generated pair, else the file's
+    // name). Emitted only when some group has two members.
+    {
+        auto indexOf = [&](const std::string& path, const std::string& mtl) {
+            for (size_t j = 0; j < animKeys.size(); ++j)
+                if (animKeys[j].first == path && animKeys[j].second == mtl) return (int)j;
+            return -1;
+        };
+        auto genderOf = [&](const std::string& glbRel) -> float {
+            const std::string recipe = glbRel.substr(0, glbRel.size() - 4) + ".chargen.json";
+            std::ifstream f(std::filesystem::path(p.dir) / recipe, std::ios::binary);
+            if (!f) return -1.0f;
+            std::stringstream ss;
+            ss << f.rdbuf();
+            chargen::Params cp;
+            std::string err;
+            if (!chargen::fromJson(ss.str(), cp, err)) return -1.0f;
+            return cp.gender;
+        };
+        std::vector<std::vector<int>> groups;
+        std::vector<int> groupOf(animKeys.size(), -1);
+        auto addGroup = [&](const std::vector<std::pair<std::string, std::string>>& bases) {
+            std::vector<int> g;
+            auto put = [&](int k) {
+                if (k >= 0 && std::find(g.begin(), g.end(), k) == g.end()) g.push_back(k);
+            };
+            for (const auto& b : bases) {
+                put(indexOf(b.first, b.second));
+                const std::string a = altModelRel(b.first);
+                if (!a.empty()) put(indexOf(a, b.second));
+            }
+            if (g.size() < 2) return;
+            for (const auto& have : groups)
+                if (have == g) return;  // the same player in another scene
+            const int id = (int)groups.size();
+            for (int k : g)
+                if (groupOf[(size_t)k] < 0) groupOf[(size_t)k] = id;
+            groups.push_back(std::move(g));
+        };
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) {
+                if (!hasAnimBody(o) || o.type != PrimitiveType::Player) continue;
+                std::vector<std::pair<std::string, std::string>> bases{{o.modelPath, o.materialPath}};
+                for (const std::string& c : o.playerCharacters) bases.push_back({c, std::string()});
+                addGroup(bases);
+            }
+        for (size_t i = 0; i < animKeys.size(); ++i)
+            if (groupOf[i] < 0) addGroup({animKeys[i]});
+        if (!groups.empty()) {
+            // labels
+            std::vector<std::string> label(animKeys.size());
+            for (size_t i = 0; i < animKeys.size(); ++i) {
+                const std::string& path = animKeys[i].first;
+                std::string stem = std::filesystem::path(path).stem().string();
+                const bool isAlt = stem.size() > 4 && stem.compare(stem.size() - 4, 4, "-alt") == 0;
+                const std::string base = isAlt ? stem.substr(0, stem.size() - 4) : stem;
+                std::string nice = base;
+                for (char& c : nice)
+                    if (c == '_' || c == '-') c = ' ';
+                if (!nice.empty()) nice[0] = (char)std::toupper((unsigned char)nice[0]);
+                const std::string baseGlb = std::filesystem::path(path).parent_path().generic_string() +
+                                            (std::filesystem::path(path).has_parent_path() ? "/" : "") +
+                                            base + ".glb";
+                const float g = genderOf(baseGlb);
+                const bool woman = g >= 0.0f && ((g < 0.5f) != isAlt);
+                // "(woman)" / "(man)" only tells apart the two bodies of one person
+                std::error_code ec;
+                const bool generated =
+                    g >= 0.0f && (isAlt || (!altModelRel(path).empty() &&
+                                            std::filesystem::exists(
+                                                std::filesystem::path(p.dir) / altModelRel(path), ec)));
+                const int gi = groupOf[i];
+                const bool lonePair = gi >= 0 && groups[(size_t)gi].size() == 2 && generated &&
+                                      altModelRel(animKeys[(size_t)groups[(size_t)gi][0]].first) ==
+                                          animKeys[(size_t)groups[(size_t)gi][1]].first;
+                label[i] = lonePair ? (woman ? "Woman" : "Man")
+                           : generated ? nice + (woman ? " (woman)" : " (man)")
+                                       : nice;
+            }
+            out << "#define ANIM_MODEL_GROUPS_USED 1\n"
+                << "inline const int ANIM_MODEL_GROUP[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < groupOf.size(); ++i) out << (i ? ", " : "") << groupOf[i];
+            out << "};\nconstexpr int ANIM_GROUP_COUNT = " << groups.size() << ";\n"
+                << "inline const int ANIM_GROUP_FIRST[ANIM_GROUP_COUNT] = {";
+            int at = 0;
+            for (size_t g = 0; g < groups.size(); ++g) {
+                out << (g ? ", " : "") << at;
+                at += (int)groups[g].size();
+            }
+            out << "};\ninline const int ANIM_GROUP_SIZE[ANIM_GROUP_COUNT] = {";
+            for (size_t g = 0; g < groups.size(); ++g) out << (g ? ", " : "") << groups[g].size();
+            out << "};\ninline const int ANIM_GROUP_MEMBERS[" << at << "] = {";
+            bool first = true;
+            for (const auto& g : groups)
+                for (int k : g) {
+                    out << (first ? "" : ", ") << k;
+                    first = false;
+                }
+            out << "};\ninline const char* ANIM_MODEL_LABEL[ANIM_MODEL_COUNT] = {";
+            for (size_t i = 0; i < label.size(); ++i)
+                out << (i ? ", " : "") << "\"" << escapeCString(label[i]) << "\"";
+            out << "};\n\n";
+        }
+    }
+    // In-game creator option labels (kit id -> what the creator screen shows),
+    // for the kit items some character in this project was built with as an
+    // option ("<stem>_opt-<slot>-<id>.png" beside its .glb).
+    {
+        std::set<std::string> ids;
+        for (const auto& key : animKeys) {
+            const std::filesystem::path glb = std::filesystem::path(p.dir) / key.first;
+            const std::string prefix = glb.stem().string() + "_opt";
+            std::error_code ec;
+            for (const auto& e : std::filesystem::directory_iterator(glb.parent_path(), ec)) {
+                std::string n = e.path().filename().string();
+                if (n.rfind(prefix, 0) != 0 || e.path().extension() != ".png") continue;
+                n = n.substr(prefix.size());
+                if (!n.empty() && n[0] == 'd') n = n.substr(1);
+                const size_t a = n.find('-', 1), b = n.find('.');
+                if (n.empty() || n[0] != '-' || a == std::string::npos || b == std::string::npos || b <= a)
+                    continue;
+                ids.insert(n.substr(a + 1, b - a - 1));
+            }
+        }
+        out << "struct CreatorLabel {\n  const char* id;\n  const char* label;\n};\n"
+            << "constexpr int CREATOR_LABEL_COUNT = " << ids.size() << ";\n"
+            << "inline const CreatorLabel CREATOR_LABELS[CREATOR_LABEL_COUNT > 0 ? "
+               "CREATOR_LABEL_COUNT : 1] = {";
+        if (ids.empty()) out << "{\"\", \"\"}";
+        bool first = true;
+        for (const std::string& id : ids) {
+            std::string label = id;
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.id == id) label = it.label;
+            for (const chargen::Item& it : chargen::hairstyles())
+                if (it.id == id) label = it.label;
+            out << (first ? "\n" : ",\n") << "    {\"" << escapeCString(id) << "\", \""
+                << escapeCString(label) << "\"}";
+            first = false;
+        }
+        out << "};\n\n";
+    }
+    out << "// .mtl libraries assigned to primitives (first material = surface)\n"
         << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
         << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
     if (materials.empty()) {
@@ -29878,6 +30427,10 @@ static bool anyNavAiNode(const Project& p) {
                     n.type == "FleePlayer" || n.type == "StopAi" ||
                     n.type == "OnPlayerSeen")
                     return true;
+    // ...or a pedestrian: Wander is an object property, not a node
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.wanderRadius > 0.0f && o.type == PrimitiveType::Model) return true;
     return false;
 }
 
@@ -30171,6 +30724,10 @@ void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
               float giveUpDist);
 void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist);
 void navStop(ScriptContext& ctx, int obj);
+// A pedestrian: walks to random spots within `radius` of where it stands now,
+// "walk" while moving, "idle" while it pauses, yielding to anyone in front.
+// Objects with the Wander property start it by themselves (WANDERERS).
+void navWander(ScriptContext& ctx, int obj, float radius, float speed);
 
 // True while `obj` sees the player: within range, inside the vision cone of
 // fovDeg around the object's facing (+Z rotated by its Y rotation), and with
@@ -30200,6 +30757,23 @@ static std::string navigationSource(const Project& p) {
            "#include <string.h>\n\n"
            "namespace "
         << ns << " {\n";
+    // Pedestrians (the Wander property): started by the tick on scene load.
+    {
+        std::ostringstream rows;
+        int n = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si)
+            for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi) {
+                const SceneObject& o = p.scenes[si].objects[oi];
+                if (o.wanderRadius <= 0.0f || o.type != PrimitiveType::Model) continue;
+                rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", "
+                     << floatLit(o.wanderRadius) << ", " << floatLit(o.wanderSpeed) << "}";
+                ++n;
+            }
+        out << "\nstruct WandererData { int scene; int object; float radius; float speed; };\n"
+            << "constexpr int WANDERER_COUNT = " << n << ";\n"
+            << "constexpr WandererData WANDERERS[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, 0.0F, 0.0F}")) << "\n};\n";
+    }
     out << R"(
 namespace {
 
@@ -30320,7 +30894,7 @@ inline unsigned short navHeuristic(int x0, int z0, int x1, int z1) {
 // One AI agent per runtime object. The flow-node commands fill this in; the
 // per-frame tick below moves the object along its path.
 struct NavAgent {
-  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee
+  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee, 4 wander
   unsigned char wantPath = 0;
   unsigned char once = 0;      // patrol: stop after the last waypoint
   unsigned char pathLen = 0, pathPos = 0;
@@ -30334,8 +30908,14 @@ struct NavAgent {
   float pauseLeft = 0.0F;
   float yOff = 0.0F;           // authored height above the terrain
   float repathLeft = 0.0F;     // seconds until the next repath (chase/flee)
+  // wander: home and radius, the clip it is showing, its own dice
+  float homeX = 0.0F, homeZ = 0.0F, radius = 0.0F;
+  unsigned char walking = 0;   // 1 = "walk" is playing, 0 = "idle"
+  unsigned int seed = 1;
+  float stuck = 0.0F;          // seconds spent giving way
   unsigned short path[NAV_PATH_MAX];
 };
+unsigned int navWanderGeneration = 0xFFFFFFFFu;
 
 NavAgent navAgents[NAV_MAX_AGENTS];
 unsigned int navGeneration = 0xFFFFFFFFu;
@@ -30516,6 +31096,24 @@ void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist) {
   a->p0 = safeDist > 0.01F ? safeDist : 15.0F;
 }
 
+void navWander(ScriptContext& ctx, int obj, float radius, float speed) {
+  NavAgent* a = navBegin(ctx, obj, 4, speed > 0.05F ? speed : 1.3F);
+  if (!a) return;
+  a->homeX = ctx.objects[obj].data.position[0];
+  a->homeZ = ctx.objects[obj].data.position[2];
+  a->radius = radius > 0.5F ? radius : 0.5F;
+  a->seed = 2654435761u * (unsigned int)(obj + 1);
+  // a first pause of 0-3 s, so a crowd does not set off in step
+  a->pauseLeft = (float)((a->seed >> 20) & 1023) * (3.0F / 1023.0F);
+  a->walking = 1;  // forces the idle clip on the first tick
+  // Phase lock: every walker of a model walks (and idles) in step, so they
+  // share one skinned pose per clip and mesh-LOD tier (animSync). Measured
+  // with 30 pedestrians: three phase groups split them into too many
+  // (model x clip x phase x tier) to share at all - 66.8 ms; one phase,
+  // 50.9 ms. Random pauses and headings keep it from reading as a march.
+  ctx.objects[obj].animSync = 0.0F;
+}
+
 void navStop(ScriptContext& ctx, int obj) {
   navSyncGeneration(ctx);
   if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS) return;
@@ -30610,6 +31208,13 @@ class NavAiScript : public Script {
  public:
   void update(ScriptContext& ctx) override {
     navSyncGeneration(ctx);
+    // pedestrians of this scene start walking once per scene (re)load
+    if (navWanderGeneration != ctx.sceneGeneration) {
+      navWanderGeneration = ctx.sceneGeneration;
+      for (int k = 0; k < WANDERER_COUNT; ++k)
+        if (WANDERERS[k].scene == ctx.scene)
+          navWander(ctx, WANDERERS[k].object, WANDERERS[k].radius, WANDERERS[k].speed);
+    }
     float px, py, pz;
     navPlayerPos(ctx, &px, &py, &pz);
     const int count =
@@ -30686,6 +31291,96 @@ class NavAiScript : public Script {
           }
           a.repathLeft = 1.0F;
         }
+        navMoveAgent(ctx, i);
+      } else if (a.mode == 4) {  // wander: a pedestrian
+        auto rnd = [&a]() {
+          a.seed = a.seed * 1664525u + 1013904223u;
+          return (float)((a.seed >> 8) & 0xFFFF) / 65535.0F;
+        };
+        auto show = [&](bool walk) {  // switch clips on the transitions only
+          if ((a.walking != 0) == walk) return;
+          a.walking = walk ? 1 : 0;
+          playAnimation(ctx, i, walk ? "walk" : "idle", true,
+                        walk ? a.speed / 1.3F : 1.0F, 0.25F);
+        };
+        if (a.pauseLeft > 0.0F) {
+          a.pauseLeft -= g_frameDt;
+          show(false);
+          continue;
+        }
+        if (a.pathPos >= a.pathLen && !a.wantPath) {
+          if (a.goalCell >= 0) {
+            // arrived: stand a while (now and then a long one)
+            a.goalCell = -1;
+            a.pauseLeft = rnd() < 0.2F ? 5.0F + rnd() * 6.0F : 1.0F + rnd() * 3.0F;
+            show(false);
+            continue;
+          }
+          // somewhere new within the radius of home, on walkable ground
+          for (int tries = 0; tries < 4; ++tries) {
+            const float ang = rnd() * 2.0F * NAV_PI;
+            const float r = a.radius * sqrtf(rnd());
+            int gx = navCellX(a.homeX + sinf(ang) * r);
+            int gz = navCellZ(a.homeZ + cosf(ang) * r);
+            if (navNearestWalkable(&gx, &gz, 2)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+              break;
+            }
+          }
+          if (!a.wantPath) a.pauseLeft = 2.0F;  // nowhere to go: wait, retry
+          continue;
+        }
+        // Give way: someone within ~1 unit ahead (another walker, the
+        // player) - stop and let them pass rather than walk through them.
+        bool blocked = false;
+        {
+          const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+          const float fx = sinf(yaw), fz = cosf(yaw);
+          auto ahead = [&](float x, float z) {
+            const float dx = x - o.data.position[0], dz = z - o.data.position[2];
+            const float d2 = dx * dx + dz * dz;
+            return d2 < 1.0F && d2 > 1e-6F && (dx * fx + dz * fz) > 0.5F * sqrtf(d2);
+          };
+          blocked = ahead(px, pz);
+          for (int j = 0; j < count && !blocked; ++j)
+            if (j != i && navAgents[j].mode != 0 && ctx.objects[j].active)
+              blocked = ahead(ctx.objects[j].data.position[0],
+                              ctx.objects[j].data.position[2]);
+        }
+        if (blocked) {
+          // Pass them on the right, slowing down: two walkers meeting head
+          // on both step right and slide past - stopping instead (the first
+          // version) left a knot of people each waiting for the other.
+          a.stuck += g_frameDt;
+          const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+          const float rx = -cosf(yaw), rz = sinf(yaw);  // the walker's right
+          const float side = a.speed * 0.7F * g_frameDt;
+          const float nx = o.data.position[0] + rx * side;
+          const float nz = o.data.position[2] + rz * side;
+          if (navWalkableCell(navCellX(nx), navCellZ(nz))) {
+            o.data.position[0] = nx;
+            o.data.position[2] = nz;
+            o.dirty = true;
+          }
+          if (a.stuck > 4.0F) {  // wedged for good: somewhere else
+            a.stuck = 0.0F;
+            a.pathLen = a.pathPos = 0;
+            a.goalCell = -1;
+            a.pauseLeft = 0.3F + rnd();
+            show(false);
+            continue;
+          }
+          const float full = a.speed;
+          a.speed = full * 0.35F;
+          show(true);
+          navMoveAgent(ctx, i);
+          a.speed = full;
+          continue;
+        }
+        if (a.stuck > 0.0F) a.stuck -= g_frameDt * 0.5F;
+        if (a.stuck < 0.0F) a.stuck = 0.0F;
+        show(true);
         navMoveAgent(ctx, i);
       } else if (a.mode == 1) {  // patrol
         if (!a.wps || a.wpCount <= 0) { a.mode = 0; continue; }
@@ -32440,6 +33135,16 @@ static std::string menuDataHeader(const Project& p) {
                     // override code (docs/input-bindings.md).
                     case MenuEntry::RebindKey: param = valueIndexOf(en.param); break;
                     case MenuEntry::PlayCredits: param = creditsIndexOf(en.param); break;
+                    // Creator rows: param = the look slot (0 colours, 1 hair,
+                    // 2 hat, 3 glasses), what RuntimeObject::look indexes -
+                    // or 4, the Character row (the model itself, ANIM_MODEL_GROUP).
+                    case MenuEntry::CreatorOption:
+                        param = en.param == "hair"      ? 1
+                                : en.param == "hat"     ? 2
+                                : en.param == "glasses" ? 3
+                                : en.param == "body"    ? 4
+                                                        : 0;
+                        break;
                     default: break;
                 }
                 // Which input action a rebind row drives (-1 = none/unknown).
@@ -32689,10 +33394,11 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
         if (flagged > maxObjects) maxObjects = flagged;
     }
     s.objectSlots = (int)maxObjects;
-    // magic + version + scene + playerPos[3] + playerYaw + the 4 counters
+    // magic + version + scene + playerPos[3] + playerYaw + playerLook[5] +
+    // the 4 counters
     // (the fourth is factCount - keep this in step with SaveGameData in
     // saveSystemHeader below, which is the whole reason this function exists).
-    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4 + 4;
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 20 + 4 + 4 + 4 + 4;
     s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
     s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
     s.objectsBytes = 32 * s.objectSlots;
@@ -32783,7 +33489,9 @@ static std::string saveSystemHeader(const Project& p) {
            "// renaming, reordering or deleting a fact leaves an existing\n"
            "// card readable - the rows that still match are restored and the\n"
            "// rest are ignored (docs/world-facts.md \"Saving\").\n"
-           "constexpr int SAVE_VERSION = 4;\n"
+           "// v5: playerLook - the look the in-game Character Creator gave\n"
+           "// the player (docs/character-generator.md).\n"
+           "constexpr int SAVE_VERSION = 5;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -32801,6 +33509,7 @@ static std::string saveSystemHeader(const Project& p) {
            "  int scene;\n"
            "  float playerPos[3];  // feet position\n"
            "  float playerYaw;     // degrees\n"
+           "  int playerLook[5];   // TerrainGame::playerLook\n"
            "  int valueCount;\n"
            "  float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];\n"
            "  int textCount;\n"
@@ -33888,13 +34597,21 @@ std::vector<File> bakeAnimAssets(const Project& p,
         // Distance LODs ride in the .tskl only when something uses them -
         // the engine keeps every loaded LOD (plus per-instance skinning
         // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
-        // "Uses" = the project preference, or any object referencing this
-        // model with a per-object mesh-LOD override > 0.
-        bool lodWanted = p.settings.meshLodDistance > 0.0f;
+        // "Uses" = an object referencing this model with a per-object
+        // mesh-LOD override > 0, or with the project preference (override
+        // < 0) when that is on - but not a Player object: the camera rides
+        // a few metres behind it, so its chain would never be drawn, and a
+        // hero character's chain is megabytes (a creator hero on the dense
+        // body ran the EE out of memory with one).
+        bool lodWanted = false;
         for (const SceneData& sc : p.scenes)
-            for (const SceneObject& obj : sc.objects)
-                if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
+            for (const SceneObject& obj : sc.objects) {
+                if (obj.modelPath != relPath) continue;
+                if (obj.meshLodOverride > 0.0f) lodWanted = true;
+                if (obj.meshLodOverride < 0.0f && p.settings.meshLodDistance > 0.0f &&
+                    obj.type != PrimitiveType::Player)
                     lodWanted = true;
+            }
         if (lodWanted) glbparser::generateSkelLods(skel);
 
         // Non-destructive clip edits (Tools > Animation Editor) + the

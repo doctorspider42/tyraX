@@ -16,6 +16,8 @@
 
 #include "particletex.hpp"
 #include "aichat.hpp"
+#include "chargen.hpp"    // --chargen: a character from a recipe, no GUI
+#include "gltfwrite.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "blss.hpp"  // the neural upscaler's headless trainer / eval / emitter
@@ -4753,6 +4755,117 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // Character Generator, headless (docs/character-generator.md): a recipe
+    // (.chargen.json - what "Add to scene" writes beside every character, or
+    // "-" for the defaults, or "preset:<n>" / "random:<seed>") to a .glb.
+    // The bodies custom hair is modelled on (docs/character-generator.md,
+    // "Your own hair").
+    if (argc > 1 && std::strcmp(argv[1], "--chargen-reference") == 0) {
+        if (argc < 3) {
+            std::fprintf(stderr, "usage: --chargen-reference <dir>\n");
+            return 2;
+        }
+        std::string err;
+        if (!chargen::exportReferenceBodies(argv[2], err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s: reference-female.glb, reference-male.glb\n", argv[2]);
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "--chargen") == 0) {
+        // A recipe's relative paths (custom hair and clothes) are
+        // project-relative, as the editor writes them: the project is the
+        // nearest folder up from the recipe holding a .tyra file. A recipe
+        // outside any project resolves against its own folder.
+        if (argc > 2 && std::strchr("-", argv[2][0]) == nullptr) {
+            namespace fs = std::filesystem;
+            fs::path dir = fs::absolute(fs::path(argv[2])).parent_path(), root = dir;
+            std::error_code ec;
+            for (fs::path d = dir; !d.empty(); d = d.parent_path()) {
+                bool project = false;
+                for (const auto& e : fs::directory_iterator(d, ec))
+                    if (e.path().extension() == ".tyra") project = true;
+                if (project) {
+                    root = d;
+                    break;
+                }
+                if (d == d.parent_path()) break;
+            }
+            chargen::setAssetRoot(root.string());
+        }
+        if (argc < 4) {
+            std::fprintf(stderr, "usage: --chargen <recipe.json|-|preset:N|random:SEED> <out.glb> "
+                                 "[--recipe-out <file.json>] [--variants N]\n");
+            return 2;
+        }
+        chargen::Params params;
+        const std::string src = argv[2];
+        if (src.rfind("preset:", 0) == 0) {
+            const int i = std::atoi(src.c_str() + 7);
+            if (i < 0 || i >= (int)chargen::presets().size()) {
+                std::fprintf(stderr, "no preset %d (have %d)\n", i,
+                             (int)chargen::presets().size());
+                return 2;
+            }
+            params = chargen::presets()[i].params;
+        } else if (src.rfind("random:", 0) == 0) {
+            params = chargen::randomize((unsigned)std::strtoul(src.c_str() + 7, nullptr, 10),
+                                        params);
+        } else if (src != "-") {
+            std::ifstream in(src, std::ios::binary);
+            std::stringstream ss;
+            ss << in.rdbuf();
+            std::string err;
+            if (!in || !chargen::fromJson(ss.str(), params, err)) {
+                std::fprintf(stderr, "%s: %s\n", src.c_str(),
+                             err.empty() ? "unreadable" : err.c_str());
+                return 1;
+            }
+        }
+        glbparser::Skel skel;
+        std::vector<std::string> warnings;
+        std::string err;
+        const auto t0 = std::chrono::steady_clock::now();
+        if (!chargen::build(params, skel, warnings, err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        const double ms = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - t0).count();
+        for (const std::string& w : warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
+        if (!gltfwrite::writeGlbFile(argv[3], skel, "TyraX Character Generator", err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        int variantCount = 0;
+        for (int i = 4; i + 1 < argc; ++i)
+            if (std::strcmp(argv[i], "--variants") == 0) variantCount = std::atoi(argv[i + 1]);
+        // the Body row's other body, "<out>-alt.glb" (or a stale one removed)
+        if (!chargen::writeBodyChoice(params, argv[3], variantCount, err)) {
+            std::fprintf(stderr, "other body: %s\n", err.c_str());
+            return 1;
+        }
+        for (int i = 4; i + 1 < argc; ++i) {
+            if (std::strcmp(argv[i], "--recipe-out") == 0) {
+                std::ofstream o(argv[i + 1], std::ios::binary);
+                o << chargen::toJson(params);
+            }
+            // Crowd palette variants beside the .glb (docs/character-generator.md).
+            if (std::strcmp(argv[i], "--variants") == 0)
+                for (int k = 1; k <= std::atoi(argv[i + 1]) && k < 100; ++k)
+                    if (!chargen::writeVariantTextures(chargen::paletteVariant(params, (unsigned)k),
+                                                       argv[3], k, err)) {
+                        std::fprintf(stderr, "%s\n", err.c_str());
+                        return 1;
+                    }
+        }
+        std::printf("%s: %d triangles, %d parts, %d bones, %d clips, %d textures (%.0f ms)\n",
+                    argv[3], skel.totalVertexCount() / 3, (int)skel.parts.size(),
+                    (int)skel.palette.size(), (int)skel.clips.size(), (int)skel.images.size(),
+                    ms);
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
     // The drive model's property tests (docs/vehicles.md) - host-only, no

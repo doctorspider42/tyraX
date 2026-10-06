@@ -222,6 +222,9 @@ add_executable(tyrax-editor
     src/blss_window.cpp
     src/blobshadowbake.cpp
     src/camtake.cpp
+    src/charanim.cpp
+    src/chargen.cpp
+    src/chargen_kit.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp
@@ -245,6 +248,10 @@ add_executable(tyrax-editor
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
+    src/gltfwrite.cpp
+    src/mocap.cpp
+    src/posefilter.cpp
+    src/visionpose.cpp
     src/json.cpp
     src/elfsym.cpp
     src/livedbg.cpp
@@ -343,6 +350,15 @@ add_executable(tyrax-editor
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx vendor/miniaudio ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
+
+# The Character Generator's kit (docs/character-generator.md), linked in with
+# the assembler's .incbin by src/chargen_kit.cpp - several MB is far past what
+# cmake/embed_binary.cmake's C-array route handles in reasonable time.
+# OBJECT_DEPENDS makes that one file rebuild when the kit is regenerated.
+set(CHARGEN_KIT ${CMAKE_SOURCE_DIR}/resources/chargen-kit.bin)
+set_source_files_properties(src/chargen_kit.cpp PROPERTIES
+    COMPILE_DEFINITIONS "CHARGEN_KIT_PATH=\"${CHARGEN_KIT}\""
+    OBJECT_DEPENDS ${CHARGEN_KIT})
 add_dependencies(tyrax-editor tyrax-generated)
 
 find_package(OpenGL REQUIRED)

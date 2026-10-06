@@ -1005,6 +1005,42 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Drives an animated .glb/.fbx model's clip playback. Nothing "
                  "else can be a target: a primitive or a static .obj has no "
                  "skeleton to pose."},
+        // A generated character's face (docs/character-generator.md, "A living
+        // face", "Expressions"): rotation overrides on top of any clip, so they
+        // combine with whatever the model is doing.
+        {.key = "Emote", .title = "Emote", .category = "Animation",
+         .numCount = 2, .numLabels = {"Expression", "Seconds"},
+         .numTips = {"The face to make. It eases in and back out; a new Emote "
+                     "replaces the one showing.",
+                     "How long it is held before the face relaxes to neutral. "
+                     "0 = until the next Emote."},
+         .numChoices = {"Neutral|Smile|Angry|Surprised|Sad", nullptr},
+         .idIn = true, .idOut = true,
+         .desc = "Puts an expression on a character from the Character "
+                 "Generator - brows, mouth corners, lids and jaw - on top of "
+                 "its animation. Models without face bones ignore it."},
+        {.key = "Talk", .title = "Talk", .category = "Animation",
+         .numCount = 1, .numLabels = {"Seconds"},
+         .numTips = {"How long the jaw moves in syllables. A sound emitter with "
+                     "this character as its Speaker lip-syncs instead."},
+         .idIn = true, .idOut = true, .execInCount = 2,
+         .execInLabels = {"talk", "stop"},
+         .execInTips = {"Starts talking for Seconds.", "Shuts the mouth now."},
+         .desc = "Makes a character from the Character Generator talk: its "
+                 "jaw moves in syllables over whatever clip plays. For a real "
+                 "voice, set the sound emitter's Speaker instead."},
+        {.key = "CharacterCreator", .title = "Character Creator", .category = "Animation",
+         .strKind = FlowParamKind::MenuName,
+         .strTip = "Optional: a menu (Project panel > Menus) to be its screen - "
+                   "rows of the \"Character creator option\" kind dress the "
+                   "character, styled like any menu. Empty = the built-in screen.",
+         .idIn = true, .idOut = true,
+         .desc = "Opens the in-game Character Creator on a character from the "
+                 "Character Generator built with creator options or colour "
+                 "variants (the player when the target is neither): the player "
+                 "picks colours, hair, hat and glasses with the D-pad, Cross "
+                 "keeps it, Circle undoes it. The player's choice survives scene "
+                 "changes and is saved with the game."},
         // AI (docs/navigation-ai.md). NPCs walk the nav grid baked at build
         // time (navmesh.cpp -> nav_data.gen.hpp); paths come from A* on the
         // EE (navigation.gen.cpp), agents snap to the terrain and turn to

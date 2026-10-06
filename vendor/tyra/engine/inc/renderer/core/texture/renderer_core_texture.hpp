@@ -152,6 +152,12 @@ class RendererCoreTexture {
 
   /** Modified by TyraX: evict until `t_tex` fits. */
   void makeRoomFor(const Texture* t_tex);
+  void makeRoomForWords(int coreWords, int clutWords, const Texture* t_tex);
+  RendererCoreTextureBuffers useVariant(const Texture* t_tex);
+  int allocationWords(const RendererCoreTextureBuffers& a) const;
+  // Modified by TyraX: an allocation eviction must not touch while a palette
+  // variant is being put together (its base, just bound).
+  u32 pinnedId = 0;
 
   void registerAllocation(const RendererCoreTextureBuffers& t_buffers);
   // Modified by TyraX: index of t_tex's resident entry, or -1. Tries

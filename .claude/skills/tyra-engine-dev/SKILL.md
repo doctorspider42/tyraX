@@ -3195,6 +3195,76 @@ vertices remain, with a four-byte index per corner. The temporary hash table
 exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
 
+### Node names and rotation overrides (1.170.0)
+
+`.tskl` v3 appends a node-name table (u32 count + 32-byte names, after the
+parts); v1/v2 files still load and leave `SkelModel::nodeNames` empty, so
+`findNode()` returns -1 and a feature keyed on a bone simply does not engage.
+`SkelInstance::setRotationOverride(node, q)` post-multiplies a node's local
+rotation (`local = clip * q`, x/y/z/w) in `evalPose` after the crossfade blend;
+setting the same q again does not dirty the pose. An instance with ANY override
+fails `poseEquals`, so it never shares a skinned mesh - drop them with
+`clearRotationOverrides()` when the effect stops mattering (the living face
+does at 10 m). `nodeGlobal(i)` is the last EVALUATED pose: one frame old when
+read before `ensurePose`, garbage (zero) before the first skin.
+
+### Palette variants and shared skinning data (1.171.0)
+
+A `Texture(base, rgba, entries)` borrows `base->core` (never owns it - the
+destructor checks `paletteBase`) and carries its own CLUT, swizzled like
+PngLoader's. `useTexture` routes it to `useVariant`: bind the BASE first (it may
+upload or evict), then find or upload the variant's CLUT-only entry
+(`core == nullptr` in `currentAllocations`) with the base PINNED
+(`pinnedId`, skipped by `pickVictim`), and return the base's texels with the
+variant's CLUT. Every code path that reads an allocation's `core` must accept
+nullptr (`allocationWords`, `sender.deallocate`); `isResident` of a variant
+needs both halves. `Path3::sendClut` ends its chain exactly like
+`sendTexture` (wrap + flush) - keep the two tails identical.
+
+`SkelInstance` no longer owns bind data. `bindCacheFor` builds it once per
+model into `SkelModel::bindCache` - packed by UNIQUE corner (`skinSource`
+maps every corner to its first identical one; the skin loop indexes the bind
+arrays with a running counter of source corners) - and then FREES the model's
+raw `SkelPart`/`SkelLod` arrays. Skin outputs are allocated on the first
+`ensurePose` at a level, before `$vf20/$vf21` take the AABB (an allocation
+inside that asm span is a call the VU0 state cannot survive). The DynamicMesh
+frames are one-vertex placeholders: render through `lodArrays()` only. Under
+the old layout twelve 4400-triangle characters plus the example cast threw
+`bad_alloc` - PCSX2 shows that as an EE "Restart" in emulog.txt with nothing
+in the game's log.
+
+`setPartSkipped(part, skip)` (1.176.0, the in-game Character Creator) makes
+`skinParts` `continue` past a part - a plain branch, legal inside the VU0 asm
+span. The part's arrays keep their last skin, so turning it back on sets
+`poseDirty`; and `poseEquals` compares the skip masks, because a follower
+draws its owner's arrays. An empty mask means "nothing skipped" - it is only
+allocated on the first skip.
+
+`setRotationOverride(node, q, replace = true)` (1.179.0) makes the node's local
+rotation q alone - the clip's rotation of it is dropped. The skirt springs use
+it: a generated clip carries the panels' leg-driven swing for far instances and
+the editor, which the spring recomputes up close.
+
+`setTime(seconds)` puts the current clip at a time (cursors reset when it moves
+back) - bit-identical times are what let instances share a skin, so a crowd is
+phase-locked by SETTING the time from one clock every frame, not by starting
+in step (float accumulation drifts apart). `trimOutputs()` frees an instance's
+skin outputs (they are otherwise kept forever once allocated - 30 walkers that
+each skinned once ran the EE out of memory); the game calls it after 300 frames
+as a pose follower and forces a skin when it owns a pose again. A skipped part
+(`setPartSkipped`) allocates no outputs. Since 1.180.0 trimmed outputs go into
+a static pool keyed by vertex count, not back to the heap (the free/re-allocate
+churn of a walking crowd fragmented the EE until an allocation failed with
+megabytes free); `SkelInstance::clearOutputPool()` hands them to the heap and
+the game calls it on a scene change. Skinning one LOD level gives the other
+levels' outputs back to the pool - a walker crossing the LOD distance held both.
+
+`TsklLoader::fromMemory(bytes, path)` (1.184.0) parses a .tskl already in memory - the game's background body load reads the file 64 KB a frame and hands it over (`load` is now read + fromMemory).
+
+TsklLoader merges parts that share texture and colour - except a part with
+`:opt` in its name (1.177.0): creator options are shown one by one, and a
+hairstyle and its under-a-hat twin deliberately share one texture.
+
 
 ### The slot pool is double-buffered (1.81.1) — the console-only sliver
 

@@ -471,6 +471,10 @@ void App::phoneCamTick() {
                 if (e.text == phonecam::kCmdRecord) startPhoneRecording();
                 else if (e.text == phonecam::kCmdStop) stopPhoneRecording();
                 else if (e.text == phonecam::kCmdRecenter) phoneCamRecenter();
+                // Body capture: the performer is the one in the T-pose and the
+                // one who knows when they are ready, so the phone can say so.
+                else if (e.text == phonecam::kCmdCalibrate) mocapArmCalibration();
+                else if (e.text == phonecam::kCmdZero) mocapZero();
                 break;
             case phonecam::Event::Type::MoveStart:
                 movePhoneStart(e.vec);

@@ -677,6 +677,41 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (const int variants =
+                        project::paletteVariantCount(project_, o.modelPath);
+                    variants > 0 || o.paletteVariant > 0) {
+                    ImGui::SliderInt("Palette variant", &o.paletteVariant, 0, variants,
+                                     o.paletteVariant == 0 ? "as made" : "%d");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "A recoloured copy of this character that shares\n"
+                            "its mesh, its pose and its texels: only a 1 KB\n"
+                            "palette differs (docs/character-generator.md,\n"
+                            "\"Crowds\"). Variants come from the Character\n"
+                            "Generator's Crowd button.");
+                }
+                bool wander = o.wanderRadius > 0.0f;
+                if (ImGui::Checkbox("Wander (a pedestrian)", &wander)) {
+                    o.wanderRadius = wander ? 5.0f : 0.0f;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Walks the nav grid by itself: to random spots near where it\n"
+                        "was placed, its \"walk\" clip while moving and \"idle\" while it\n"
+                        "stands a while, giving way to whoever is in front\n"
+                        "(docs/navigation-ai.md). Needs a terrain - that is what the\n"
+                        "grid is baked from - and collision \"none\" on the walker, or\n"
+                        "it blocks its own cells.");
+                if (wander) {
+                    ImGui::DragFloat("Wander radius", &o.wanderRadius, 0.1f, 0.5f, 100.0f,
+                                     "%.1f units");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Walk speed", &o.wanderSpeed, 0.02f, 0.2f, 6.0f,
+                                     "%.2f units/s");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: the Animation node (play/stop),\n"
@@ -2275,6 +2310,33 @@ void App::drawPropertiesWindow() {
                 "per-emitter wet amount - only the zone's own.");
         ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        {
+            // Lip-sync: any model object can be picked; only a rig with a Jaw
+            // bone (a generated character) actually talks.
+            const std::string preview =
+                o.soundSpeaker.empty() ? "<nobody>" : o.soundSpeaker;
+            if (ImGui::BeginCombo("Speaker", preview.c_str())) {
+                if (ImGui::Selectable("<nobody>", o.soundSpeaker.empty())) {
+                    o.soundSpeaker.clear();
+                    committed = true;
+                }
+                for (const SceneObject& t : project_.objects()) {
+                    if (t.type != PrimitiveType::Model && t.type != PrimitiveType::Player)
+                        continue;
+                    if (ImGui::Selectable(t.name.c_str(), t.name == o.soundSpeaker)) {
+                        o.soundSpeaker = t.name;
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Lip-sync: this character's jaw moves with the sound's\n"
+                    "loudness while it plays (measured from the WAV when the\n"
+                    "game is built). Characters from the Character Generator\n"
+                    "have the jaw for it; other models ignore it.");
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Which emitters win when more of them are audible than the\n"
@@ -2581,6 +2643,45 @@ void App::drawPropertiesWindow() {
                     ImGui::TextDisabled(
                         "No animated models (.glb/.fbx) - Import one in Project > Assets.");
                 ImGui::EndCombo();
+            }
+            // The Character Creator's CHARACTER row (docs/character-generator.md,
+            // "Choosing a character"): the other models the player may become.
+            if (ImGui::TreeNodeEx("Characters to choose from", ImGuiTreeNodeFlags_DefaultOpen)) {
+                int drop = -1;
+                for (int i = 0; i < (int)o.playerCharacters.size(); ++i) {
+                    ImGui::PushID(i);
+                    ImGui::TextUnformatted(
+                        std::filesystem::path(o.playerCharacters[(size_t)i]).filename().string().c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("x")) drop = i;
+                    ImGui::PopID();
+                }
+                if (drop >= 0) {
+                    o.playerCharacters.erase(o.playerCharacters.begin() + drop);
+                    committed = true;
+                }
+                if (ImGui::BeginCombo("##addchar", "+ Add a character")) {
+                    for (const std::string& m : listAnimatedModelFiles()) {
+                        const std::string rel = "res/models/" + m;
+                        if (rel == o.modelPath ||
+                            std::find(o.playerCharacters.begin(), o.playerCharacters.end(), rel) !=
+                                o.playerCharacters.end())
+                            continue;
+                        if (ImGui::Selectable(m.c_str())) {
+                            o.playerCharacters.push_back(rel);
+                            committed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(
+                    "Models the in-game Character Creator's CHARACTER row may turn\n"
+                    "the player into - generated people or a model of your own\n"
+                    "(any animated .glb with the clips the avatar uses). The other\n"
+                    "one is loaded in the background when chosen; only one is in\n"
+                    "memory. A generated model's '-alt' body ('Also as a woman' in\n"
+                    "the generator) joins by itself.");
+                ImGui::TreePop();
             }
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),

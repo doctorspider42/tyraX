@@ -341,9 +341,28 @@ bool quantizeRGBA(const std::string& dstPath, const unsigned char* pixels, int w
     return true;
 }
 
+bool encodeIndexed(std::vector<unsigned char>& result,
+                   const std::vector<unsigned char>& indices,
+                   const std::vector<Px>& palette, int w, int h, int bitDepth,
+                   std::string& error);
+
 bool quantizeRGBAToMemory(std::vector<unsigned char>& result,
                           const unsigned char* pixels, int w, int h, int colors,
                           std::string& error) {
+    std::vector<unsigned char> indices, paletteRgba;
+    if (!quantizeIndices(pixels, w, h, colors, indices, paletteRgba, error))
+        return false;
+    const int bitDepth = colors == 16 ? 4 : 8;
+    std::vector<Px> palette;
+    for (size_t i = 0; i + 3 < paletteRgba.size(); i += 4)
+        palette.push_back({paletteRgba[i], paletteRgba[i + 1], paletteRgba[i + 2],
+                           paletteRgba[i + 3]});
+    return encodeIndexed(result, indices, palette, w, h, bitDepth, error);
+}
+
+bool quantizeIndices(const unsigned char* pixels, int w, int h, int colors,
+                     std::vector<unsigned char>& indicesOut,
+                     std::vector<unsigned char>& paletteRgba, std::string& error) {
     if (colors != 16 && colors != 256) {
         error = "palette size must be 16 or 256";
         return false;
@@ -421,7 +440,21 @@ bool quantizeRGBAToMemory(std::vector<unsigned char>& result,
                 spread(1, 1, 1.0f / 16.0f);
             }
     }
+    indicesOut.assign(indices.begin(), indices.end());
+    paletteRgba.clear();
+    for (const Px& p : palette) {
+        paletteRgba.push_back(p.r);
+        paletteRgba.push_back(p.g);
+        paletteRgba.push_back(p.b);
+        paletteRgba.push_back(p.a);
+    }
+    return true;
+}
 
+bool encodeIndexed(std::vector<unsigned char>& result,
+                   const std::vector<unsigned char>& indices,
+                   const std::vector<Px>& palette, int w, int h, int bitDepth,
+                   std::string& error) {
     // scanlines: filter byte 0 + packed indices
     const int rowBytes = bitDepth == 4 ? w / 2 : w;
     std::vector<uint8_t> raw((size_t)(rowBytes + 1) * h);

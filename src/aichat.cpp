@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "aigen.hpp"
+#include "chargen.hpp"
 #include "livedbg.hpp"
 #include "platform.hpp"
 #include "procgen.hpp"
@@ -384,6 +385,29 @@ const std::vector<Tool>& tools() {
          "Delay still counting down. The answer to \"did my trigger run\" - and "
          "to \"it fired but nothing happened\", which is usually a Delay.",
          {}},
+        {"character_kit", ToolKind::Read,
+         "What the Character Generator can make (docs/character-generator.md): "
+         "the recipe format with every field and its range, and the ids of "
+         "every garment (by slot, with the sex it is cut for), hairstyle, "
+         "body/face slider and clip. Read it before create_character.",
+         {}},
+        {"create_character", ToolKind::Edit,
+         "Generate a character from a recipe (see character_kit) and put it "
+         "in the active scene - or a CROWD of it: the same person in other "
+         "colours, sharing one mesh and one atlas. Write the recipe from the "
+         "user's description: body (gender/age/muscle/weight/height, "
+         "ancestry), face sliders, skin and make-up, outfit items with dyes, "
+         "hair and its colour.",
+         {{"recipe", "object", true,
+           "a recipe object, the fields character_kit lists; omitted fields keep "
+           "their defaults"},
+          {"name", "string", false, "asset and object name; omitted = the recipe's"},
+          {"position", "object", false, "[x, y, z] world units; omitted = origin"},
+          {"crowd", "number", false,
+           "2..40 = that many people in up to 6 colour variants around the "
+           "position; omitted = one character"},
+          {"wander", "bool", false,
+           "true = they walk around as pedestrians (needs the scene's terrain)"}}},
         {"add_object", ToolKind::Edit,
          "Add an object to the active scene. It lands where you put it, then rests on "
          "whatever surface is under it (the editor's placement snap), and becomes "
@@ -2047,6 +2071,54 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
     }
 
     if (c.name == "project_summary") return projectSummaryJson(p);
+    if (c.name == "character_kit") {
+        // Generated from the kit itself, so it cannot drift from what the
+        // generator accepts.
+        std::ostringstream o;
+        o << "RECIPE (a JSON object; this one is the default - every field is "
+             "optional):\n"
+          << chargen::toJson(chargen::Params()) << "\n"
+          << "Ranges: gender 0 female..1 male; age 0 baby, 0.19 child, 0.5 young adult, "
+             "1 = 90 years; muscle, weight 0..1 (0.5 average); african/asian/caucasian "
+             "0..1, a mix; height in metres; dimorphism 0..1.5; skinTone, skinWarmth "
+             "-1..1; aging, stubble, lipstick, eyeShadow, blush 0..1; colours are "
+             "[r, g, b] 0..1; textureSize 128 (crowds) or 256 (heroes); shape maps "
+             "slider id -> -1..1. An outfit entry's color [-1,-1,-1] = the item's "
+             "own colours, anything else recolours its main fabric; pattern 0 "
+             "none, 1 stripes, 2 checks, 3 plaid, 4 diagonal (color2 = its second "
+             "colour). One item per slot; a 'full' item replaces top and bottom. "
+             "\"detail\": 0 crowd body (~1.6k triangles), 1 standard (default, ~3.3k), 2 hero "
+             "(~9.5k - the player or a main character); a crowd defaults to 0. "
+             "\"motionStyle\": -1 masculine .. 0 as captured .. 1 feminine movement "
+             "(hip sway, narrow step, elbows in); leave it out to follow gender. "
+             "\"options\": [ids] (hair, head and face items) makes them choices for "
+             "the in-game Character Creator - meant for the player.\n"
+          << "\nWARDROBE (id: label, slot, sex m/f/any):\n";
+        for (const chargen::Item& it : chargen::wardrobe())
+            o << "  " << it.id << ": " << it.label << ", " << it.slot << ", "
+              << (it.sex.empty() ? "any" : it.sex) << "\n";
+        o << "\nHAIR (\"hair\": id, \"\" = bald):\n";
+        for (const chargen::Item& it : chargen::hairstyles())
+            o << "  " << it.id << ": " << it.label << " (" << (it.sex.empty() ? "any" : it.sex)
+              << ")\n";
+        o << "\nSLIDERS (shape ids, by group):\n";
+        std::string group;
+        for (const chargen::Slider& s : chargen::sliders()) {
+            if (s.group != group) o << (group.empty() ? "" : "\n") << "  " << s.group << ": ";
+            else o << ", ";
+            group = s.group;
+            o << s.id;
+        }
+        o << "\n\nCLIPS (\"clips\", with \"defaultClips\": false; the default set "
+             "is idle/walk/run/sprint/jump/crouch/interact):\n  ";
+        bool first = true;
+        for (const chargen::ClipInfo& ci : chargen::kitClips()) {
+            o << (first ? "" : ", ") << ci.name;
+            first = false;
+        }
+        o << "\n";
+        return o.str();
+    }
     if (c.name == "describe_object") {
         const std::string name = argStr(c, "object");
         const int oi = findObject(sc, name);

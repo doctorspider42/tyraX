@@ -67,6 +67,11 @@ ordinary ambience. Raise it for the one sound a scene cannot afford to drop —
 an alarm, a boss's loop, a hint the player is waiting on — and it keeps its
 voice even while quieter than the water feature next to the player.
 
+**Speaker** makes a character lip-sync the emitter: its jaw follows the
+sound's loudness while it plays, measured from the WAV at build time
+([character-generator.md](character-generator.md#a-living-face)). Any model
+can be picked; one without a Jaw bone simply does not move.
+
 Two details worth knowing, because they are audible:
 
 - **A challenger has to be clearly louder to take a channel** (10 volume units,

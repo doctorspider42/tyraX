@@ -542,6 +542,12 @@ struct SceneObject {
     float playerRunSpeed = 0.0f;    // 0 = same as walk (no ramp)
     float playerSprintSpeed = 0.0f; // 0 = run x settings.sprintMultiplier
     float playerLookSpeed = 1.0f;  // multiplier
+    // The Character Creator's CHARACTER row (docs/character-generator.md,
+    // "Choosing a character"): the other animated models (.glb, project-
+    // relative) the player may become, besides its own modelPath - generated
+    // presets or a model of your own. A generated model's "-alt" body (the
+    // generator's Also as a woman) joins the choice by itself.
+    std::vector<std::string> playerCharacters;
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
     bool playerCanJump = true;     // walk mode: X jumps
@@ -685,6 +691,11 @@ struct SceneObject {
     // for the one sound a scene cannot afford to drop (an alarm, a boss's
     // loop, a hint the player is waiting on).
     int soundPriority = 0;
+    // Lip-sync (docs/character-generator.md, "A living face"): the NAME of the
+    // character whose jaw moves with this sound's loudness while it plays -
+    // the envelope is measured from the WAV at build time. Renames remap.
+    // "" = nobody; a speaker without a Jaw bone simply does not move.
+    std::string soundSpeaker;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -873,6 +884,17 @@ struct SceneObject {
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Crowd palette variant (docs/character-generator.md, "Crowds"): 0 = the
+    // model's own colours, k > 0 = draw its textures through the k-th
+    // "<texture>.v<k>.png" palette the Character Generator wrote beside it -
+    // a recoloured person sharing the mesh, the pose and the texels.
+    int paletteVariant = 0;
+    // A pedestrian (docs/navigation-ai.md, "Wandering"): > 0 = the animated
+    // model walks the nav grid by itself - to random spots within this many
+    // units of where it was placed, its "walk" clip while moving, "idle" while
+    // it stands a while, giving way to whoever is in front. 0 = it stays put.
+    float wanderRadius = 0.0f;
+    float wanderSpeed = 1.3f;  // units per second
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
     // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
@@ -1592,6 +1614,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerRunSpeed == b.playerRunSpeed &&
            a.playerSprintSpeed == b.playerSprintSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
+           a.playerCharacters == b.playerCharacters &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
            a.playerCanJump == b.playerCanJump &&
@@ -1636,7 +1659,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
-           a.soundPriority == b.soundPriority &&
+           a.soundPriority == b.soundPriority && a.soundSpeaker == b.soundSpeaker &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
            a.lightShadowVolumes == b.lightShadowVolumes &&
@@ -1673,6 +1696,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.scrollOverlap == b.scrollOverlap &&
            a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
+           a.paletteVariant == b.paletteVariant && a.wanderRadius == b.wanderRadius &&
+           a.wanderSpeed == b.wanderSpeed &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
@@ -3288,7 +3313,9 @@ inline bool operator==(const CreditsRoll& a, const CreditsRoll& b) {
 struct WindowLayout {
     std::string name;
     std::string ini;                       // ImGui docking dump; empty = use recipe
-    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material
+    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material,
+                                           // 3 debugger, 4 procedural, 5 menu designer,
+                                           // 6 mocap
     std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
 };
 
@@ -3301,7 +3328,11 @@ enum class LayoutRecipe {
     Material = 2,
     Debugger = 3,
     Procedural = 4,
-    MenuDesigner = 5
+    MenuDesigner = 5,
+    // 6: main's Debugger took 3, its Procedural layout 4 and its Menu Designer
+    // 5 while this branch was out, and the id is written into every .tyra file.
+    // Whoever lands second renumbers, or old projects open the wrong layout.
+    Mocap = 6
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
@@ -3494,6 +3525,17 @@ struct MenuEntry {
         // GameMenu::skipMenu); elsewhere it is a Stop Sequence with no
         // graph - harmless, and a no-op when nothing is playing.
         SkipCutscene = 13,
+        // In-game Character Creator rows (docs/character-generator.md, "The
+        // creator as a menu"). param = "look", "hair", "hat", "glasses" or
+        // "body" (man or woman: the model's other body, chargen bodyChoice):
+        // Left/Right (and Cross) change that part of the look of the
+        // character being dressed - the player when the menu was opened some
+        // other way - and the row draws the current choice as runtime text
+        // from the menu's font, like a Rebind key row.
+        CreatorOption = 14,
+        // Puts back the look the character had when the creator opened, then
+        // closes the menu. Any other way out of the menu keeps the new look.
+        CreatorUndo = 15,
     };
     int action = Close;
     std::string param;
@@ -4506,6 +4548,11 @@ void seedBuiltinLayouts(Project& p);
 // within a project with negligible collision odds; the merge/file-split layout
 // keys on it. See SceneObject::id.
 std::string newObjectId();
+
+// How many crowd palette variants sit beside an animated model: the highest k
+// with a "<model stem>_*.v<k>.png" next to it (0 = none). The Character
+// Generator's Crowd button writes them; texbake fits them into .pal files.
+int paletteVariantCount(const Project& p, const std::string& modelRel);
 
 // Assigns a stable id to every scene object that lacks one (empty id, e.g. an
 // object from a pre-id project or a fresh paste), and repairs any accidental

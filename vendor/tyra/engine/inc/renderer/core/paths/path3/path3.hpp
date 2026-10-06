@@ -31,6 +31,8 @@ class Path3 {
   void clearScreen(zbuffer_t* z, const Color& color);
   void sendTexture(const Texture* texture,
                    const RendererCoreTextureBuffers& texBuffers);
+  /** Modified by TyraX: a palette variant's CLUT, without texels. */
+  void sendClut(const Texture* texture, const texbuffer_t* clutBuffer);
 
  private:
   packet2_t* drawFinishPacket;

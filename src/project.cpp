@@ -101,8 +101,8 @@ std::vector<int> Project::atlasFontIndices() const {
     // docs/input-bindings.md), so that menu's font needs an atlas too.
     for (const GameMenu& m : menus)
         for (const MenuEntry& e : m.entries)
-            if (e.action == MenuEntry::RebindKey) {
-                want(m.font);
+            if (e.action == MenuEntry::RebindKey || e.action == MenuEntry::CreatorOption) {
+                want(m.font);  // a creator row draws its choice as runtime text too
                 break;
             }
     // The save menu ALWAYS draws runtime text - its rows are "SLOT n" and the
@@ -731,6 +731,16 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
     }
 }
 
+// A Player's "characters" (the Character Creator's choice), only when set -
+// a project that never used it resaves byte for byte.
+static std::string playerCharactersJson(const SceneObject& o) {
+    if (o.playerCharacters.empty()) return std::string();
+    std::string s = ", \"characters\": [";
+    for (size_t i = 0; i < o.playerCharacters.size(); ++i)
+        s += (i ? ", \"" : "\"") + jsonEscape(o.playerCharacters[i]) + "\"";
+    return s + "]";
+}
+
 std::string objectJson(const SceneObject& o) {
     std::string json =
         "{ \"id\": \"" + jsonEscape(o.id) + "\", \"name\": \"" + jsonEscape(o.name) +
@@ -838,6 +848,7 @@ std::string objectJson(const SceneObject& o) {
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
                 speedTiers +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
+                playerCharactersJson(o) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
                 ", \"canJump\": " + (o.playerCanJump ? "true" : "false") +
@@ -939,6 +950,9 @@ std::string objectJson(const SceneObject& o) {
                 ", \"reverb\": " + (o.soundReverb ? "true" : "false") +
                 (o.soundPriority != 0
                      ? ", \"priority\": " + std::to_string(o.soundPriority)
+                     : std::string()) +
+                (!o.soundSpeaker.empty()
+                     ? ", \"speaker\": \"" + jsonEscape(o.soundSpeaker) + "\""
                      : std::string()) +
                 " }";
     }
@@ -1052,7 +1066,15 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"anim\": { \"clip\": \"" + jsonEscape(o.animClip) +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
-                ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
+                ", \"speed\": " + fmtFloat(o.animSpeed) +
+                (o.paletteVariant > 0
+                     ? ", \"paletteVariant\": " + std::to_string(o.paletteVariant)
+                     : std::string()) +
+                (o.wanderRadius > 0.0f
+                     ? ", \"wander\": { \"radius\": " + fmtFloat(o.wanderRadius) +
+                           ", \"speed\": " + fmtFloat(o.wanderSpeed) + " }"
+                     : std::string()) +
+                " }";
     }
     // Per-object LOD overrides (animated models + player avatars); omitted at
     // the -1 default = "use the project preference".
@@ -2727,7 +2749,8 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
                                          "apply-video", "rebind", "credits",
-                                         "label",     "skip-cutscene"};
+                                         "label",     "skip-cutscene",
+                                         "creator",   "creator-undo"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -2772,7 +2795,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
             const int a =
-                (en.action >= 0 && en.action <= MenuEntry::SkipCutscene)
+                (en.action >= 0 && en.action <= MenuEntry::CreatorUndo)
                     ? en.action
                     : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
@@ -4216,6 +4239,31 @@ std::string save(const Project& p) {
     return writeFile(projectPath(p), manifestJson(p));
 }
 
+int paletteVariantCount(const Project& p, const std::string& modelRel) {
+    namespace fs = std::filesystem;
+    if (modelRel.empty()) return 0;
+    const fs::path model = fs::path(p.dir) / modelRel;
+    const std::string prefix = model.stem().string() + "_";
+    std::error_code ec;
+    int best = 0;
+    for (const auto& e : fs::directory_iterator(model.parent_path(), ec)) {
+        const std::string n = e.path().filename().string();
+        if (n.rfind(prefix, 0) != 0 || n.size() < 8 ||
+            n.compare(n.size() - 4, 4, ".png") != 0)
+            continue;
+        const size_t dot = n.rfind(".v", n.size() - 4);
+        if (dot == std::string::npos) continue;
+        int k = 0;
+        bool digits = dot + 2 < n.size() - 4;
+        for (size_t i = dot + 2; i < n.size() - 4; ++i) {
+            if (n[i] < '0' || n[i] > '9') { digits = false; break; }
+            k = k * 10 + (n[i] - '0');
+        }
+        if (digits && k > best && k < 100) best = k;
+    }
+    return best;
+}
+
 std::string newObjectId() {
     // 64 bits of randomness rendered as 16 hex chars. Seeded once from the
     // platform entropy source; the sequence is process-global, which is all we
@@ -4892,7 +4940,7 @@ void seedBuiltinLayouts(Project& p) {
     p.windowLayouts.push_back(
         {"Default", "", (int)LayoutRecipe::Default, {"debugger"}});
     p.windowLayouts.push_back(
-        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene", "phonecam", "phonelink"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
     p.windowLayouts.push_back(
@@ -4901,6 +4949,10 @@ void seedBuiltinLayouts(Project& p) {
         {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
     p.windowLayouts.push_back({"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
                                {"menus", "menupreview", "fonts"}});
+    // Everything a capture session needs and nothing else: the character being
+    // driven, and the link driving it.
+    p.windowLayouts.push_back(
+        {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     p.activeLayout = 0;
 }
 
@@ -5906,6 +5958,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.playerSprintSpeed = (float)v->numberOr(0.0);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
+            o.playerCharacters.clear();
+            if (const auto* v = pl->find("characters"); v && v->type == json::Value::Type::Array)
+                for (const auto& c : v->arr)
+                    if (!c.stringOr("").empty()) o.playerCharacters.push_back(c.stringOr(""));
             if (const auto* v = pl->find("eyeHeight"))
                 o.playerEyeHeight = (float)v->numberOr(1.8);
             if (const auto* v = pl->find("jumpSpeed"))
@@ -5999,6 +6055,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.soundReverb = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = sn->find("priority"))
                 o.soundPriority = (int)v->numberOr(0.0);
+            if (const auto* v = sn->find("speaker")) o.soundSpeaker = v->stringOr("");
         }
         // Reverb zone (Area). The key only exists on a zone, so its presence
         // IS the flag - an area saved before this feature simply isn't one.
@@ -6174,6 +6231,14 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+            if (const auto* v = an->find("paletteVariant"))
+                o.paletteVariant = std::max(0, (int)v->numberOr(0.0));
+            if (const auto* wv = an->find("wander"); wv && wv->type == json::Value::Type::Object) {
+                if (const auto* v = wv->find("radius"))
+                    o.wanderRadius = std::max(0.0f, (float)v->numberOr(0.0));
+                if (const auto* v = wv->find("speed"))
+                    o.wanderSpeed = std::clamp((float)v->numberOr(1.3), 0.2f, 6.0f);
+            }
         }
         if (const auto* v = jo.find("animLod")) {
             o.animLodOverride = (float)v->numberOr(-1.0);
@@ -7736,6 +7801,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "label"     ? MenuEntry::Label
                                     : a == "skip-cutscene"
                                         ? MenuEntry::SkipCutscene
+                                    : a == "creator" ? MenuEntry::CreatorOption
+                                    : a == "creator-undo" ? MenuEntry::CreatorUndo
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -8141,6 +8208,27 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = root.find("activeLayout"))
             out.activeLayout = (int)v->numberOr(0);
+        // A project saved before a built-in layout existed has no way to learn
+        // about it: `seedBuiltinLayouts` only runs for new projects, so without
+        // this the Mocap arrangement would be visible to nobody who already had
+        // a project open. Appended rather than merged, so a renamed or rearranged
+        // layout of the user's own is never touched. Delete it and it comes back
+        // next load - the cost of having no schema version to remember by, and
+        // cheaper than the feature being invisible.
+        // A project saved while Mocap still carried recipe 3 would now open that
+        // layout as the Debugger, main having taken 3 first. The name is the
+        // only evidence left of what it was meant to be, and it is enough:
+        // nothing else writes a layout called Mocap.
+        for (WindowLayout& L : out.windowLayouts)
+            if (L.name == "Mocap" && L.recipe == (int)LayoutRecipe::Debugger)
+                L.recipe = (int)LayoutRecipe::Mocap;
+
+        bool haveMocap = false;
+        for (const WindowLayout& L : out.windowLayouts)
+            if (L.recipe == (int)LayoutRecipe::Mocap) haveMocap = true;
+        if (!haveMocap)
+            out.windowLayouts.push_back(
+                {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     } else {
         seedBuiltinLayouts(out);
     }
@@ -8402,6 +8490,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // (record v3), so a speed edit updates the running game instead of
     // flipping the chip amber. Look speed stays baked.
     fnvMixF(h, o.playerLookSpeed);
+    for (const std::string& c : o.playerCharacters) fnvMixS(h, c);
     fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
@@ -8436,6 +8525,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   (o.soundReverb ? 4 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
     fnvMix(h, (unsigned)o.soundPriority);
+    fnvMixS(h, o.soundSpeaker);
     fnvMixF(h, o.cameraFov);
     // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
@@ -8454,6 +8544,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   ((uint64_t)(o.reverbPriority & 0xFFFF) << 16));
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
+    fnvMix(h, (unsigned)o.paletteVariant);
+    fnvMixF(h, o.wanderRadius), fnvMixF(h, o.wanderSpeed);
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);
@@ -9257,6 +9349,31 @@ std::string refreshGenerated(const Project& p) {
                     std::string(dir) + "\\" + e.path().filename().string();
                 if (isVuGenerated(rel) && wanted.find(rel) == wanted.end())
                     fs::remove(e.path(), ec);
+            }
+        }
+    }
+
+    // Migration: the bake rules used to be anchored to /models/, but the
+    // Character Generator writes into models/characters/ - so an older
+    // project would start tracking a megabyte of .tskl per character, plus
+    // the textures the bake unpacks from the .glb that already embeds them.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/characters/*.png") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked model output at ANY depth, and the Character "
+                    "Generator's\n# folder - only the .glb is a source there, and it "
+                    "EMBEDS its\n# textures (docs/character-generator.md).\n"
+                    "*.tskl\n*.tanm\n*.tmdl\n/models/characters/*.png\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
             }
         }
     }

@@ -31,6 +31,11 @@ class RendererCoreTextureSender {
 
   void deallocate(const RendererCoreTextureBuffers& texBuffers);
 
+  /** Modified by TyraX: a palette variant's own allocation - its CLUT only. */
+  texbuffer_t* allocateClutOnly(const Texture* t_texture) {
+    return allocateTextureClut(t_texture);
+  }
+
   float getSizeInMB(texbuffer_t* texBuffer);
 
  private:

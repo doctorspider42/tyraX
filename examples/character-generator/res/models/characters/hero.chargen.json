@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "name": "hero",
+  "gender": 1, "age": 0.45, "muscle": 0.85, "weight": 0.55,
+  "african": 0.15, "asian": 0.1, "caucasian": 0.75, "height": 1.82, "dimorphism": 0.6,
+  "shape": {"bust": -0.6, "chest": 0.4, "jaw": 0.5, "neckWidth": 0.4, "noseDepth": 0.2, "shoulders": 0.5, "vshape": 0.7},
+  "skinTone": 0, "skinWarmth": 0, "aging": 0,
+  "brows": 2, "browDensity": 1, "lashes": 0,
+  "hairColor": [0.17,0.11,0.07], "eyeColor": [0.25,0.42,0.62], "stubble": 0.55,
+  "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
+  "textureSize": 256,
+  "hair": "short2",
+  "outfit": [{"id": "polo", "color": [0.16,0.22,0.38], "color2": [1,1,1], "pattern": 0}, {"id": "cargo", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "shoes3", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "customWear": [{"mesh": "res/models/characters/custom/puffer_vest.obj", "texture": "res/models/characters/custom/puffer_vest.png", "slot": "over", "color": [-1,-1,-1]}],
+  "bodyChoice": true,
+  "options": ["short1", "messy", "long", "newsboy", "fedora", "glasses1", "shades"],
+  "defaultClips": true, "clips": [],
+  "animFps": 15,
+  "animSource": ""
+}

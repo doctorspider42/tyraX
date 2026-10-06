@@ -3,6 +3,9 @@
 #include "roadgen.hpp"
 #include "hudanim.hpp"
 
+#include "mocap.hpp"
+
+#include <future>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -26,6 +29,7 @@
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
+#include "gltfwrite.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
 #include "migrations.hpp"
@@ -1003,6 +1007,8 @@ void App::drawUI() {
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    drawCharacterGeneratorWindow();
+    drawMocapWindow();
     shadowBakerPoll();
     modelAoPoll();
     litBakerPoll();
@@ -1014,6 +1020,7 @@ void App::drawUI() {
     drawDebuggerWindow();
     drawRemotePadWindow();
     drawSessionWindow();
+    drawPhoneLinkWindow();
     drawPhoneCamWindow();
     // The update check's answer, collected here and not from the modal's body:
     // a check started at startup has to land whether or not anything about it
@@ -1754,6 +1761,10 @@ void App::drawMenuBar() {
                 showAssetBrowser_ = true;
                 scanAssetTree();
             }
+            if (ImGui::MenuItem("Character Generator...")) {
+                showCharGenerator_ = true;
+                charPreviewDirty_ = true;
+            }
             if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1791,7 +1802,12 @@ void App::drawMenuBar() {
 
             ImGui::SeparatorText("Scene");
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+            if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+            if (ImGui::MenuItem("Phone Link...")) showPhoneLinkWindow_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Host the session a phone joins - one link,\n"
+                                  "shared by the camera and by body capture.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -5554,6 +5570,9 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
+    if (key == "chargen") return &showCharGenerator_;
+    if (key == "mocap") return &showMocap_;
+    if (key == "phonelink") return &showPhoneLinkWindow_;
     if (key == "debugger") return &showDebugger_;
     if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
@@ -5593,7 +5612,10 @@ static const char* const kLayoutWindowKeys[] = {
     // Tools > Vehicle Editor (docs/vehicles.md).
     "vehicles",
     // Tools > Particle Editor (docs/particles.md).
-    "particles"};
+    "particles",
+    // Tools > Character Generator / Mocap / Phone Link
+    // (docs/character-generator.md).
+    "chargen", "mocap", "phonelink"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -5644,9 +5666,46 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Cutscene Director", bottom);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
+        // The phone that records a camera move has to be paired from somewhere,
+        // and it is not worth hunting for - it shares the left column with the
+        // scene tree rather than taking space from the dopesheet.
+        ImGui::DockBuilderDockWindow("Phone Link", left);
+        ImGui::DockBuilderDockWindow("Phone Camera", left);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         ImGui::DockBuilderDockWindow("Viewport", center);
         pendingFocusWindow_ = "Cutscene Director";
+        break;
+    }
+    case LayoutRecipe::Mocap: {
+        // The Mocap window carries its OWN 3D preview of the character being
+        // driven, so it belongs in the middle where the Viewport would be - not
+        // in a side column, which was the first attempt and squeezed the one
+        // thing you actually watch. It tabs with Viewport and Flow Graph and
+        // comes up focused.
+        //
+        // Phone Link is the opposite shape: controls and a status line, nothing
+        // to look at. A narrow full-height column on the right suits it, and
+        // keeps address and pairing code visible the whole session instead of
+        // behind a tab.
+        //
+        // Output along the bottom because the useful diagnostics during a
+        // session - what a take stored, why a joint is not driven - are printed
+        // rather than drawn.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", left);
+        ImGui::DockBuilderDockWindow("Phone Link", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Mocap", center);
+        pendingFocusWindow_ = "Mocap";
         break;
     }
     case LayoutRecipe::Material: {
@@ -7391,7 +7450,7 @@ void App::beginPastePlacement() {
     for (size_t i = 0; i < pasteStaged_.size(); ++i) names[clipboard_[i].name] = pasteStaged_[i].name;
     auto remap = [&](std::string& name) { auto it = names.find(name); if (it != names.end()) name = it->second; };
     for (auto& o : pasteStaged_) {
-        remap(o.portalTarget); remap(o.catchArea);
+        remap(o.portalTarget); remap(o.catchArea); remap(o.soundSpeaker);
         for (auto& n : o.portalObjects) remap(n);
         for (auto& n : o.mirrorObjects) remap(n);
         for (auto& n : o.camFeedObjects) remap(n);
@@ -7831,6 +7890,8 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
     }
     if (lookThroughCam_ == from) lookThroughCam_ = to;
     for (SceneObject& m : sc.objects) {
+        // A sound emitter's lip-sync speaker.
+        if (m.soundSpeaker == from) m.soundSpeaker = to;
         // Mirror target lists.
         if (m.type == PrimitiveType::Mirror)
             for (std::string& t : m.mirrorObjects)
@@ -12422,6 +12483,39 @@ void addRebindRows(Project& p, GameMenu& m) {
     }
 }
 
+// A Character Creator screen as a menu (docs/character-generator.md, "The
+// creator as a menu"): one row per part of the look, DONE (a plain Close -
+// leaving keeps the look) and UNDO. Not pausing: the character idles and
+// looks at the camera while being dressed. Returns the new menu's index.
+int addCreatorMenu(Project& p) {
+    std::string name = "character";
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameMenu& m : p.menus) taken |= m.name == name;
+        if (!taken) break;
+        name = "character-" + std::to_string(n);
+    }
+    GameMenu m;
+    m.name = name;
+    m.title = "CHARACTER";
+    m.pauseGame = false;
+    m.screenPos[0] = 0.72f;  // the creator's camera keeps the character on the left
+    m.screenPos[1] = 0.5f;
+    static const char* kRows[][2] = {{"CHARACTER", "body"},  {"COLOURS", "look"}, {"HAIR", "hair"},
+                                     {"HAT", "hat"},    {"GLASSES", "glasses"}};
+    for (const auto& r : kRows) {
+        MenuEntry en;
+        en.label = r[0];
+        en.action = MenuEntry::CreatorOption;
+        en.param = r[1];
+        m.entries.push_back(std::move(en));
+    }
+    m.entries.push_back(MenuEntry{"DONE", MenuEntry::Close, "", 0.0f});
+    m.entries.push_back(MenuEntry{"UNDO", MenuEntry::CreatorUndo, "", 0.0f});
+    p.menus.push_back(std::move(m));
+    return (int)p.menus.size() - 1;
+}
+
 // The plain "APPLY" action row that commits a display-mode row's staged
 // selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
 MenuEntry makeApplyVideoEntry() {
@@ -12560,6 +12654,16 @@ void App::drawMenusWindow() {
         selectedMenu_ = addOptionsMenuPages(project_);
         changed = true;
     }
+    if (ImGui::Button("+ Character creator menu", ImVec2(-1, 0))) {
+        selectedMenu_ = addCreatorMenu(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A screen for the in-game Character Creator: Colours / Hair /\n"
+            "Hat / Glasses rows, DONE and UNDO. It does not pause, so the\n"
+            "character keeps moving while being dressed. Pick it in a\n"
+            "Character Creator node's Menu, then style it like any menu.");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Scaffold a paged options menu: an OPTIONS root that opens\n"
@@ -12898,7 +13002,8 @@ void App::drawMenusWindow() {
             "Close menu",     "Switch scene",      "Open save menu", "Open menu",
             "Set save value", "Add to save value", "Flow event",     "Toggle",
             "Choice",         "Apply video mode",  "Rebind key",     "Play credits",
-            "Label (not selectable)", "Skip cutscene"};
+            "Label (not selectable)", "Skip cutscene", "Character creator option",
+            "Character creator undo"};
         for (int e = 0; e < (int)m.entries.size(); ++e) {
             MenuEntry& en = m.entries[e];
             ImGui::PushID(e);
@@ -12996,6 +13101,25 @@ void App::drawMenusWindow() {
                         "Save value holding the state (the option index).\n"
                         "Its default is the initial state; flow graphs react\n"
                         "via Value At Least -> On Condition.");
+            } else if (en.action == MenuEntry::CreatorOption) {
+                static const char* kSlots[] = {"look", "hair", "hat", "glasses", "body"};
+                int slot = 0;
+                for (int k = 0; k < 5; ++k)
+                    if (en.param == kSlots[k]) slot = k;
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses", "Character"};
+                if (ImGui::Combo("##creatorslot", &slot, kSlotNames, 5)) {
+                    en.param = kSlots[slot];
+                    changed = true;
+                }
+                if (en.param.empty()) en.param = "look";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Which part of the look Left/Right change (docs/character-\n"
+                        "generator.md). The row draws the current choice in the\n"
+                        "menu's font; it dresses the character the Character\n"
+                        "Creator node opened this menu on, else the player.");
+                ImGui::SameLine();
             } else if (en.action == MenuEntry::PlayCredits) {
                 paramCombo("##credits", "<roll>", project_.credits,
                            [](const CreditsRoll& r) -> const std::string& { return r.name; });
@@ -17548,3 +17672,2670 @@ void App::openProjectDialog() {
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
     openProjectAt(dir);
 }
+
+// --- Character Generator + Mocap ------------------------------------------
+// Merged in from the character-generator branch. main split app.cpp into
+// per-window TUs (hud_ui.cpp, cutscene_ui.cpp) while this was out; these two
+// windows are the obvious next candidates for that treatment.
+
+void App::rebuildCharacterPreview() {
+    charPreviewDirty_ = false;
+    charWarnings_.clear();
+    charBuildError_.clear();
+    charPrevTris_.clear();
+    charPrevTex_.clear();
+    ++charPreviewVersion_;
+
+    // In-game creator options are left out of the preview, which shows the
+    // character as it starts - every option at once would be a hat on a hat.
+    // Writing the asset builds again with them (exportCharacterSkel).
+    chargen::Params shown = charParams_;
+    shown.options.clear();
+    if (!chargen::build(shown, charSkel_, charWarnings_, charBuildError_)) {
+        charSkel_ = glbparser::Skel();
+        return;
+    }
+    if (charSkel_.parts.empty()) return;
+
+    // One decoded texture per part. Decoding the already-downscaled PNGs costs
+    // about a millisecond each - cheap enough to avoid a second copy of the
+    // pixels crossing the API.
+    charPrevTex_.resize(charSkel_.parts.size());
+    for (size_t i = 0; i < charSkel_.parts.size(); ++i) {
+        const int img = charSkel_.parts[i].image;
+        if (img < 0 || img >= (int)charSkel_.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(charSkel_.images[img].png.data(),
+                                                  (int)charSkel_.images[img].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (!px) continue;
+        charPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        charPrevTex_[i].w = w;
+        charPrevTex_[i].h = h;
+        stbi_image_free(px);
+    }
+    if (charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+    refreshCharacterPose();
+}
+
+void App::refreshCharacterPose() {
+    if (charSkel_.parts.empty()) {
+        charPrevTris_.clear();
+        return;
+    }
+    // The preview takes one interleaved array; the Skel keeps the attributes
+    // apart because that is what both the .glb writer and the .tskl bake want.
+    // Skinning it here is the host twin of what the console does on VU0 - at
+    // 4380 vertices it is far cheaper than the upload that follows.
+    const int clip =
+        charClip_ >= 0 && charClip_ < (int)charSkel_.clips.size() ? charClip_ : -1;
+    charanim::poseMesh(charSkel_, clip, charAnimTime_, charPrevTris_);
+    ++charPreviewVersion_;
+}
+
+// ---- the generator's thumbnails ------------------------------------------------
+// One job per card: the worker builds a mannequin wearing that one item (or
+// that hairstyle, or that preset body), poses it and decodes its textures;
+// the main thread turns the result into a texture. Framed per slot - a hat is
+// shown at the head, shoes at the feet - so a card shows the item, not a
+// tiny whole person.
+struct App::CharIconJob {
+    std::string key;
+    std::future<void> done;
+    bool ok = false;
+    std::vector<std::vector<float>> tris;
+    struct Tex {
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+    };
+    std::vector<Tex> tex;
+    std::vector<bool> cutout;
+    float center[3] = {0, 0, 0};
+    float minY = 0.0f, radius = 1.0f;
+};
+
+void App::buildCharIcon(CharIconJob& j) {
+    chargen::Params m;
+    m.textureSize = 128;
+    m.defaultClips = false;  // the bind pose is all a card shows
+    m.clips.clear();
+    m.gender = 0.5f;
+    std::string slot = "full";
+    auto sexToGender = [](const std::string& sex) {
+        return sex == "m" ? 1.0f : (sex == "f" ? 0.0f : 0.15f);
+    };
+    if (j.key.rfind("w:", 0) == 0) {
+        for (const chargen::Item& it : chargen::wardrobe())
+            if (it.id == j.key.substr(2)) {
+                chargen::Wear w;
+                w.id = it.id;
+                m.outfit.push_back(w);
+                m.gender = sexToGender(it.sex);
+                slot = it.slot;
+            }
+    } else if (j.key.rfind("h:", 0) == 0) {
+        m.hair = j.key.substr(2);
+        for (const chargen::Item& it : chargen::hairstyles())
+            if (it.id == m.hair) m.gender = sexToGender(it.sex);
+        slot = "head";
+    } else if (j.key.rfind("cw:", 0) == 0) {
+        // your own garment: "cw:<mesh>|<texture>|<slot>", on the man (the
+        // reference it is most likely modelled on)
+        const std::string rest = j.key.substr(3);
+        const size_t a = rest.find('|'), b = rest.find('|', a == std::string::npos ? 0 : a + 1);
+        chargen::Params::CustomWear cw;
+        cw.mesh = rest.substr(0, a);
+        if (a != std::string::npos && b != std::string::npos) {
+            cw.texture = rest.substr(a + 1, b - a - 1);
+            cw.slot = rest.substr(b + 1);
+        }
+        m.customWear.push_back(cw);
+        m.gender = 1.0f;
+        slot = cw.slot == "over" ? "top" : cw.slot;
+    } else if (j.key.rfind("p:", 0) == 0) {
+        const int i = std::atoi(j.key.c_str() + 2);
+        if (i >= 0 && i < (int)chargen::presets().size()) m = chargen::presets()[i].params;
+        m.textureSize = 128;
+        m.defaultClips = false;
+        m.clips.clear();
+    }
+    glbparser::Skel s;
+    std::vector<std::string> warnings;
+    std::string err;
+    if (!chargen::build(m, s, warnings, err) || s.parts.empty()) return;
+    charanim::poseMesh(s, -1, 0.0f, j.tris);
+    j.tex.resize(s.parts.size());
+    j.cutout.resize(s.parts.size());
+    for (size_t i = 0; i < s.parts.size(); ++i) {
+        j.cutout[i] = s.parts[i].material.rfind("hair:", 0) == 0;
+        const int img = s.parts[i].image;
+        if (img < 0 || img >= (int)s.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(s.images[img].png.data(),
+                                                  (int)s.images[img].png.size(), &w, &h, &comp, 4);
+        if (!px) continue;
+        j.tex[i].rgba.assign(px, px + (size_t)w * h * 4);
+        j.tex[i].w = w;
+        j.tex[i].h = h;
+        stbi_image_free(px);
+    }
+    const float H = s.max[1] - s.min[1];
+    j.center[0] = (s.min[0] + s.max[0]) * 0.5f;
+    j.center[2] = (s.min[2] + s.max[2]) * 0.5f;
+    j.minY = s.min[1];
+    float cy = s.min[1] + H * 0.58f, r = H * 0.34f;  // knees up: a person, not a dot
+    if (slot == "head" || slot == "face") cy = s.max[1] - H * 0.09f, r = H * 0.085f;
+    else if (slot == "feet") cy = s.min[1] + H * 0.06f, r = H * 0.10f;
+    else if (slot == "top") cy = s.min[1] + H * 0.70f, r = H * 0.19f;
+    else if (slot == "bottom") cy = s.min[1] + H * 0.36f, r = H * 0.27f;
+    j.center[1] = cy;
+    j.radius = r;
+    j.ok = true;
+}
+
+uint32_t App::charIcon(const std::string& key) {
+    if (auto it = charIcons_.find(key); it != charIcons_.end()) return it->second;
+    for (const auto& j : charIconJobs_)
+        if (j->key == key) return 0;
+    if (std::find(charIconWanted_.begin(), charIconWanted_.end(), key) == charIconWanted_.end())
+        charIconWanted_.push_back(key);
+    return 0;
+}
+
+void App::pumpCharIcons() {
+    for (size_t i = 0; i < charIconJobs_.size();) {
+        CharIconJob& j = *charIconJobs_[i];
+        if (j.done.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            ++i;
+            continue;
+        }
+        uint32_t tex = 0;
+        if (j.ok) {
+            Viewport::CharPreviewDesc d;
+            for (size_t k = 0; k < j.tris.size() && d.partCount < d.kMaxParts; ++k) {
+                auto& dp = d.parts[d.partCount++];
+                dp.tris = &j.tris[k];
+                if (k < j.tex.size() && !j.tex[k].rgba.empty()) {
+                    dp.rgba = j.tex[k].rgba.data();
+                    dp.texW = j.tex[k].w;
+                    dp.texH = j.tex[k].h;
+                }
+                dp.cutout = k < j.cutout.size() && j.cutout[k];
+            }
+            for (int a = 0; a < 3; ++a) d.center[a] = j.center[a];
+            d.minY = j.minY;
+            d.radius = j.radius;
+            d.angleDeg = 60.0f;  // three-quarters from the front
+            d.pitchDeg = 4.0f;
+            tex = viewport_.renderCharacterIcon(96, d);
+        }
+        charIcons_[j.key] = tex;  // 0 = the build failed: a plain card
+        charIconJobs_.erase(charIconJobs_.begin() + (long)i);
+    }
+    // two in flight: enough to fill a tab in a couple of seconds without
+    // taking every core from the editor
+    while (charIconJobs_.size() < 2 && !charIconWanted_.empty()) {
+        auto j = std::make_shared<CharIconJob>();
+        j->key = charIconWanted_.front();
+        charIconWanted_.erase(charIconWanted_.begin());
+        CharIconJob* raw = j.get();
+        j->done = std::async(std::launch::async, [raw] { buildCharIcon(*raw); });
+        charIconJobs_.push_back(std::move(j));
+    }
+}
+
+// Tools > Character Generator: a rigged, skinned, textured human from the
+// embedded character kit (docs/character-generator.md). Every control edits
+// charParams_; the preview rebuilds when they change, and "Add to scene" writes
+// a plain .glb plus its .chargen.json recipe - from there it is an ordinary
+// animated model with nothing downstream aware it was generated.
+void App::drawCharacterGeneratorWindow() {
+    if (!showCharGenerator_ || !hasProject_) return;
+    chargen::setAssetRoot(project_.dir);  // a recipe's custom hair is project-relative
+    ImGui::SetNextWindowSize(ImVec2(scaled(1060.0f), scaled(720.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!chargen::kitAvailable()) {
+        std::string err;
+        glbparser::Skel dummy;
+        std::vector<std::string> w;
+        chargen::build(charParams_, dummy, w, err);
+        ImGui::TextWrapped("The character kit in this build is unusable: %s", err.c_str());
+        ImGui::End();
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    chargen::Params& p = charParams_;
+    bool dirty = false;
+    pumpCharIcons();
+
+    // A card: the thumbnail (a plain button until it is rendered) with the
+    // name under it, outlined when chosen. Cards flow left to right and wrap.
+    const float cardSize = scaled(64.0f);
+    auto card = [&](const std::string& key, const char* label, bool selected) {
+        ImGui::BeginGroup();
+        ImGui::PushID(key.c_str());
+        const uint32_t tex = key.empty() ? 0 : charIcon(key);
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, scaled(2.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+        }
+        bool clicked;
+        if (tex)
+            clicked = ImGui::ImageButton("##card", (ImTextureID)(intptr_t)tex,
+                                         ImVec2(cardSize, cardSize), ImVec2(0, 1), ImVec2(1, 0));
+        else
+            clicked = ImGui::Button(key.empty() ? "-" : "...",
+                                    ImVec2(cardSize + ImGui::GetStyle().FramePadding.x * 2,
+                                           cardSize + ImGui::GetStyle().FramePadding.y * 2));
+        if (selected) {
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label);
+        // the name, cut to the card's width
+        const float w = cardSize + ImGui::GetStyle().FramePadding.x * 2;
+        std::string shown = label;
+        while (shown.size() > 3 && ImGui::CalcTextSize(shown.c_str()).x > w)
+            shown = shown.substr(0, shown.size() - 4) + "..";
+        ImGui::TextDisabled("%s", shown.c_str());
+        ImGui::PopID();
+        ImGui::EndGroup();
+        // flow: next card on this line if it fits
+        const float next = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w;
+        if (next < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+            ImGui::SameLine();
+        return clicked;
+    };
+    auto endCards = [&]() { ImGui::NewLine(); };
+
+    auto color = [&](const char* label, chargen::Rgb& c) {
+        float v[3] = {c.r, c.g, c.b};
+        if (ImGui::ColorEdit3(label, v, ImGuiColorEditFlags_NoInputs)) {
+            c = chargen::Rgb{v[0], v[1], v[2]};
+            dirty = true;
+        }
+    };
+    // Swatches: one click is how people actually pick hair and eye colours.
+    auto swatches = [&](const char* id, chargen::Rgb& c, const std::vector<chargen::Rgb>& list) {
+        ImGui::PushID(id);
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (i) ImGui::SameLine(0, scaled(3.0f));
+            const ImVec4 col(list[i].r, list[i].g, list[i].b, 1.0f);
+            ImGui::PushID((int)i);
+            if (ImGui::ColorButton("##sw", col, ImGuiColorEditFlags_NoTooltip,
+                                   ImVec2(scaled(18.0f), scaled(18.0f)))) {
+                c = list[i];
+                dirty = true;
+            }
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+    };
+    static const std::vector<chargen::Rgb> kHair = {
+        {0.05f, 0.04f, 0.04f}, {0.16f, 0.10f, 0.06f}, {0.32f, 0.20f, 0.11f},
+        {0.55f, 0.38f, 0.20f}, {0.85f, 0.70f, 0.45f}, {0.55f, 0.20f, 0.08f},
+        {0.78f, 0.77f, 0.75f}, {0.95f, 0.95f, 0.95f}};
+    static const std::vector<chargen::Rgb> kEyes = {
+        {0.33f, 0.22f, 0.12f}, {0.16f, 0.10f, 0.06f}, {0.25f, 0.42f, 0.62f},
+        {0.42f, 0.62f, 0.78f}, {0.30f, 0.45f, 0.30f}, {0.45f, 0.45f, 0.42f},
+        {0.50f, 0.38f, 0.18f}};
+    static const std::vector<chargen::Rgb> kCloth = {
+        {0.90f, 0.90f, 0.88f}, {0.12f, 0.12f, 0.14f}, {0.40f, 0.40f, 0.42f},
+        {0.20f, 0.27f, 0.50f}, {0.55f, 0.15f, 0.14f}, {0.27f, 0.40f, 0.25f},
+        {0.62f, 0.52f, 0.36f}, {0.42f, 0.28f, 0.18f}, {0.75f, 0.58f, 0.18f},
+        {0.42f, 0.28f, 0.50f}, {0.20f, 0.45f, 0.55f}, {0.85f, 0.45f, 0.55f}};
+
+    // ---- left: parameter panel ---------------------------------------------
+    ImGui::BeginChild("charparams", ImVec2(scaled(440.0f), 0), true);
+
+    const std::vector<chargen::Preset>& presets = chargen::presets();
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::BeginCombo("##preset", presets[charPreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (ImGui::Selectable(presets[i].name, charPreset_ == i)) {
+                charPreset_ = i;
+                const chargen::Params keep = p;
+                p = presets[i].params;
+                p.outfit = keep.outfit;  // a preset is a body, not a wardrobe
+                p.hair = keep.hair;
+                p.textureSize = keep.textureSize;
+                dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Randomize")) {
+        const chargen::Params was = p;
+        p = chargen::randomize(charSeed_++, p);
+        // what the locks keep
+        auto isBodySlider = [](const chargen::Slider& s) {
+            return s.group == "Body" || s.group == "Proportions";
+        };
+        if (charKeepBody_) {
+            p.gender = was.gender, p.age = was.age, p.muscle = was.muscle, p.weight = was.weight;
+            p.african = was.african, p.asian = was.asian, p.caucasian = was.caucasian;
+            p.heightMeters = was.heightMeters, p.dimorphism = was.dimorphism;
+            p.breastSize = was.breastSize, p.breastFirmness = was.breastFirmness;
+        }
+        for (const chargen::Slider& s : chargen::sliders())
+            if ((charKeepBody_ && isBodySlider(s)) || (charKeepFace_ && !isBodySlider(s))) {
+                if (was.shape.count(s.id)) p.shape[s.id] = was.shape.at(s.id);
+                else p.shape.erase(s.id);
+            }
+        if (charKeepFace_) {
+            p.brows = was.brows, p.browDensity = was.browDensity, p.lashes = was.lashes;
+        }
+        if (charKeepOutfit_) p.outfit = was.outfit, p.hair = was.hair;
+        if (charKeepColours_) {
+            p.skinTone = was.skinTone, p.skinWarmth = was.skinWarmth;
+            p.hairColor = was.hairColor, p.eyeColor = was.eyeColor;
+            p.lipstick = was.lipstick, p.lipColor = was.lipColor;
+            p.eyeShadow = was.eyeShadow, p.blush = was.blush, p.stubble = was.stubble;
+            if (charKeepOutfit_) p.outfit = was.outfit;
+        }
+        dirty = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A plausible stranger: body, face, colours, outfit and hair.\n"
+                          "Click again for another one. The locks (right) keep parts.");
+    ImGui::SameLine();
+    if (ImGui::Button("Locks...")) ImGui::OpenPopup("##charlocks");
+    if (ImGui::BeginPopup("##charlocks")) {
+        ImGui::TextDisabled("Randomize keeps:");
+        ImGui::Checkbox("Body", &charKeepBody_);
+        ImGui::Checkbox("Face", &charKeepFace_);
+        ImGui::Checkbox("Outfit and hair", &charKeepOutfit_);
+        ImGui::Checkbox("Colours", &charKeepColours_);
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charHistoryAt_ <= 0);
+    if (ImGui::ArrowButton("##charundo", ImGuiDir_Left)) {
+        p = charHistory_[(size_t)--charHistoryAt_];
+        dirty = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Undo");
+    ImGui::SameLine(0, scaled(2.0f));
+    ImGui::BeginDisabled(charHistoryAt_ + 1 >= (int)charHistory_.size());
+    if (ImGui::ArrowButton("##charredo", ImGuiDir_Right)) {
+        p = charHistory_[(size_t)++charHistoryAt_];
+        dirty = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Redo");
+    ImGui::SameLine();
+    if (ImGui::Button("Open recipe...")) {
+        const std::string file = platform::pickFile(
+            "Open character recipe",
+            {{"Character recipe (*.chargen.json)", {"*.chargen.json", "*.json"}},
+             {"All files (*)", {"*"}}});
+        if (!file.empty()) {
+            std::ifstream in(file, std::ios::binary);
+            std::stringstream ss;
+            ss << in.rdbuf();
+            std::string err;
+            if (chargen::fromJson(ss.str(), p, err)) {
+                std::snprintf(charName_, sizeof(charName_), "%s", p.name.c_str());
+                dirty = true;
+            } else {
+                statusMessage_ = "Not a character recipe: " + err;
+            }
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Load a .chargen.json - every generated character has one\n"
+                          "beside its .glb - to edit that character again.");
+
+    namespace fs = std::filesystem;
+    // A file from outside the project is copied in, so the recipe
+    // (and anyone who clones the project) still finds it.
+    auto adopt = [&](const std::string& file) -> std::string {
+        std::error_code ec;
+        const fs::path root(project_.dir);
+        const fs::path rel = fs::relative(file, root, ec);
+        if (!ec && !rel.empty() && rel.native()[0] != '.') return rel.generic_string();
+        const fs::path dst = root / "res" / "models" / "characters" / "custom" /
+                             fs::path(file).filename();
+        fs::create_directories(dst.parent_path(), ec);
+        fs::copy_file(file, dst, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            statusMessage_ = "Could not copy " + file + ": " + ec.message();
+            return file;
+        }
+        return fs::relative(dst, root, ec).generic_string();
+    };
+    if (ImGui::BeginTabBar("chartabs")) {
+        // -- Body --------------------------------------------------------------
+        if (ImGui::BeginTabItem("Body")) {
+            if (ImGui::CollapsingHeader("Start from", ImGuiTreeNodeFlags_DefaultOpen)) {
+                for (int i = 0; i < (int)presets.size(); ++i)
+                    if (card("p:" + std::to_string(i), presets[i].name, charPreset_ == i)) {
+                        charPreset_ = i;
+                        const chargen::Params keep = p;
+                        p = presets[i].params;
+                        p.outfit = keep.outfit;  // a preset is a body, not a wardrobe
+                        p.hair = keep.hair;
+                        p.textureSize = keep.textureSize;
+                        dirty = true;
+                    }
+                endCards();
+            }
+            ImGui::SeparatorText("Build");
+            dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = female, 1 = male.\n"
+                                  "From 0.5 up the man's game mesh is used - same shape,\n"
+                                  "edge loops cut for a male chest.");
+            dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = baby (1 year), 0.19 = child (10),\n"
+                                  "0.5 = young adult (25), 1 = old (90).");
+            dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
+            {
+                static const char* kDetail[] = {"Crowd (~1.6k triangles)", "Standard (~3.3k)",
+                                                "Hero (~9.5k)"};
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                if (ImGui::Combo("Detail", &p.detail, kDetail, 3)) dirty = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Which body it is built on. Hero is for the one or two\n"
+                                      "characters the camera lives with; Crowd for the people\n"
+                                      "in the background (the Crowd button uses it). The\n"
+                                      "sliders, clothes and clips are the same on all three.");
+            }
+            dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
+            dirty |= ImGui::SliderFloat("Dimorphism", &p.dimorphism, 0.0f, 1.5f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How strongly gender reads in the face and build. MakeHuman's\n"
+                                  "average man and woman are alike in the face; this moves jaw,\n"
+                                  "brow ridge, chin, neck, lips and eyes along with Gender.");
+            ImGui::BeginDisabled(p.gender >= 0.95f);
+            dirty |= ImGui::SliderFloat("Breast size", &p.breastSize, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("MakeHuman's cup-size macro: 0 smallest, 0.5 average,\n"
+                                  "1 largest. It follows Gender - none at all on a man\n"
+                                  "(his chest is the Bust slider).");
+            dirty |= ImGui::SliderFloat("Breast firmness", &p.breastFirmness, 0.0f, 1.0f, "%.2f");
+            ImGui::EndDisabled();
+            ImGui::SeparatorText("Ancestry");
+            dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("European", &p.caucasian, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The three are a mix - they shape the face and pick the\n"
+                                  "skin, and normalize to 1 inside the generator.");
+            for (const char* group : {"Body", "Proportions"}) {
+                ImGui::SeparatorText(group);
+                for (const chargen::Slider& s : chargen::sliders()) {
+                    if (s.group != group) continue;
+                    float v = p.shape.count(s.id) ? p.shape[s.id] : 0.0f;
+                    if (ImGui::SliderFloat(s.label.c_str(), &v, -1.0f, 1.0f, "%.2f")) {
+                        p.shape[s.id] = v;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                        p.shape.erase(s.id);
+                        dirty = true;
+                    }
+                }
+            }
+            ImGui::EndTabItem();
+        }
+        // -- Face ----------------------------------------------------------------
+        if (ImGui::BeginTabItem("Face")) {
+            ImGui::TextDisabled("Right-click a slider to reset it.");
+            std::string last;
+            bool open = true;
+            for (const chargen::Slider& s : chargen::sliders()) {
+                if (s.group == "Body" || s.group == "Proportions") continue;
+                if (s.group != last) {
+                    // one folding section per feature: 60 sliders in a row is
+                    // a form, not a face editor
+                    open = ImGui::CollapsingHeader(s.group.c_str(),
+                                                   last.empty() ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+                    last = s.group;
+                }
+                if (!open) continue;
+                float v = p.shape.count(s.id) ? p.shape[s.id] : 0.0f;
+                if (ImGui::SliderFloat(s.label.c_str(), &v, -1.0f, 1.0f, "%.2f")) {
+                    p.shape[s.id] = v;
+                    dirty = true;
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    p.shape.erase(s.id);
+                    dirty = true;
+                }
+            }
+            if (ImGui::Button("Reset face")) {
+                for (const chargen::Slider& s : chargen::sliders())
+                    if (s.group != "Body" && s.group != "Proportions") p.shape.erase(s.id);
+                dirty = true;
+            }
+            ImGui::EndTabItem();
+        }
+        // -- Skin & makeup ---------------------------------------------------------
+        if (ImGui::BeginTabItem("Skin")) {
+            dirty |= ImGui::SliderFloat("Skin tone", &p.skinTone, -1.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("-1 paler ... +1 darker, on top of what ancestry gives.");
+            dirty |= ImGui::SliderFloat("Warmth", &p.skinWarmth, -1.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 rosier ... +1 more golden");
+            dirty |= ImGui::SliderFloat("Weathering", &p.aging, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Older skin (wrinkles, blotches) without an older body.");
+            ImGui::SeparatorText("Eyes");
+            color("Eye colour", p.eyeColor);
+            ImGui::SameLine();
+            swatches("eyes", p.eyeColor, kEyes);
+            ImGui::SeparatorText("Brows and lashes");
+            {
+                const std::vector<std::string>& b = chargen::browList();
+                const std::string cur = p.brows >= 0 && p.brows < (int)b.size()
+                                            ? "Style " + std::to_string(p.brows + 1)
+                                            : "None";
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::BeginCombo("Eyebrows", cur.c_str())) {
+                    if (ImGui::Selectable("None", p.brows < 0)) {
+                        p.brows = -1;
+                        dirty = true;
+                    }
+                    for (int i = 0; i < (int)b.size(); ++i)
+                        if (ImGui::Selectable(("Style " + std::to_string(i + 1)).c_str(),
+                                              p.brows == i)) {
+                            p.brows = i;
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                dirty |= ImGui::SliderFloat("Brow density", &p.browDensity, 0.0f, 1.5f, "%.2f");
+                const std::vector<std::string>& l = chargen::lashList();
+                const std::string curl = p.lashes >= 0 && p.lashes < (int)l.size()
+                                             ? "Style " + std::to_string(p.lashes + 1)
+                                             : "None";
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::BeginCombo("Eyelashes", curl.c_str())) {
+                    if (ImGui::Selectable("None", p.lashes < 0)) {
+                        p.lashes = -1;
+                        dirty = true;
+                    }
+                    for (int i = 0; i < (int)l.size(); ++i)
+                        if (ImGui::Selectable(("Style " + std::to_string(i + 1)).c_str(),
+                                              p.lashes == i)) {
+                            p.lashes = i;
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+            }
+            dirty |= ImGui::SliderFloat("Stubble", &p.stubble, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Makeup");
+            dirty |= ImGui::SliderFloat("Lipstick", &p.lipstick, 0.0f, 1.0f, "%.2f");
+            ImGui::SameLine();
+            color("##lip", p.lipColor);
+            dirty |= ImGui::SliderFloat("Eye shadow", &p.eyeShadow, 0.0f, 1.0f, "%.2f");
+            ImGui::SameLine();
+            color("##shadow", p.eyeShadowColor);
+            dirty |= ImGui::SliderFloat("Blush", &p.blush, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Texture");
+            int sizeIdx = p.textureSize >= 512 ? 2 : (p.textureSize >= 256 ? 1 : 0);
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::Combo("Atlas size", &sizeIdx, "128\0" "256\0" "512\0")) {
+                p.textureSize = sizeIdx == 2 ? 512 : (sizeIdx == 1 ? 256 : 128);
+                dirty = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The body's one texture - skin, face, eyes and the clothes painted\n"
+                    "on it. GS VRAM is ~1.33 MB with no eviction: 512 is for a hero,\n"
+                    "128 for a crowd (docs/gs-vram.md).");
+            ImGui::EndTabItem();
+        }
+        // -- Outfit ------------------------------------------------------------------
+        if (ImGui::BeginTabItem("Outfit")) {
+            static const char* kSlots[][2] = {{"full", "Outfit (full)"}, {"top", "Top"},
+                                              {"bottom", "Bottom"},      {"feet", "Shoes"},
+                                              {"head", "Hat"},           {"face", "Glasses"},
+                                              {"hands", "Gloves"},
+                                              {"over", "Over the top (vest, jacket)"}};
+            for (const auto& slot : kSlots) {
+                // What is worn in this slot, if anything.
+                int worn = -1;
+                for (int i = 0; i < (int)p.outfit.size(); ++i)
+                    for (const chargen::Item& it : chargen::wardrobe())
+                        if (it.id == p.outfit[i].id && it.slot == slot[0]) worn = i;
+                std::vector<const chargen::Item*> items;
+                for (const chargen::Item& it : chargen::wardrobe())
+                    if (it.slot == slot[0]) items.push_back(&it);
+                if (items.empty()) continue;
+                ImGui::PushID(slot[0]);
+                ImGui::SeparatorText(slot[1]);
+                std::string cur = "None";
+                const chargen::Item* curItem = nullptr;
+                for (const chargen::Item* it : items)
+                    if (worn >= 0 && it->id == p.outfit[worn].id) {
+                        cur = it->label;
+                        curItem = it;
+                    }
+                {
+                    if (card("", "None", worn < 0) && worn >= 0) {
+                        p.outfit.erase(p.outfit.begin() + worn);
+                        worn = -1;
+                        dirty = true;
+                    }
+                    for (const chargen::Item* it : items)
+                        if (card("w:" + it->id, it->label.c_str(), curItem == it)) {
+                            chargen::Wear w;
+                            w.id = it->id;
+                            if (worn >= 0) {
+                                w.color = p.outfit[worn].color;
+                                w.color2 = p.outfit[worn].color2;
+                                w.pattern = p.outfit[worn].pattern;
+                                p.outfit[worn] = w;
+                            } else {
+                                p.outfit.push_back(w);
+                            }
+                            // A full outfit replaces top and bottom, and the
+                            // other way round.
+                            const std::string s = slot[0];
+                            for (int i = (int)p.outfit.size() - 1; i >= 0; --i) {
+                                for (const chargen::Item& o : chargen::wardrobe())
+                                    if (o.id == p.outfit[i].id && o.id != it->id &&
+                                        ((s == "full" && (o.slot == "top" || o.slot == "bottom")) ||
+                                         ((s == "top" || s == "bottom") && o.slot == "full")))
+                                        p.outfit.erase(p.outfit.begin() + i);
+                            }
+                            dirty = true;
+                        }
+                    endCards();
+                }
+                worn = -1;
+                for (int i = 0; i < (int)p.outfit.size(); ++i)
+                    for (const chargen::Item& it : chargen::wardrobe())
+                        if (it.id == p.outfit[i].id && it.slot == slot[0]) worn = i;
+                if (worn >= 0) {
+                    chargen::Wear& w = p.outfit[worn];
+                    const chargen::Item* it = nullptr;
+                    for (const chargen::Item& o : chargen::wardrobe())
+                        if (o.id == w.id) it = &o;
+                    if (it && it->dyeable) {
+                        // one row: "as made", the street colours, any colour
+                        const bool recolour = w.color.r >= 0.0f;
+                        if (ImGui::RadioButton("As made", !recolour) && recolour) {
+                            w.color = chargen::Rgb{-1, -1, -1};
+                            dirty = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("The garment's own colours. A swatch recolours its main\n"
+                                              "fabric - shirts under it, prints and stitching stay.");
+                        ImGui::SameLine();
+                        swatches("c1", w.color, kCloth);
+                        ImGui::SameLine();
+                        if (!recolour) {
+                            chargen::Rgb pick = it->color;
+                            float v[3] = {pick.r, pick.g, pick.b};
+                            if (ImGui::ColorEdit3("##c1any", v, ImGuiColorEditFlags_NoInputs)) {
+                                w.color = chargen::Rgb{v[0], v[1], v[2]};
+                                dirty = true;
+                            }
+                        } else {
+                            color("##c1any", w.color);
+                        }
+                        if (it->twoTone || w.pattern > 0) {
+                            color("Second", w.color2);
+                            ImGui::SameLine();
+                            swatches("c2", w.color2, kCloth);
+                        }
+                        if (slot[0] == std::string("top") || slot[0] == std::string("bottom") ||
+                            slot[0] == std::string("full")) {
+                            const std::vector<std::string>& pats = chargen::patterns();
+                            for (int i = 0; i < (int)pats.size(); ++i) {
+                                if (i) ImGui::SameLine(0, scaled(3.0f));
+                                if (ImGui::RadioButton(pats[i].c_str(), w.pattern == i)) {
+                                    w.pattern = i;
+                                    if (i > 0 && w.color.r < 0.0f) w.color = it->color;
+                                    dirty = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                ImGui::PopID();
+            }
+            if (chargen::wardrobe().empty()) ImGui::TextDisabled("This kit has no wardrobe.");
+
+            // Your own clothes (docs/character-generator.md, "Your own clothes")
+            ImGui::SeparatorText("Your own clothes");
+            {
+                // Everything in res/models/characters/custom, as cards: a
+                // click wears it (in the slot last chosen for that file, else
+                // one guessed from its name), a second click takes it off.
+                // Re-scanned every second, so a file dropped in shows up.
+                static double scanned = -10.0;
+                static std::string scannedDir;
+                static std::vector<chargen::CustomGarmentFile> files;
+                if (ImGui::GetTime() - scanned > 1.0 || scannedDir != project_.dir) {
+                    files = chargen::listCustomGarments(project_.dir);
+                    scanned = ImGui::GetTime();
+                    scannedDir = project_.dir;
+                }
+                if (files.empty())
+                    ImGui::TextDisabled("Nothing in res/models/characters/custom yet - add one below.");
+                for (const chargen::CustomGarmentFile& f : files) {
+                    int at = -1;
+                    for (int i = 0; i < (int)p.customWear.size(); ++i)
+                        if (p.customWear[(size_t)i].mesh == f.mesh) at = i;
+                    if (card("cw:" + f.mesh + "|" + f.texture + "|" + f.slot, f.label.c_str(), at >= 0)) {
+                        if (at >= 0) {
+                            p.customWear.erase(p.customWear.begin() + at);
+                        } else {
+                            chargen::Params::CustomWear cw;
+                            cw.mesh = f.mesh;
+                            cw.texture = f.texture;
+                            cw.slot = f.slot;
+                            // one per slot: it takes the place of another own garment there
+                            p.customWear.erase(std::remove_if(p.customWear.begin(), p.customWear.end(),
+                                                              [&](const chargen::Params::CustomWear& o) {
+                                                                  return o.slot == cw.slot;
+                                                              }),
+                                               p.customWear.end());
+                            p.customWear.push_back(cw);
+                        }
+                        dirty = true;
+                    }
+                }
+                endCards();
+            }
+            int drop = -1;
+            for (int i = 0; i < (int)p.customWear.size(); ++i) {
+                chargen::Params::CustomWear& cw = p.customWear[(size_t)i];
+                ImGui::PushID(i);
+                int si = 0;
+                for (int k = 0; k < (int)(sizeof(kSlots) / sizeof(kSlots[0])); ++k)
+                    if (cw.slot == kSlots[k][0]) si = k;
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::BeginCombo("##slot", kSlots[si][1])) {
+                    for (int k = 0; k < (int)(sizeof(kSlots) / sizeof(kSlots[0])); ++k)
+                        if (ImGui::Selectable(kSlots[k][1], k == si)) {
+                            cw.slot = kSlots[k][0];
+                            // the file's slot from now on (its card wears it there)
+                            chargen::rememberCustomSlot(project_.dir, cw.mesh, cw.slot);
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::TextUnformatted(cw.mesh.c_str());
+                if (ImGui::Button("Texture...")) {
+                    const std::string file = platform::pickFile(
+                        "Its texture", {{"Images (*.png, *.jpg)", {"*.png", "*.jpg", "*.jpeg"}},
+                                        {"All files (*)", {"*"}}});
+                    if (!file.empty()) {
+                        cw.texture = adopt(file);
+                        dirty = true;
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Optional - else the model's own. Alpha below 50%%\n"
+                                      "is cut out (lace, holes).");
+                ImGui::SameLine();
+                const bool recolour = cw.color.r >= 0.0f;
+                if (ImGui::RadioButton("As made", !recolour) && recolour) {
+                    cw.color = chargen::Rgb{-1, -1, -1};
+                    dirty = true;
+                }
+                ImGui::SameLine();
+                {
+                    chargen::Rgb pick = recolour ? cw.color : chargen::Rgb{0.5f, 0.5f, 0.5f};
+                    float v[3] = {pick.r, pick.g, pick.b};
+                    if (ImGui::ColorEdit3("##cwcol", v, ImGuiColorEditFlags_NoInputs)) {
+                        cw.color = chargen::Rgb{v[0], v[1], v[2]};
+                        dirty = true;
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Remove")) drop = i;
+                if (!cw.texture.empty()) ImGui::TextDisabled("texture: %s", cw.texture.c_str());
+                ImGui::PopID();
+            }
+            if (drop >= 0) {
+                p.customWear.erase(p.customWear.begin() + drop);
+                dirty = true;
+            }
+            if (ImGui::Button("Add your own...")) {
+                const std::string file = platform::pickFile(
+                    "Your garment", {{"Models (*.glb, *.obj)", {"*.glb", "*.gltf", "*.obj"}},
+                                     {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    chargen::Params::CustomWear cw;
+                    cw.mesh = adopt(file);
+                    p.customWear.push_back(cw);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A .glb or .obj modelled on a reference body (Hair tab >\n"
+                                  "Export reference bodies). It rides every body slider like\n"
+                                  "the kit's clothes: each vertex follows the skin nearest to\n"
+                                  "it, is kept out of the body, and hides the skin under it.\n"
+                                  "Pick its slot: it replaces the kit's item there.");
+            ImGui::EndTabItem();
+        }
+        // -- Hair ---------------------------------------------------------------------
+        if (ImGui::BeginTabItem("Hair")) {
+            const std::vector<chargen::Item>& hs = chargen::hairstyles();
+            std::string cur = "Bald";
+            for (const chargen::Item& h : hs)
+                if (h.id == p.hair) cur = h.label;
+            (void)cur;
+            if (card("", "Bald", p.hair.empty())) {
+                p.hair.clear();
+                dirty = true;
+            }
+            for (const chargen::Item& h : hs)
+                if (card("h:" + h.id, h.label.c_str(), h.id == p.hair)) {
+                    p.hair = h.id;
+                    dirty = true;
+                }
+            endCards();
+            ImGui::Spacing();
+            color("Hair colour", p.hairColor);
+            ImGui::SameLine();
+            swatches("hair", p.hairColor, kHair);
+            ImGui::TextDisabled("The brows and stubble follow the hair colour.");
+
+            // Your own hair (docs/character-generator.md, "Your own hair")
+            ImGui::SeparatorText("Your own hair");
+            ImGui::TextDisabled("%s", p.customHair.empty() ? "(none - the kit's hairstyle above)"
+                                                           : p.customHair.c_str());
+            if (ImGui::Button("Model...")) {
+                const std::string file = platform::pickFile(
+                    "Your hair model", {{"Models (*.glb, *.obj)", {"*.glb", "*.gltf", "*.obj"}},
+                                        {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    p.customHair = adopt(file);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A .glb or .obj modelled on a reference body (the button\n"
+                                  "on the right). It rides every body slider like the kit's\n"
+                                  "hair: each vertex follows the skin nearest to it.");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(p.customHair.empty());
+            if (ImGui::Button("Texture...")) {
+                const std::string file = platform::pickFile(
+                    "Its texture", {{"Images (*.png, *.jpg)", {"*.png", "*.jpg", "*.jpeg"}},
+                                    {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    p.customHairTexture = adopt(file);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Optional - else the model's own. Alpha below 50%%\n"
+                                  "is cut out (strands), like the kit's hair cards.");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##customhair")) {
+                p.customHair.clear();
+                p.customHairTexture.clear();
+                dirty = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Export reference bodies...")) {
+                const fs::path dir = fs::path(project_.dir) / "res" / "models" / "characters" / "custom";
+                std::string err;
+                statusMessage_ = chargen::exportReferenceBodies(dir.string(), err)
+                                     ? "Wrote reference-female.glb and reference-male.glb to " +
+                                           dir.generic_string()
+                                     : "Reference export failed: " + err;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The average woman and man at 1.75 m, into\n"
+                                  "res/models/characters/custom. Model your hair on the one\n"
+                                  "whose body you will use (Gender below / from 0.5).");
+            if (!p.customHairTexture.empty())
+                ImGui::TextDisabled("texture: %s", p.customHairTexture.c_str());
+            ImGui::EndTabItem();
+        }
+        // -- Animation -----------------------------------------------------------------
+        if (ImGui::BeginTabItem("Animation")) {
+            if (ImGui::Checkbox("Standard set", &p.defaultClips)) dirty = true;
+            if (ImGui::IsItemHovered()) {
+                std::string tip = "Locomotion under the names the third-person player looks for:\n";
+                for (const auto& [src, dst] : chargen::defaultClipSet())
+                    tip += "  " + dst + "  (" + src + ")\n";
+                ImGui::SetTooltip("%s", tip.c_str());
+            }
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            dirty |= ImGui::SliderFloat("Key rate", &p.animFps, 8.0f, 30.0f, "%.0f fps");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Keys per second written into the clips. The EE evaluates\n"
+                                  "them, so lower is cheaper; 15 is plenty at PS2 range.");
+            {
+                // Movement style: auto follows Gender; unticking it pins a value
+                if (ImGui::Checkbox("Auto style", &p.motionStyleAuto)) {
+                    if (!p.motionStyleAuto) p.motionStyle = chargen::motionStyleFor(p);
+                    dirty = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Movement style from Gender: a woman moves feminine,\n"
+                                      "a man masculine, a child in between.");
+                ImGui::SameLine();
+                float shown = chargen::motionStyleFor(p);
+                ImGui::BeginDisabled(p.motionStyleAuto);
+                ImGui::SetNextItemWidth(scaled(160.0f));
+                if (ImGui::SliderFloat("Movement style", &shown, -1.0f, 1.0f,
+                                       shown > 0.05f ? "feminine %.2f"
+                                       : shown < -0.05f ? "masculine %.2f" : "as captured")) {
+                    p.motionStyle = shown;
+                    dirty = true;
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("One motion library, read as a woman's or a man's\n"
+                                      "movement. Feminine: the hips sway more, a narrower\n"
+                                      "step, elbows in, a smaller arm swing and less chest\n"
+                                      "turn. Masculine: the other way, half as far. 0 = the\n"
+                                      "clips as captured.");
+            }
+            if (!p.defaultClips) {
+                ImGui::SetNextItemWidth(scaled(200.0f));
+                ImGui::InputTextWithHint("##clipfilter", "filter", charClipFilter_,
+                                         sizeof(charClipFilter_));
+                ImGui::BeginChild("clips", ImVec2(0, scaled(260.0f)), true);
+                std::string filter = charClipFilter_;
+                std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
+                for (const chargen::ClipInfo& c : chargen::kitClips()) {
+                    std::string low = c.name;
+                    std::transform(low.begin(), low.end(), low.begin(), ::tolower);
+                    if (!filter.empty() && low.find(filter) == std::string::npos) continue;
+                    bool on = std::find(p.clips.begin(), p.clips.end(), c.name) != p.clips.end();
+                    char label[96];
+                    std::snprintf(label, sizeof(label), "%s  (%.1f s%s)", c.name.c_str(),
+                                  c.seconds, c.loop ? ", loop" : "");
+                    if (ImGui::Checkbox(label, &on)) {
+                        if (on)
+                            p.clips.push_back(c.name);
+                        else
+                            p.clips.erase(std::remove(p.clips.begin(), p.clips.end(), c.name),
+                                          p.clips.end());
+                        dirty = true;
+                    }
+                }
+                ImGui::EndChild();
+                if (ImGui::SmallButton("Start from the standard set")) {
+                    p.clips.clear();
+                    for (const auto& [src, dst] : chargen::defaultClipSet()) p.clips.push_back(src);
+                    dirty = true;
+                }
+            }
+            ImGui::TextDisabled("Motion: Quaternius, Universal Animation Library (CC0).");
+            ImGui::Spacing();
+            // An imported library replaces the kit's clips. Any rig whose bones
+            // carry Mixamo names works - that is what the bone naming is for.
+            if (ImGui::Button("Import clips...")) {
+                const std::string file = pickPath(PickKind::ObjModel);
+                if (!file.empty()) {
+                    p.animSource = file;
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Retarget a .glb/.fbx animation library (Mixamo-named) or a\n"
+                                  "phone .tmocap take onto this character, instead of the kit's.");
+            if (!p.animSource.empty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##animsrc")) {
+                    p.animSource.clear();
+                    dirty = true;
+                }
+                const size_t slash = p.animSource.find_last_of("/\\");
+                ImGui::TextWrapped("%s", slash == std::string::npos
+                                             ? p.animSource.c_str()
+                                             : p.animSource.c_str() + slash + 1);
+                if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
+                if (ImGui::Checkbox("Feet on the floor", &p.retarget.ground.enabled)) dirty = true;
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+
+    ImGui::Separator();
+    if (!charBuildError_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", charBuildError_.c_str());
+    } else if (!charSkel_.parts.empty()) {
+        ImGui::Text("%d triangles, %d bones, %d texture%s, %d clips",
+                    charSkel_.totalVertexCount() / 3, (int)charSkel_.palette.size(),
+                    (int)charSkel_.images.size(), charSkel_.images.size() == 1 ? "" : "s",
+                    (int)charSkel_.clips.size());
+        ImGui::Text("~%d KB of PS2 RAM", (int)(charSkel_.ps2Bytes() / 1024));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Model data plus one instance's skinned output buffers.");
+    }
+    for (const std::string& w : charWarnings_)
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", w.c_str());
+    ImGui::EndChild();
+
+    // ---- right: live preview ------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const bool hasClips = !charSkel_.clips.empty();
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (hasClips ? 3.0f : 2.0f) +
+                         scaled(8.0f);
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y - footer);
+
+    if (charGenSpin_) charGenAngle_ += io.DeltaTime * 26.0f;
+
+    if (hasClips) {
+        if (charClip_ < 0 || charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        if (charPlaying_) {
+            charAnimTime_ += io.DeltaTime;
+            if (charAnimTime_ > duration) charAnimTime_ = std::fmod(charAnimTime_, duration);
+            refreshCharacterPose();
+        }
+    }
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = charPreviewVersion_;
+    for (size_t i = 0; i < charPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &charPrevTris_[i];
+        if (i < charPrevTex_.size() && !charPrevTex_[i].rgba.empty()) {
+            dp.rgba = charPrevTex_[i].rgba.data();
+            dp.texW = charPrevTex_[i].w;
+            dp.texH = charPrevTex_[i].h;
+        }
+        dp.cutout = i < charSkel_.parts.size() &&
+                    charSkel_.parts[i].material.rfind("hair:", 0) == 0;
+    }
+    for (int i = 0; i < 3; ++i)
+        desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f + charGenPan_[i];
+    desc.minY = charSkel_.min[1];
+    const float dx = charSkel_.max[0] - charSkel_.min[0];
+    const float dy = charSkel_.max[1] - charSkel_.min[1];
+    const float dz = charSkel_.max[2] - charSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = charGenAngle_;
+    desc.pitchDeg = charGenPitch_;
+    desc.zoom = charGenZoom_;
+    desc.displayMode = charGenDisplayMode_;
+
+    const uint32_t tex = charPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##char_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                                   ImGuiButtonFlags_MouseButtonMiddle);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            charGenZoom_ = std::clamp(charGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && ImGui::IsMouseDown(2)) {
+            // pan: the pivot slides in the view plane, a pixel per pixel at
+            // the pivot's distance (drawToolPreview: dist = 2.4 r / zoom)
+            const float a = charGenAngle_ * 3.14159265f / 180.0f;
+            const float dist = desc.radius * 2.4f / std::max(charGenZoom_, 0.05f);
+            const float k = dist * 0.83f / (float)std::max(ph, 1);  // tan(22.5) * 2 / height
+            charGenPan_[0] += (io.MouseDelta.x * std::sin(a)) * k;
+            charGenPan_[2] += (-io.MouseDelta.x * std::cos(a)) * k;
+            charGenPan_[1] += io.MouseDelta.y * k;
+            charGenSpin_ = false;
+        } else if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            charGenAngle_ += io.MouseDelta.x * 0.5f;
+            charGenPitch_ = std::clamp(charGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+            charGenSpin_ = false;  // grabbing the camera stops the turntable
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+    }
+
+    if (hasClips) {
+        ImGui::SetNextItemWidth(scaled(140.0f));
+        if (ImGui::BeginCombo("##charclip", charSkel_.clips[charClip_].name.c_str())) {
+            for (int i = 0; i < (int)charSkel_.clips.size(); ++i)
+                if (ImGui::Selectable(charSkel_.clips[i].name.c_str(), charClip_ == i)) {
+                    charClip_ = i;
+                    charAnimTime_ = 0.0f;
+                    refreshCharacterPose();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(charPlaying_ ? "Pause" : "Play")) charPlaying_ = !charPlaying_;
+        ImGui::SameLine();
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::SliderFloat("##charscrub", &charAnimTime_, 0.0f, duration, "%.2f s")) {
+            charPlaying_ = false;
+            refreshCharacterPose();
+        }
+    }
+
+    ImGui::Checkbox("Spin", &charGenSpin_);
+    ImGui::SameLine();
+    bool wire = charGenDisplayMode_ == 1;
+    if (ImGui::Checkbox("Wireframe", &wire)) charGenDisplayMode_ = wire ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Face close-up")) {
+        // From the front (the rig faces +Z; the preview's angle 90 looks
+        // down -Z at it), pivot between the eyes - found on the rig, so a
+        // child or a 2 m man frame the same.
+        charGenAngle_ = 90.0f;
+        charGenPitch_ = 0.0f;
+        charGenSpin_ = false;
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        int found = 0;
+        for (size_t n = 0; n < charSkel_.nodes.size(); ++n) {
+            const std::string& nm = charSkel_.nodes[n].name;
+            if (nm != "mixamorig:LeftEye" && nm != "mixamorig:RightEye") continue;
+            // identity bind rotations: a node's rest position is the sum of
+            // its parents' translations
+            for (int j = (int)n; j >= 0; j = charSkel_.nodes[(size_t)j].parent)
+                for (int a = 0; a < 3; ++a) eye[a] += charSkel_.nodes[(size_t)j].t[a];
+            ++found;
+        }
+        for (int a = 0; a < 3; ++a) {
+            const float mid = (charSkel_.min[a] + charSkel_.max[a]) * 0.5f;
+            charGenPan_[a] = found ? eye[a] / (float)found - mid : 0.0f;
+        }
+        if (found) charGenPan_[1] -= 0.03f;  // the eyes sit a little above the face's middle
+        // a head fills the frame: about 0.6 m from the pivot
+        const float dx = charSkel_.max[0] - charSkel_.min[0];
+        const float dy = charSkel_.max[1] - charSkel_.min[1];
+        const float dz = charSkel_.max[2] - charSkel_.min[2];
+        const float radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+        charGenZoom_ = std::clamp(radius * 2.4f / 0.6f, 0.2f, 12.0f);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset view")) {
+        charGenAngle_ = 20.0f;
+        charGenPitch_ = 6.0f;
+        charGenZoom_ = 1.0f;
+        charGenPan_[0] = charGenPan_[1] = charGenPan_[2] = 0.0f;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Drag to turn, wheel to zoom, middle-drag to pan.");
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    ImGui::InputText("Name", charName_, sizeof(charName_));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Add to scene")) addCharacterToScene();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Write the .glb (and its .chargen.json recipe) into\n"
+                          "res/models/characters and drop a Model object into the scene.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Crowd...")) ImGui::OpenPopup("##charcrowd");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Many people for the price of one: this character in\n"
+                          "other colours, sharing one mesh, one pose and one\n"
+                          "atlas - each extra person is a 1 KB palette.");
+    if (ImGui::BeginPopup("##charcrowd")) {
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("People", &charCrowdPeople_, 2, 40);
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("Colour variants", &charCrowdVariants_, 1, 15);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Different skin tone, hair and clothing colours.\n"
+                              "People beyond this number repeat a variant.");
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderFloat("Spread", &charCrowdSpread_, 2.0f, 30.0f, "%.0f m");
+        ImGui::Checkbox("Light crowd body", &charCrowdLight_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Build the crowd on the Crowd detail body: ~1.6k triangles\n"
+                              "a person instead of ~3.3k. Same sliders, clothes and clips.");
+        ImGui::Checkbox("Walk around", &charCrowdWander_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Pedestrians: each one walks to random spots within the\n"
+                              "spread and stands a while (Wander, docs/navigation-ai.md).\n"
+                              "Needs the scene's terrain. Off = they stand and idle.");
+        ImGui::TextDisabled("Placed around the viewport's target. Everyone idles\n"
+                            "in a few groups that share their skinning, and\n"
+                            "distant people switch to the lighter mesh LODs.");
+        if (ImGui::Button("Add crowd to scene")) {
+            addCrowdToScene(charCrowdPeople_, charCrowdVariants_, charCrowdSpread_,
+                            charCrowdWander_);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Player creator...")) ImGui::OpenPopup("##charcreator");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Make this character the player, with an in-game\n"
+                          "Character Creator: the player picks colours, hair,\n"
+                          "a hat and glasses from the ones you tick here.");
+    if (ImGui::BeginPopup("##charcreator")) {
+        ImGui::TextDisabled("What the player may choose from. What the character\n"
+                            "wears now is where they start; each tick adds a\n"
+                            "part with its own small texture (the preview shows\n"
+                            "only the start).");
+        auto has = [&](const std::string& id) {
+            return std::find(p.options.begin(), p.options.end(), id) != p.options.end();
+        };
+        auto tick = [&](const chargen::Item& it, bool worn) {
+            bool on = worn || has(it.id);
+            ImGui::BeginDisabled(worn);
+            if (ImGui::Checkbox((it.label + (worn ? " (worn)" : "") + "##opt" + it.id).c_str(), &on)) {
+                if (on)
+                    p.options.push_back(it.id);
+                else
+                    p.options.erase(std::remove(p.options.begin(), p.options.end(), it.id),
+                                    p.options.end());
+            }
+            ImGui::EndDisabled();
+        };
+        auto wearing = [&](const std::string& id) {
+            for (const chargen::Wear& w : p.outfit)
+                if (w.id == id) return true;
+            return false;
+        };
+        if (ImGui::BeginTable("##optcols", 3, ImGuiTableFlags_SizingStretchSame,
+                              ImVec2(scaled(600.0f), 0.0f))) {
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Hair");
+            ImGui::BeginChild("##opthair", ImVec2(0, scaled(220.0f)));
+            for (const chargen::Item& it : chargen::hairstyles()) tick(it, it.id == p.hair);
+            ImGui::EndChild();
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Hats");
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.slot == "head") tick(it, wearing(it.id));
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Glasses");
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.slot == "face") tick(it, wearing(it.id));
+            ImGui::EndTable();
+        }
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("Colour looks", &charCreatorLooks_, 0, 7);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Other skin, hair and clothing colours to choose from,\n"
+                              "beside the character's own - a 1 KB palette each.");
+        ImGui::Checkbox(p.gender >= 0.5f ? "Also as a woman" : "Also as a man", &p.bodyChoice);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A shortcut for the CHARACTER row: the same person in the\n"
+                              "other sex, written beside the model as <name>-alt.glb with\n"
+                              "the same clothes, options and colour looks, and offered\n"
+                              "with it. The game loads a chosen character in the background\n"
+                              "and frees the other - a second model on disc, not in memory.");
+        ImGui::TextDisabled("Opens in the game with the Character Creator flow\n"
+                            "node (Animation category). The choice survives\n"
+                            "scene changes and is saved with the game.");
+        if (ImGui::Button("Make it the player")) {
+            makeCreatorPlayer();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Add as a character choice")) {
+            makeCreatorPlayer(true);
+            ImGui::CloseCurrentPopup();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Keep the player as it is and add this one to its\n"
+                              "'Characters to choose from': the creator's CHARACTER row\n"
+                              "switches between them in the game.");
+        ImGui::EndPopup();
+    }
+    ImGui::EndGroup();
+
+    if (dirty) charPreviewDirty_ = true;
+    if (charPreviewDirty_) rebuildCharacterPreview();
+    // undo history: a step per SETTLED change - a slider drag is one step
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+        (charHistory_.empty() || charHistory_[(size_t)charHistoryAt_] != p)) {
+        charHistory_.resize((size_t)(charHistoryAt_ + 1));
+        charHistory_.push_back(p);
+        if (charHistory_.size() > 64) charHistory_.erase(charHistory_.begin());
+        charHistoryAt_ = (int)charHistory_.size() - 1;
+    }
+
+    ImGui::End();
+}
+
+// "Add to scene" from the Character Generator. Same shape as addTreeToScene:
+// a distinct asset file per generated character so two of them never overwrite
+// each other, then the ordinary Model insert path.
+// "res/.../hero.glb" -> "res/.../hero-alt.glb": a Body-row character's other body
+static std::string altRel(const std::string& rel) {
+    return std::filesystem::path(chargen::altModelPath(rel)).generic_string();
+}
+
+void App::addCharacterToScene() {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "character";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string rel, err;
+    // The preview leaves creator options out; the asset carries them.
+    glbparser::Skel full;
+    const glbparser::Skel* skel = &charSkel_;
+    if (!charParams_.options.empty()) {
+        std::vector<std::string> warnings;
+        if (!chargen::build(charParams_, full, warnings, err)) {
+            statusMessage_ = "Character export failed: " + err;
+            return;
+        }
+        skel = &full;
+    }
+    if (!chargen::writeAsset(project_.dir, name, *skel, charParams_, &rel, &err)) {
+        statusMessage_ = "Character export failed: " + err;
+        return;
+    }
+    // A face does not survive the project's default 4-bit palette - skin is
+    // one long gradient and bands into stripes at 16 colours. 8 bits is the
+    // same 256x256 atlas at 64 KB of GS VRAM (texbake claims the .glb's
+    // extracted images through this override).
+    project_.textureQuality[rel] = "8bit";
+    if (!chargen::writeBodyChoice(charParams_, (std::filesystem::path(project_.dir) / rel).string(), 0, err)) {
+        statusMessage_ = "Character's other body failed: " + err;
+        return;
+    }
+    if (charParams_.bodyChoice) project_.textureQuality[altRel(rel)] = "8bit";
+    addModelObject(rel);  // creates the Model object + commitChange()
+    const int tris = charSkel_.totalVertexCount() / 3;
+    statusMessage_ =
+        "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
+        std::to_string((int)charSkel_.palette.size()) + " bones)";
+}
+
+// The Crowd button. The base character is written once like "Add to scene";
+// its colour variants go beside it as "<name>_<image>.v<k>.png" (texbake fits
+// them into palettes against the base's own quantization), and every person
+// is an ordinary Model object naming its variant. Idle clips are dealt out
+// in a few groups so the game can skin each group once (pose sharing), and
+// a mesh-LOD override per person turns the decimated chain on for them.
+void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "character";
+    base += "-crowd";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string rel, err;
+    // A crowd is the preview's character: no creator options (they are for
+    // the player), so its recipe must not claim any either.
+    chargen::Params params = charParams_;
+    params.options.clear();
+    // On the crowd body, unless asked otherwise: a person in the background
+    // is a third of the triangles (docs/character-generator.md, "Detail").
+    glbparser::Skel light;
+    const glbparser::Skel* skel = &charSkel_;
+    if (charCrowdLight_ && params.detail != 0) {
+        params.detail = 0;
+        std::vector<std::string> warnings;
+        if (!chargen::build(params, light, warnings, err)) {
+            statusMessage_ = "Crowd export failed: " + err;
+            return;
+        }
+        skel = &light;
+    }
+    if (!chargen::writeAsset(project_.dir, name, *skel, params, &rel, &err)) {
+        statusMessage_ = "Crowd export failed: " + err;
+        return;
+    }
+    variants = std::clamp(variants, 1, std::max(1, people - 1));
+    const std::string glb = (fs::path(project_.dir) / rel).string();
+    for (int k = 1; k <= variants; ++k)
+        if (!chargen::writeVariantTextures(chargen::paletteVariant(params, (unsigned)k),
+                                           glb, k, err)) {
+            statusMessage_ = "Crowd variant failed: " + err;
+            return;
+        }
+    project_.textureQuality[rel] = "8bit";  // palettes need palettized textures
+
+    // the clips people idle in: every clip whose name says idle, else the first
+    std::vector<std::string> idles;
+    for (const auto& c : skel->clips) {
+        std::string lower = c.name;
+        for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
+        if (lower.find("idle") != std::string::npos) idles.push_back(c.name);
+    }
+    if (idles.empty() && !skel->clips.empty()) idles.push_back(skel->clips[0].name);
+    if (idles.size() > 3) idles.resize(3);  // a few groups: each skins once
+
+    float eye[3], target[3];
+    viewport_.currentCamera(eye, target);
+    uint32_t seed = 0x9e3779b9u ^ (uint32_t)project_.objects().size();
+    auto rnd = [&] {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return (seed & 0xffffff) / (float)0x1000000;
+    };
+    // A jittered grid: people stand apart (0.9 m at least) without lining up.
+    const int cols = std::max(1, (int)std::ceil(std::sqrt((float)people)));
+    const float cell = std::max(0.9f, spread / (float)cols);
+    for (int i = 0; i < people; ++i) {
+        const float at[3] = {
+            target[0] + ((i % cols) - (cols - 1) * 0.5f + (rnd() - 0.5f) * 0.5f) * cell, 0.0f,
+            target[2] + ((i / cols) - (cols - 1) * 0.5f + (rnd() - 0.5f) * 0.5f) * cell};
+        addModelObject(rel, at, false);
+        SceneObject& o = project_.objects().back();
+        o.rotation[1] = rnd() * 360.0f;
+        o.paletteVariant = i % (variants + 1);  // person 0 wears the original
+        if (!idles.empty()) o.animClip = idles[(size_t)i % idles.size()];
+        o.meshLodOverride = 8.0f;  // half the mesh beyond 8 m, a quarter beyond 16
+        if (wander) {
+            o.wanderRadius = std::max(2.0f, spread * 0.6f);
+            o.collisionMode = 2;  // none: a walker must not block its own nav cells
+        }
+    }
+    commitChange();
+    statusMessage_ = "Added a crowd of " + std::to_string(people) + " ('" + name + "', " +
+                     std::to_string(variants) + " colour variants, " +
+                     std::to_string(idles.size()) + " idle groups)";
+}
+
+// "Player creator..." (docs/character-generator.md, "In-game character
+// creator"): the character is written WITH its creator options and colour
+// looks, and the active scene's Player object wears it - or a Player is added
+// when the scene has none.
+void App::makeCreatorPlayer(bool asChoice) {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "player";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+    glbparser::Skel skel;
+    std::vector<std::string> warnings;
+    std::string rel, err;
+    if (!chargen::build(charParams_, skel, warnings, err) ||
+        !chargen::writeAsset(project_.dir, name, skel, charParams_, &rel, &err)) {
+        statusMessage_ = "Player export failed: " + err;
+        return;
+    }
+    const std::string glb = (fs::path(project_.dir) / rel).string();
+    for (int k = 1; k <= charCreatorLooks_; ++k)
+        if (!chargen::writeVariantTextures(chargen::paletteVariant(charParams_, (unsigned)k), glb,
+                                           k, err)) {
+            statusMessage_ = "Player colour look failed: " + err;
+            return;
+        }
+    project_.textureQuality[rel] = "8bit";
+    // the Body row's other body, with as many colour looks
+    if (!chargen::writeBodyChoice(charParams_, glb, charCreatorLooks_, err)) {
+        statusMessage_ = "Player's other body failed: " + err;
+        return;
+    }
+    if (charParams_.bodyChoice) project_.textureQuality[altRel(rel)] = "8bit";
+    SceneObject* player = nullptr;
+    for (SceneObject& o : project_.objects())
+        if (o.type == PrimitiveType::Player) {
+            player = &o;
+            break;
+        }
+    if (player && asChoice) {
+        // one more character the creator's CHARACTER row offers
+        if (std::find(player->playerCharacters.begin(), player->playerCharacters.end(), rel) ==
+            player->playerCharacters.end())
+            player->playerCharacters.push_back(rel);
+        commitChange();
+        statusMessage_ = "'" + name + "' is a character the player may choose (" +
+                         std::to_string((int)player->playerCharacters.size() + 1) + " in all)";
+        return;
+    }
+    if (player) {
+        player->modelPath = rel;
+        player->playerMode = 2;  // third person: the avatar is what they dressed
+        commitChange();
+    } else {
+        addModelObject(rel, nullptr, false);
+        SceneObject& o = project_.objects().back();
+        o.type = PrimitiveType::Player;
+        o.playerMode = 2;
+        o.name = "player";
+        commitChange();
+    }
+    statusMessage_ = "The player is now '" + name + "' (" +
+                     std::to_string((int)charParams_.options.size()) + " creator options, " +
+                     std::to_string(charCreatorLooks_ + 1) + " colour looks)";
+}
+
+void App::mocapRebind() {
+    // A rebind changes the SOURCE, and the recording buffers are laid out with
+    // the source's joint count as their stride - so frames already captured are
+    // not comparable with the ones that follow. A phone reconnecting mid-take
+    // sends a fresh `bodyrest`, which lands here, so this is a live path and not
+    // a theoretical one. Left alone it had two outcomes, both silent: the stride
+    // changed and writeTake rejected the whole take as inconsistent (every
+    // recorded frame discarded), or the new skeleton happened to have the same
+    // joint count and the file was written mixing frames from two different rest
+    // poses under one rest-pose header. Stop the recording and say so instead.
+    std::string stopped;
+    if (mocapRecording_) {
+        const size_t frames = mocapRecTimes_.size();
+        mocapRecording_ = false;
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+        mocapRecRoot_.clear();
+        stopped = "recording stopped: the capture source changed (" +
+                  std::to_string(frames) +
+                  " frames discarded - they were captured against the previous "
+                  "rest pose). ";
+    }
+    mocapBind_ = charanim::LiveRetarget();
+    mocapNote_ = stopped;  // "" in the ordinary case, as before
+    mocapTime_ = 0.0f;
+    if (mocapModel_.empty()) return;
+
+    std::string err;
+    glbparser::Skel character;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, character, err)) {
+        mocapNote_ += "character: " + err;
+        return;
+    }
+    mocapSkel_ = std::move(character);
+    // The character is posed by its node transforms from now on, so the clips
+    // it shipped with are not in the way - but keep them, the take is recorded
+    // separately and the asset on disk is untouched.
+
+    const glbparser::Skel* source = nullptr;
+    glbparser::Skel liveRig;
+    glbparser::Skel calibratedFile;
+    if (mocapSourceKind_ == 1) {
+        source = &mocapSource_;
+        // Calibration was live-only, which left the one case a T-pose take
+        // exists FOR unable to use it. Same rule as the live rig: replace the
+        // rest ROTATIONS, keep the bone offsets.
+        if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+            calibratedFile = mocapSource_;
+            for (size_t i = 0; i < calibratedFile.nodes.size(); ++i)
+                std::memcpy(calibratedFile.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+            source = &calibratedFile;
+            mocapCalibrated_ = true;
+        } else {
+            mocapCalibrated_ = false;
+        }
+    } else if (mocapSourceKind_ == 2) {
+        const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+        if (!sk.valid()) {
+            mocapNote_ += "waiting for the phone's skeleton";
+            return;
+        }
+        // Claimed before it is used, not after: a skeleton this build REJECTS
+        // has still been dealt with, and leaving it unclaimed would retry - and
+        // reprint - the same failure every frame.
+        mocapLiveSkelSeq_ = phoneCam_.bodySkeletonSeq();
+        // The pose every later frame is measured AGAINST. By default that is
+        // ARKit's neutral skeleton - a nominal T-pose out of a catalogue, not
+        // this person in these proportions - and everything the performer
+        // differs from it by becomes a constant error in every single frame.
+        // Calibrating replaces the assumption with a measurement: the performer
+        // stands in a T-pose, that frame is captured, and the delta is taken
+        // from there. Only the ROTATIONS are replaced; the bone offsets stay,
+        // because limbs do not change length between the catalogue and the room.
+        const bool calibrated =
+            mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
+        if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(),
+                                calibrated ? mocapCalibRot_.data() : sk.restRot.data(),
+                                liveRig, err)) {
+            mocapNote_ += "live skeleton: " + err;
+            return;
+        }
+        source = &liveRig;
+        mocapLiveHips_ = -1;
+        for (size_t i = 0; i < liveRig.nodes.size(); ++i)
+            if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
+        mocapHaveHeadingBase_ = false;
+        mocapCalibrated_ = calibrated;
+        mocapLiveJoints_ = sk.joints;
+        mocapLiveParents_ = sk.parents;
+        mocapLiveRestRot_ = sk.restRot;
+        mocapVisionTracker_.reset();
+    }
+    if (!source || source->nodes.empty()) return;
+
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
+    mocapBind_ = charanim::prepareLive(*source, mocapSkel_, opts, notes);
+    for (const std::string& n : notes) mocapNote_ = n;
+    if (!mocapBind_.valid() && mocapNote_.empty())
+        mocapNote_ = "the character and the performer share no bones";
+
+    // One decoded texture per part, exactly like the Character Generator's
+    // preview - the puppet is drawn by the same path.
+    mocapPrevTex_.assign(mocapSkel_.parts.size(), {});
+    for (size_t i = 0; i < mocapSkel_.parts.size(); ++i) {
+        const int img = mocapSkel_.parts[i].image;
+        if (img < 0 || img >= (int)mocapSkel_.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(mocapSkel_.images[img].png.data(),
+                                                  (int)mocapSkel_.images[img].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (!px) continue;
+        mocapPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        mocapPrevTex_[i].w = w;
+        mocapPrevTex_[i].h = h;
+        stbi_image_free(px);
+    }
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+}
+
+// Everything a jump invalidates, forgotten together. Called by the window's
+// button and by the phone's - one implementation, so the two cannot drift.
+void App::mocapZero() {
+    charanim::resetLiveOrigin(mocapBind_);
+    mocapHaveHeadingBase_ = false;
+    mocapFilter_.reset();
+    mocapVisionTracker_.reset();
+}
+
+// Euler angles out of a quaternion, degrees - for SHOWING a rotation, not for
+// computing with one. Reading "yaw 40, pitch -5" tells an operator whether a
+// head turned; reading four quaternion components tells nobody anything.
+static void eulerDegrees(const float* q, float* out) {
+    const float x = q[0], y = q[1], z = q[2], w = q[3];
+    const float sinp = 2.0f * (w * x - y * z);
+    out[1] = std::asin(sinp > 1 ? 1 : (sinp < -1 ? -1 : sinp)) * 57.2957795f;   // pitch
+    out[0] = std::atan2(2.0f * (w * y + x * z), 1 - 2 * (x * x + y * y)) * 57.2957795f;
+    out[2] = std::atan2(2.0f * (w * z + x * y), 1 - 2 * (x * x + z * z)) * 57.2957795f;
+}
+
+// What the solve actually produced for the three joints Vision drives, in
+// degrees, straight off the frame it just wrote.
+void App::mocapReadVisionResult() {
+    const char* want[3] = {"head_joint", "left_hand_joint", "right_hand_joint"};
+    float* dst[3] = {mocapVisionSolvedHead_, mocapVisionSolvedWrist_[0],
+                     mocapVisionSolvedWrist_[1]};
+    for (int i = 0; i < 3; ++i) {
+        for (size_t j = 0; j < mocapLiveJoints_.size(); ++j) {
+            if (mocapLiveJoints_[j] != want[i]) continue;
+            if ((j + 1) * 4 <= mocapFrameRot_.size())
+                eulerDegrees(&mocapFrameRot_[j * 4], dst[i]);
+            break;
+        }
+    }
+}
+
+// One line per frame, appended. A session read off a screen is a session
+// nobody can go back over; a file can be looked at afterwards, by somebody who
+// was not in the room.
+void App::mocapLogVisionFrame(float t) {
+    if (mocapVisionLogPath_.empty()) return;
+    std::ofstream f(mocapVisionLogPath_, std::ios::app);
+    if (!f) return;
+    const phonecam::BodyFrame& v = mocapVisionLast_;
+    f << "{\"t\":" << t << ",\"driven\":" << mocapVisionDriven_
+      << ",\"aspect\":" << v.imageAspect;
+    if (v.haveCameraRot)
+        f << ",\"cam\":[" << v.cameraRot[0] << "," << v.cameraRot[1] << ","
+          << v.cameraRot[2] << "," << v.cameraRot[3] << "]";
+    if (v.haveFace)
+        f << ",\"face\":[" << v.face[0] << "," << v.face[1] << "," << v.face[2] << "]";
+    const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+    const char* names[2] = {"hl", "hr"};
+    for (int i = 0; i < 2; ++i) {
+        if (!hands[i]->have) continue;
+        f << ",\"" << names[i] << "\":[" << hands[i]->confidence;
+        for (int k = 0; k < 10; ++k) f << "," << hands[i]->pts[k];
+        f << "],\"" << names[i] << "thumb\":" << (hands[i]->haveThumb ? 1 : 0);
+    }
+    f << ",\"solvedHead\":[" << mocapVisionSolvedHead_[0] << ","
+      << mocapVisionSolvedHead_[1] << "," << mocapVisionSolvedHead_[2] << "]}\n";
+}
+
+// Bake the source's motion onto the chosen model, as a clip inside its own
+// .glb.
+//
+// Without this the feature stopped one step short of useful: recording wrote a
+// .tmocap and the only way onto a character was the Character Generator's
+// "Import clips...", which rebuilds a GENERATED character from its sliders. A
+// model already in the scene - the very one being posed in this window - had no
+// route at all.
+//
+// The model is re-read from disk rather than reusing the posed copy on screen:
+// `mocapSkel_` has had live rotations written into its nodes, and baking that
+// would fold the current frame into the rest pose.
+void App::mocapBakeClip() {
+    if (mocapModel_.empty() || mocapSourceKind_ != 1 || mocapSource_.clips.empty()) {
+        mocapNote_ = "open a take first - a live stream has to be recorded before it can be baked";
+        return;
+    }
+    std::string err;
+    glbparser::Skel model;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, model, err)) {
+        mocapNote_ = "character: " + err;
+        return;
+    }
+
+    // The same source the window is previewing, calibration included - what you
+    // watched is what gets written.
+    const glbparser::Skel* source = &mocapSource_;
+    glbparser::Skel calibrated;
+    if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+        calibrated = mocapSource_;
+        for (size_t i = 0; i < calibrated.nodes.size(); ++i)
+            std::memcpy(calibrated.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+        source = &calibrated;
+    }
+
+    // Keep whatever clips the model already has: a character usually arrives
+    // with idle/walk/run/jump and a take is one more, not a replacement.
+    std::vector<glbparser::SkelClip> existing = model.clips;
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
+    if (charanim::retarget(*source, model, opts, notes) == 0) {
+        for (const std::string& n : notes) mocapNote_ = n;
+        if (mocapNote_.empty()) mocapNote_ = "nothing to bake";
+        return;
+    }
+    // retarget() REPLACES the clip list, so put the old ones back underneath and
+    // give the new one a name that says where it came from.
+    std::vector<glbparser::SkelClip> baked = std::move(model.clips);
+    for (glbparser::SkelClip& c : baked) {
+        std::string name = mocapName_[0] ? std::string(mocapName_) : c.name;
+        for (int n = 2;; ++n) {
+            bool clash = false;
+            for (const glbparser::SkelClip& e : existing)
+                if (e.name == name) clash = true;
+            if (!clash) break;
+            name = (mocapName_[0] ? std::string(mocapName_) : c.name) + "-" + std::to_string(n);
+        }
+        c.name = name;
+        existing.push_back(std::move(c));
+    }
+    model.clips = std::move(existing);
+
+    if (!gltfwrite::writeGlbFile(full, model, "TyraX Mocap", err)) {
+        mocapNote_ = "could not write the model: " + err;
+        return;
+    }
+    mocapNote_ = "baked " + std::to_string(baked.size()) + " clip(s) into " + mocapModel_ +
+                 " - rename them in Tools > Animation Editor";
+    // The scene's copy is stale now; a rebind re-reads it so the preview and the
+    // file agree again.
+    mocapRebind();
+}
+
+// Arm the capture. Nobody can press a button and be in a T-pose at the same
+// instant, so with a delay set this fires later and the operator gets to walk
+// into frame - which is the only way one person can do this alone.
+void App::mocapArmCalibration() {
+    if (mocapCalibDelay_ <= 0) {
+        mocapCalibrateFromPhone();
+        return;
+    }
+    mocapCalibAt_ = ImGui::GetTime() + (double)mocapCalibDelay_;
+    mocapNote_ = "calibrating in " + std::to_string(mocapCalibDelay_) + " s - get into the pose";
+}
+
+// Capture the performer's own rest pose from the newest frame and rebuild the
+// binding on it. Also the heading zero: they are facing the camera right now.
+void App::mocapCalibrateFromPhone() {
+    mocapCalibAt_ = -1.0;
+    // A recorded take calibrates on the frame under the playhead - which is the
+    // whole point of recording somebody standing in a T-pose. Same idea as the
+    // live path, different place to read the frame from.
+    if (mocapSourceKind_ == 1) {
+        if (mocapSource_.clips.empty() || mocapSource_.nodes.empty()) {
+            mocapNote_ = "open a take first";
+            return;
+        }
+        const glbparser::SkelClip& clip = mocapSource_.clips[0];
+        mocapCalibRot_.assign(mocapSource_.nodes.size() * 4, 0.0f);
+        for (size_t i = 0; i < mocapSource_.nodes.size(); ++i)
+            std::memcpy(&mocapCalibRot_[i * 4], mocapSource_.nodes[i].r, 16);
+        for (const glbparser::SkelChannel& ch : clip.channels) {
+            if (ch.path != 1 || ch.node < 0 || ch.node >= (int)mocapSource_.nodes.size()) continue;
+            if (ch.times.empty()) continue;
+            size_t hi = 0;
+            while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+            if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+            const size_t lo = hi ? hi - 1 : 0;
+            const float a = ch.times[hi] > ch.times[lo]
+                                ? (mocapTime_ - ch.times[lo]) / (ch.times[hi] - ch.times[lo])
+                                : 0.0f;
+            float v[4];
+            for (int k = 0; k < 4; ++k)
+                v[k] = ch.values[lo * 4 + k] * (1 - a) + ch.values[hi * 4 + k] * a;
+            const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+            for (int k = 0; k < 4; ++k) v[k] /= (l > 1e-8f ? l : 1.0f);
+            std::memcpy(&mocapCalibRot_[(size_t)ch.node * 4], v, 16);
+        }
+        mocapHaveCalib_ = true;
+        mocapRebind();
+        mocapNote_ = "calibrated on this frame of the take";
+        return;
+    }
+    if (!phoneCam_.hasBodySkeleton() || mocapLastFrameRot_.empty()) {
+        mocapNote_ = "nothing to calibrate on yet - no body in frame";
+        return;
+    }
+    mocapCalibRot_ = mocapLastFrameRot_;
+    mocapHaveCalib_ = true;
+    mocapRebind();
+    mocapZero();
+    mocapNote_ = "calibrated from the phone";
+}
+
+void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
+                          const float* rootRot, const phonecam::BodyFrame* vision) {
+    if (!mocapBind_.valid() || !rot) return;
+    const int joints = mocapBind_.sourceNodeCount();
+    // The newest frame, raw, so Calibrate has something to capture. Raw and not
+    // the composed one: a calibration pose with a heading baked in would make
+    // the performer's starting direction part of the rest pose itself.
+    mocapLastFrameRot_.assign(rot, rot + (size_t)joints * 4);
+
+    // The body's HEADING rides the anchor, not the hips joint - ARKit holds the
+    // hips joint's own rotation constant to the last bit while a performer turns
+    // a full circle. Composing it in here is what lets the character turn round;
+    // everything below the hips inherits it when the source globals compose.
+    // The file path does the same thing when it decodes a take, so both feeds
+    // hand applyLive the same meaning.
+    const float* src = rot;
+    if (rootRot && mocapLiveHips_ >= 0 && mocapLiveHips_ < joints) {
+        mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+        // Against the FIRST heading seen, not against ARKit's world - whose zero
+        // is wherever the phone pointed when the session started, so an absolute
+        // heading faces the character in an arbitrary direction. The hips
+        // translation is rebased the same way, one layer down.
+        if (!mocapHaveHeadingBase_) {
+            mocapHeadingBase_[0] = -rootRot[0];
+            mocapHeadingBase_[1] = -rootRot[1];
+            mocapHeadingBase_[2] = -rootRot[2];
+            mocapHeadingBase_[3] = rootRot[3];
+            mocapHaveHeadingBase_ = true;
+        }
+        // rootRot * conj(base), not conj(base) * rootRot: left-multiplying would
+        // express the turn in the FIRST FRAME'S anchor basis, and ARKit's anchor
+        // basis is not the world's. The character's bind is in world space, so
+        // that mismatch tumbles the body instead of turning it.
+        const float* a = rootRot;
+        const float* h = mocapHeadingBase_;
+        const float rel[4] = {a[3] * h[0] + a[0] * h[3] + a[1] * h[2] - a[2] * h[1],
+                              a[3] * h[1] - a[0] * h[2] + a[1] * h[3] + a[2] * h[0],
+                              a[3] * h[2] + a[0] * h[1] - a[1] * h[0] + a[2] * h[3],
+                              a[3] * h[3] - a[0] * h[0] - a[1] * h[1] - a[2] * h[2]};
+        const float* c = rel;
+        const float* b = &mocapFrameRot_[(size_t)mocapLiveHips_ * 4];
+        const float w[4] = {c[3] * b[0] + c[0] * b[3] + c[1] * b[2] - c[2] * b[1],
+                            c[3] * b[1] - c[0] * b[2] + c[1] * b[3] + c[2] * b[0],
+                            c[3] * b[2] + c[0] * b[1] - c[1] * b[0] + c[2] * b[3],
+                            c[3] * b[3] - c[0] * b[0] - c[1] * b[1] - c[2] * b[2]};
+        std::memcpy(&mocapFrameRot_[(size_t)mocapLiveHips_ * 4], w, sizeof(w));
+        src = mocapFrameRot_.data();
+    }
+
+    // The shake, before anything reads the pose. Monocular tracking
+    // re-estimates every joint each frame, so a performer standing perfectly
+    // still arrives shimmering - and the retarget would faithfully pass that on
+    // to the character. Filtering here rather than after means the heading
+    // (already composed onto the hips) is smoothed with everything else.
+    if (mocapFilterEnabled_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        posefilter::Params fp = mocapFilter_.params();
+        fp.enabled = true;
+        mocapFilter_.configure(fp);
+        mocapFilter_.apply(mocapFrameRot_.data(), (size_t)joints, t);
+    }
+
+    // What ARKit does not solve, Vision might. This overwrites exactly the
+    // joints the body tracker leaves frozen - the head and the two wrists - in
+    // the SOURCE frame, before any retargeting happens, so everything
+    // downstream stays unaware that a second framework was involved.
+    if (vision && mocapVision_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        visionpose::Observation obs;
+        obs.haveCamera = vision->haveCameraRot;
+        std::memcpy(obs.cameraRot, vision->cameraRot, sizeof(obs.cameraRot));
+        obs.haveFace = vision->haveFace;
+        obs.faceYaw = vision->face[0];
+        obs.facePitch = vision->face[1];
+        obs.faceRoll = vision->face[2];
+        const phonecam::BodyFrame::HandObs* in[2] = {&vision->handLeft, &vision->handRight};
+        visionpose::Observation::Hand* out[2] = {&obs.left, &obs.right};
+        // Vision's frame into the solver's: origin bottom-left to top-left, and
+        // the vertical un-stretched. Both axes arrive normalized to [0, 1]
+        // independently, so on a 4:3 capture every vertical distance is a third
+        // too large - which would tilt every direction the solver reads and put
+        // a confident, wrong number on the wrist.
+        const float aspect = vision->imageAspect > 0.01f ? vision->imageAspect : 1.0f;
+        auto convert = [aspect](const float* src, float* dst) {
+            dst[0] = src[0];
+            dst[1] = (1.0f - src[1]) / aspect;
+        };
+        for (int side = 0; side < 2; ++side) {
+            out[side]->have = in[side]->have;
+            out[side]->confidence = in[side]->confidence;
+            out[side]->haveThumb = in[side]->haveThumb;
+            convert(in[side]->pts + 0, out[side]->wrist);
+            convert(in[side]->pts + 2, out[side]->indexMcp);
+            convert(in[side]->pts + 4, out[side]->middleMcp);
+            convert(in[side]->pts + 6, out[side]->littleMcp);
+            convert(in[side]->pts + 8, out[side]->thumbMcp);
+        }
+        mocapVisionNotes_.clear();
+        mocapVisionLast_ = *vision;
+        mocapHaveVisionLast_ = true;
+        mocapVisionDriven_ = visionpose::applyToFrame(
+            obs, mocapLiveJoints_, mocapLiveParents_, mocapLiveRestRot_.data(),
+            visionpose::Limits(), mocapFrameRot_.data(), &mocapVisionTracker_,
+            &mocapVisionNotes_);
+        mocapReadVisionResult();
+        if (mocapVisionLog_) mocapLogVisionFrame(t);
+    }
+
+    charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+
+    if (!mocapRecording_) return;
+    mocapRecTimes_.push_back(t);
+    // What goes in the file, and the two halves pull opposite ways.
+    //
+    // The Vision solve SHOULD be stored: it is part of acquiring the pose, not
+    // of moving it onto a character, so a take without it would silently lose
+    // the head and wrists when re-imported.
+    //
+    // The heading must NOT be, and this is where it went wrong: it is composed
+    // into the hips rotation for the preview, while the file ALSO carries the
+    // anchor in its own slot - so storing the composed frame wrote the heading
+    // twice and the loader applied it twice. Measured on a take that produced
+    // it, `hips_joint` swung 160.9 degrees; ARKit never moves that joint at all,
+    // by a single float bit, in any raw recording. A body given its own heading
+    // twice does not lean, it tumbles.
+    //
+    // So: the frame as improved, with the hips rotation put back to raw.
+    mocapRecFrame_.assign(joints * 4, 0.0f);
+    const float* improved = src ? src : rot;
+    std::memcpy(mocapRecFrame_.data(), improved, (size_t)joints * 4 * sizeof(float));
+    if (mocapLiveHips_ >= 0 && mocapLiveHips_ < joints)
+        std::memcpy(&mocapRecFrame_[(size_t)mocapLiveHips_ * 4], rot + mocapLiveHips_ * 4,
+                    4 * sizeof(float));
+    mocapRecRot_.insert(mocapRecRot_.end(), mocapRecFrame_.begin(), mocapRecFrame_.end());
+    for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
+    const float ident[4] = {0, 0, 0, 1};
+    const float* rr = rootRot ? rootRot : ident;
+    mocapRecRoot_.insert(mocapRecRoot_.end(), rr, rr + 4);
+}
+
+void App::mocapStopRecording() {
+    mocapRecording_ = false;
+    if (mocapRecTimes_.size() < 2) {
+        mocapNote_ = "nothing recorded";
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
+        return;
+    }
+    const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+    if (!sk.valid()) {
+        mocapNote_ = "the performer's skeleton is gone - cannot write the take";
+        return;
+    }
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(project_.dir) / "res" / "mocap";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    std::string base = sanitizeAssetName(mocapName_);
+    if (base.empty()) base = "take";
+    std::string name = base;
+    for (int n = 2; fs::exists(dir / (name + ".tmocap")); ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string err;
+    // The take carries the rest pose it was CAPTURED against, which is the
+    // calibrated one when a session was calibrated. The format has always had
+    // the slot; it was being handed ARKit's neutral figure regardless, so a take
+    // recorded during a properly calibrated session came back leaning like a
+    // famous tower the moment it was re-opened - the calibration lived in the
+    // session and died with it. Writing it here means a take decodes to exactly
+    // what was on screen while it was recorded.
+    const bool calib = mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
+    if (!mocap::writeTake((dir / (name + ".tmocap")).string(), sk.joints, sk.parents,
+                          sk.restPos.data(),
+                          calib ? mocapCalibRot_.data() : sk.restRot.data(), mocapRecTimes_,
+                          mocapRecRot_, mocapRecHips_, mocapRecRoot_, err)) {
+        mocapNote_ = "take: " + err;
+    } else {
+        mocapLastTakePath_ = (dir / (name + ".tmocap")).string();
+        mocapNote_ = std::string(calib ? "wrote a CALIBRATED " : "wrote an UNCALIBRATED ") +
+                     "res/mocap/" + name + ".tmocap (" +
+                     std::to_string(mocapRecTimes_.size()) + " frames, " +
+                     std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) +
+                     " s) - Open take... it, then Add as a clip";
+    }
+    mocapRecTimes_.clear();
+    mocapRecRot_.clear();
+    mocapRecHips_.clear();
+    mocapRecRoot_.clear();
+}
+
+// Tools > Mocap: a performer drives a character in the editor, live off the
+// phone link or played back from a recorded take. Both go through the same
+// charanim::applyLive, so the file source is not a toy - it is how the whole
+// path is exercised without a phone in the room.
+void App::drawMocapWindow() {
+    if (!showMocap_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(760.0f), scaled(560.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Mocap", &showMocap_)) {
+        ImGui::End();
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+
+    ImGui::BeginChild("mocapleft", ImVec2(scaled(300.0f), 0), true);
+
+    // --- the character being puppeted ---------------------------------------
+    ImGui::TextDisabled("CHARACTER");
+    const std::vector<std::string> models = listAnimatedModelFiles();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##mocapmodel",
+                          mocapModel_.empty() ? "(pick an animated model)"
+                                              : mocapModel_.c_str())) {
+        for (const std::string& m : models) {
+            const std::string rel = "res/models/" + m;
+            if (ImGui::Selectable(rel.c_str(), rel == mocapModel_)) {
+                mocapModel_ = rel;
+                mocapRebind();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (models.empty())
+        ImGui::TextDisabled("None - generate one in Tools > Character Generator.");
+
+    // --- where the motion comes from ----------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("SOURCE");
+    int kind = mocapSourceKind_;
+    if (ImGui::RadioButton("Recorded take", &kind, 1)) {
+        mocapSourceKind_ = 1;
+        mocapRebind();
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Live phone", &kind, 2)) {
+        mocapSourceKind_ = 2;
+        mocapRebind();
+    }
+
+    if (mocapSourceKind_ == 1) {
+        if (ImGui::Button("Open take...")) {
+            const std::string file = pickPath(PickKind::ObjModel);
+            if (!file.empty()) {
+                std::string err;
+                if (!mocap::load(file, mocapSource_, err)) {
+                    mocapNote_ = err;
+                } else {
+                    mocapTake_ = file;
+                    mocapRebind();
+                    mocapPlaying_ = true;
+                    // The reader says which mapped bones the take never moves.
+                    // Showing it is the difference between a user concluding the
+                    // retarget is broken and a user knowing ARKit did not solve
+                    // a wrist.
+                    for (const std::string& w : mocapSource_.warnings) mocapNote_ = w;
+                }
+            }
+        }
+        if (!mocapTake_.empty()) {
+            const size_t slash = mocapTake_.find_last_of("/\\");
+            ImGui::TextWrapped("%s", slash == std::string::npos ? mocapTake_.c_str()
+                                                                : mocapTake_.c_str() + slash + 1);
+            if (!mocapSource_.clips.empty()) {
+                const glbparser::SkelClip& c = mocapSource_.clips[0];
+                ImGui::Text("%d joints, %.2f s", (int)mocapSource_.nodes.size(), c.duration);
+                if (ImGui::Button(mocapPlaying_ ? "Pause" : "Play"))
+                    mocapPlaying_ = !mocapPlaying_;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::SliderFloat("##mocapscrub", &mocapTime_, 0.0f,
+                                       std::max(0.01f, c.duration), "%.2f s"))
+                    mocapPlaying_ = false;
+            }
+        }
+    } else if (mocapSourceKind_ == 2) {
+        const bool linked = phoneCam_.connected();
+        // The link is shared infrastructure and belongs to neither feature, so
+        // this is a status line and a way in, not a second set of controls.
+        drawPhoneLinkSummary();
+        if (!linked)
+            ImGui::TextDisabled("Nothing paired yet - start the link, then type\n"
+                                "its address and code into the app.");
+        else if (!phoneCam_.hasBodySkeleton())
+            ImGui::TextDisabled("Connected, but this app is not sending a body.");
+        else
+            ImGui::Text("%llu frames received",
+                        (unsigned long long)phoneCam_.bodyFrameCount());
+        // Two unrelated things that used to sit side by side looking like a
+        // pair. Zeroing is about WHERE the origin is; Rebind is about WHO
+        // drives whom. The first is what an operator reaches for constantly, so
+        // it leads and is named for what it promises rather than what it clears.
+        if (ImGui::Checkbox("Feet on the floor", &mocapGround_)) mocapRebind();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Plant a standing foot and level its sole. ARKit never solves\n"
+                "the ankle, so without this the foot follows the shin rigidly\n"
+                "and a lifted knee comes with a pointed toe.");
+        if (ImGui::Checkbox("Smooth the shake", &mocapFilterEnabled_)) mocapFilter_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Monocular tracking re-estimates every joint each frame, so a\n"
+                "performer standing perfectly still arrives shimmering.\n"
+                "The cutoff rises with speed: a still hand is filtered hard,\n"
+                "a thrown punch is barely touched.");
+        if (ImGui::Checkbox("Head and hands from Vision", &mocapVision_))
+            mocapVisionTracker_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "ARKit reports the head and both wrists and solves neither.\n"
+                "The phone's Vision pass sees them; the geometry is done here.\n"
+                "Needs a face or a hand big enough in frame - step closer and\n"
+                "the wrists come alive.");
+        if (mocapVision_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%d driven", mocapVisionDriven_);
+            if (ImGui::IsItemHovered() && !mocapVisionNotes_.empty()) {
+                ImGui::BeginTooltip();
+                for (const std::string& n : mocapVisionNotes_) ImGui::TextUnformatted(n.c_str());
+                ImGui::EndTooltip();
+            }
+        }
+        // The numbers, because three very different faults look identical on a
+        // character: Vision finding nothing, Vision found and the geometry
+        // wrong, geometry right and an axis convention flipped. Each is a
+        // different week of work and only these tell them apart.
+        if (mocapVision_ && ImGui::TreeNode("What Vision is seeing")) {
+            const phonecam::BodyFrame& v = mocapVisionLast_;
+            if (!mocapHaveVisionLast_) {
+                ImGui::TextDisabled("no frame carrying Vision data yet");
+            } else {
+                ImGui::Text("camera pose: %s", v.haveCameraRot ? "yes" : "MISSING");
+                ImGui::Text("image aspect: %.3f", v.imageAspect);
+                if (v.haveFace)
+                    ImGui::Text("face seen: yaw %.0f  pitch %.0f  roll %.0f",
+                                v.face[0] * 57.29578f, v.face[1] * 57.29578f,
+                                v.face[2] * 57.29578f);
+                else
+                    ImGui::TextDisabled("face: not detected");
+                ImGui::Text("head solved: yaw %.0f  pitch %.0f  roll %.0f",
+                            mocapVisionSolvedHead_[0], mocapVisionSolvedHead_[1],
+                            mocapVisionSolvedHead_[2]);
+                const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+                const char* side[2] = {"left ", "right"};
+                for (int i = 0; i < 2; ++i) {
+                    if (!hands[i]->have) {
+                        ImGui::TextDisabled("%s hand: not detected", side[i]);
+                        continue;
+                    }
+                    // The palm's size on screen decides whether any of this can
+                    // work: below a few per cent of the frame the landmarks are
+                    // noise and the solve is guessing.
+                    const float dx = hands[i]->pts[4] - hands[i]->pts[0];
+                    const float dy = hands[i]->pts[5] - hands[i]->pts[1];
+                    const float span = std::sqrt(dx * dx + dy * dy) * 100.0f;
+                    ImGui::Text("%s hand: conf %.2f  palm %.1f%% of frame  thumb %s",
+                                side[i], hands[i]->confidence, span,
+                                hands[i]->haveThumb ? "yes" : "no");
+                    ImGui::Text("      solved: bend %.0f  dev %.0f  twist %.0f",
+                                mocapVisionSolvedWrist_[i][1], mocapVisionSolvedWrist_[i][2],
+                                mocapVisionSolvedWrist_[i][0]);
+                }
+            }
+            if (ImGui::Checkbox("Log every frame to a file", &mocapVisionLog_) &&
+                mocapVisionLog_) {
+                mocapVisionLogPath_ =
+                    (std::filesystem::path(project_.dir) / "vision-log.jsonl").string();
+                std::ofstream(mocapVisionLogPath_, std::ios::trunc);
+                mocapNote_ = "logging to " + mocapVisionLogPath_;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Writes vision-log.jsonl in the project folder - one\n"
+                                  "line per frame, raw. A session read off a screen is\n"
+                                  "gone; a file can be gone over afterwards.");
+            ImGui::TreePop();
+        }
+    }
+
+    // Calibrating is the FIRST thing an operator does and the thing that
+    // decides whether any of the rest is usable, so it leads.
+    // Deliberately NOT gated on a valid binding: calibrating is what makes a
+    // good binding possible, so requiring one first is backwards.
+    const bool canCalibrate = mocapSourceKind_ == 1
+                                  ? !mocapSource_.clips.empty()
+                                  : (phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty());
+    ImGui::BeginDisabled(!canCalibrate);
+    const bool counting = mocapCalibAt_ > 0.0;
+    char label[64];
+    if (counting)
+        std::snprintf(label, sizeof(label), "Calibrating in %.0f...",
+                      std::ceil(mocapCalibAt_ - ImGui::GetTime()));
+    else
+        std::snprintf(label, sizeof(label), "%s (T-pose)",
+                      mocapCalibrated_ ? "Re-calibrate" : "Calibrate");
+    if (ImGui::Button(label, ImVec2(scaled(180), 0))) {
+        if (counting) {
+            mocapCalibAt_ = -1.0;      // pressed again = cancel
+            mocapNote_ = "calibration cancelled";
+        } else {
+            mocapArmCalibration();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(90));
+    const char* kDelays[] = {"no delay", "3 s", "5 s", "10 s"};
+    const int kSeconds[] = {0, 3, 5, 10};
+    int delayIdx = 1;
+    for (int i = 0; i < 4; ++i)
+        if (kSeconds[i] == mocapCalibDelay_) delayIdx = i;
+    if (ImGui::Combo("##calibdelay", &delayIdx, kDelays, 4))
+        mocapCalibDelay_ = kSeconds[delayIdx];
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How long after pressing before the pose is taken.\n"
+                          "Nobody can press a button and be in a T-pose at the\n"
+                          "same instant, and with the phone on a tripod this is\n"
+                          "the only way to do it alone.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Have the performer stand in a T-pose facing you, then press.\n\n"
+            "Every frame is a delta from a REST POSE. Without this that pose\n"
+            "is ARKit's neutral skeleton - a nominal figure out of a\n"
+            "catalogue - and everything this person differs from it by\n"
+            "becomes a constant error in every frame. Calibrating measures\n"
+            "it instead: their proportions, their stance, their height.\n\n"
+            "It is also the heading zero, so they end up facing the way the\n"
+            "character does.");
+    if (mocapHaveCalib_) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget")) {
+            mocapHaveCalib_ = false;
+            mocapCalibRot_.clear();
+            mocapRebind();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Go back to ARKit's neutral skeleton as the rest pose.");
+    }
+    ImGui::TextDisabled("%s", mocapCalibrated_ ? "rest pose: this performer"
+                                               : "rest pose: ARKit's neutral figure");
+
+    // A jump is not a movement, so everything that smooths across frames is
+    // told at once - mocapZero is that one place.
+    if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) mocapZero();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "\"The performer is facing me, right now.\"\n\n"
+            "Everything after this is measured from this instant: they turn,\n"
+            "the character turns; they walk across the room, it walks across\n"
+            "the room. The link otherwise takes its zero from the FIRST frame\n"
+            "it sees - whatever they happened to be doing when tracking\n"
+            "caught them - so this is how you pick that moment yourself.\n\n"
+            "Also use it whenever the stream jumps rather than moves: tracking\n"
+            "lost and regained, or somebody else stepping in.");
+    ImGui::SameLine();
+    if (ImGui::Button("Rebind", ImVec2(scaled(90), 0))) mocapRebind();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rebuild which bone drives which - joint matching,\n"
+                          "rest poses, the height ratio. Needed after changing\n"
+                          "the character, not for changing where they are.");
+
+    // The countdown, fired from the window's own frame so it ticks whether it
+    // was armed from here or from the phone.
+    if (mocapCalibAt_ > 0.0 && ImGui::GetTime() >= mocapCalibAt_) mocapCalibrateFromPhone();
+
+    // --- onto the character ---------------------------------------------------
+    // The step that was missing: a take on disk is not an animation until it is
+    // a clip inside a model.
+    ImGui::Spacing();
+    ImGui::TextDisabled("BAKE ONTO THE CHARACTER");
+    const bool canBake = !mocapModel_.empty() && mocapSourceKind_ == 1 &&
+                         !mocapSource_.clips.empty();
+    ImGui::BeginDisabled(!canBake);
+    if (ImGui::Button("Add as a clip", ImVec2(scaled(140), 0))) mocapBakeClip();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Retargets the open take onto this model and writes it back into\n"
+            "the model's own .glb, beside the clips it already has.\n\n"
+            "A live stream has to be recorded first - Record below writes a\n"
+            ".tmocap into res/mocap, and Open take... reads it back.\n\n"
+            "Rename the result in Tools > Animation Editor, which retargets\n"
+            "every reference for you.");
+    if (!canBake)
+        ImGui::TextDisabled("%s", mocapModel_.empty() ? "pick a character first"
+                                                      : "open a recorded take to bake");
+
+    // --- recording ------------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("RECORD");
+    const bool canRecord = mocapSourceKind_ == 2 && mocapBind_.valid();
+    ImGui::BeginDisabled(!canRecord);
+    if (!mocapRecording_) {
+        if (ImGui::Button("Record")) {
+            mocapRecTimes_.clear();
+            mocapRecRot_.clear();
+            mocapRecHips_.clear();
+            mocapRecRoot_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
+            mocapRecording_ = true;
+            mocapNote_.clear();
+        }
+    } else if (ImGui::Button("Stop")) {
+        mocapStopRecording();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    ImGui::InputText("##mocapname", mocapName_, sizeof(mocapName_));
+    if (mocapRecording_)
+        ImGui::Text("%d frames", (int)mocapRecTimes_.size());
+    else if (!canRecord)
+        ImGui::TextDisabled("Recording needs the live phone source -\na file is already a take.");
+
+    if (!mocapNote_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", mocapNote_.c_str());
+    }
+    if (mocapBind_.valid())
+        ImGui::TextDisabled("driving %d bones", mocapBind_.matchedBones());
+    ImGui::EndChild();
+
+    // --- the puppet ----------------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y -
+                                            ImGui::GetFrameHeightWithSpacing());
+
+    // Pull whatever the source has for this frame. Both sources end in
+    // mocapApplyFrame - the file one is not a simulation of the live path, it
+    // IS the live path with a different feed.
+    //
+    // The live link is handled OUTSIDE the "is anything bound" check, and that
+    // is the whole point: it used to sit inside, which meant the code that
+    // CREATES the binding only ran once a binding existed. A phone connecting
+    // after the character was picked therefore did nothing - no preview, and
+    // Calibrate greyed out for good, because the newest frame it captures was
+    // only kept in there too.
+    if (mocapSourceKind_ == 2) {
+        // A phone connects, reconnects, or is swapped for another at moments
+        // nothing announces. Binding on sight is the difference between the
+        // window working and the window needing a button pressed.
+        if (phoneCam_.hasBodySkeleton() && phoneCam_.bodySkeletonSeq() != mocapLiveSkelSeq_)
+            mocapRebind();
+        // Every frame since the last repaint: the newest is the live pose, and
+        // a recording keeps all of them so no motion is lost between two frames
+        // of UI. The newest is kept even when nothing is bound - that is what
+        // Calibrate captures, and needing a working binding before you may
+        // calibrate is backwards.
+        for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
+            mocapLastFrameRot_.assign(f.rot.begin(), f.rot.end());
+            if (!mocapBind_.valid()) continue;
+            if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
+            mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
+                            f.haveRootRot ? f.rootRot : nullptr, &f);
+        }
+    }
+
+    if (mocapBind_.valid()) {
+        if (mocapSourceKind_ == 1 && !mocapSource_.clips.empty()) {
+            const glbparser::SkelClip& clip = mocapSource_.clips[0];
+            if (mocapPlaying_) {
+                mocapTime_ += io.DeltaTime;
+                if (mocapTime_ > clip.duration) mocapTime_ = 0.0f;
+            }
+            const size_t nodes = mocapSource_.nodes.size();
+            std::vector<float> rot(nodes * 4);
+            for (size_t i = 0; i < nodes; ++i) std::memcpy(&rot[i * 4], mocapSource_.nodes[i].r, 16);
+            float hips[3] = {0, 0, 0};
+            bool haveHips = false;
+            int hipsNode = -1;
+            for (size_t i = 0; i < nodes; ++i)
+                if (mocapSource_.nodes[i].name == "mixamorig:Hips") hipsNode = (int)i;
+            for (const glbparser::SkelChannel& ch : clip.channels) {
+                if (ch.node < 0 || ch.node >= (int)nodes || ch.times.empty()) continue;
+                size_t hi = 0;
+                while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+                const size_t lo = hi == 0 ? 0 : hi - 1;
+                if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+                const float t0 = ch.times[lo], t1 = ch.times[hi];
+                const float f = t1 > t0 ? (mocapTime_ - t0) / (t1 - t0) : 0.0f;
+                const int comps = ch.path == 1 ? 4 : 3;
+                float v[4] = {0, 0, 0, 1};
+                for (int c = 0; c < comps; ++c)
+                    v[c] = ch.values[lo * comps + c] * (1 - f) + ch.values[hi * comps + c] * f;
+                if (ch.path == 1) {
+                    const float len = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+                    if (len > 1e-8f)
+                        for (int c = 0; c < 4; ++c) v[c] /= len;
+                    std::memcpy(&rot[(size_t)ch.node * 4], v, 16);
+                } else if (ch.node == hipsNode) {
+                    std::memcpy(hips, v, 12);
+                    haveHips = true;
+                }
+            }
+            mocapApplyFrame(rot.data(), hips, haveHips, mocapTime_);
+        }
+    }
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = mocapPrevVersion_;
+    for (size_t i = 0; i < mocapPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &mocapPrevTris_[i];
+        if (i < mocapPrevTex_.size() && !mocapPrevTex_[i].rgba.empty()) {
+            dp.rgba = mocapPrevTex_[i].rgba.data();
+            dp.texW = mocapPrevTex_[i].w;
+            dp.texH = mocapPrevTex_[i].h;
+        }
+        dp.cutout = i < mocapSkel_.parts.size() &&
+                    mocapSkel_.parts[i].material.rfind("hair:", 0) == 0;
+    }
+    for (int i = 0; i < 3; ++i) desc.center[i] = (mocapSkel_.min[i] + mocapSkel_.max[i]) * 0.5f;
+    desc.minY = mocapSkel_.min[1];
+    const float dx = mocapSkel_.max[0] - mocapSkel_.min[0];
+    const float dy = mocapSkel_.max[1] - mocapSkel_.min[1];
+    const float dz = mocapSkel_.max[2] - mocapSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = mocapAngle_;
+    desc.pitchDeg = mocapPitch_;
+    desc.zoom = mocapZoom_;
+
+    const uint32_t tex =
+        mocapPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##mocap_prev", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            mocapZoom_ = std::clamp(mocapZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            mocapAngle_ += io.MouseDelta.x * 0.5f;
+            mocapPitch_ = std::clamp(mocapPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+        ImGui::TextDisabled("Pick a character and a source.");
+    }
+    ImGui::EndGroup();
+
+    ImGui::End();
+}
+
+
+// Tools > Phone Link: hosting the session a phone joins, and nothing else.
+//
+// The link is shared infrastructure. Two features ride on it - the camera
+// viewfinder and body capture - and they are separate apps on the phone, but
+// one server, one port and one pairing code here, because two links would mean
+// two codes to type and a fight over 7798.
+//
+// It used to live inside the Phone Camera window, which made pairing a mocap
+// session mean opening a window whose other four sections are about preview
+// JPEG quality and which Camera entity to record into. Shared infrastructure
+// belongs to neither of its consumers.
+void App::drawPhoneLinkWindow() {
+    if (!showPhoneLinkWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(400)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Link", &showPhoneLinkWindow_)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool up = phoneCam_.listening();
+    const bool live = phoneCam_.connected();
+    const phonecam::DeviceInfo dev = phoneCam_.device();
+
+    // --- state line ---------------------------------------------------------
+    if (phoneCam_.state() == phonecam::Link::State::Error) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+    } else if (live) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
+        ImGui::SameLine();
+        ImGui::Text("- %s", dev.name.c_str());
+    } else if (up) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
+    } else {
+        ImGui::TextDisabled("Not hosting");
+    }
+
+    if (!up) {
+        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
+            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
+                              "desk of your own, wrong in a shared office.");
+    } else {
+        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
+        if (live) {
+            ImGui::SameLine();
+            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        }
+    }
+
+    // --- what to type into the phone ---------------------------------------
+    if (up) {
+        ImGui::SeparatorText("Connect the phone to");
+        const std::vector<std::string> ips = wire::localIPv4();
+        if (ips.empty()) {
+            ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
+        }
+        for (const std::string& ip : ips) {
+            const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
+            ImGui::PushID(ip.c_str());
+            ImGui::Text("%s", addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy URL"))
+                ImGui::SetClipboardText(("http://" + addr).c_str());
+            ImGui::PopID();
+        }
+        if (phoneCamRequireCode_) {
+            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("New code")) {
+                phoneCamCode_ = phonecam::newPairCode();
+                saveGlobalConfig();
+                statusMessage_ =
+                    "New pairing code - restart the link for it to take effect";
+            }
+        }
+        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
+                            "(sideloaded). Opening the http:// address in any\n"
+                            "browser gives a test client that shows the same\n"
+                            "stream and can fake a pose.");
+    }
+
+    // --- the connected device ----------------------------------------------
+    if (live) {
+        ImGui::SeparatorText("Device");
+        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
+        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
+        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
+        ImGui::Text("Tracking: %s",
+                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
+        if (!dev.sixDof && ImGui::IsItemHovered())
+            ImGui::SetTooltip("This device reports no world position, so the camera\n"
+                              "turns in place instead of walking.");
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("What is using it");
+    // Which consumer a device drives is decided by the app it runs, not here -
+    // the phone says at hello. This is the readout, not a switch.
+    if (live) {
+        ImGui::BulletText("Camera: %s",
+                          phoneDrive_ ? "driving the viewport" : "connected, not driving");
+        ImGui::BulletText("Mocap: %s", phoneCam_.hasBodySkeleton()
+                                           ? "sending a body"
+                                           : "this app is not sending a body");
+    } else {
+        ImGui::TextDisabled("Nothing connected. Tools > Phone Camera for the\n"
+                            "viewfinder, Tools > Mocap for body capture.");
+    }
+    ImGui::End();
+}
+
+// One line, for a window that CONSUMES the link rather than owning it: is
+// anything connected, and a way to get to the controls.
+void App::drawPhoneLinkSummary() {
+    const bool live = phoneCam_.connected();
+    if (live) {
+        const phonecam::DeviceInfo dev = phoneCam_.device();
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "%s",
+                           dev.name.empty() ? "phone connected" : dev.name.c_str());
+    } else if (phoneCam_.listening()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "waiting for a phone");
+    } else {
+        ImGui::TextDisabled("link not started");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Phone Link...")) showPhoneLinkWindow_ = true;
+}
+

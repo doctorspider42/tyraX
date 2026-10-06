@@ -156,6 +156,30 @@ should always equal the SHA in `deps.sh` — if it does not, that checkout
 predates the pinning and is stale. Fix it by deleting the directory and
 re-running setup, not by pulling in it.
 
+The Character Generator needs NO fetched data: its kit
+(`resources/chargen-kit.bin`) is committed and linked into the editor. Test it
+headless with `tyrax-editor --chargen <recipe.json|preset:N|random:SEED> out.glb`
+(prints triangles / parts / bones / clips / textures and the build time; add
+`--variants N` for crowd colour variants beside it) and
+LOOK at the result: import the .glb in Blender and render it (a contact sheet of
+several `random:N` characters catches most regressions - a shell that misses a
+crotch, a mesh item that crumbled, paint bleeding across atlas islands). For the
+console, the `examples/character-generator` copy + `--build --run` +
+`--capture-frame` recipe applies unchanged; the six characters there are
+regenerated from their `.chargen.json` recipes with the same command.
+The in-game creator is tested the same way: add `"options": [...]` to a
+recipe, `--chargen ... --variants 3`, open the screen from a scratch script
+(`openCharacterCreator(ctx, -1)` at frame 60; log `ctx.objects[i].look` on
+change) and drive it with `--pad "press right; wait 0.3; press down; ..."` -
+the D-pad works there, unlike in the walkers.
+Custom hair: `tyrax-editor --chargen-reference <dir>` writes the reference
+bodies; a recipe's `"customHair"` / `"customWear"` paths are PROJECT-relative
+under `--chargen` too (the nearest folder up holding a `.tyra`; the recipe's
+own folder outside a project). To LOOK at a generated character, Blender renders work well
+(import the .glb, set the action, frame the bones); remember a .glb carries no
+spring simulation - what Blender shows is the clip, i.e. the far-instance look.
+Rebuilding the kit itself is tools/chargen-kit/README.md.
+
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
 corrupt checkout — that path simply isn't on disk yet. The build script
