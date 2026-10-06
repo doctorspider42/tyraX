@@ -29,6 +29,13 @@ public opt-in compiler-enforced. Target class growth and common selector cost
 need separate qualification. Eleven authored night-only boxes remain a geometry
 difference even when lighting effects are cut.
 
+Hardware follow-up: both TEX1 orders favor the private candidate but do not
+price common class/selector footprint. Hardware census bbox/rebuild counts
+differ from PCSX2; never transfer emulator counts into an EE cost claim.
+Night main-only batching must preserve solo reflection carriers and reconcile
+dirty selected members before secondary views clear dirty. Forcing batchStatic
+alone is unsafe. PMU bits4/14 select USER; actual operation-mode activation
+is an additional runtime gate, independent of overflow/lifetime.
 
 > **A note on `PROGRESS 123` citations.** They point at numbered entries of
 > `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file

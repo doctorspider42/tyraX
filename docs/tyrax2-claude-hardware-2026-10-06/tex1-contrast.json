@@ -1,0 +1,28 @@
+{
+  "status": "ROOT_TWO_ACCEPTED_SAME_ELF_PRIVATE_TEX1_CONTRASTS",
+  "rows": [
+    {
+      "order": 1,
+      "ms": [
+        17.999496756659614,
+        18.202439551883273,
+        18.08154322306315
+      ],
+      "savingMs": 0.16191956202189317,
+      "outerDriftMs": 0.0820464664035363
+    },
+    {
+      "order": 0,
+      "ms": [
+        18.202642546759712,
+        18.063544983334012,
+        18.158923647138806
+      ],
+      "savingMs": 0.11723811361524739,
+      "outerDriftMs": 0.043718899620905916
+    }
+  ],
+  "promotion": false,
+  "sixtyFps": false,
+  "limitations": "SparseTEX1fullwordparity andactivationonly; nohotcensus. Common state/selector/classgrowthunpriced. Physicalvisualfeedbackpending."
+}

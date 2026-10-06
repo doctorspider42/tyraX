@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "review": "night-main11-batch-review-v1",
+  "scope": "Read-only source facts and private design only; no source candidate, build, runtime or elapsed measurement.",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1",
+  "fixture_manifest_frozen": true,
+  "source_files": [
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\templates.cpp",
+      "sha256": "a43242bda99e0ebfeedf24606c699569a04f1ff9fd7849263d77d29e6ed1f3a1",
+      "bytes": 1760266
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\src\\staticbatch.cpp",
+      "sha256": "08f4298fa0408055b66bbecd6962670c3159a4dda2e63d0178d3bd5c2c56fb80",
+      "bytes": 26519
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\examples\\vehicle-playground\\authoring\\build-district.py",
+      "sha256": "53fda1830a5906a98981e550f3f560aee2d428a10590097bba0dfa1e9b60614f",
+      "bytes": 14728
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\game_collision.gen.cpp",
+      "sha256": "fc2566dd2c72f759e8fa4d755defb0e9177dadc2b73fb0d676eb558794ded7fb",
+      "bytes": 445775
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\game_physics.gen.cpp",
+      "sha256": "aeb9fd900fdd617fb63d9f6c3c05fa6a6e3e3da4d4ddb5eed2007cb91bdcc631",
+      "bytes": 277070
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\game_scene.gen.cpp",
+      "sha256": "64f897d08ecddf064fbc5c0d6567070754c3de417133d20c40971dabaaf9ae3a",
+      "bytes": 206997
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\scripts\\district_mood.cpp",
+      "sha256": "b0e2653e5e9d03818440414bd9b52596c70d9bc0493134c7cef9954aee71a2f5",
+      "bytes": 1503
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\scripts\\district_data.hpp",
+      "sha256": "9e3395f8ab382b9af8105ad4fac4e0a3aa8ddb69169164730744930c578c8bd4",
+      "bytes": 1112
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\game_runtime.gen.hpp",
+      "sha256": "adea1c59013f8a163a1642a8465a5c0645c2fea636515aca45a8ee6714613b8f",
+      "bytes": 200891
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\terrain_game.hpp",
+      "sha256": "97ebdc2e8b59ee7e2e3b7f1fea588d8fbb7b36beee9953aeffb5b17b5888cb89",
+      "bytes": 132701
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\scene_data.hpp",
+      "sha256": "90a0c8e5079d2e8b832a0c15cb8c38e8fe7bd131fb18770acb2880f3bfec55d1",
+      "bytes": 716828
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\scene_objects.gen.cpp",
+      "sha256": "7746cfeb68f2d88bf9fe111950e85b9d2f97efd54661b821bea86a80529a7a52",
+      "bytes": 261101
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\res\\materials\\night-warm.mtl",
+      "sha256": "814ab4460fb71a2c423a98421450979d8e482b72b173fbb565ef9a7ec026756c",
+      "bytes": 50
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\res\\materials\\night-cyan.mtl",
+      "sha256": "c9514f2d701bbc12cfdcee0656aef5271d1e710721a9f77cddbbbaedf4974693",
+      "bytes": 52
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\res\\materials\\night-pink.mtl",
+      "sha256": "1a358bf868e33b61312214325a65e315c5cec5f86e7c9d0451709616338b882f",
+      "bytes": 50
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-source-review-v1\\report.md",
+      "sha256": "a3d667856b0ef107e2756c25f04502c3add58e5069ebadf501ba825633bd828e",
+      "bytes": 3179
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-source-review-v1\\source-pins.json",
+      "sha256": "fe0e7f29c241a311f9929011a8b11f124ce8c8dc2f0725169d4e51cac5809495",
+      "bytes": 5087
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\target-source-manifest.json",
+      "sha256": "5157606e596d8d466583db330371b72e5707883678549d50ff1dd901aa5996c6",
+      "bytes": 66089
+    }
+  ],
+  "selected_scene": 0,
+  "selected_rows": [
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121
+  ],
+  "predicted_subset_groups": [
+    {
+      "texture": null,
+      "cellX": 1,
+      "cellZ": 2,
+      "drawDistance": 0,
+      "lamp": -1,
+      "stripRun": 0,
+      "rows": [
+        111,
+        112,
+        113,
+        114
+      ]
+    },
+    {
+      "texture": null,
+      "cellX": 2,
+      "cellZ": 2,
+      "drawDistance": 0,
+      "lamp": -1,
+      "stripRun": 0,
+      "rows": [
+        115,
+        116,
+        117,
+        118
+      ]
+    },
+    {
+      "texture": null,
+      "cellX": 1,
+      "cellZ": 1,
+      "drawDistance": 0,
+      "lamp": 7,
+      "stripRun": 0,
+      "rows": [
+        119,
+        120,
+        121
+      ]
+    }
+  ],
+  "group_claim": "Exactly three predicted grouping keys within selected eleven only. Not an observed complete-scene group/submission census.",
+  "reflection_contract": "All selected rows reflected; force batchStatic alone consumes initial dirty and skips solo preparation. Reflection consumers need independent carriers.",
+  "design_blocker": "Dirty is cleared by rebuildObjectGeometry in pre-main reflection; reconcile/demote private main-only membership before secondary consumers.",
+  "report_sha256": "8fd2ae59bc44a4e761d55ca9fc4019d0532c5780685c72fe2f615d57466f42d7"
+}

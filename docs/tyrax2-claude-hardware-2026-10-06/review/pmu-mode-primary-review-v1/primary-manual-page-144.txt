@@ -1,0 +1,57 @@
+SCE CONFIDENTIAL                                                                                      EE Core User's Manual Version 6.0 
+ 
+ 
+© SCEI 
+-144- 
+7.1. Configuration of Performance Counter 
+The performance counter consists of one control register and two counter registers.  These three registers are 
+mapped to COP0 register 25 and can be accessed by the dedicated COP0 move instruction. 
+7.1.1. Performance Counter Control Registers (PCCR) 
+The Performance Counter Control Register, or PCCR, controls the functions of the performance counter. 
+31 30 20 19               15 14 13 12 11 10 9                  5 4 3 2 1 0 
+C 
+T 
+E 
+0 EVENT1 U1 S1 K1 
+E 
+X 
+L 
+1 
+0 EVENT0 U0 S0 K0 
+E 
+X 
+L 
+0 
+0 
+1  5 1 1 1 1 1 5 1 1 1 1 1 
+ 
+Name Pos. Contents 
+EXL0 1 PCR0 operation in Level 1 exception handler 
+0 Not counted 
+1 Counted 
+K0 2 PCR0 operation in Kernel mode  (except in an exception handler) 
+0 Not Counted 
+1 Counted 
+S0 3 PCR0 operation in Supervisor mode 
+0 Not Counted 
+1 Counted 
+U0 4 PCR0 operation in User mode 
+0 Not Counted 
+1 Counted 
+EVENT0 9:5 Event specification counted by PCR0 (See Table 7-1) 
+EXL1 11 PCR1 operation in Level 1 exception handler 
+0 Not Counted 
+1 Counted 
+K1 12 PCR1 operation in Kernel mode  (except in an exception handler) 
+0 Not Counted 
+1 Counted 
+S1 13 PCR1 operation in Supervisor mode 
+0 Not Counted 
+1 Counted 
+U1 14 PCR1 operation in User mode 
+0 Not Counted 
+1 Counted 
+EVENT1 19:15 Event specification counted by PCR1 (See Table 7-1) 
+CTE 31 Counter Enable 
+If 1, PCR0 and PCR1 counting and exception generation are enabled.  
+The PCCR register bits are initially undefined, except for the CTE bit, which is initialized to 0. 
