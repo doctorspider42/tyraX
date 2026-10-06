@@ -3274,5 +3274,45 @@
   {
     "path": "batch/README.md",
     "sha256": "afecd7a701d5e95b6b7f42b5e4d3b1d368dca04b74f05905e7ecb60e218b3e98"
+  },
+  {
+    "path": "batch/physical-order0/owned-launch.json",
+    "sha256": "32ca99e6bde3e7a080f96f6e4078d6f32fb19d4885c74e8e4402651a7d8847f7"
+  },
+  {
+    "path": "batch/physical-order0/launch-inputs.json",
+    "sha256": "795389601245df5af792bda9fdc479fd41b4b318e4dd7bd02cb4b8946a979615"
+  },
+  {
+    "path": "batch/physical-order0/completed-stdout.raw",
+    "sha256": "0f0269b11b1939c0b9c1d16f66cd6efff958a1381f89a653d9e172dcf102783a"
+  },
+  {
+    "path": "batch/physical-order0/stdout.utf8.log",
+    "sha256": "0f0269b11b1939c0b9c1d16f66cd6efff958a1381f89a653d9e172dcf102783a"
+  },
+  {
+    "path": "batch/physical-order0/physical-review.json",
+    "sha256": "f8f205d79ba1d8d130be3030a56fe4a0cb7b6aad095beb6248d90335ba2f73e8"
+  },
+  {
+    "path": "batch/physical-order0/protocol-analysis.json",
+    "sha256": "4c470e217504d955dfc6b46d1bc31c48794f16ada8b4a92849db5290961847ee"
+  },
+  {
+    "path": "batch/physical-order0/root-cadence-review.json",
+    "sha256": "bf60d9bfcfff98e85adb29cd0faaef514805541c76ed81cf4bd8ccfefcdaaa2c"
+  },
+  {
+    "path": "batch/physical-order0/bin/closeout-samples.txt",
+    "sha256": "8cb411793d3b5f85052687e92072f48654f36929cd6ee5549daf50173b02eba0"
+  },
+  {
+    "path": "batch/physical-order0/archive-batch-physical-order0-root.py",
+    "sha256": "4115931bf01d1beb68c589745e57503ce1dfadfac3b00fa12941a1f8df7224c4"
+  },
+  {
+    "path": "batch/physical-order0/README.md",
+    "sha256": "bb1e476e09b9038135782ea7702a6ca25d2dd768ba5a250b1a0f80e3338d9ed9"
   }
 ]

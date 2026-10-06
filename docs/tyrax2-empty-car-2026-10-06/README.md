@@ -147,3 +147,7 @@ This supersedes the emulator-only pending checkpoint above. It does not qualify 
 ### Stationary batching contrast
 
 The [same-ELF batching fixture](batch/README.md) passes both5400-loop emulator orders with identical80187 accepted inputs and37 ON versus313 OFF carriers. Both representations are prepared once and retained; extra memory and common observer cost remain unpriced. Physical timing awaits reset-ready PS2. Four rejected private preparations are retained without performance claims.
+
+### First physical batching order
+
+The [first physical ON/OFF/ON run](batch/physical-order0/README.md) completes5400 loops with15.4751/20.0728/15.4748 ms work and approximately59.94/29.97/59.94 Hz. Same80187 accepted inputs and37/313 carriers give4.5978 ms net representation difference. Reverse-order hardware and TV checks remain pending; this supersedes the preparation checkpoint's pending-first-physical status.

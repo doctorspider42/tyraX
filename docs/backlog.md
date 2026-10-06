@@ -3042,3 +3042,5 @@ Ravager-only normal blob is native and emulator qualified: one separate 54-verte
 Clean blob hardware repetition completes 5400 PS2 loops with the corrected unchanged ELF: 15.4753/15.4872/15.4859 ms non-pacing work, approximately 59.94 Hz, one separate accepted 54-vertex blob and 80,187 total inputs. Initial missing-resource runs remain rejected and TV confirmation remains pending. The requested same-ELF stationary batching contrast is being prepared.
 
 TyraX2 isolation follow-up: [stationary batching ON/OFF](tyrax2-empty-car-2026-10-06/batch/README.md) passes native and both emulator orders with matched sparse contexts and80187 accepted input vertices. Physical comparisons await reset-ready PS2; no production optimization or per-packet price accepted.
+
+TyraX2 batching isolation: [first physical ON/OFF/ON](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md) measures15.4751/20.0728/15.4748 ms with matching80187 inputs,37/313 carriers and zero synthetic completions. Net representation difference4.5978 ms; reverse-order hardware and TV remain pending. No production optimization or fixed packet-price extrapolation accepted.
