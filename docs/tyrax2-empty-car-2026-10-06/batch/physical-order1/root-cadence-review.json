@@ -1,0 +1,220 @@
+{
+  "status": "ROOT_STATIC_BATCH_BOUND_COMPLETED_CADENCE_REVIEW",
+  "protocolPassed": true,
+  "loops": 5400,
+  "order": 1,
+  "orderMeaning": "OFF/ON/OFF",
+  "protocolSha256": "fcd534ce4aada3f1db4d0d2d0dcae4e800dcf3be9de17238ed78e1cf2dd9607b",
+  "physicalReviewSha256": "fee84070c1e149b80abc203451832066950a8fd4b1c0c0d684e69ea47df50f2a",
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 20.215154986911347,
+      "chunkMeanEntryMs": 33.36672015719944,
+      "perChunkMeanEntryMs": [
+        33.3666623433431,
+        33.36722151438395,
+        33.366134325663246,
+        33.366645601060654,
+        33.366937001546226
+      ],
+      "maxObservedChunkMeanEntryMs": 33.36722151438395,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 33.36657730738322,
+          "p50Ms": 33.366607666015625,
+          "p95Ms": 33.400986735026045,
+          "maxMs": 33.421630859375,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 33.36255722575718,
+          "p50Ms": 33.36230129665799,
+          "p95Ms": 33.39676683213976,
+          "maxMs": 33.41740587022569,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 20.22060211499532,
+          "p50Ms": 20.198900010850693,
+          "p95Ms": 20.404101901584202,
+          "maxMs": 20.465799967447918,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 33.36666965484619,
+          "p50Ms": 33.36668226453993,
+          "p95Ms": 33.38670586480035,
+          "maxMs": 33.393527560763886,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 15.47574158774482,
+      "chunkMeanEntryMs": 16.6833156797621,
+      "perChunkMeanEntryMs": [
+        16.683242797851562,
+        16.68335024515788,
+        16.68361981709798,
+        16.683028009202744,
+        16.683337529500324
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68361981709798,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683347860972088,
+          "p50Ms": 16.683258056640625,
+          "p95Ms": 16.712405395507812,
+          "maxMs": 16.731343587239582,
+          "over16_68": 99,
+          "over16_68Percent": 77.34375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.678774727715385,
+          "p50Ms": 16.678931342230904,
+          "p95Ms": 16.707697211371528,
+          "maxMs": 16.72695583767361,
+          "over16_68": 28,
+          "over16_68Percent": 21.875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 15.47124891810947,
+          "p50Ms": 15.472337510850695,
+          "p95Ms": 15.50063001844618,
+          "maxMs": 15.520650227864584,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.683330641852486,
+          "p50Ms": 16.68328857421875,
+          "p95Ms": 16.703741455078124,
+          "maxMs": 16.7066650390625,
+          "over16_68": 110,
+          "over16_68Percent": 85.9375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 20.252754783630373,
+      "chunkMeanEntryMs": 33.36666465335422,
+      "perChunkMeanEntryMs": [
+        33.367143630981445,
+        33.3662052154541,
+        33.366676330566406,
+        33.36663383907742,
+        33.366664250691734
+      ],
+      "maxObservedChunkMeanEntryMs": 33.367143630981445,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 33.36668634414673,
+          "p50Ms": 33.366851806640625,
+          "p95Ms": 33.403220621744794,
+          "maxMs": 33.42901611328125,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 33.36177208688524,
+          "p50Ms": 33.3624504937066,
+          "p95Ms": 33.39877590603299,
+          "maxMs": 33.423733181423614,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 20.257287634743584,
+          "p50Ms": 20.232323540581596,
+          "p95Ms": 20.450704616970487,
+          "maxMs": 20.49753146701389,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 33.366663138071694,
+          "p50Ms": 33.36664496527778,
+          "p95Ms": 33.379389105902774,
+          "maxMs": 33.388163248697914,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "allSixColdTotalInputVertices": 80187,
+  "allFiftyOwnerRefsRetained": true,
+  "normalBlob54Retained": true,
+  "parkedCameraCarAndPointWordsMatchedAtColdOffsets": true,
+  "onMeanNonPacingMs": 15.47574158774482,
+  "offMeanNonPacingMs": 20.23395488527086,
+  "offMinusOnNonPacingMs": 4.7582132975260425,
+  "outerControlSpreadMs": 0.037599796719025136,
+  "measuredRenderedCompletions": 960,
+  "measuredSyntheticCompletions": 0,
+  "rawEntryPeriodsOver25ms": 256,
+  "representationImagesReviewed": true,
+  "hardwareTimingProtocolValid": true,
+  "hardwareTimingQualified": true,
+  "physicalTVConfirmationPending": true,
+  "lowerCadenceAndSyntheticFlipsAreOutcomesNotRejections": true,
+  "commonObserverFootprintUnpriced": true,
+  "nonPacingInclusiveLoopNotPureEE": true,
+  "everyFrameScanoutNotProved": true,
+  "interpretation": "Net static batch representation difference including transforms/state/packets; not pure fixed-bag price. Single order needs reverse-order corroboration. Equal accepted inputs do not alone prove material/light pixel equivalence.",
+  "representationImageAuthority": {
+    "kind": "Root-owned exact same ELF emulator ON/OFF images",
+    "path": "F:/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/root-raster-review.json",
+    "sha256": "10f2b9d182f64124bc5def8a907f46f25abba0f48762fca8518f54535f54ff59",
+    "physicalTVConfirmed": false,
+    "humanReply": "Cannot currently inspect TV"
+  },
+  "reverseOrderCompleted": true,
+  "reverseFirstOffBatchArraysNotYetBaked": true,
+  "firstBatchBakeOutsideMeasuredWindow": true,
+  "commonResidentGeometryFootprintIdenticalAcrossReversePhases": false,
+  "memoryFootprintCaveat": "Normal builder creates membership only; combined arrays are lazy-baked at first ON. Reverse phase0 OFF precedes that bake, phase2 OFF retains them. Original order0 ON warms both buffers before all timed phases. Reverse corroborates direction, not strictly equal resident footprint."
+}

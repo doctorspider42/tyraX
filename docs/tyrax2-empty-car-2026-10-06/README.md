@@ -151,3 +151,7 @@ The [same-ELF batching fixture](batch/README.md) passes both5400-loop emulator o
 ### First physical batching order
 
 The [first physical ON/OFF/ON run](batch/physical-order0/README.md) completes5400 loops with15.4751/20.0728/15.4748 ms work and approximately59.94/29.97/59.94 Hz. Same80187 accepted inputs and37/313 carriers give4.5978 ms net representation difference. Reverse-order hardware and TV checks remain pending; this supersedes the preparation checkpoint's pending-first-physical status.
+
+### Reverse physical order and scope correction
+
+The [reverse OFF/ON/OFF result](batch/physical-order1/README.md) completes5400 loops at20.2152/15.4757/20.2528 ms,approximately29.97/59.94/29.97 Hz. It corroborates the first order's direction,but combined arrays are lazy-baked at first ON: its first OFF has a different resident footprint from final OFF. Order0's4.5978 ms remains the cleaner comparison. The production map already enables batching; the authored report has77 eligible objects,37 grouped into28 batches. TV inspection remains pending; hardware orders are complete.

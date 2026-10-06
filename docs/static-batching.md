@@ -55,11 +55,16 @@ per-package model (see
 It is the right order of magnitude for deciding whether a merge is worth
 having, and nothing more.
 
-A batch that saves no packages is not a broken batch. The saving a merge
-always makes is in **submits** — one bag instead of many, and a static submit
-costs roughly a millisecond of fixed EE time whatever it holds. Packages fall
-too when members pack together, but a list-mode bag whose members each already
-filled whole packages will show the same count either way.
+A batch that saves no packages is not a broken batch. Combining members
+reduces **submits** — one bag instead of many. Packages can fall too when
+members pack together, but a list-mode bag whose members each already filled
+whole packages can show the same count either way. There is no universal fixed
+EE price per submit: geometry, bounds, state, packing and existing waits all
+affect the net result. The [controlled 80k physical contrast](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md)
+measures about 4.60 ms for changing 37 accepted carriers to 313 at identical
+accepted input geometry. That is the whole representation difference on that
+fixture, not a pure EE or per-bag constant, and the production map already
+uses static batching.
 
 **Members** lists the selected batch's objects, with the part index for a
 multi-part model (one model can legitimately span several batches — each
