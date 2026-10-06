@@ -1,0 +1,26 @@
+{
+  "status": "ROOT_TWO_AXIS_SOURCE_COVERAGE_REVIEW",
+  "changedSources": [
+    "game/src/terrain_game.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "tyra/engine/src/renderer/core/renderer_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+    "tyra/engine/src/renderer/core/texture/renderer_core_texture.cpp",
+    "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+    "tyra/engine/src/renderer/core/paths/path3/path3.cpp",
+    "tyra/engine/inc/debug/closeout.hpp",
+    "tyra/engine/inc/debug/loop_balance.hpp"
+  ],
+  "phaseAnchor": "Existing LoopBalance renderStart/gameEnd stamps; independent work and stage sums each reconcile to exclusive render span.",
+  "clockCost": "2 Count reads for each change of stage/work tag; equal nested tags use zero extra clocks. Wait/pacing clocks shared with existing sampler. Counter writes remain active observer work.",
+  "pacingExclusion": "Begin before actual flip at original t0, end at original t1; nested instrumented functions cannot backdate accounting.",
+  "stageLabels": "20 explicit bins, including root gaps and scene preparation. Labels locate execution; interleaved submissions may be charged to later stages.",
+  "workLabels": "11 explicit bins including render-other, Core prep, bounds, dispatch, geometry copies, EE clipping, texture, object state, packet build, submission and cache flush.",
+  "counterLimits": "Input/event counts only. Texture-chain QWs omit REF payload and submit-source QWs are not bus bytes. Effect stage calls include inactive gate checks.",
+  "legacyRenderCostCapture": "Rejected when armed in measured raw loops; ordinary render-cost request remains zero. No per-object fairness drains enabled.",
+  "newBufferBytes": 24064,
+  "commonFootprintUnpriced": true
+}

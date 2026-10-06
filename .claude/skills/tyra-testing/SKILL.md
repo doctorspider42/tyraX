@@ -4766,3 +4766,16 @@ For private main11 diagnostics, require mandatory cold WHY rows and distinguish
 completion from positive activation. Both frozen attempts use original fallback
 draws; changed lamp state and member light mismatch do not qualify batching gain.
 See docs/tyrax2-main11-batch.md and its source/evidence archive.
+
+Two-axis render audit: `docs/tyrax2-render-audit-2026-10-06/README.md`
+archives completed hardware stage/work partitions and rejected overlap evidence.
+flipBuffers can issue GIF leaf waits inside the existing pacing interval. Mark
+pacing active before flip, count covered calls without new clocks, and exclude
+that interval exactly once. Algebraic closure of the old top-level balance did
+not prove disjointness; the nested render observer caught the overlap. Preserve
+historical pins and publish a correction rather than rewriting evidence.
+Dense scope clocks cost 1.40-1.75 ms in this trial and change deadline crossings;
+use selective coarse scopes next, price their active cost and keep residual
+buckets explicit. Stage and work type are alternative partitions, never additive.
+Submission/recording elapsed includes queue preparation, not just DMA launch;
+no pure EE/VU/GS price or stable-60 claim follows from that label.

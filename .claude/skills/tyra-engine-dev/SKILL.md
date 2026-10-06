@@ -4008,3 +4008,16 @@ Public receiver ABI: actual R5900 PipelineInfoBag grows from 40 to 44 bytes
 Runner; old objects are not binary compatible. Production VU source stays
 unchanged. The archived private main11 TC image includes an unpromoted corona
 SPRITE prototype and is not a production receiver-image identity baseline.
+
+Two-axis render audit: `docs/tyrax2-render-audit-2026-10-06/README.md`
+archives completed hardware stage/work partitions and rejected overlap evidence.
+flipBuffers can issue GIF leaf waits inside the existing pacing interval. Mark
+pacing active before flip, count covered calls without new clocks, and exclude
+that interval exactly once. Algebraic closure of the old top-level balance did
+not prove disjointness; the nested render observer caught the overlap. Preserve
+historical pins and publish a correction rather than rewriting evidence.
+Dense scope clocks cost 1.40-1.75 ms in this trial and change deadline crossings;
+use selective coarse scopes next, price their active cost and keep residual
+buckets explicit. Stage and work type are alternative partitions, never additive.
+Submission/recording elapsed includes queue preparation, not just DMA launch;
+no pure EE/VU/GS price or stable-60 claim follows from that label.

@@ -3052,6 +3052,13 @@ places17.4102 of18.7498 ms heavy-loop work in the render phase, with1.2952 ms
 pre-render update and0.0081 ms explicit VIF/GIF/GS waits. Next split frame setup/
 day-night evaluation, renderScene preparation/drawing, HUD/effects and endFrame;
 then partition the largest region's visibility, clipping and packet production.
-Retain the enclosing balance, actual pending-job ownership and same-ELF observer
-controls. Opposite active contrasts prevent a scalar tax correction. Stable
-full-night60 and physical TV inspection remain open; no new optimization accepted.
+The [two-axis render audit](tyrax2-render-audit-2026-10-06/README.md) completes
+this split on hardware with384 raw rows and256 active partitions. It corrects
+GIF waits already nested in pacing and explicitly prices dense observer
+perturbation at1.753/1.403 ms. Next use selective coarse scopes and activation
+counters within submission/recording, Core preparation and unannotated render
+work; requalify observer cost before each optimization. Preserve actual job
+ownership and enclosing closure. The dense observer changes deadline crossings;
+do not infer normal-game missed-frame counts or subtract a uniform scalar tax.
+Stable full-night60 and physical TV/audio inspection remain open; no new
+production optimization accepted.

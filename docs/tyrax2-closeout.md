@@ -206,5 +206,16 @@ preceding EE loop. Existing pacing agrees exactly with the independent ordinary
 sampler; no waits/fairness drain were added. Parked Off/On/Off and reverse
 contrasts are-0.08331/+0.09376 ms, so no scalar tax is subtracted. Render includes
 its own logic/HUD/effects and elapsed preemption; this is not a pure EE bill.
-Next partition the interior render phase, retaining the enclosing balance and
-wait ownership. Full-night stable60 and physical TV inspection remain pending.
+The [two-axis render audit](tyrax2-render-audit-2026-10-06/README.md) now completes
+native/emulator and5400 physical loops. It also corrects a small historical
+overlap: flipBuffers' two GIF waits were already covered by pacing and should
+not have been timed again as leaf waits. The immutable old archive remains;
+v2 records these calls without clocks and closes both render partitions.
+Objects/terrain average6.227/3.055 ms; engine submission/recording averages
+3.760 ms, Core preparation2.643 ms and bounds1.720 ms. These are alternative
+partitions, never additive. Dense instrumentation adds1.753/1.403 ms in parked
+forward/reverse controls and changes deadline crossings; no scalar subtraction
+or normal-game heavy-frame comparison is accepted. Next selectively split
+submission recording, Core preparation and the explicit unannotated render
+bucket with calibrated coarse scopes. Full-night stable60, physical TV and
+audio inspection remain pending; no production optimization ships here.
