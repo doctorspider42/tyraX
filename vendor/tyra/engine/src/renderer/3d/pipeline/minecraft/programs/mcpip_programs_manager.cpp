@@ -60,6 +60,7 @@ void BlockizerProgramsManager::setProgramsCache() {
 
 void BlockizerProgramsManager::uploadVU1Programs() {
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((programsPacket)->base, "mcpip_programs_manager:programsPacket");
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
   Vif1Queue::drain();
   lastProgramName = UndefinedMcpipProgram;
@@ -91,6 +92,7 @@ void BlockizerProgramsManager::uploadBlock(bool isMulti) {
 
   vu1BlockData = isMulti ? BlockMultiUploaded : BlockSingleUploaded;
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((staticPacket)->base, "mcpip_programs_manager:staticPacket");
   dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -175,6 +177,8 @@ void BlockizerProgramsManager::sendPacket(McpipProgram* program) {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
+
+  TYRA_VIF1_CHECK((currentPacket)->base, "mcpip_programs_manager:currentPacket");
 
   dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
   context = !context;

@@ -98,6 +98,7 @@ void DynPipRenderer::sendStaticData() const {
 
   packet2_utils_vu_add_end_tag(staticDataPacket);
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((staticDataPacket)->base, "dynpip_renderer:staticDataPacket");
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -194,6 +195,7 @@ void DynPipRenderer::sendObjectData(
   packet2_utils_vu_close_unpack(objectDataPacket);
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
+  TYRA_VIF1_CHECK((objectDataPacket)->base, "dynpip_renderer:objectDataPacket");
   dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -232,6 +234,7 @@ void DynPipRenderer::sendPacket() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
+  TYRA_VIF1_CHECK((currentPacket)->base, "dynpip_renderer:currentPacket");
   dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= packetSize,
@@ -247,6 +250,7 @@ void DynPipRenderer::clearLastProgramName() {
 
 void DynPipRenderer::uploadPrograms() {
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((programsPacket)->base, "dynpip_renderer:programsPacket");
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
   Vif1Queue::drain();
 }

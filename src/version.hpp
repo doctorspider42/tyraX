@@ -5516,6 +5516,13 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 169
+// 1.169.1: the engine's audio thread gets a 16 KB, 16-byte aligned stack with
+// an overflow guard (was 2 KB from memalign(1)). The low-ring music warning
+// logs from that thread and overflowed it into the heap below - in the
+// showcase, Path1's draw-finish packet - so VIF1 read a saved register frame
+// and the game froze ~16 s in ("Vif1: Unknown VifCmd! [47]" in PCSX2). Plus
+// TYRA_VIF1_VALIDATE, an off-by-default walker of every VIF1 chain. No format
+// change.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5621,7 +5628,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

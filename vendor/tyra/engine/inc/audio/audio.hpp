@@ -33,11 +33,16 @@ class Audio {
 
   void work();
 
+  /** Added by TyraX: reports (once) a write past the bottom of the audio
+   * thread's stack. Called by the audio thread after every work(). */
+  void checkStackGuard();
+
  private:
   ee_thread_t thread;
   int threadId;
-  static const u16 threadStackSize;
+  static const u32 threadStackSize;
   u8* threadStack;
+  bool stackGuardReported = false;
 
   void initAUDSRV();
   void initThread();
