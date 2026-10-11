@@ -2566,8 +2566,8 @@ lightweight neutral receivers. Avatar skin time fell from about 10.8 to 5.6 ms
 in PCSX2, with identical geometry and full-rate animation.
 
 - Impostor follow-up: measure cold versus warm batch GPU capture time and consider
-  background batch baking. Configurable 4/8/16 views and optional GPU capture
-  with CPU fallback are implemented; see [impostors](impostors.md).
+  background batch baking. Configurable 4/8/16 views and GPU capture with
+  automatic CPU fallback are implemented; see [impostors](impostors.md).
 
 ### Hardware timeline follow-up (1.92)
 

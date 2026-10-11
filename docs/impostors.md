@@ -3,24 +3,26 @@
 Impostors replace a static model beyond an authored distance while retaining the
 original object's collision and gameplay identity.
 
-![Universal OBJ capture in Properties](img/impostor-model.png)
+![Properties > Distance and LOD > Distant version: a baked 8-view billboard and its switch distance](img/impostor-model.png)
 
 In **Tools > Tree Generator**, enable **Bake distant impostor** before **Add to
 scene**. The generator writes the ordinary tree plus an `-impostor.obj`, matching
 material and a PNG atlas: 4, 8 or 16 orthographic 128x128 views in four columns.
-Choose **Capture views** and **Impostor** in model Properties before **Bake
-impostor**, or **Tree capture views** in Tree Generator before adding a tree.
-The choice takes effect only when baking succeeds; existing assets retain their
-old count until rebaked. GPU is on by default for these UI actions.
+For a placed model, open **Properties > Distance and LOD > Distant version**:
+pick **Far away: Billboard (captured views)**, choose **Views**, and click
+**Bake**; in the Tree Generator pick **Tree capture views** before adding a
+tree. The choice takes effect only when baking succeeds; existing assets retain
+their old count until rebaked (the status next to the button says so). Capture
+runs on the GPU and falls back to the CPU on its own.
 Only one OBJ part is drawn at a time, on a vertical camera-facing card: **two
 triangles**. Each capture keeps its own projected bounds and the source origin.
 The view is selected relative to the object's authored yaw, in sectors of 360 degrees divided by the capture count.
 Binary alpha and RGB padding keep the silhouette clear of black filter fringes.
 
 The inserted object switches beyond six authored tree heights by default. In
-the selected model's **Properties > LOD**, the result is named **Distant
-representation** (captured impostor or hull proxy); change **Switch distance**
-directly below it. Zero disables replacement. The game
+the selected model's **Properties > Distance and LOD > Distant version**, change
+**Switch at** below the Bake button. Zero disables replacement; **Far away: None**
+removes the distant version (the baked files stay on disk). The game
 returns to the full model below 90% of that distance. At most four representation
 switches happen per scene render. Initial geometry is built directly in the
 selected representation. Camera movement subsequently updates six positions and
@@ -29,7 +31,7 @@ The viewport previews the same camera-facing capture selection.
 
 ## Supported assets
 
-Select a static OBJ object and click **Properties > Bake impostor**. The baker
+Select a static OBJ object and use **Distant version > Billboard > Bake**. The baker
 reads every material part, including an assigned material override, `Kd` colour,
 `map_Kd` textures and their alpha cutouts. Untextured materials become solid
 colours. Object tint remains a runtime multiplier. Missing textures/overrides,
@@ -41,18 +43,19 @@ The output is `res/models/impostors/model-<object-id>.obj`, `.mtl` and `.png`.
 Baking assigns it to this object, sets the billboard flag and refreshes the
 viewport. A positive existing distance is preserved; otherwise the initial
 threshold is six times the largest local dimension multiplied by the largest
-supported instance scale. Change **Switch distance** afterwards. The scene
+supported instance scale. Change **Switch at** afterwards. The scene
 assignment is undoable; exported files remain on disk. Re-baking overwrites this
 object's generated assets, so undo does not restore an earlier texture bake.
 
 The Tree Generator keeps its convenient export checkbox and shares the capture
 kernel. Existing crossed cards remain ordinary replacement meshes. Static models
-imported into the editor as OBJ use the same button; animated models are excluded.
+imported into the editor use the same section (a .glb/.fbx placed as a static
+Model is an OBJ); animated models are excluded.
 
 ### Geometry hull proxies
 
-For a building, rock or other solid object, **Properties > Bake hull proxy**
-offers a geometry alternative to captured cards. It computes the convex outline
+For a building, rock or other solid object, **Distant version > Hull proxy >
+Bake** offers a geometry alternative to captured cards. It computes the convex outline
 of every source vertex in the XZ plane, extrudes that outline between the
 model's minimum and maximum Y, and writes one OBJ part with one averaged `Kd`
 material. This is not QEM decimation: internal detail, UV seams and source

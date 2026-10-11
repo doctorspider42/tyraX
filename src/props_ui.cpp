@@ -362,6 +362,15 @@ void App::drawPropertiesWindow() {
     // it is a NEGATIVE gate as much as a positive one: a comment is not a game
     // object, so the sections that describe behaviour are skipped for it.
     const bool isComment = o.type == PrimitiveType::Comment;
+    // Solid objects (models, primitives, save points) carry dozens of fields,
+    // so they come in collapsible sections; every other type keeps its short
+    // flat panel and this answers "shown" without drawing anything. The open
+    // state is ImGui's own, per header label, so it sticks across selections.
+    auto section = [&](const char* label, bool defaultOpen) {
+        if (!isSolid) return true;
+        return ImGui::CollapsingHeader(
+            label, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None);
+    };
 
     if (!o.editorGroup.empty()) {
         ImGui::Text("Group: %s", o.editorGroup.c_str());
@@ -595,7 +604,8 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled(
             "Blob suits traffic; projected silhouette suits the hero car.");
     }
-    if (o.type == PrimitiveType::Model) {
+    if (o.type == PrimitiveType::Model &&
+        section(isAnimatedModelPath(o.modelPath) ? "Animated model" : "Model", true)) {
         // The model field opens the model picker; the entity's kind (Model /
         // Animated model) is what the current file is, and the picker only
         // offers that kind (docs/model-import.md).
@@ -605,7 +615,6 @@ void App::drawPropertiesWindow() {
                                         : std::filesystem::path(o.modelPath)
                                               .filename()
                                               .string();
-        ImGui::TextDisabled(animatedEntity ? "Animated model" : "Model");
         if (ImGui::Button((current + "##modelfield").c_str(),
                           ImVec2(ImGui::CalcItemWidth(), 0)))
             openModelPicker(animatedEntity, o.id);
@@ -662,7 +671,6 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
-                committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: the Animation node (play/stop),\n"
                     "On Animation Finished.");
@@ -708,9 +716,6 @@ void App::drawPropertiesWindow() {
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
         }
-        // Static models take distance mesh LOD too (docs/model-pipeline.md),
-        // so they get the same per-object override row animated models have.
-        committed |= drawLodOverrides(o, false);
         }
     }
 
@@ -931,57 +936,59 @@ void App::drawPropertiesWindow() {
                             (unsigned)o.procGraph.seed);
     }
 
-    ImGui::DragFloat3("Position", o.position, 0.1f);
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    // custom emitters rotate too - the rotation aims the emission direction
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isScatter || isScroller ||
-        (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
-        ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+    if (section("Transform", true)) {
+        ImGui::DragFloat3("Position", o.position, 0.1f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
-    }
-    if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
-        isScatter || o.type == PrimitiveType::Emitter) {
-        ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
-        // How big that actually is. A primitive is a UNIT shape, so its scale
-        // is its size in world units - and the world scale turns that into
-        // something you can picture (docs/world-scale.md).
-        float size[3];
-        if (objectWorldSize(o, size)) {
-            const float ups = project_.settings.unitsPerMeter;
-            ImGui::TextDisabled("Size: %.2f x %.2f x %.2f units  =  "
-                                "%.2f x %.2f x %.2f m",
-                                size[0], size[1], size[2], size[0] / ups,
-                                size[1] / ups, size[2] / ups);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The object's real size, from its unit shape (or the\n"
-                    "model's own bounds) times the scale above. Metres come\n"
-                    "from Preferences > World > Units per meter (now %.3f).\n"
-                    "The Measure tool (7) does the same between two points.",
-                    ups);
+        // custom emitters rotate too - the rotation aims the emission direction
+        if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
+            isScatter || isScroller ||
+            (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
+            ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
-    }
-    // Color: mesh tint for solids, particle tint for emitters, light color
-    // for point lights, marker tint + free per-object parameter for empties,
-    // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors, inactive-surface tint for portals, and the icon tint
-    // for a comment (which is how a scene full of notes gets categories -
-    // red for a bug, green for something settled). The remaining markers draw
-    // in fixed colors.
-    if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isComment || o.type == PrimitiveType::Emitter ||
-        o.type == PrimitiveType::PointLight) {
-        ImGui::ColorEdit3("Color", o.color);
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
+            isScatter || o.type == PrimitiveType::Emitter) {
+            ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // How big that actually is. A primitive is a UNIT shape, so its scale
+            // is its size in world units - and the world scale turns that into
+            // something you can picture (docs/world-scale.md).
+            float size[3];
+            if (objectWorldSize(o, size)) {
+                const float ups = project_.settings.unitsPerMeter;
+                ImGui::TextDisabled("Size: %.2f x %.2f x %.2f units  =  "
+                                    "%.2f x %.2f x %.2f m",
+                                    size[0], size[1], size[2], size[0] / ups,
+                                    size[1] / ups, size[2] / ups);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The object's real size, from its unit shape (or the\n"
+                        "model's own bounds) times the scale above. Metres come\n"
+                        "from Preferences > World > Units per meter (now %.3f).\n"
+                        "The Measure tool (7) does the same between two points.",
+                        ups);
+            }
+        }
+        // Color: mesh tint for solids, particle tint for emitters, light color
+        // for point lights, marker tint + free per-object parameter for empties,
+        // texture tint for decals, marker/frustum tint for camera entities, glass
+        // tint for mirrors, inactive-surface tint for portals, and the icon tint
+        // for a comment (which is how a scene full of notes gets categories -
+        // red for a bug, green for something settled). The remaining markers draw
+        // in fixed colors.
+        if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
+            isComment || o.type == PrimitiveType::Emitter ||
+            o.type == PrimitiveType::PointLight) {
+            ImGui::ColorEdit3("Color", o.color);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
     }
 
     const bool animatedModel =
         o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath);
     // Material picker: solids texture their surface with it; a decal uses its
     // map_Kd (with alpha) as the decal image.
-    if (isSolid || isDecal) {
+    if ((isSolid || isDecal) && section("Material", true)) {
         // Material (.mtl asset): primitives take the file's first material
         // (Kd + map_Kd on their UVs, modulated by the object color), models
         // (static .obj AND animated .glb/.fbx) use it as an OVERRIDE replacing
@@ -1017,7 +1024,8 @@ void App::drawPropertiesWindow() {
                     "surface; aim +Z at the wall/floor. Baked at build (no PS2 cost).");
         }
     }
-    if (isSolid) {
+    const bool showGameplay = section("Gameplay", false);
+    if (isSolid && showGameplay) {
         if (ImGui::Checkbox("Physics (rigid body)", &o.physics)) committed = true;
         if (o.physics) {
             ImGui::Indent();
@@ -1068,7 +1076,7 @@ void App::drawPropertiesWindow() {
     // Show/Hide Object nodes toggle emitters/sounds too - their on/off state
     // is worth saving; empties can be moved around by scripts. Lights are
     // baked at build, the remaining markers have no game state.
-    if (isSolid || isEmpty || o.type == PrimitiveType::Emitter ||
+    if ((isSolid && showGameplay) || isEmpty || o.type == PrimitiveType::Emitter ||
         o.type == PrimitiveType::SoundEmitter) {
         if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
                             &o.saveState))
@@ -1076,7 +1084,7 @@ void App::drawPropertiesWindow() {
     }
 
     // Player collision. Solid geometry only - markers/emitters never collide.
-    if (isSolid) {
+    if (isSolid && showGameplay) {
         if (o.type == PrimitiveType::Box) {
             bool invisible = o.collisionMode == 3;
             if (ImGui::Checkbox("Invisible wall", &invisible)) {
@@ -1199,8 +1207,7 @@ void App::drawPropertiesWindow() {
     // sliders that do nothing, on every object, forever. Which stage reads
     // which slot is a property of the program, so the labels come from the
     // stage list rather than being named here.
-    if (isSolid && !project_.vu.programs.empty()) {
-        ImGui::SeparatorText("VU program");
+    if (isSolid && !project_.vu.programs.empty() && section("VU program", false)) {
         // A program is installed over a material CLASS, so the only thing that
         // decides whether it touches this object is which class the object is
         // in. Labelling the four slots from every program in the project - as
@@ -1308,257 +1315,266 @@ void App::drawPropertiesWindow() {
     // distance; collision, sounds and scripts keep running. For a mirror it
     // gates the glass AND every reflected copy - the whole illusion.
     if (isSolid || isMirror) {
-        ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
-                         o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (o.drawDistance > 0.0f)
-            ImGui::TextDisabled(
-                "Skipped at draw time when the camera is farther than this;\n"
-                "collision and logic still run. 0 = always drawn.\n"
-                "Objects merged into one static batch share a cut-off and\n"
-                "switch off together, so a batched object can stay visible\n"
-                "a little past its own distance - never less.");
-
-        // The one per-object static-batching lever (docs/static-batching.md).
-        // Everything else about batching is inferred by the build; this is a
-        // decision the author makes, for the case the rules cannot see - a
-        // member whose position widens its batch's merged box enough to keep
-        // the whole group drawn past what the scene would cull. Tools >
-        // Static Batches is where that is visible.
-        if (ImGui::Checkbox("Exclude from static batch", &o.batchExclude))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Keep this object out of every static batch - it submits its\n"
-                "own bag, as it did before batching existed. A batch is culled\n"
-                "as a UNIT against the union of its members, so one outlying\n"
-                "member can keep the rest drawn; excluding it is the fix.\n"
-                "Tools > Static Batches shows the merged boxes and the cost.");
-
-        if (ImGui::Checkbox("Never occlude other objects", &o.occluderExclude))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Opt out of the build-time occluder proxy. Moving, open,\n"
-                "non-manifold and alpha-textured geometry is rejected\n"
-                "automatically even when this remains unchecked.");
-        if (ImGui::Checkbox("Can be occlusion culled", &o.occlusionCull))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Allow this object's complete bounds to be skipped when they\n"
-                "are safely behind the conservative visibility buffer.");
-
-        // Rendered into the dynamic ("@sky") environment map, so reflective
-        // materials mirror this object - costs a second small render per frame.
-        if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
-        if (o.reflected) {
-            if (ImGui::Checkbox("Reflection box proxy", &o.reflectionProxy))
-                committed = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Draw one 12-triangle, one-material box in 128px environment maps.\n"
-                                  "The main view, collision and picking keep the full object.");
+        if (section("Distance and LOD", false)) {
+            ImGui::DragFloat("Draw distance", &o.drawDistance, 0.5f, 0.0f, 2000.0f,
+                             o.drawDistance > 0.0f ? "%.0f units" : "unlimited");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (o.drawDistance > 0.0f)
+                ImGui::TextDisabled(
+                    "Skipped at draw time when the camera is farther than this;\n"
+                    "collision and logic still run. 0 = always drawn.\n"
+                    "Objects merged into one static batch share a cut-off and\n"
+                    "switch off together, so a batched object can stay visible\n"
+                    "a little past its own distance - never less.");
+            // mesh / animation LOD overrides and a static model's distant
+            // version (billboard or hull proxy)
+            if (o.type == PrimitiveType::Model)
+                committed |= drawLodOverrides(o, animatedModel);
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Materials with a <dynamic - live sky> sphere map will mirror\n"
-                "this object (rendered into the reflection map every frame).\n"
-                "Mark the few props that sell the effect - each one costs a\n"
-                "second small render per frame. Editor preview shows the sky\n"
-                "only; check reflections in the game.");
-        // Project > Preferences > Rendering > Reflect static scenery as boxes:
-        // what that switch does with THIS object. The verdict walks the scene's
-        // runtime references, so it is recomputed only when the model changes.
-        if (project_.settings.reflectionScenery && !o.reflected) {
-            static uint64_t verdictSerial = ~0ull;
-            static int verdictIndex = -1, verdictScene = -1;
-            static reflscenery::Verdict verdict = reflscenery::Verdict::NotSolid;
-            if (verdictSerial != modelEditSerial_ || verdictIndex != selectedObject_ ||
-                verdictScene != project_.activeScene) {
-                verdictSerial = modelEditSerial_;
-                verdictIndex = selectedObject_;
-                verdictScene = project_.activeScene;
-                verdict = reflscenery::verdictFor(project_, project_.active(),
-                                                  selectedObject_);
-            }
-            ImGui::TextDisabled("In reflections: %s", reflscenery::verdictText(verdict));
-        }
-
-        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
-        // "Cast shadow" below - and a choice per object rather than a
-        // project-wide one (docs/shadows.md): a blob is one soft quad that
-        // costs almost nothing and has no shape, a projected silhouette is a
-        // second 64x64 render of this object every frame. "Default" is what
-        // every project did before the choice existed, so an untouched object
-        // behaves exactly as it always has.
-        {
-            const char* shadowNames[] = {"Default (follow the project)",
-                                         "None", "Blob (soft quad)",
-                                         "Projected silhouette",
-                                         "Baked (decal)"};
-            int mode = o.shadowMode;
-            if (mode < 0 || mode > 4) mode = 0;
-            // A real label rather than "##dynshadow" plus a SameLine caption:
-            // it is the idiom the rest of these panels use, and a hidden label
-            // is a widget no UI script can name (docs/ui-scripting.md).
-            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
-                o.shadowMode = mode;
+        if (section("Performance", false)) {
+            // The one per-object static-batching lever (docs/static-batching.md).
+            // Everything else about batching is inferred by the build; this is a
+            // decision the author makes, for the case the rules cannot see - a
+            // member whose position widens its batch's merged box enough to keep
+            // the whole group drawn past what the scene would cull. Tools >
+            // Static Batches is where that is visible.
+            if (ImGui::Checkbox("Exclude from static batch", &o.batchExclude))
                 committed = true;
-            }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "What this object casts while the game runs.\n"
-                    "DEFAULT - the project decides: a blob under the moving\n"
-                    "things (avatar, animated models, physics) if Preferences\n"
-                    "has blob shadows on, plus the silhouette below if it is\n"
-                    "ticked.\n"
-                    "NONE - nothing, whatever the project says.\n"
-                    "BLOB - one soft dark quad that follows the ground under\n"
-                    "it. Bake or pick a top-down mask below; vehicles also\n"
-                    "receive one automatically during import.\n"
-                    "Cheap enough for traffic and crowds.\n"
-                    "PROJECTED - the real silhouette: the object renders a\n"
-                    "second time each frame (64x64, from the sun) and the\n"
-                    "shape is projected under it. The 4 casters nearest the\n"
-                    "camera are active at a time, so mark hero objects.\n"
-                    "Game-only (no preview).\n"
-                    "BAKED - the real shape, traced once and projected onto\n"
-                    "whatever is under it. Costs no slot and nothing per\n"
-                    "frame, reaches textured walls and models the lightmap\n"
-                    "cannot, and needs a bake (Ambience Editor > Baked\n"
-                    "lighting). The caster and what it falls on must stay\n"
-                    "put. 'Cast shadow' below is the ambient-occlusion one -\n"
-                    "a different thing entirely.");
-            // A baked shadow needs two things this panel can say straight
-            // away: the project switch, and a caster that stands still. The
-            // sentence comes from shadowbake itself (quickRefusal), so the
-            // panel and the bake cannot end up disagreeing about which objects
-            // qualify. Everything else - whether it lands on anything, how
-            // many triangles it costs - needs the bake and is reported there.
-            if (o.shadowMode == 4) {
-                const std::string why = shadowbake::quickRefusal(o);
-                if (!why.empty())
-                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                                       "No baked shadow: %s", why.c_str());
-                else if (!project_.settings.bakedShadows)
-                    ImGui::TextColored(
-                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                        "Baked shadows are off for this project");
-                else
-                    ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
-            }
-            if (o.shadowMode == 2 &&
-                drawBlobShadowShape(project_, o, statusMessage_))
+                    "Keep this object out of every static batch - it submits its\n"
+                    "own bag, as it did before batching existed. A batch is culled\n"
+                    "as a UNIT against the union of its members, so one outlying\n"
+                    "member can keep the rest drawn; excluding it is the fix.\n"
+                    "Tools > Static Batches shows the merged boxes and the cost.");
+
+            if (ImGui::Checkbox("Never occlude other objects", &o.occluderExclude))
                 committed = true;
-            // The old flag still means "projected" while the mode follows the
-            // project, so it stays reachable - and stays the thing every
-            // existing .tyra carries.
-            if (o.shadowMode == 0) {
-                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Opt out of the build-time occluder proxy. Moving, open,\n"
+                    "non-manifold and alpha-textured geometry is rejected\n"
+                    "automatically even when this remains unchecked.");
+            if (ImGui::Checkbox("Can be occlusion culled", &o.occlusionCull))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Allow this object's complete bounds to be skipped when they\n"
+                    "are safely behind the conservative visibility buffer.");
+        }
+        if (section("Lighting and shadows", false)) {
+            // Rendered into the dynamic ("@sky") environment map, so reflective
+            // materials mirror this object - costs a second small render per frame.
+            if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+            if (o.reflected) {
+                if (ImGui::Checkbox("Reflection box proxy", &o.reflectionProxy))
                     committed = true;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "The project-default form of the choice above. Pick\n"
-                        "\"Projected silhouette\" in the combo to say it on the\n"
-                        "object instead.\n"
-                        "With a GI bake a static object's sun shadow is already\n"
-                        "baked: the live one then draws only while the day/night\n"
-                        "clock runs or under a torch. The combo forces it.");
-            }
-        }
-        // Baked ambient occlusion: whether this object darkens nearby
-        // terrain/objects (docs/ambient-occlusion.md; global strength in
-        // the Ambience Editor).
-        if (ImGui::Checkbox("Cast shadow", &o.castShadow)) committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Bakes a soft contact shadow onto nearby terrain and objects\n"
-                "(ambient occlusion - needs it enabled in the scene's\n"
-                "ambience preset). Off = this object casts nothing; it still\n"
-                "receives shadows from others. Rebuild to see it in-game.");
-        // Baked global illumination: may this object take a per-texel
-        // lightmap, which glues the result to its surface?
-        if (ImGui::Checkbox("Baked lighting", &o.bakedLighting))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Lets baked global illumination paint this object's light per\n"
-                "pixel - the best-looking route, and one that GLUES the result\n"
-                "to the surface: tip the object over at runtime and it carries\n"
-                "a shadow that matches nothing.\n"
-                "Off = it reads the light probes instead and relights when it\n"
-                "moves. The bake already excludes anything it can prove moves\n"
-                "(physics, pickable, usable, save-state, streamed, or moved by\n"
-                "a flow graph) - this is for the rest.");
-
-        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
-        // primitive already has the per-texel lightmap route, which costs no
-        // extra texture at all.
-        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
-            const int myIndex = selectedObject_;
-            const bool mine = litBaker_.objectIndex() == myIndex &&
-                              litBaker_.sceneIndex() == project_.activeScene;
-            if (litBaker_.running() && mine) {
-                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
-                ImGui::TextUnformatted(litBaker_.status().c_str());
-                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
-            } else {
-                if (ImGui::Button("Bake lighting into texture")) {
-                    saveProject();  // the bake reads the model off disk
-                    litBaker_.start(project_, project_.activeScene, myIndex,
-                                    litBakeParams_);
-                }
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(90.0f));
-                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
-                               512, "%d px");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(90.0f));
-                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
-                               512, "%d rays");
+                    ImGui::SetTooltip("Draw one 12-triangle, one-material box in 128px environment maps.\n"
+                                      "The main view, collision and picking keep the full object.");
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Bakes the scene's light INTO this object's texture and\n"
-                    "gives it its own material - the only way a TEXTURED\n"
-                    "surface gets per-pixel static light on this hardware (the\n"
-                    "lightmap is additive and the GS cannot multiply a texture\n"
-                    "by a second one in a later pass).\n"
-                    "Its vertex light then goes neutral; the flashlight and\n"
-                    "live point lights still land on top.\n"
-                    "Costs one texture per object, and goes STALE if you move\n"
-                    "the object or change the scene's lighting - re-bake it.");
-            // Fresh or stale, from the signature - the same answer the Baked
-            // lighting tab gives, out of the same cached table (asking
-            // litbake::signature per frame would content-hash every file the
-            // GI bake reads).
-            if (o.prelit) {
-                const PrelitStatus* st = prelitStatusFor(myIndex);
-                if (st && st->fresh)
-                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
-                                       "Pre-lit: its texture carries its light");
-                else
-                    ImGui::TextColored(
-                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                        "Pre-lit, but STALE: the scene or this object has "
-                        "moved since the bake");
-                if (ImGui::Button("Revert to source material"))
-                    revertPrelit(myIndex);
+                    "Materials with a <dynamic - live sky> sphere map will mirror\n"
+                    "this object (rendered into the reflection map every frame).\n"
+                    "Mark the few props that sell the effect - each one costs a\n"
+                    "second small render per frame. Editor preview shows the sky\n"
+                    "only; check reflections in the game.");
+            // Project > Preferences > Rendering > Reflect static scenery as boxes:
+            // what that switch does with THIS object. The verdict walks the scene's
+            // runtime references, so it is recomputed only when the model changes.
+            if (project_.settings.reflectionScenery && !o.reflected) {
+                static uint64_t verdictSerial = ~0ull;
+                static int verdictIndex = -1, verdictScene = -1;
+                static reflscenery::Verdict verdict = reflscenery::Verdict::NotSolid;
+                if (verdictSerial != modelEditSerial_ || verdictIndex != selectedObject_ ||
+                    verdictScene != project_.activeScene) {
+                    verdictSerial = modelEditSerial_;
+                    verdictIndex = selectedObject_;
+                    verdictScene = project_.activeScene;
+                    verdict = reflscenery::verdictFor(project_, project_.active(),
+                                                      selectedObject_);
+                }
+                ImGui::TextDisabled("In reflections: %s", reflscenery::verdictText(verdict));
+            }
+
+            // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+            // "Cast shadow" below - and a choice per object rather than a
+            // project-wide one (docs/shadows.md): a blob is one soft quad that
+            // costs almost nothing and has no shape, a projected silhouette is a
+            // second 64x64 render of this object every frame. "Default" is what
+            // every project did before the choice existed, so an untouched object
+            // behaves exactly as it always has.
+            {
+                const char* shadowNames[] = {"Default (follow the project)",
+                                             "None", "Blob (soft quad)",
+                                             "Projected silhouette",
+                                             "Baked (decal)"};
+                int mode = o.shadowMode;
+                if (mode < 0 || mode > 4) mode = 0;
+                // A real label rather than "##dynshadow" plus a SameLine caption:
+                // it is the idiom the rest of these panels use, and a hidden label
+                // is a widget no UI script can name (docs/ui-scripting.md).
+                if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
+                    o.shadowMode = mode;
+                    committed = true;
+                }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
-                        "Puts back the material this object had before its\n"
-                        "first bake and stops shipping it pre-lit. The baked\n"
-                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
-                        "lists them as unused).");
+                        "What this object casts while the game runs.\n"
+                        "DEFAULT - the project decides: a blob under the moving\n"
+                        "things (avatar, animated models, physics) if Preferences\n"
+                        "has blob shadows on, plus the silhouette below if it is\n"
+                        "ticked.\n"
+                        "NONE - nothing, whatever the project says.\n"
+                        "BLOB - one soft dark quad that follows the ground under\n"
+                        "it. Bake or pick a top-down mask below; vehicles also\n"
+                        "receive one automatically during import.\n"
+                        "Cheap enough for traffic and crowds.\n"
+                        "PROJECTED - the real silhouette: the object renders a\n"
+                        "second time each frame (64x64, from the sun) and the\n"
+                        "shape is projected under it. The 4 casters nearest the\n"
+                        "camera are active at a time, so mark hero objects.\n"
+                        "Game-only (no preview).\n"
+                        "BAKED - the real shape, traced once and projected onto\n"
+                        "whatever is under it. Costs no slot and nothing per\n"
+                        "frame, reaches textured walls and models the lightmap\n"
+                        "cannot, and needs a bake (Ambience Editor > Baked\n"
+                        "lighting). The caster and what it falls on must stay\n"
+                        "put. 'Cast shadow' below is the ambient-occlusion one -\n"
+                        "a different thing entirely.");
+                // A baked shadow needs two things this panel can say straight
+                // away: the project switch, and a caster that stands still. The
+                // sentence comes from shadowbake itself (quickRefusal), so the
+                // panel and the bake cannot end up disagreeing about which objects
+                // qualify. Everything else - whether it lands on anything, how
+                // many triangles it costs - needs the bake and is reported there.
+                if (o.shadowMode == 4) {
+                    const std::string why = shadowbake::quickRefusal(o);
+                    if (!why.empty())
+                        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                           "No baked shadow: %s", why.c_str());
+                    else if (!project_.settings.bakedShadows)
+                        ImGui::TextColored(
+                            ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                            "Baked shadows are off for this project");
+                    else
+                        ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
+                }
+                if (o.shadowMode == 2 &&
+                    drawBlobShadowShape(project_, o, statusMessage_))
+                    committed = true;
+                // The old flag still means "projected" while the mode follows the
+                // project, so it stays reachable - and stays the thing every
+                // existing .tyra carries.
+                if (o.shadowMode == 0) {
+                    if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                        committed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "The project-default form of the choice above. Pick\n"
+                            "\"Projected silhouette\" in the combo to say it on the\n"
+                            "object instead.\n"
+                            "With a GI bake a static object's sun shadow is already\n"
+                            "baked: the live one then draws only while the day/night\n"
+                            "clock runs or under a torch. The combo forces it.");
+                }
             }
-            ImGui::TextDisabled(
-                "Every pre-lit object in this scene: Tools > Baked Lighting");
-            if (!litBaker_.error().empty() && mine)
-                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
-                                   litBaker_.error().c_str());
-            // The result is applied by App::litBakerPoll, not here: a bake
-            // that finishes has to land whether or not this object is still
-            // the selected one.
+            // Baked ambient occlusion: whether this object darkens nearby
+            // terrain/objects (docs/ambient-occlusion.md; global strength in
+            // the Ambience Editor).
+            if (ImGui::Checkbox("Cast shadow", &o.castShadow)) committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes a soft contact shadow onto nearby terrain and objects\n"
+                    "(ambient occlusion - needs it enabled in the scene's\n"
+                    "ambience preset). Off = this object casts nothing; it still\n"
+                    "receives shadows from others. Rebuild to see it in-game.");
+            // Baked global illumination: may this object take a per-texel
+            // lightmap, which glues the result to its surface?
+            if (ImGui::Checkbox("Baked lighting", &o.bakedLighting))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Lets baked global illumination paint this object's light per\n"
+                    "pixel - the best-looking route, and one that GLUES the result\n"
+                    "to the surface: tip the object over at runtime and it carries\n"
+                    "a shadow that matches nothing.\n"
+                    "Off = it reads the light probes instead and relights when it\n"
+                    "moves. The bake already excludes anything it can prove moves\n"
+                    "(physics, pickable, usable, save-state, streamed, or moved by\n"
+                    "a flow graph) - this is for the rest.");
+
+            // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+            // primitive already has the per-texel lightmap route, which costs no
+            // extra texture at all.
+            if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+                const int myIndex = selectedObject_;
+                const bool mine = litBaker_.objectIndex() == myIndex &&
+                                  litBaker_.sceneIndex() == project_.activeScene;
+                if (litBaker_.running() && mine) {
+                    ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                    ImGui::TextUnformatted(litBaker_.status().c_str());
+                    if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+                } else {
+                    if (ImGui::Button("Bake lighting into texture")) {
+                        saveProject();  // the bake reads the model off disk
+                        litBaker_.start(project_, project_.activeScene, myIndex,
+                                        litBakeParams_);
+                    }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(90.0f));
+                    ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                                   512, "%d px");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(90.0f));
+                    ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                                   512, "%d rays");
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Bakes the scene's light INTO this object's texture and\n"
+                        "gives it its own material - the only way a TEXTURED\n"
+                        "surface gets per-pixel static light on this hardware (the\n"
+                        "lightmap is additive and the GS cannot multiply a texture\n"
+                        "by a second one in a later pass).\n"
+                        "Its vertex light then goes neutral; the flashlight and\n"
+                        "live point lights still land on top.\n"
+                        "Costs one texture per object, and goes STALE if you move\n"
+                        "the object or change the scene's lighting - re-bake it.");
+                // Fresh or stale, from the signature - the same answer the Baked
+                // lighting tab gives, out of the same cached table (asking
+                // litbake::signature per frame would content-hash every file the
+                // GI bake reads).
+                if (o.prelit) {
+                    const PrelitStatus* st = prelitStatusFor(myIndex);
+                    if (st && st->fresh)
+                        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                           "Pre-lit: its texture carries its light");
+                    else
+                        ImGui::TextColored(
+                            ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                            "Pre-lit, but STALE: the scene or this object has "
+                            "moved since the bake");
+                    if (ImGui::Button("Revert to source material"))
+                        revertPrelit(myIndex);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Puts back the material this object had before its\n"
+                            "first bake and stops shipping it pre-lit. The baked\n"
+                            "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                            "lists them as unused).");
+                }
+                ImGui::TextDisabled(
+                    "Every pre-lit object in this scene: Tools > Baked Lighting");
+                if (!litBaker_.error().empty() && mine)
+                    ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                       litBaker_.error().c_str());
+                // The result is applied by App::litBakerPoll, not here: a bake
+                // that finishes has to land whether or not this object is still
+                // the selected one.
+            }
+
         }
     }
 
@@ -2821,8 +2837,8 @@ void App::drawPropertiesWindow() {
     // runs as five independent instances, each seeing its object as `self`.
     // ...but not on a comment: an editor note has no behaviour to attach
     // anything to, and the game never sees the object at all.
-    if (!isComment) {
-        ImGui::SeparatorText("Scripts");
+    if (!isComment && section("Scripts", true)) {
+        if (!isSolid) ImGui::SeparatorText("Scripts");
         const std::vector<std::string> registered = objectScriptNames();
         auto isRegistered = [&](const std::string& n) {
             for (const std::string& r : registered)
@@ -3349,88 +3365,123 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
-    if (!animated && o.type == PrimitiveType::Model) {
-        const bool supported = !o.physics && !o.modelPath.empty() &&
-            std::fabs(o.rotation[0]) < .001f && std::fabs(o.rotation[2]) < .001f &&
-            o.scale[0] > 0 && o.scale[1] > 0 && std::fabs(o.scale[0]-o.scale[2]) < .0001f;
-        if (modelImpostorObject_ != o.id) {
-            modelImpostorObject_ = o.id;
-            modelImpostorViews_ = o.impostorViews;
-        }
-        int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
-        if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
-            modelImpostorViews_ = 4 << captureChoice;
-        ImGui::Checkbox("Impostor", &impostorGpu_);
-        ImGui::TextDisabled("Applied on bake; captured on the GPU, falling\n"
-                            "back to the CPU if unavailable.");
-        ImGui::BeginDisabled(!supported);
-        if (ImGui::Button("Bake impostor")) {
-            std::string key = o.id;
-            for (char& c : key)
-                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                      (c >= '0' && c <= '9') || c == '-')) c = '_';
-            std::string path, error, backend;
-            float extent = 0;
-            if (impostorbake::model(project_.dir, o.modelPath, o.materialPath,
-                    "res/models/impostors/model-"+key, &path, &extent, &error, 128, modelImpostorViews_, impostorGpu_, &backend)) {
-                o.impostorPath = path;
-                o.impostorBillboard = true;
-                o.impostorViews = modelImpostorViews_;
-                if (o.impostorDistance <= 0)
-                    o.impostorDistance = std::max(1.0f, extent*std::max(o.scale[0],o.scale[1])*6.0f);
-                viewport_.invalidateAssets();
-                committed = true;
-                statusMessage_ = "Baked " + std::to_string(o.impostorViews) + "-view impostor (" + backend + ") for '" + o.name + "'";
-            } else statusMessage_ = "Impostor bake failed: " + error;
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
-                              "Requires a static, upright object with equal positive X/Z scale.\n"
-                              "Reflection and emission are unsupported. Rebuild the game after baking.");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!supported);
-        if (ImGui::Button("Bake hull proxy")) {
-            std::string key = o.id;
-            for (char& c : key)
-                if (!std::isalnum((unsigned char)c) && c != '-') c = '_';
-            std::string path, error;
-            float extent = 0.0f;
-            int triangles = 0;
-            if (modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
-                    "res/models/proxies/model-" + key, &path, &extent,
-                    &triangles, &error)) {
-                o.impostorPath = path;
-                o.impostorBillboard = false;
-                if (o.impostorDistance <= 0)
-                    o.impostorDistance = std::max(1.0f, extent *
-                        std::max(o.scale[0], o.scale[1]) * 6.0f);
-                viewport_.invalidateAssets();
-                committed = true;
-                statusMessage_ = "Baked " + std::to_string(triangles) +
-                    "-triangle hull proxy for '" + o.name + "'";
-            } else statusMessage_ = "Hull proxy bake failed: " + error;
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Build one-material geometry from the model's convex XZ silhouette and height.\n"
-                              "Useful for distant buildings and rocks; collision keeps the original mesh.\n"
-                              "Requires the same upright/equal-XZ transform as a captured impostor.");
+    if (!animated && o.type == PrimitiveType::Model) committed |= drawDistantVersion(o);
+    return committed;
+}
+
+// Properties > Distance and LOD > Distant version (docs/impostors.md): what a
+// static model turns into far away. ONE choice - nothing, a captured billboard
+// or a hull proxy - with the knob that kind has, one Bake button, and the
+// switch distance once something is baked. The choice is staged per object
+// (modelDistantKind_) until Bake, because changing it means writing files;
+// "None" applies at once (the baked files stay on disk, unused).
+bool App::drawDistantVersion(SceneObject& o) {
+    bool committed = false;
+    const int baked = o.impostorPath.empty() ? 0 : o.impostorBillboard ? 1 : 2;
+    if (modelImpostorObject_ != o.id) {
+        modelImpostorObject_ = o.id;
+        modelImpostorViews_ = o.impostorViews > 0 ? o.impostorViews : 8;
+        modelDistantKind_ = baked;
     }
-    if (!animated && !o.impostorPath.empty()) {
-        if (o.impostorBillboard)
-            ImGui::TextWrapped("Distant representation: captured impostor (%d views)\n%s",
-                               o.impostorViews, o.impostorPath.c_str());
-        else
-            ImGui::TextWrapped("Distant representation: hull proxy\n%s",
-                               o.impostorPath.c_str());
-        ImGui::DragFloat("Switch distance", &o.impostorDistance, 1.0f,
-                          0.0f, 2000.0f, "%.0f units");
+    const bool supported =
+        !o.physics && !o.modelPath.empty() && std::fabs(o.rotation[0]) < .001f &&
+        std::fabs(o.rotation[2]) < .001f && o.scale[0] > 0 && o.scale[1] > 0 &&
+        std::fabs(o.scale[0] - o.scale[2]) < .0001f;
+
+    ImGui::SeparatorText("Distant version");
+    const char* kinds[] = {"None", "Billboard (captured views)", "Hull proxy (low-poly)"};
+    ImGui::SetNextItemWidth(scaled(230));
+    if (ImGui::Combo("Far away", &modelDistantKind_, kinds, 3) && modelDistantKind_ == 0 &&
+        baked != 0) {
+        o.impostorPath.clear();
+        o.impostorBillboard = false;
+        committed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What the game draws instead of this model beyond the switch distance.\n"
+            "BILLBOARD - two triangles showing the model photographed from the\n"
+            "nearest of N directions. Best for trees and round props.\n"
+            "HULL PROXY - a one-material block of the model's outline and height.\n"
+            "Best for distant buildings and rocks.\n"
+            "Collision always keeps the full model.");
+    if (modelDistantKind_ == 0) return committed;
+
+    if (modelDistantKind_ == 1) {
+        int choice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
+        ImGui::SetNextItemWidth(scaled(230));
+        if (ImGui::Combo("Views", &choice, "4 - lightest\0" "8\0" "16 - smoothest turn\0"))
+            modelImpostorViews_ = 4 << choice;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many directions the model is photographed from (128 px each).\n"
+                              "More views = less popping as you walk around it, more VRAM.");
+    }
+
+    const bool upToDate = baked == modelDistantKind_ &&
+                          (baked != 1 || o.impostorViews == modelImpostorViews_);
+    ImGui::BeginDisabled(!supported);
+    if (ImGui::Button(upToDate ? "Re-bake" : "Bake")) {
+        std::string key = o.id;
+        for (char& c : key)
+            if (!std::isalnum((unsigned char)c) && c != '-') c = '_';
+        std::string path, error, backend;
+        float extent = 0.0f;
+        int triangles = 0;
+        const bool billboard = modelDistantKind_ == 1;
+        const bool ok =
+            billboard
+                ? impostorbake::model(project_.dir, o.modelPath, o.materialPath,
+                                      "res/models/impostors/model-" + key, &path, &extent,
+                                      &error, 128, modelImpostorViews_, impostorGpu_, &backend)
+                : modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
+                                       "res/models/proxies/model-" + key, &path, &extent,
+                                       &triangles, &error);
+        if (ok) {
+            o.impostorPath = path;
+            o.impostorBillboard = billboard;
+            if (billboard) o.impostorViews = modelImpostorViews_;
+            if (o.impostorDistance <= 0)
+                o.impostorDistance =
+                    std::max(1.0f, extent * std::max(o.scale[0], o.scale[1]) * 6.0f);
+            viewport_.invalidateAssets();
+            committed = true;
+            statusMessage_ =
+                billboard ? "Baked " + std::to_string(o.impostorViews) + "-view billboard (" +
+                                backend + ") for '" + o.name + "'"
+                          : "Baked " + std::to_string(triangles) + "-triangle hull proxy for '" +
+                                o.name + "'";
+        } else {
+            statusMessage_ = "Distant version bake failed: " + error;
+        }
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(supported
+                              ? "Writes the distant version from this model and its material.\n"
+                                "Rebuild the game to see it."
+                              : "Needs a static, upright object (no X/Z rotation, no physics)\n"
+                                "with equal X and Z scale.");
+    ImGui::SameLine();
+    if (!supported)
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "not for this transform");
+    else if (baked == 0 || baked != modelDistantKind_)
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "not baked yet");
+    else if (!upToDate)
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "baked with %d views",
+                           o.impostorViews);
+    else
+        ImGui::TextDisabled("baked");
+    if (baked != 0 && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", o.impostorPath.c_str());
+
+    if (baked != 0) {
+        ImGui::SetNextItemWidth(scaled(230));
+        ImGui::DragFloat("Switch at", &o.impostorDistance, 1.0f, 0.0f, 2000.0f,
+                         o.impostorDistance > 0 ? "%.0f units" : "never");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Camera distance at which the distant representation replaces the model.\n"
-                              "0 disables the swap. Collision always keeps the original mesh;\n"
-                              "the visual transition is not blended.");
+            ImGui::SetTooltip("Camera distance where the distant version replaces the model.\n"
+                              "0 = never. The swap is not blended.");
     }
     return committed;
 }

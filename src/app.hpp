@@ -463,6 +463,9 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // The static model's distant version (billboard impostor / hull proxy):
+    // one kind, one Bake, the switch distance. Returns true on a change.
+    bool drawDistantVersion(SceneObject& o);
     // Roads (docs/roads.md): flatten the heightfield to the selected
     // road's interpolated line, smooth shoulder falloff, one undo step.
     void alignTerrainToRoad(int objIndex);
@@ -2452,8 +2455,14 @@ private:
     bool treeGenSpin_ = true;
     bool treeGenImpostor_ = true;
     int treeImpostorViews_ = 8;
+    // Properties > Distance and LOD > Distant version, staged per object until
+    // its Bake button runs: the kind (0 none, 1 billboard, 2 hull proxy) and
+    // the billboard's view count.
     int modelImpostorViews_ = 8;
+    int modelDistantKind_ = 0;
     std::string modelImpostorObject_;
+    // Impostor capture tries the GPU and falls back to the CPU on its own -
+    // not a user choice (it used to be a checkbox mislabelled "Impostor").
     bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).

@@ -2888,7 +2888,7 @@ For eight-view captures, compare a frozen single-tree near/far pair and orbit it
 atlas, all eight ordered parts, yaw rotation and fallback for tilted transforms.
 
 Universal capture: select a non-tree multi-material OBJ, activate the Properties
-tab, click Bake impostor, save/reopen and inspect assignment plus alpha/Kd. Check
+tab, open Distance and LOD, pick Far away > Billboard, click Bake, save/reopen and inspect assignment plus alpha/Kd. Check
 material overrides and missing textures/reflection failures; no assignment should
 change on failure. The grove now includes Waystone for this path. Close floating
 tool windows (or remove their open flag in the scratch layout) before scripted
@@ -2921,8 +2921,7 @@ GPU impostors: `--bake-impostor PROJECT MODEL OUTPUT_STEM 4|8|16 [--gpu]` prints
 backend and total time without assigning an object. Compare CPU/GPU atlases for
 all counts on a cutout tree and multi-material Waystone: same dimensions, binary
 alpha, close silhouette masks, matching Kd/interior colours; GL edge coverage is
-not byte-identical. Invalid counts fail before output. Verify Capture views in
-Properties only changes saved `impostorViews` after a successful bake, resave an
+not byte-identical. Invalid counts fail before output. Verify Views (Distance and LOD > Distant version) only changes saved `impostorViews` after a successful bake, resave an
 old eight-view object, and boot mixed 4/8/16 assets in PCSX2 while orbiting. Run
 `--gi-gpu-check` after changes to the shared bake context and inspect the viewport
 after GPU baking to catch context restoration bugs.

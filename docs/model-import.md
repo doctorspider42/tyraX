@@ -80,6 +80,21 @@ object, as does a third-person Player's avatar field. Changing the model resets
 the clip choices and drops the material that came with the old model; a shared
 material you assigned yourself stays.
 
+### Properties sections
+
+A solid object's Properties (models, primitives, save points) come in
+collapsible sections, each remembering whether it was open: **Model** (or
+**Animated model**), **Transform**, **Material**, **Gameplay** (physics, use,
+pick-up, save state, collision), **Distance and LOD** (draw distance, LOD
+overrides, the **Distant version**), **Performance** (static batching,
+occlusion), **Lighting and shadows** (reflections, shadows, baked lighting,
+pre-lit bake) and **Scripts**. Other object types keep their short flat panel.
+
+**Distant version** is one choice — **None**, **Billboard (captured views)** or
+**Hull proxy (low-poly)** — with the billboard's **Views**, one **Bake** button
+(its status says whether the baked result matches the choice) and **Switch at**
+once something is baked ([impostors.md](impostors.md)).
+
 ## Headless
 
 ```bash

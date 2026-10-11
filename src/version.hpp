@@ -5522,6 +5522,8 @@
 // size, and always written as .obj + .mtl + PNG (animated: the .glb/.fbx +
 // .mtl + PNG). Add object > Object is two entities, Model and Animated model,
 // each with a thumbnail model picker - a .glb/.fbx can be placed as either.
+// Solid objects' Properties come in collapsible sections, and a static
+// model's impostor / hull proxy is one "Distant version" choice with one Bake.
 // No format change.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
