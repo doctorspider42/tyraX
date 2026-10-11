@@ -64,7 +64,7 @@ split point of `Window/Label` is tried, longest window prefix first.
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |
 | `hover <target> [dx,dy]` | move the cursor onto it and leave it there |
-| `drag <target> <dx> <dy>` | press on it and slide by that many pixels |
+| `drag <target> <dx> <dy> [left\|right\|middle]` | press on it and slide by that many pixels (left button unless named) |
 | `wheel <target> <notches>` | scroll over it, one notch per frame (negative = down/out) |
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
 | `text <string>` | type into whatever has keyboard focus |

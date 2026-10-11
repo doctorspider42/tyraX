@@ -554,6 +554,10 @@ public:
         float angleDeg = 40.0f;
         float pitchDeg = 18.0f;
         float zoom = 1.0f;
+        // Camera-target offset in preview-radius units in the camera's screen
+        // plane (the Animation Editor's pan), so a pan means the same on a
+        // prop and on a whole level.
+        float panX = 0.0f, panY = 0.0f;
         bool wireframe = false;
     };
     uint32_t renderImportPreview(int width, int height, const ImportPreviewDesc& d);

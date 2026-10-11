@@ -445,10 +445,17 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             if (tok.size() == 3 && !toNumber(tok[2], s.seconds))
                 return fail("bad duration '" + tok[2] + "'");
         } else if (cmd == "drag") {
-            if (!needArg(4)) return fail("drag needs a target and dx dy");
+            if (tok.size() != 4 && tok.size() != 5) return fail("drag needs a target and dx dy");
             double dx = 0, dy = 0;
             if (!toNumber(tok[2], dx) || !toNumber(tok[3], dy))
                 return fail("drag dx/dy must be numbers");
+            s.n = 0;  // optional button: left (default), right, middle
+            if (tok.size() > 4) {
+                if (tok[4] == "right") s.n = 1;
+                else if (tok[4] == "middle") s.n = 2;
+                else if (tok[4] != "left")
+                    return fail("drag button must be left, right or middle");
+            }
             s.kind = Step::Drag;
             s.arg = tok[1];
             s.dx = (float)dx;

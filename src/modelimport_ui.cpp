@@ -55,6 +55,7 @@ void App::importModelFile(const std::string& path, const std::string& targetFold
         modelImportMeters_ = 1.0f;
         modelImportSel_ = -1;
         modelImportZoom_ = 1.0f;
+        modelImportPanX_ = modelImportPanY_ = 0.0f;
         modelImportAddToScene_ = modelImportFor_ == ModelImportFor::NewStatic ||
                                  modelImportFor_ == ModelImportFor::NewAnimated;
         const std::string stem =
@@ -309,15 +310,30 @@ void App::drawModelImportModal() {
         d.angleDeg = modelImportAngle_;
         d.pitchDeg = modelImportPitch_;
         d.zoom = modelImportZoom_;
+        d.panX = modelImportPanX_;
+        d.panY = modelImportPanY_;
         d.wireframe = modelImportWire_;
         const int pw = std::max(1, (int)avail.x), ph = std::max(1, (int)h);
         const uint32_t tex = viewport_.renderImportPreview(pw, ph, d);
         const ImVec2 at = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph));
-        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+        // right drag = orbit, middle drag = pan, wheel = zoom (the left button
+        // is left alone: it is what closes popups and clicks the panel)
+        ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonRight |
+                                   ImGuiButtonFlags_MouseButtonMiddle);
+        if (ImGui::IsItemActive()) {
             const ImVec2 md = ImGui::GetIO().MouseDelta;
-            modelImportAngle_ += md.x * 0.4f;
-            modelImportPitch_ = std::clamp(modelImportPitch_ + md.y * 0.3f, -80.0f, 85.0f);
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                modelImportAngle_ += md.x * 0.4f;
+                modelImportPitch_ =
+                    std::clamp(modelImportPitch_ + md.y * 0.3f, -80.0f, 85.0f);
+            } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+                // one preview height of drag moves the target ~2.4 radii /
+                // zoom - the visible span - so the model follows the cursor
+                const float k = 2.0f / ((float)ph * modelImportZoom_);
+                modelImportPanX_ -= md.x * k;
+                modelImportPanY_ += md.y * k;
+            }
         }
         if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
             modelImportZoom_ = std::clamp(
@@ -331,9 +347,10 @@ void App::drawModelImportModal() {
             modelImportAngle_ = 40.0f;
             modelImportPitch_ = 18.0f;
             modelImportZoom_ = 1.0f;
+            modelImportPanX_ = modelImportPanY_ = 0.0f;
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("drag = orbit, wheel = zoom");
+        ImGui::TextDisabled("right drag = orbit, middle drag = pan, wheel = zoom");
         ImGui::TextDisabled("%s  |  %s, %d tris, %zu object(s), %zu material(s), %zu "
                             "texture(s)",
                             fileName.c_str(), src.format.c_str(), src.tris,

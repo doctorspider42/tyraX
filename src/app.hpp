@@ -391,6 +391,7 @@ private:
     int modelImportSel_ = -1;  // highlighted planned model (-1 = none)
     float modelImportAngle_ = 40.0f, modelImportPitch_ = 18.0f;
     float modelImportZoom_ = 1.0f;
+    float modelImportPanX_ = 0.0f, modelImportPanY_ = 0.0f;
     bool modelImportWire_ = false;
     int modelImportUnit_ = 0;          // kUnitPresetMeters index, 3 = custom
     float modelImportMeters_ = 1.0f;   // meters per file unit

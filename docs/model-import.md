@@ -12,8 +12,8 @@ Open it from **Project > Assets > Import model...**, the
 model...** inside the model picker. Pick a file; it is read in the background
 and the window opens with a preview on the left and the options on the right.
 
-- **Preview** — drag to orbit, mouse wheel to zoom, **Wireframe** for the
-  triangles. Missing textures show as plain white surfaces, so a broken import
+- **Preview** — right drag to orbit, middle drag to pan, mouse wheel to zoom,
+  **Reset view** to start over, **Wireframe** for the triangles. Missing textures show as plain white surfaces, so a broken import
   is visible before it reaches the project. Selecting a row of the model list
   outlines that model in orange.
 - **Use as** — **Static model** writes an `.obj` (from a `.glb`/`.fbx` that is

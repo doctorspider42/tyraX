@@ -7745,22 +7745,28 @@ uint32_t Viewport::renderImportPreview(int width, int height,
     draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0, false);
     glEnable(GL_DEPTH_TEST);
 
-    const Vec3 center{d.center[0], d.center[1], d.center[2]};
+    const Vec3 pivot{d.center[0], d.center[1], d.center[2]};
     const float radius = d.radius < 0.001f ? 0.001f : d.radius;
     const float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 40.0f ? 40.0f : d.zoom);
     const float dist = radius * 2.4f / zoom;
     const float pitch = d.pitchDeg < -80.0f ? -80.0f : (d.pitchDeg > 85.0f ? 85.0f : d.pitchDeg);
     const float a = d.angleDeg * kPi / 180.0f, p = pitch * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
-                   center.y + dist * std::sin(p),
-                   center.z + dist * std::cos(p) * std::sin(a)};
+    const Vec3 toEye{std::cos(p) * std::cos(a), std::sin(p), std::cos(p) * std::sin(a)};
+    // pan: slide the target in the camera's own right/up plane
+    const Vec3 right = normalize(cross({0, 1, 0}, toEye));
+    const Vec3 up = cross(toEye, right);
+    const Vec3 center{pivot.x + (right.x * d.panX + up.x * d.panY) * radius,
+                      pivot.y + (right.y * d.panX + up.y * d.panY) * radius,
+                      pivot.z + (right.z * d.panX + up.z * d.panY) * radius};
+    const Vec3 eye{center.x + dist * toEye.x, center.y + dist * toEye.y,
+                   center.z + dist * toEye.z};
     const Mat4 view = lookAt(eye, center, {0, 1, 0});
     const Mat4 proj = perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
                                   std::max(dist * 0.002f, 0.001f),
                                   dist + radius * 4.0f + 50.0f);
     const Mat4 viewProj = mul(proj, view);
     {
-        const Mat4 floorM = mul(translation(center.x, d.minY - radius * 0.002f, center.z),
+        const Mat4 floorM = mul(translation(pivot.x, d.minY - radius * 0.002f, pivot.z),
                                 scaleM(radius * 1.5f, 1.0f, radius * 1.5f));
         draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0, false);
     }
