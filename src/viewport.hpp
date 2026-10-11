@@ -526,6 +526,37 @@ public:
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
+
+    // Model import window preview (docs/model-import.md): the planned models
+    // straight from modelimport, before anything is written - nothing touches
+    // disk or the shared asset caches. Own framebuffer (the rule above); the
+    // meshes and textures re-upload only when `version` changes, while the
+    // per-mesh `highlight` flag is read every frame (selecting a row in the
+    // window must not re-upload a 500-object pack).
+    struct ImportPreviewMesh {
+        const std::vector<float>* verts = nullptr;  // pos3+normal3+uv2 tris
+        int texture = -1;                           // index into textures
+        float tint[3] = {1, 1, 1};
+        float offset[3] = {0, 0, 0};  // translation (a split model's origin)
+        bool highlight = false;
+    };
+    struct ImportPreviewTexture {
+        const unsigned char* rgba = nullptr;
+        int w = 0, h = 0;
+    };
+    struct ImportPreviewDesc {
+        uint64_t version = 0;
+        std::vector<ImportPreviewMesh> meshes;
+        std::vector<ImportPreviewTexture> textures;
+        float center[3] = {0, 0, 0};
+        float minY = 0.0f;
+        float radius = 1.0f;
+        float angleDeg = 40.0f;
+        float pitchDeg = 18.0f;
+        float zoom = 1.0f;
+        bool wireframe = false;
+    };
+    uint32_t renderImportPreview(int width, int height, const ImportPreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -1428,6 +1459,15 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Model import preview target + its uploaded meshes (renderImportPreview).
+    uint32_t importFbo_ = 0, importTex_ = 0, importDepth_ = 0;
+    int importFbW_ = 0, importFbH_ = 0;
+    std::vector<Mesh> importMeshes_;
+    std::vector<uint32_t> importTextures_;
+    uint64_t importVersion_ = 0;
+    bool importHasVersion_ = false;
+    void clearImportPreview();
 
     // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
     // the same reason the tree preview has one - the browser bakes thumbnails

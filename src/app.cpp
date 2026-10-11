@@ -1032,6 +1032,7 @@ void App::drawUI() {
     drawDeleteSceneModal();
     drawDeleteAssetModal();
     drawModelImportModal();
+    drawModelPicker();
     drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
@@ -7870,380 +7871,8 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
     }
 }
 
-void App::importModelAsset(const std::string& targetFolder) {
-    if (modelImporting_) return;
-    const std::string src = pickModelFile();
-    if (src.empty()) return;
-
-    if (modelImportThread_.joinable()) modelImportThread_.join();
-    modelImportName_ = sanitizeAssetName(
-        std::filesystem::path(src).filename().string());
-    modelImportResult_ = ModelImportResult{};
-    modelImportProgress_.store(0.0f, std::memory_order_relaxed);
-    modelImportStage_.store(0, std::memory_order_relaxed);
-    modelImportDone_.store(false, std::memory_order_relaxed);
-    modelImporting_ = true;
-    modelImportOpen_ = true;
-    modelImportClose_ = false;
-    modelImportThread_ = std::thread(&App::modelImportWorker, this, src,
-                                     project_.dir, targetFolder);
-}
-
-void App::modelImportWorker(std::string src, std::string projectDir,
-                            std::string targetFolder) {
-    ModelImportResult result;
-    result.projectDir = projectDir;
-    result.targetFolder = targetFolder;
-    auto progress = [&](int stage, float fraction) {
-        modelImportStage_.store(stage, std::memory_order_relaxed);
-        modelImportProgress_.store(fraction, std::memory_order_relaxed);
-    };
-    auto finish = [&]() {
-        modelImportResult_ = std::move(result);
-        modelImportDone_.store(true, std::memory_order_release);
-    };
-
-    try {
-        const std::filesystem::path srcPath(src);
-        const std::filesystem::path srcDir = srcPath.parent_path();
-        const std::string fileName =
-            sanitizeAssetName(srcPath.filename().string());
-        const std::filesystem::path destDir =
-            std::filesystem::path(projectDir) / "res" / "models";
-        const std::filesystem::path destPath = destDir / fileName;
-        result.relPath = "res/models/" + fileName;
-        result.animated = isAnimatedModelPath(fileName);
-        std::error_code ec;
-        std::filesystem::create_directories(destDir, ec);
-        if (ec) {
-            result.status = "Model import failed: " + ec.message();
-            finish();
-            return;
-        }
-        ec.clear();
-        if (std::filesystem::exists(destPath, ec) && !ec &&
-            std::filesystem::equivalent(srcPath, destPath, ec) && !ec) {
-            // Opening the destination below truncates it. A picker aimed at a
-            // file already inside res/models must never eat the source asset.
-            result.status =
-                "Model import skipped: the selected file is already in res/models";
-            finish();
-            return;
-        }
-        ec.clear();
-
-        // Animated models are copied with byte-level progress. Parsing and
-        // baking expose no inner callback, so those phases keep the spinner
-        // moving while the bar holds at its honest stage boundary.
-        if (result.animated) {
-            progress(0, 0.02f);
-            std::ifstream in(srcPath, std::ios::binary | std::ios::ate);
-            std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
-            if (!in || !out) {
-                result.status = "Model import failed: cannot copy " + fileName;
-                finish();
-                return;
-            }
-            const std::streamoff total = in.tellg();
-            in.seekg(0, std::ios::beg);
-            std::vector<char> chunk(4u * 1024u * 1024u);
-            std::streamoff copied = 0;
-            while (in) {
-                in.read(chunk.data(), (std::streamsize)chunk.size());
-                const std::streamsize got = in.gcount();
-                if (got <= 0) break;
-                out.write(chunk.data(), got);
-                if (!out) break;
-                copied += got;
-                const float part = total > 0
-                                       ? (float)((double)copied / (double)total)
-                                       : 1.0f;
-                modelImportProgress_.store(0.02f + part * 0.18f,
-                                           std::memory_order_relaxed);
-            }
-            out.close();
-            if (!in.eof() || !out) {
-                result.status = "Model import failed while copying " + fileName;
-                finish();
-                return;
-            }
-            result.installed = true;
-
-            if (fileName.size() > 4 &&
-                fileName.compare(fileName.size() - 4, 4, ".fbx") == 0) {
-                progress(1, 0.22f);
-                fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
-            }
-
-            progress(2, 0.34f);
-            glbparser::Baked baked;
-            std::string error;
-            if (!animimport::bake(destPath.string(), 12.0f, baked, error)) {
-                result.status = "Imported " + fileName + " - UNUSABLE: " + error;
-                progress(4, 1.0f);
-                finish();
-                return;
-            }
-            result.measured = true;
-            for (int k = 0; k < 3; ++k) {
-                result.bounds[k] = baked.min[k];
-                result.bounds[k + 3] = baked.max[k];
-            }
-            result.status = "Imported " + fileName + " (" +
-                            std::to_string(baked.clips.size()) + " clip(s), " +
-                            std::to_string(baked.totalVertexCount()) + " verts, " +
-                            std::to_string(baked.frameCount) + " baked frames)";
-
-            // Rough PS2 memory estimate: the skeletal runtime keeps one
-            // bind-pose mesh + keyframe tracks, not the baked preview frames.
-            progress(3, 0.76f);
-            glbparser::Skel skel;
-            std::string skelError;
-            const size_t bytes = animimport::parseSkel(destPath.string(), skel,
-                                                       skelError)
-                                     ? skel.ps2Bytes()
-                                     : 0;
-            if (bytes > 8u * 1024 * 1024)
-                result.status += " - WARNING: ~" +
-                                 std::to_string(bytes >> 20) +
-                                 " MB on the PS2 (32 MB total) - reduce the mesh";
-            if (!baked.warnings.empty())
-                result.status +=
-                    " - " + baked.warnings.front() +
-                    (baked.warnings.size() > 1
-                         ? " (+" + std::to_string(baked.warnings.size() - 1) +
-                               " more warning(s), see build log)"
-                         : "");
-            progress(4, 1.0f);
-            finish();
-            return;
-        }
-
-        // Wavefront import parses the source once, then rewrites the copied
-        // .obj/.mtl references to their sanitized, flattened dependency names.
-        progress(2, 0.08f);
-        objparser::Model parsed;
-        const bool parseOk = objparser::load(src, parsed);
-
-        std::map<std::string, std::string> textureNames;
-        for (const objparser::Submesh& s : parsed.submeshes)
-            for (const std::string& tex : {s.texture, s.refl})
-                if (!tex.empty() && tex != "@sky")
-                    textureNames.emplace(
-                        tex, sanitizeAssetName(
-                                 std::filesystem::path(tex).filename().string()));
-        std::map<std::string, std::string> mtlNames;
-        for (const std::string& m : parsed.mtlLibs)
-            mtlNames.emplace(
-                m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
-
-        int missing = 0;
-        progress(0, 0.42f);
-        {
-            std::ifstream in(srcPath);
-            std::ofstream out(destPath, std::ios::trunc);
-            if (!in || !out) {
-                result.status = "Model import failed: cannot copy " + fileName;
-                finish();
-                return;
-            }
-            std::string line;
-            while (std::getline(in, line)) {
-                std::istringstream ss(line);
-                std::string tag;
-                ss >> tag;
-                if (tag == "mtllib") {
-                    out << "mtllib";
-                    std::string name;
-                    while (ss >> name) out << " " << mtlNames[name];
-                    out << "\n";
-                } else {
-                    out << line << "\n";
-                }
-            }
-        }
-        result.installed = true;
-
-        progress(1, 0.64f);
-        size_t finishedDeps = 0;
-        const size_t totalDeps = mtlNames.size() + textureNames.size();
-        auto dependencyDone = [&]() {
-            ++finishedDeps;
-            if (totalDeps)
-                modelImportProgress_.store(
-                    0.64f + 0.30f * (float)finishedDeps / (float)totalDeps,
-                    std::memory_order_relaxed);
-        };
-        for (const auto& [mtlRef, mtlDest] : mtlNames) {
-            std::ifstream in(srcDir / mtlRef);
-            if (!in) {
-                ++missing;
-                dependencyDone();
-                continue;
-            }
-            std::ofstream out(destDir / mtlDest, std::ios::trunc);
-            if (!out) {
-                dependencyDone();
-                continue;
-            }
-            std::string line;
-            while (std::getline(in, line)) {
-                std::istringstream ss(line);
-                std::string tag;
-                ss >> tag;
-                if (tag == "map_Kd" || tag == "refl") {
-                    std::vector<std::string> toks;
-                    for (std::string t; ss >> t;) toks.push_back(t);
-                    std::string last = toks.empty() ? "" : toks.back();
-                    for (char& c : last)
-                        if (c == '\\') c = '/';
-                    auto it = textureNames.find(last);
-                    out << tag;
-                    if (tag == "refl")
-                        for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
-                            out << " " << toks[ti];
-                    out << " "
-                        << (it != textureNames.end() ? it->second : last) << "\n";
-                } else {
-                    out << line << "\n";
-                }
-            }
-            dependencyDone();
-        }
-
-        for (const auto& [texRef, texDest] : textureNames) {
-            std::filesystem::copy_file(
-                srcDir / texRef, destDir / texDest,
-                std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec) {
-                ++missing;
-                ec.clear();
-            }
-            dependencyDone();
-        }
-
-        result.status = "Imported " + fileName;
-        if (!parseOk)
-            result.status +=
-                " (unparseable - it will render as a placeholder box)";
-        else if (!mtlNames.empty())
-            result.status += " + " + std::to_string(mtlNames.size()) +
-                             " mtl, " + std::to_string(textureNames.size()) +
-                             " texture(s)";
-        if (missing > 0)
-            result.status += " - " + std::to_string(missing) +
-                             " referenced file(s) missing next to the .obj";
-        if (parseOk) {
-            result.measured = true;
-            for (int k = 0; k < 3; ++k) {
-                result.bounds[k] = parsed.min[k];
-                result.bounds[k + 3] = parsed.max[k];
-            }
-        }
-        progress(4, 1.0f);
-    } catch (const std::exception& e) {
-        result.status = "Model import failed: " + std::string(e.what());
-    } catch (...) {
-        result.status = "Model import failed: unexpected importer error";
-    }
-    finish();
-}
-
-void App::modelImportTick() {
-    if (!modelImporting_ ||
-        !modelImportDone_.load(std::memory_order_acquire))
-        return;
-
-    if (modelImportThread_.joinable()) modelImportThread_.join();
-    modelImporting_ = false;
-    modelImportClose_ = true;
-
-    ModelImportResult& result = modelImportResult_;
-    // The modal prevents normal project switching, but keep the handoff
-    // guarded for shutdown/automation paths too: a worker result belongs only
-    // to the project directory it started from.
-    if (!hasProject_ || project_.dir != result.projectDir) return;
-
-    statusMessage_ = result.status;
-    if (!result.installed) return;
-
-    std::string imported = result.relPath;
-    const std::string modelRoot = "res/models";
-    const bool targetInsideModels =
-        result.targetFolder.size() > modelRoot.size() &&
-        result.targetFolder.compare(0, modelRoot.size(), modelRoot) == 0 &&
-        result.targetFolder[modelRoot.size()] == '/';
-    if (targetInsideModels) {
-        // moveAssets needs the just-created root asset in its fresh inventory;
-        // it carries .obj dependencies and retargets existing references.
-        scanAssetTree();
-        const std::string moveError =
-            moveAssets({result.relPath}, result.targetFolder);
-        if (moveError.empty())
-            imported = result.targetFolder + "/" +
-                       std::filesystem::path(result.relPath).filename().string();
-        else
-            statusMessage_ += " - could not move it into " +
-                              result.targetFolder + ": " + moveError;
-    } else {
-        assetsChanged();
-    }
-
-    assetSelection_.assign(1, imported);
-    if (result.measured) {
-        beginModelSizing(imported, result.bounds.data(),
-                         result.bounds.data() + 3);
-        modelSizeFresh_ = true;
-    }
-}
-
-void App::drawModelImportModal() {
-    if (modelImportOpen_) {
-        ImGui::OpenPopup("Importing model");
-        modelImportOpen_ = false;
-    }
-    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (!ImGui::BeginPopupModal("Importing model", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize |
-                                    ImGuiWindowFlags_NoSavedSettings))
-        return;
-
-    if (modelImportClose_) {
-        modelImportClose_ = false;
-        ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-        return;
-    }
-
-    static const char* kStages[] = {
-        "Copying model", "Copying materials and textures",
-        "Reading and validating model", "Estimating runtime memory",
-        "Finishing import"};
-    const int stage = std::clamp(modelImportStage_.load(std::memory_order_relaxed),
-                                 0, (int)(std::size(kStages) - 1));
-    const float fraction = std::clamp(
-        modelImportProgress_.load(std::memory_order_relaxed), 0.0f, 1.0f);
-    ImGui::Text("%c  %s", "|/-\\"[(int)(ImGui::GetTime() * 10.0) & 3],
-                kStages[stage]);
-    ImGui::TextDisabled("%s", modelImportName_.c_str());
-    ImGui::Spacing();
-    ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
-    ImGui::EndPopup();
-}
-
 // --- model real-world size (docs/world-scale.md) ---------------------------
 
-namespace {
-// Meters per file unit for the unit presets the dialog offers.
-constexpr float kUnitPresetMeters[3] = {1.0f, 0.01f, 0.0254f};
-// Which preset a stored size matches (3 = none of them, "Custom").
-int unitPresetIndex(float meters) {
-    for (int i = 0; i < 3; ++i)
-        if (std::fabs(meters - kUnitPresetMeters[i]) < 1e-6f) return i;
-    return 3;
-}
-}  // namespace
 
 void App::beginModelSizing(const std::string& relPath) {
     modelSizePath_ = relPath;
@@ -9067,9 +8696,8 @@ void App::drawAssetsSection() {
     }
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
-                          ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
-                          "clips play on the PS2 skeletal runtime)");
+        ImGui::SetTooltip(".obj / .glb / .fbx - preview, split, size and\n"
+                          "optimize before anything is written.");
     ImGui::SameLine();
     if (ImGui::SmallButton("New material...")) {
         showMaterialEditor_ = true;
@@ -9110,6 +8738,14 @@ void App::addModelObject(const std::string& relPath, const float* at,
     SceneObject o;
     o.type = PrimitiveType::Model;
     o.modelPath = relPath;
+    // An animated model's materials are its sibling .mtl (the importer always
+    // writes one, docs/model-import.md) - the per-object override channel is
+    // how a .glb/.fbx wears a .mtl at all.
+    if (isAnimatedModelPath(relPath)) {
+        const std::string sib = modelimport::siblingMaterialPath(relPath);
+        std::error_code ec;
+        if (std::filesystem::exists(project_.filePath(sib), ec)) o.materialPath = sib;
+    }
     o.color[0] = o.color[1] = o.color[2] = 0.85f;
     o.position[1] = 0.0f;
     if (at)
@@ -9167,20 +8803,16 @@ void App::drawAddObjectMenu() {
             if (ImGui::MenuItem("Plane")) addObject(PrimitiveType::Plane);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Model")) {
-            // Only models already inside the project (res/models) - importing
-            // new ones lives in Project > Assets.
-            const std::vector<std::string> models = listAssetFiles("models", ".obj");
-            for (const std::string& m : models)
-                if (ImGui::MenuItem(m.c_str())) addModelObject("res/models/" + m);
-            const std::vector<std::string> anim = listAnimatedModelFiles();
-            for (const std::string& m : anim)
-                if (ImGui::MenuItem((m + " (animated)").c_str()))
-                    addModelObject("res/models/" + m);
-            if (models.empty() && anim.empty())
-                ImGui::TextDisabled("No models - Import one in Project > Assets.");
-            ImGui::EndMenu();
-        }
+        // Two entities, one picker each (docs/model-import.md): the ENTITY
+        // decides static vs animated, not the file - a .glb/.fbx can be
+        // placed as either.
+        if (ImGui::MenuItem("Model...")) openModelPicker(false);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A static model - any .obj, .glb or .fbx in the project\n"
+                              "(or import a new one from the picker).");
+        if (ImGui::MenuItem("Animated model...")) openModelPicker(true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A .glb/.fbx with its skeleton and clips.");
         // Textured quad with transparency (sign/poster/text on a wall). Assign
         // a material whose map_Kd PNG has an alpha channel in the Properties.
         if (ImGui::MenuItem("Decal")) addDecal();

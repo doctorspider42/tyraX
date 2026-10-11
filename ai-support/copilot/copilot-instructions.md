@@ -88,6 +88,7 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--bake-prelit <projectDir> [sceneName]` - re-bake every object marked to ship
   pre-lit whose texture no longer matches the scene, then save + regenerate
   (explicit, never part of a build; a second run bakes nothing)
+- `--import-model <projectDir> <model> [--split none|top|mesh] [--animated] [--dry-run]` - import an .obj/.glb/.fbx into res/models as .obj + .mtl + PNGs (the editor's import window, headless)
 - `--resave <projectDir>` - load + save with validation/migrations
 - `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
   `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with

@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
@@ -102,6 +103,16 @@ inline std::string sanitizeAssetName(const std::string& fileName) {
         if (!safe) c = '_';
     }
     return out;
+}
+
+// Meters per file unit for the unit presets the model-size dialogs offer
+// (the import window and Model size).
+inline constexpr float kUnitPresetMeters[3] = {1.0f, 0.01f, 0.0254f};
+// Which preset a stored size matches (3 = none of them, "Custom").
+inline int unitPresetIndex(float meters) {
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(meters - kUnitPresetMeters[i]) < 1e-6f) return i;
+    return 3;
 }
 
 // Size of a file in bytes, or 0 when it is absent/unreadable (a deleted or

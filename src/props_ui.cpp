@@ -596,37 +596,22 @@ void App::drawPropertiesWindow() {
             "Blob suits traffic; projected silhouette suits the hero car.");
     }
     if (o.type == PrimitiveType::Model) {
-        // model file: pick among the project's res/models assets
+        // The model field opens the model picker; the entity's kind (Model /
+        // Animated model) is what the current file is, and the picker only
+        // offers that kind (docs/model-import.md).
+        const bool animatedEntity = isAnimatedModelPath(o.modelPath);
         const std::string current = o.modelPath.empty()
                                         ? "<none>"
                                         : std::filesystem::path(o.modelPath)
                                               .filename()
                                               .string();
-        if (ImGui::BeginCombo("Model", current.c_str())) {
-            const std::vector<std::string> models = listAssetFiles("models", ".obj");
-            for (const std::string& m : models) {
-                const std::string rel = "res/models/" + m;
-                if (ImGui::Selectable(m.c_str(), rel == o.modelPath) &&
-                    rel != o.modelPath) {
-                    o.modelPath = rel;
-                    committed = true;
-                }
-            }
-            const std::vector<std::string> anim = listAnimatedModelFiles();
-            for (const std::string& m : anim) {
-                const std::string rel = "res/models/" + m;
-                if (ImGui::Selectable((m + " (animated)").c_str(),
-                                      rel == o.modelPath) &&
-                    rel != o.modelPath) {
-                    o.modelPath = rel;
-                    o.animClip.clear();  // clip names belong to the old file
-                    committed = true;
-                }
-            }
-            if (models.empty() && anim.empty())
-                ImGui::TextDisabled("No models - Import one in Project > Assets.");
-            ImGui::EndCombo();
-        }
+        ImGui::TextDisabled(animatedEntity ? "Animated model" : "Model");
+        if (ImGui::Button((current + "##modelfield").c_str(),
+                          ImVec2(ImGui::CalcItemWidth(), 0)))
+            openModelPicker(animatedEntity, o.id);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nClick to choose another model.",
+                              o.modelPath.empty() ? "No model" : o.modelPath.c_str());
         if (isAnimatedModelPath(o.modelPath)) {
             const GlbInfo& info = glbInfo(o.modelPath);
             if (info.ok) {
@@ -2558,30 +2543,11 @@ void App::drawPropertiesWindow() {
                 o.modelPath.empty()
                     ? "<none>"
                     : std::filesystem::path(o.modelPath).filename().string();
-            if (ImGui::BeginCombo("Model", current.c_str())) {
-                const std::vector<std::string> anim = listAnimatedModelFiles();
-                for (const std::string& m : anim) {
-                    const std::string rel = "res/models/" + m;
-                    if (ImGui::Selectable((m + " (animated)").c_str(),
-                                          rel == o.modelPath) &&
-                        rel != o.modelPath) {
-                        o.modelPath = rel;
-                        o.playerIdleClip.clear();
-                        o.playerWalkClip.clear();
-                        o.playerRunClip.clear();
-                        o.playerSprintClip.clear();
-                        o.playerJumpClip.clear();
-                        o.playerBackClip.clear();
-                        o.playerStrafeLeftClip.clear();
-                        o.playerStrafeRightClip.clear();
-                        committed = true;
-                    }
-                }
-                if (anim.empty())
-                    ImGui::TextDisabled(
-                        "No animated models (.glb/.fbx) - Import one in Project > Assets.");
-                ImGui::EndCombo();
-            }
+            if (ImGui::Button((current + "##avatarfield").c_str(),
+                              ImVec2(ImGui::CalcItemWidth(), 0)))
+                openModelPicker(true, o.id);
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Model");
             if (o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                    "Pick an animated .glb/.fbx - the avatar is invisible\n"

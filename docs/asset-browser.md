@@ -21,14 +21,9 @@ folders fill in over a moment without blocking the editor.
 Click **Import** or drag files into `res/` in your normal file manager. There is
 no separate asset database: files added outside TyraX appear automatically.
 
-Model imports copy their textures and materials, validate the geometry and ask
-for its real-world size. Large `.obj`, `.glb` and `.fbx` files import in the
-background; a spinner and staged progress bar cover copying, parsing, validation
-and the animated-memory estimate.
-
-When the import finishes, its dependency group moves into the current model
-folder and the size dialog opens. The dialog reuses the bounds already calculated
-by the importer or inspector, so it does not parse and bake the model again.
+Models go through the model importer ([model-import.md](model-import.md)):
+preview, split, pivot, real-world size and optimization in one window. Imported
+into a folder under `res/models/`, the result lands in that folder.
 
 ## References
 
