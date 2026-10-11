@@ -8466,10 +8466,8 @@ bool App::drawMaterialCombo(SceneObject& o) {
     bool changed = false;
     // A model can always be edited: its override, else its own library.
     const bool canEdit = !o.materialPath.empty() || (isModel && !o.modelPath.empty());
-    if (canEdit)
-        ImGui::SetNextItemWidth(std::max(scaled(60.0f), ImGui::CalcItemWidth() -
-            ImGui::CalcTextSize("Edit...").x - ImGui::GetStyle().FramePadding.x * 2 -
-            ImGui::GetStyle().ItemSpacing.x));
+    // Full item width, like every field under it, so the labels line up; the
+    // Edit... button goes after the label instead of eating into the combo.
     if (ImGui::BeginCombo("Material", current.c_str())) {
         if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
             !o.materialPath.empty()) {
