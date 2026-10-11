@@ -37,6 +37,14 @@ whatever the change affected.
   — does not belong in a commit message alone. Put it in the relevant `docs/`
   page or skill, where the next person will actually look for it.
 
+- **`CHANGELOG.md`** — for every user-facing change (anything that bumps the
+  editor MINOR or PATCH in `src/version.hpp`): a bullet under the version it
+  ships in, newest version on top, written for someone USING the editor (what
+  they can now do, what was fixed), not for the reviewer. The same text is what
+  goes into that version's GitHub release notes, which the release workflow
+  otherwise fills with a bare "Full Changelog" link. It starts at 1.170.0;
+  earlier releases live in the git history.
+
 - **`docs/backlog.md`** — when the change finishes, adds or reshapes queued work.
   Tick off what you completed and add what your change made newly necessary.
   This is the forward-looking half of the retired log, and the only part of it

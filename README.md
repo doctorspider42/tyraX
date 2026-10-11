@@ -26,6 +26,7 @@
   <a href="#what-it-does"><b>Features</b></a> ·
   <a href="#example-projects"><b>Examples</b></a> ·
   <a href="docs/README.md"><b>Docs</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a> ·
   <a href="#run-on-a-real-ps2"><b>Real PS2</b></a> ·
   <a href="https://github.com/doctorspider42/tyraX/releases/latest"><b>Download</b></a>
 </p>
