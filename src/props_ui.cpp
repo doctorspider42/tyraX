@@ -707,18 +707,23 @@ void App::drawPropertiesWindow() {
                     "differs - so this is above the\nmodelling tool's count, "
                     "and it is the number the pipeline cuts into\nVU1-sized "
                     "chunks (Debugger > Stats says how big those are).");
-            ImGui::TextDisabled("materials (from .mtl):");
-            for (const ModelInfo::MaterialLine& m : info.materials) {
-                if (m.missing)
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "  - %s - MISSING", m.text.c_str());
-                else
-                    ImGui::TextDisabled("  - %s", m.text.c_str());
-            }
-            if (info.anyMissing)
+            // The material list lives in the Material Editor (Material >
+            // Edit...); the only thing worth a line here is a broken one.
+            if (info.anyMissing) {
+                int missing = 0;
+                std::string which;
+                for (const ModelInfo::MaterialLine& m : info.materials)
+                    if (m.missing) {
+                        ++missing;
+                        which += m.text + "\n";
+                    }
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Missing textures render as plain color - put the\n"
-                                   "files next to the .obj (paths are relative to it).");
+                                   "%d texture(s) missing", missing);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%sThey render as plain colour. Put the files next to\n"
+                                      "the .mtl, or fix the material in Material > Edit...",
+                                      which.c_str());
+            }
         } else if (!o.modelPath.empty()) {
             ImGui::TextDisabled("Model file missing/unparseable - renders as a box.");
         }

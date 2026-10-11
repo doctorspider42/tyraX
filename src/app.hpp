@@ -463,6 +463,9 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
+    // The .mtl a model wears without an override (its sibling <stem>.mtl,
+    // else the .obj's first mtllib); "" when it has none.
+    std::string modelOwnMaterial(const std::string& modelRel);
     // Friendly authored-forward selector for skeletal models and player
     // avatars. It writes SceneObject::modelYawOffset, including the common
     // "backwards" 180-degree correction. Returns true when committed.

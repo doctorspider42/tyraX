@@ -102,6 +102,11 @@ overrides, the **Distant version**), **Performance** (static batching,
 occlusion), **Lighting and shadows** (reflections, shadows, baked lighting,
 pre-lit bake) and **Scripts**. Other object types keep their short flat panel.
 
+**Material > Edit...** is always there on a model: with **(model's own)** it
+opens the model's own `.mtl` in the Material Editor (where its material list
+lives now), otherwise the assigned override. The Model section shows only a
+"textures missing" line when something is broken.
+
 **Distant version** is one choice — **None**, **Billboard (captured views)** or
 **Hull proxy (low-poly)** — with the billboard's **Views**, one **Bake** button
 (its status says whether the baked result matches the choice) and **Switch at**

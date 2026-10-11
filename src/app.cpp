@@ -8418,14 +8418,40 @@ const std::vector<std::string>& App::listMaterialAssets() {
     if (materialAssetProject_ == project_.dir && materialAssetScanTime_ >= 0 &&
         now - materialAssetScanTime_ < 1.5) return materialAssetCache_;
     materialAssetCache_.clear();
-    for (const std::string& m : listAssetFiles("materials", ".mtl"))
-        materialAssetCache_.push_back("res/materials/" + m);
-    for (const std::string& m : listAssetFiles("models", ".mtl"))
-        materialAssetCache_.push_back("res/models/" + m);
+    // Every .mtl under res/ - a project may keep its models (and so their
+    // libraries) anywhere there, not only in res/materials and res/models.
+    // Distant-version libraries are bake output, not materials to assign.
+    for (const std::string& m : listAssetFiles("", ".mtl")) {
+        if (m.rfind("models/impostors/", 0) == 0 || m.rfind("models/proxies/", 0) == 0)
+            continue;
+        materialAssetCache_.push_back("res/" + m);
+    }
     std::sort(materialAssetCache_.begin(), materialAssetCache_.end());
     materialAssetProject_ = project_.dir;
     materialAssetScanTime_ = now;
     return materialAssetCache_;
+}
+
+// The .mtl a model wears when no override is assigned: the sibling
+// <stem>.mtl (what the importer writes, and what objparser picks up
+// implicitly), else the .obj's first mtllib. "" = none.
+std::string App::modelOwnMaterial(const std::string& modelRel) {
+    const std::string sib = modelimport::siblingMaterialPath(modelRel);
+    std::error_code ec;
+    if (std::filesystem::exists(project_.filePath(sib), ec)) return sib;
+    if (isAnimatedModelPath(modelRel)) return "";
+    std::ifstream f(project_.filePath(modelRel));
+    for (std::string line; std::getline(f, line);) {
+        std::istringstream ss(line);
+        std::string tag, name;
+        ss >> tag;
+        if (tag != "mtllib" || !(ss >> name)) continue;
+        const std::string rel = (std::filesystem::path(modelRel).parent_path() / name)
+                                    .lexically_normal()
+                                    .generic_string();
+        return std::filesystem::exists(project_.filePath(rel), ec) ? rel : "";
+    }
+    return "";
 }
 
 // Material combo shared by every solid object. Lists the project's .mtl
@@ -8438,7 +8464,8 @@ bool App::drawMaterialCombo(SceneObject& o) {
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
 
     bool changed = false;
-    const bool canEdit = !o.materialPath.empty();
+    // A model can always be edited: its override, else its own library.
+    const bool canEdit = !o.materialPath.empty() || (isModel && !o.modelPath.empty());
     if (canEdit)
         ImGui::SetNextItemWidth(std::max(scaled(60.0f), ImGui::CalcItemWidth() -
             ImGui::CalcTextSize("Edit...").x - ImGui::GetStyle().FramePadding.x * 2 -
@@ -8475,12 +8502,31 @@ bool App::drawMaterialCombo(SceneObject& o) {
         ImGui::EndCombo();
     }
 
-    if (!o.materialPath.empty()) {
+    if (canEdit) {
         ImGui::SameLine();
-        if (ImGui::SmallButton("Edit...##material"))
-            openMaterialEditor(o.materialPath, isModel ? o.modelPath : "");
+        // modelOwnMaterial reads the .obj, so only on a click or a hover
+        auto own = [&]() {
+            return o.materialPath.empty() && isModel ? modelOwnMaterial(o.modelPath)
+                                                     : std::string();
+        };
+        if (ImGui::SmallButton("Edit...##material")) {
+            const std::string ownMtl = own();
+            if (!o.materialPath.empty())
+                openMaterialEditor(o.materialPath, isModel ? o.modelPath : "");
+            else if (!ownMtl.empty())
+                openMaterialEditor(ownMtl, o.modelPath);
+            else if (!createMaterialForModel(o).empty())
+                changed = true;  // seeded a .mtl from the built-ins and assigned it
+        }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Open this material in the Material Editor.");
+            ImGui::SetTooltip(
+                "%s", !o.materialPath.empty()
+                          ? "Open this material in the Material Editor."
+                          : !own().empty()
+                                ? "Open the model's own material - shared by every\n"
+                                  "object using this model."
+                                : "This model has no .mtl yet: make one from its built-in\n"
+                                  "materials and open it in the Material Editor.");
     }
 
     // Live texture feed: override the surface with a feed camera's view
