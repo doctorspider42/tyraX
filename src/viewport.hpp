@@ -526,6 +526,45 @@ public:
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
+
+    // Model import window preview (docs/model-import.md): the planned models
+    // straight from modelimport, before anything is written - nothing touches
+    // disk or the shared asset caches. Own framebuffer (the rule above); the
+    // meshes and textures re-upload only when `version` changes, while the
+    // per-mesh `highlight` flag is read every frame (selecting a row in the
+    // window must not re-upload a 500-object pack).
+    struct ImportPreviewMesh {
+        const std::vector<float>* verts = nullptr;  // pos3+normal3+uv2 tris
+        int texture = -1;                           // index into textures
+        float tint[3] = {1, 1, 1};
+        float offset[3] = {0, 0, 0};  // translation (a split model's origin)
+        bool highlight = false;
+    };
+    struct ImportPreviewTexture {
+        const unsigned char* rgba = nullptr;
+        int w = 0, h = 0;
+    };
+    struct ImportPreviewDesc {
+        uint64_t version = 0;
+        std::vector<ImportPreviewMesh> meshes;
+        std::vector<ImportPreviewTexture> textures;
+        float center[3] = {0, 0, 0};
+        float minY = 0.0f;
+        float radius = 1.0f;
+        float angleDeg = 40.0f;
+        float pitchDeg = 18.0f;
+        float zoom = 1.0f;
+        // Camera-target offset in preview-radius units in the camera's screen
+        // plane (the Animation Editor's pan), so a pan means the same on a
+        // prop and on a whole level.
+        float panX = 0.0f, panY = 0.0f;
+        bool wireframe = false;
+    };
+    uint32_t renderImportPreview(int width, int height, const ImportPreviewDesc& d);
+    // World ray through image coords (u, v in [0,1], origin top-left) of the
+    // LAST renderImportPreview frame - the import window's click-to-select.
+    // False before the first frame.
+    bool importPreviewRay(float u, float v, float origin[3], float dir[3]) const;
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -1428,6 +1467,19 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Model import preview target + its uploaded meshes (renderImportPreview).
+    uint32_t importFbo_ = 0, importTex_ = 0, importDepth_ = 0;
+    int importFbW_ = 0, importFbH_ = 0;
+    std::vector<Mesh> importMeshes_;
+    std::vector<uint32_t> importTextures_;
+    uint64_t importVersion_ = 0;
+    bool importHasVersion_ = false;
+    // camera of the last import preview frame (importPreviewRay)
+    bool importCamValid_ = false;
+    float importEye_[3] = {}, importFwd_[3] = {}, importRight_[3] = {}, importUp_[3] = {};
+    float importTanHalf_ = 0.0f, importAspect_ = 1.0f;
+    void clearImportPreview();
 
     // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
     // the same reason the tree preview has one - the browser bakes thumbnails

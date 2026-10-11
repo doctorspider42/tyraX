@@ -2319,7 +2319,6 @@ void App::drawTreeGeneratorWindow() {
         ImGui::SetNextItemWidth(scaled(180.0f));
         if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
             treeImpostorViews_ = 4 << choice;
-        ImGui::Checkbox("Impostor", &impostorGpu_);
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"

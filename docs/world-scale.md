@@ -114,8 +114,8 @@ edited in the same units/s form with the same metric readout. See
 ## Models: the real-world size of an asset
 
 A model asset can carry **how many meters one unit of the file measures**
-(`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The editor
-asks for it right after an import, and the **Size...** button in the
+(`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The import
+window asks for it ([model-import.md](model-import.md)), and the **Size...** button in the
 [Asset Browser](asset-browser.md)'s inspector (select a model) changes it
 afterwards:
 

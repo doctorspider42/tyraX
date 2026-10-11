@@ -28,6 +28,7 @@
 #include "gigpu.hpp"
 #include "impostorgpu.hpp"
 #include "litbake.hpp"
+#include "modelimport.hpp"
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
@@ -1322,6 +1323,122 @@ static int bakeModelAoFromCli(int argc, char** argv) {
         }
     }
     return failed ? 1 : 0;
+}
+
+// tyrax-editor --import-model <projectDir> <modelFile> [options]
+//
+// The headless twin of the import window (docs/model-import.md): the same
+// modelimport::load / plan / write the window runs. Options:
+//   --split none|top|mesh   one model, one per top-level object, one per mesh
+//   --pivot keep|bottom|center
+//   --keep <0.05..1>        triangle reduction (fraction kept)
+//   --max-texture <px>      longest texture side written (0 = as is)
+//   --animated              also keep the .glb/.fbx skeleton + clips
+//   --no-static             only the animated model
+//   --textures <dir>        extra folder searched for missing textures
+//   --name <stem>           file name of the result
+//   --dry-run               report the plan, write nothing
+// Writes into res/models (a split import: res/models/<name>/). Does not touch
+// the project file - placing the models is the editor's job.
+static int importModelFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --import-model <projectDir> <model> "
+                     "[--split none|top|mesh] [--pivot keep|bottom|center] "
+                     "[--keep f] [--max-texture px] [--animated] [--no-static] "
+                     "[--textures dir] [--name stem] [--dry-run]\n");
+        return 2;
+    }
+    const std::string projectDir = argv[2];
+    const std::string file = argv[3];
+    modelimport::Options opt;
+    std::vector<std::string> texDirs;
+    bool dry = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+        if (a == "--split") {
+            const std::string v = next();
+            opt.split = v == "top" ? modelimport::Split::TopLevel
+                        : v == "mesh" ? modelimport::Split::EveryMesh
+                                      : modelimport::Split::None;
+        } else if (a == "--pivot") {
+            const std::string v = next();
+            opt.pivot = v == "bottom" ? modelimport::Pivot::BottomCenter
+                        : v == "center" ? modelimport::Pivot::Center
+                                        : modelimport::Pivot::Keep;
+        } else if (a == "--keep") {
+            opt.keep = (float)std::atof(next().c_str());
+        } else if (a == "--max-texture") {
+            opt.maxTexture = std::atoi(next().c_str());
+        } else if (a == "--animated") {
+            opt.writeAnimated = true;
+        } else if (a == "--no-static") {
+            opt.writeStatic = false;
+        } else if (a == "--textures") {
+            texDirs.push_back(next());
+        } else if (a == "--name") {
+            opt.baseName = next();
+        } else if (a == "--dry-run") {
+            dry = true;
+        }
+    }
+    modelimport::Source src;
+    std::string err;
+    if (!modelimport::load(file, texDirs, src, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("[import] %s: %s, %d triangle(s), %zu object(s) in %zu top-level "
+                "group(s), %zu material(s), %zu texture(s), %d missing, %s\n",
+                file.c_str(), src.format.c_str(), src.tris, src.objects.size(),
+                src.groups.size(), src.materials.size(), src.images.size(),
+                src.missingTextures(),
+                src.canAnimate() ? (src.skinned ? "skinned" : "animated") : "static");
+    for (const std::string& w : src.warnings)
+        std::printf("[import] warning: %s\n", w.c_str());
+    for (const modelimport::Material& m : src.materials)
+        if (!m.missingTexture.empty())
+            std::printf("[import] missing texture: %s (material %s)\n",
+                        m.missingTexture.c_str(), m.name.c_str());
+    if (opt.writeAnimated && !src.canAnimate()) {
+        std::printf("[import] note: no skin and no clips - nothing to animate\n");
+        opt.writeAnimated = false;
+    }
+    const std::vector<modelimport::Planned> plan = modelimport::plan(src, opt);
+    int tris = 0, list = 0, strip = 0;
+    for (const modelimport::Planned& m : plan) {
+        tris += m.tris;
+        list += m.listVerts;
+        strip += m.stripVerts;
+    }
+    std::printf("[import] plan: %zu model(s), %d triangle(s), %d list vertices, "
+                "%d as strips\n",
+                plan.size(), tris, list, strip);
+    if (plan.size() <= 12)
+        for (const modelimport::Planned& m : plan)
+            std::printf("[import]   %s: %d tris, size %.3f x %.3f x %.3f, origin "
+                        "%.3f %.3f %.3f\n",
+                        m.name.c_str(), m.tris, m.mx[0] - m.mn[0],
+                        m.mx[1] - m.mn[1], m.mx[2] - m.mn[2], m.origin[0],
+                        m.origin[1], m.origin[2]);
+    if (dry) return 0;
+    const std::string stem = modelimport::safeName(
+        opt.baseName.empty() ? std::filesystem::path(file).stem().string()
+                             : opt.baseName);
+    const std::string dest =
+        plan.size() > 1 ? "res/models/" + stem : std::string("res/models");
+    modelimport::Result res;
+    if (!modelimport::write(src, plan, opt, projectDir, dest, res, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("[import] wrote %zu static model(s), %d texture(s), material %s%s%s\n",
+                res.staticModels.size(), res.textures, res.material.c_str(),
+                res.animatedModel.empty() ? "" : ", animated ",
+                res.animatedModel.c_str());
+    for (const std::string& n : res.notes) std::printf("[import] %s\n", n.c_str());
+    return 0;
 }
 
 // tyrax-editor --bake-status <projectDir>
@@ -4814,6 +4931,8 @@ int main(int argc, char** argv) {
         return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-status") == 0)
         return bakeStatusFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--import-model") == 0)
+        return importModelFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
         return bakeShadowsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-particles") == 0)
@@ -4890,6 +5009,9 @@ int main(int argc, char** argv) {
             "illumination + light probes\n"
             "  --bake-status <projectDir>              is every bake cache "
             "fresh? read-only; exit 3 = stale\n"
+            "  --import-model <projectDir> <model> [--split none|top|mesh] ...\n"
+            "                                          import an .obj/.glb/.fbx "
+            "(docs/model-import.md)\n"
             "  --bake-model-ao <projectDir> [--texbake]\n"
             "                                          bake every model "
             "asset's own AO into its texture\n"

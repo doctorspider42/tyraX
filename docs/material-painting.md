@@ -3,7 +3,13 @@
 The Material Editor previews `.mtl` files on their real model, edits their PS2
 settings and paints layered textures. Open it with **Tools > Material Editor**,
 or click **Edit...** beside an object's **Material** field to select that file
-and focus the editor. Models also supply their preview mesh.
+and focus the editor. Models also supply their preview mesh. On a model with
+**(model's own)** selected, **Edit...** opens the model's own `.mtl` (its
+sibling `<name>.mtl`, else the `.obj`'s `mtllib`) - shared by every object
+using that model; a model with no `.mtl` at all gets one made from its built-in
+materials. The material list itself lives here, not in Properties, which only
+warns when a texture is missing. The **Material** field lists every `.mtl`
+under `res/`.
 
 ![The Material Editor showing an altar material, its paint layers, smart mask controls and live model preview.](img/material-editor.png)
 

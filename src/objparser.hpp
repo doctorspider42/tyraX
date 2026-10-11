@@ -9,6 +9,10 @@ namespace objparser {
 // are a flat triangle list, 8 floats each (x, y, z, nx, ny, nz, u, v).
 struct Submesh {
     std::string material;  // material name from usemtl ("" = no material)
+    // The `o`/`g` object the faces came from. Only filled (and only split on)
+    // when load() is asked to splitObjects - the model importer's "split into
+    // separate models"; every other caller keeps one submesh per material.
+    std::string object;
     std::string texture;   // map_Kd path ("" = none); relative to the .mtl
                            // that defined it (the .obj's directory when the
                            // library came from mtllib/the sibling .mtl)
@@ -80,7 +84,7 @@ struct MtlMaterial {
 // vendor/tyra/engine/src/loaders/3d/obj_loader/lean_obj_loader.cpp - the
 // editor viewport and the game must see the same geometry and shading.
 bool load(const std::string& path, Model& out,
-          const std::string& overrideMtl = "");
+          const std::string& overrideMtl = "", bool splitObjects = false);
 
 // Parses a standalone .mtl library (newmtl/Kd/Ke/map_Kd/refl), materials in
 // file order. Returns false when the file cannot be read or defines no

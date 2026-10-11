@@ -317,7 +317,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
-- **Models** — `.obj` compiled into a binary
+- **Models** — [one importer](docs/model-import.md) for `.obj`/`.glb`/`.fbx`
+  with a preview, pack splitting and optimization; `.obj` compiled into a binary
   [`.tmdl` with distance LOD](docs/model-pipeline.md), and
   [`.glb`/`.fbx` animated models](docs/animated-models.md) with a non-destructive
   clip editor that can also

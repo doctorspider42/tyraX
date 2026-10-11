@@ -1859,6 +1859,10 @@ void Viewport::shutdown() {
     for (Mesh& m : prevLitShape_) destroyMesh(m);
     destroyMesh(treePrevBark_);
     destroyMesh(treePrevLeaves_);
+    clearImportPreview();
+    if (importFbo_) glDeleteFramebuffers(1, &importFbo_);
+    if (importTex_) glDeleteTextures(1, &importTex_);
+    if (importDepth_) glDeleteRenderbuffers(1, &importDepth_);
     if (treePrevBarkTex_) glDeleteTextures(1, &treePrevBarkTex_);
     if (treePrevLeafTex_) glDeleteTextures(1, &treePrevLeafTex_);
     clearModelCache();
@@ -7638,6 +7642,191 @@ uint32_t Viewport::renderTreePreview(int width, int height,
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return treeTex_;
+}
+
+void Viewport::clearImportPreview() {
+    for (Mesh& m : importMeshes_) destroyMesh(m);
+    importMeshes_.clear();
+    for (uint32_t& t : importTextures_)
+        if (t) glDeleteTextures(1, &t);
+    importTextures_.clear();
+    importHasVersion_ = false;
+}
+
+uint32_t Viewport::renderImportPreview(int width, int height,
+                                       const ImportPreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    if (!importFbo_ || width != importFbW_ || height != importFbH_) {
+        importFbW_ = width;
+        importFbH_ = height;
+        if (!importFbo_) glGenFramebuffers(1, &importFbo_);
+        if (!importTex_) glGenTextures(1, &importTex_);
+        if (!importDepth_) glGenRenderbuffers(1, &importDepth_);
+        glBindTexture(GL_TEXTURE_2D, importTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindRenderbuffer(GL_RENDERBUFFER, importDepth_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+        glBindFramebuffer(GL_FRAMEBUFFER, importFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                               importTex_, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                  GL_RENDERBUFFER, importDepth_);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    ensurePreviewBackdrop();
+
+    if (!importHasVersion_ || importVersion_ != d.version) {
+        clearImportPreview();
+        importHasVersion_ = true;
+        importVersion_ = d.version;
+        // shade baked into the vertex colours, the tree preview's way
+        for (const ImportPreviewMesh& im : d.meshes) {
+            std::vector<float> il;
+            if (im.verts) {
+                const std::vector<float>& src = *im.verts;
+                il.reserve(src.size());
+                for (size_t i = 0; i + 7 < src.size(); i += 8) {
+                    const Vec3 sh = shadeOf(
+                        normalize({src[i + 3], src[i + 4], src[i + 5]}));
+                    il.insert(il.end(), {src[i], src[i + 1], src[i + 2], sh.x,
+                                         sh.y, sh.z, src[i + 6], src[i + 7]});
+                }
+            }
+            importMeshes_.push_back(il.empty() ? Mesh{} : uploadMesh(il));
+        }
+        for (const ImportPreviewTexture& t : d.textures) {
+            uint32_t id = 0;
+            if (t.rgba && t.w > 0 && t.h > 0) {
+                GLuint g = 0;
+                glGenTextures(1, &g);
+                id = g;
+                glBindTexture(GL_TEXTURE_2D, id);
+                glUploadTexRgba(t.w, t.h, t.rgba);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+            importTextures_.push_back(id);
+        }
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, importFbo_);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    useSceneProgram(false);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uReflOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, float r, float g, float b,
+                    uint32_t texture, bool alpha) {
+        if (!mesh.vao) return;
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, id.m);
+        glUniform1i(uLit_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+    glDisable(GL_DEPTH_TEST);
+    draw(prevBg_, id, 1.0f, 1.0f, 1.0f, 0, false);
+    glEnable(GL_DEPTH_TEST);
+
+    const Vec3 pivot{d.center[0], d.center[1], d.center[2]};
+    const float radius = d.radius < 0.001f ? 0.001f : d.radius;
+    const float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 40.0f ? 40.0f : d.zoom);
+    const float dist = radius * 2.4f / zoom;
+    const float pitch = d.pitchDeg < -80.0f ? -80.0f : (d.pitchDeg > 85.0f ? 85.0f : d.pitchDeg);
+    const float a = d.angleDeg * kPi / 180.0f, p = pitch * kPi / 180.0f;
+    const Vec3 toEye{std::cos(p) * std::cos(a), std::sin(p), std::cos(p) * std::sin(a)};
+    // pan: slide the target in the camera's own right/up plane
+    const Vec3 right = normalize(cross({0, 1, 0}, toEye));
+    const Vec3 up = cross(toEye, right);
+    const Vec3 center{pivot.x + (right.x * d.panX + up.x * d.panY) * radius,
+                      pivot.y + (right.y * d.panX + up.y * d.panY) * radius,
+                      pivot.z + (right.z * d.panX + up.z * d.panY) * radius};
+    const Vec3 eye{center.x + dist * toEye.x, center.y + dist * toEye.y,
+                   center.z + dist * toEye.z};
+    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // what importPreviewRay needs to turn a click back into a ray
+        const Vec3 f = normalize({center.x - eye.x, center.y - eye.y, center.z - eye.z});
+        const Vec3 r = normalize(cross(f, {0, 1, 0}));
+        const Vec3 u = cross(r, f);
+        const float* vs[4] = {&eye.x, &f.x, &r.x, &u.x};
+        float* ds[4] = {importEye_, importFwd_, importRight_, importUp_};
+        for (int k = 0; k < 4; ++k)
+            ds[k][0] = vs[k][0], ds[k][1] = vs[k][1], ds[k][2] = vs[k][2];
+        importTanHalf_ = std::tan(45.0f * kPi / 360.0f);
+        importAspect_ = (float)width / (float)height;
+        importCamValid_ = true;
+    }
+    const Mat4 proj = perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
+                                  std::max(dist * 0.002f, 0.001f),
+                                  dist + radius * 4.0f + 50.0f);
+    const Mat4 viewProj = mul(proj, view);
+    {
+        const Mat4 floorM = mul(translation(pivot.x, d.minY - radius * 0.002f, pivot.z),
+                                scaleM(radius * 1.5f, 1.0f, radius * 1.5f));
+        draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0, false);
+    }
+    const size_t n = std::min(d.meshes.size(), importMeshes_.size());
+    auto texOf = [&](int t) -> uint32_t {
+        return t >= 0 && t < (int)importTextures_.size() ? importTextures_[(size_t)t] : 0;
+    };
+    if (d.wireframe) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+    }
+    auto mvpOf = [&](const ImportPreviewMesh& m) {
+        return mul(viewProj, translation(m.offset[0], m.offset[1], m.offset[2]));
+    };
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t t = texOf(d.meshes[i].texture);
+        draw(importMeshes_[i], mvpOf(d.meshes[i]), d.meshes[i].tint[0],
+             d.meshes[i].tint[1], d.meshes[i].tint[2], t, t != 0);
+    }
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    for (size_t i = 0; i < n; ++i) {
+        if (d.meshes[i].highlight)
+            draw(importMeshes_[i], mvpOf(d.meshes[i]), 1.0f, 0.62f, 0.15f, 0, false);
+        else if (d.wireframe)
+            draw(importMeshes_[i], mvpOf(d.meshes[i]), 0.05f, 0.05f, 0.06f, 0, false);
+    }
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glUniform1i(uAlpha_, 0);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return importTex_;
+}
+
+bool Viewport::importPreviewRay(float u, float v, float origin[3], float dir[3]) const {
+    if (!importCamValid_) return false;
+    const float x = (2.0f * u - 1.0f) * importTanHalf_ * importAspect_;
+    const float y = (1.0f - 2.0f * v) * importTanHalf_;
+    float len = 0.0f;
+    for (int a = 0; a < 3; ++a) {
+        origin[a] = importEye_[a];
+        dir[a] = importFwd_[a] + x * importRight_[a] + y * importUp_[a];
+        len += dir[a] * dir[a];
+    }
+    len = std::sqrt(len);
+    for (int a = 0; a < 3; ++a) dir[a] /= len;
+    return true;
 }
 
 std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,

@@ -270,6 +270,8 @@ add_executable(tyrax-editor
     src/vukernel_sample.cpp
     src/matbake.cpp
     src/modelao.cpp
+    src/modelimport.cpp
+    src/modelimport_ui.cpp
     src/objparser.cpp
     src/occlusionbake.cpp
     src/iso9660.cpp

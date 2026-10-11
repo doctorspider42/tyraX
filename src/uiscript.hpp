@@ -113,7 +113,8 @@ struct Step {
         DoubleClick,  // arg = target
         HoldClick,    // arg = target, seconds = how long to keep the button down
         Hover,        // arg = target
-        Drag,         // arg = target, dx/dy = pixels to drag by
+        Drag,         // arg = target, dx/dy = pixels to drag by, n = button
+                      // (0 left, 1 right, 2 middle)
         Wheel,        // arg = target, dy = wheel notches (the only way to reach
                       // a canvas zoom, which is not a widget)
         Key,          // arg = chord ("ctrl+n", "f9", "escape")

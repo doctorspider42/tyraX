@@ -209,6 +209,7 @@ TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX --vehicle-check                # drive-model property tests, exit 0 = pass
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
+TYRAX --import-model <projectDir> <model> [--split top|mesh] [--dry-run]  # the importer, headless
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -2887,7 +2888,7 @@ For eight-view captures, compare a frozen single-tree near/far pair and orbit it
 atlas, all eight ordered parts, yaw rotation and fallback for tilted transforms.
 
 Universal capture: select a non-tree multi-material OBJ, activate the Properties
-tab, click Bake impostor, save/reopen and inspect assignment plus alpha/Kd. Check
+tab, open Distance and LOD, pick Far away > Billboard, click Bake, save/reopen and inspect assignment plus alpha/Kd. Check
 material overrides and missing textures/reflection failures; no assignment should
 change on failure. The grove now includes Waystone for this path. Close floating
 tool windows (or remove their open flag in the scratch layout) before scripted
@@ -2920,8 +2921,7 @@ GPU impostors: `--bake-impostor PROJECT MODEL OUTPUT_STEM 4|8|16 [--gpu]` prints
 backend and total time without assigning an object. Compare CPU/GPU atlases for
 all counts on a cutout tree and multi-material Waystone: same dimensions, binary
 alpha, close silhouette masks, matching Kd/interior colours; GL edge coverage is
-not byte-identical. Invalid counts fail before output. Verify Capture views in
-Properties only changes saved `impostorViews` after a successful bake, resave an
+not byte-identical. Invalid counts fail before output. Verify Views (Distance and LOD > Distant version) only changes saved `impostorViews` after a successful bake, resave an
 old eight-view object, and boot mixed 4/8/16 assets in PCSX2 while orbiting. Run
 `--gi-gpu-check` after changes to the shared bake context and inspect the viewport
 after GPU baking to catch context restoration bugs.
@@ -4098,3 +4098,30 @@ boot the resulting game. Test culling both enabled and disabled: static-box
 additions must update its proxy data without changing the declaration header.
 Feature and other derived-table edits may rebuild more. Profile a remaining
 large compile with GCC `-ftime-report` before assuming parsing/I/O is its cost.
+
+## Model import and the model picker
+
+The core is checkable without a window: `--import-model <proj> <file>
+--dry-run` prints objects, top-level groups, missing textures and the plan
+(triangles, list vs strip vertices); without `--dry-run` it writes. Count the
+objects against the source (a 546-mesh `.fbx` must report 545-546, not 256 -
+that was the palette-limit bug), read one written `.obj`/`.mtl`, then
+`--refresh-gen` a project that uses the result: a static import must bake a
+`.tmdl`, an animated one a `<stem>__ovr*.tskl` (the sibling `.mtl` override).
+
+The window opens a NATIVE file picker, which `--ui-script` cannot type into.
+On Linux the picker is `zenity`, so put a fake one first on `PATH` that prints
+the path to import, and the whole flow is scriptable:
+
+```bash
+printf '#!/bin/sh\ncat /tmp/pick.txt\n' > /tmp/fakebin/zenity; chmod +x /tmp/fakebin/zenity
+echo /path/to/models.fbx > /tmp/pick.txt
+PATH=/tmp/fakebin:$PATH TYRAX --ui-script <proj> "frames 20; click 'Import model...'; wait 3;
+  click 'Import model/##split'; click 'One per top-level object (465)';
+  click 'Import model/Add to the scene'; click 'Import model/Import'; wait 6; key ctrl+s"
+ls <proj>/objects | wc -l      # one object per imported model
+```
+
+The picker's tiles are labelled with the file name (`click 'Choose
+model/##modelgrid/cat.glb'`). Picking a `.glb` from **Model...** must leave a
+`<stem>.obj` beside it and the existing `<stem>.mtl` byte-identical (md5 it).

@@ -3461,7 +3461,7 @@ void App::uiScriptTick() {
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             const int kSteps = 6;  // a slide, not a teleport: ImGui needs motion
             if (uiStepPhase_ == 1) {
-                io.AddMouseButtonEvent(0, true);
+                io.AddMouseButtonEvent(s.n, true);
                 uiStepPhase_ = 2;
             } else if (uiStepPhase_ >= 2 && uiStepPhase_ < 2 + kSteps) {
                 const float t = (float)(uiStepPhase_ - 1) / (float)kSteps;
@@ -3469,7 +3469,7 @@ void App::uiScriptTick() {
                 uiStepPhase_++;
             } else if (uiStepPhase_ == 2 + kSteps) {
                 io.AddMousePosEvent(uiTargetX_ + s.dx, uiTargetY_ + s.dy);
-                io.AddMouseButtonEvent(0, false);
+                io.AddMouseButtonEvent(s.n, false);
                 uiStepPhase_++;
             } else {
                 finishStep();

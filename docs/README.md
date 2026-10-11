@@ -15,6 +15,10 @@ for people building games with it. Internals live in code comments, the git log
   from a second rigged file (a Mixamo download, another export) onto a model you
   already have: name-based bone matching, the translation policy that keeps your
   character's proportions instead of the source's, root-motion retargeting.
+- [Importing models](model-import.md) — one importer for `.obj`, `.glb` and
+  `.fbx`: preview, split a pack into separate models, pivot, real-world size,
+  clean-up and reduction; always an `.obj`/`.mtl`/PNG set; the Model and
+  Animated model entities and their picker.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
   game reads a binary model instead of your `.obj`, distance LOD with authored
   or auto-decimated tiers, and the triangle strips the build ships beside the

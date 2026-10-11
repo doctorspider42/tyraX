@@ -45,6 +45,7 @@
 #include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
+#include "modelimport.hpp"
 #include "project.hpp"
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
@@ -353,34 +354,77 @@ private:
     // picker + "Update every frame" + the resolved counts. `verb` is how the
     // panel words what happens to a caught object ("re-drawn", "shown", ...).
     bool catchAreaControls(SceneObject& o, const char* verb);
-    // Picks a model, then copies and validates it on a worker thread. The
-    // optional target is the Asset Browser folder that requested the import;
-    // completion moves the finished dependency group there on the UI thread.
-    // Does NOT create a scene object.
+    // --- The model importer (modelimport_ui.cpp, docs/model-import.md) ------
+    // ONE window for every model format: pick a file, it is read on a worker
+    // (modelimport::load), the window previews the planned result and offers
+    // the options (split, pivot, size, clean-up, reduction, texture size,
+    // static / animated), and Import writes it on the worker. The optional
+    // target is the Asset Browser folder that asked; `forObject` is the
+    // object waiting for a model (an entity being created from the model
+    // picker), see ModelImportFor.
     void importModelAsset(const std::string& targetFolder = {});
-    void modelImportWorker(std::string source, std::string projectDir,
-                           std::string targetFolder);
+    void importModelFile(const std::string& path, const std::string& targetFolder);
     void modelImportTick();
     void drawModelImportModal();
-    struct ModelImportResult {
-        std::string projectDir;
-        std::string targetFolder;
-        std::string relPath;
-        std::string status;
-        std::array<float, 6> bounds{};  // min xyz, max xyz
-        bool installed = false;
-        bool measured = false;
-        bool animated = false;
-    };
+    void modelImportReplan();
+    void modelImportPlace(const modelimport::Result& res);
+    enum class ImportPhase { Idle, Loading, Ready, Writing };
+    // Who is waiting on the import: nothing, a new Model / Animated model
+    // entity (placed when the import lands), or an existing object whose
+    // model is being replaced (modelPickObjectId_).
+    enum class ModelImportFor { Nothing, NewStatic, NewAnimated, Retarget };
     std::thread modelImportThread_;
-    std::atomic<float> modelImportProgress_{0.0f};
-    std::atomic<int> modelImportStage_{0};
     std::atomic<bool> modelImportDone_{false};
-    bool modelImporting_ = false;
+    ImportPhase modelImportPhase_ = ImportPhase::Idle;
+    bool modelImporting_ = false;  // any phase but Idle
     bool modelImportOpen_ = false;
-    bool modelImportClose_ = false;
-    std::string modelImportName_;
-    ModelImportResult modelImportResult_;
+    ModelImportFor modelImportFor_ = ModelImportFor::Nothing;
+    std::string modelImportFile_, modelImportTarget_, modelImportProjectDir_;
+    std::string modelImportError_;
+    std::vector<std::string> modelImportTexDirs_;
+    std::unique_ptr<modelimport::Source> modelImportSrc_;
+    modelimport::Options modelImportOpt_;
+    std::vector<modelimport::Planned> modelImportPlan_;
+    modelimport::Result modelImportResult_;
+    std::string modelImportWriteError_;
+    uint64_t modelImportVersion_ = 1;
+    int modelImportSel_ = -1;  // highlighted planned model (-1 = none)
+    bool modelImportScrollToSel_ = false;  // a preview click: bring the row into view
+    float modelImportAngle_ = 40.0f, modelImportPitch_ = 18.0f;
+    float modelImportZoom_ = 1.0f;
+    float modelImportPanX_ = 0.0f, modelImportPanY_ = 0.0f;
+    bool modelImportWire_ = false;
+    int modelImportUnit_ = 0;          // kUnitPresetMeters index, 3 = custom
+    float modelImportMeters_ = 1.0f;   // meters per file unit
+    bool modelImportAddToScene_ = false;
+    bool modelImportLayout_ = true;    // split: place at the source layout
+    char modelImportName_[96] = {};
+    // Where the import writes, project-relative ("res/models/terrain/rocks");
+    // a split import adds /<name>. Remembered between imports, so filing a
+    // pack into a catalogue is one setting, not one per file.
+    char modelImportFolder_[256] = "res/models";
+    std::string modelImportLastFolder_ = "res/models";
+
+    // --- The model picker (modelimport_ui.cpp) ------------------------------
+    // What a Model / Animated model entity's "Model" field opens: a thumbnail
+    // grid of the project's models of the right KIND (static: .obj, plus any
+    // .glb/.fbx - placed through its static twin; animated: .glb/.fbx), with
+    // a search box and "Import new...". objectId empty = create a new entity.
+    void openModelPicker(bool animated, const std::string& objectId = {});
+    void drawModelPicker();
+    // Points `o` at a model asset as `animated` or static, the one place that
+    // knows what a model change resets (clips, player clips, the material
+    // that belonged to the previous model). False + status on failure.
+    bool assignModel(SceneObject& o, const std::string& rel, bool animated);
+    // Creates a Model / Animated model entity around an asset (the picker's
+    // and the importer's "add to scene"). One undo step.
+    void addModelEntity(const std::string& rel, bool animated);
+    bool modelPickOpen_ = false;
+    bool modelPickAnimated_ = false;
+    std::string modelPickObjectId_;
+    char modelPickFilter_[64] = {};
+    std::vector<std::string> modelPickItems_;  // listed when the picker opens
+    std::string modelPickFolder_;  // folder shown ("" = every model), remembered
     // "Real-world size" of a model asset (docs/world-scale.md): what one unit
     // of the file measures in meters, which combined with the project's world
     // scale is the scale objects made from it are inserted at. Opened right
@@ -419,6 +463,9 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
+    // The .mtl a model wears without an override (its sibling <stem>.mtl,
+    // else the .obj's first mtllib); "" when it has none.
+    std::string modelOwnMaterial(const std::string& modelRel);
     // Friendly authored-forward selector for skeletal models and player
     // avatars. It writes SceneObject::modelYawOffset, including the common
     // "backwards" 180-degree correction. Returns true when committed.
@@ -427,6 +474,9 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // The static model's distant version (billboard impostor / hull proxy):
+    // one kind, one Bake, the switch distance. Returns true on a change.
+    bool drawDistantVersion(SceneObject& o);
     // Roads (docs/roads.md): flatten the heightfield to the selected
     // road's interpolated line, smooth shoulder falloff, one undo step.
     void alignTerrainToRoad(int objIndex);
@@ -2416,8 +2466,14 @@ private:
     bool treeGenSpin_ = true;
     bool treeGenImpostor_ = true;
     int treeImpostorViews_ = 8;
+    // Properties > Distance and LOD > Distant version, staged per object until
+    // its Bake button runs: the kind (0 none, 1 billboard, 2 hull proxy) and
+    // the billboard's view count.
     int modelImpostorViews_ = 8;
+    int modelDistantKind_ = 0;
     std::string modelImpostorObject_;
+    // Impostor capture tries the GPU and falls back to the CPU on its own -
+    // not a user choice (it used to be a checkbox mislabelled "Impostor").
     bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
