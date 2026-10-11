@@ -399,6 +399,11 @@ private:
     bool modelImportAddToScene_ = false;
     bool modelImportLayout_ = true;    // split: place at the source layout
     char modelImportName_[96] = {};
+    // Where the import writes, project-relative ("res/models/terrain/rocks");
+    // a split import adds /<name>. Remembered between imports, so filing a
+    // pack into a catalogue is one setting, not one per file.
+    char modelImportFolder_[256] = "res/models";
+    std::string modelImportLastFolder_ = "res/models";
 
     // --- The model picker (modelimport_ui.cpp) ------------------------------
     // What a Model / Animated model entity's "Model" field opens: a thumbnail
@@ -419,6 +424,7 @@ private:
     std::string modelPickObjectId_;
     char modelPickFilter_[64] = {};
     std::vector<std::string> modelPickItems_;  // listed when the picker opens
+    std::string modelPickFolder_;  // folder shown ("" = every model), remembered
     // "Real-world size" of a model asset (docs/world-scale.md): what one unit
     // of the file measures in meters, which combined with the project's world
     // scale is the scale objects made from it are inserted at. Opened right

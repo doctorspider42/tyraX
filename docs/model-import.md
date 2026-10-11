@@ -17,12 +17,18 @@ and the window opens with a preview on the left and the options on the right.
   is visible before it reaches the project. Selecting a row of the model list
   outlines that model in orange, and in a split import a left click on a piece
   in the preview selects its row (scrolling the list to it).
+- **Folder** — where the model goes, e.g. `res/models/terrain/rocks`: type a
+  path (missing folders are created; a bare `terrain/rocks` lands under
+  `res/models`) or pick an existing folder from the arrow. It is remembered for
+  the next import, so filing a pack into a catalogue is one setting. Imported
+  from an Asset Browser folder, it starts there. Moving a model later in the
+  Asset Browser keeps every reference.
 - **Use as** — **Static model** writes an `.obj` (from a `.glb`/`.fbx` that is
   the bind pose). **Animated model** keeps the `.glb`/`.fbx` with its skeleton
   and clips; it is greyed out for a file with neither. Both can be on.
 - **Split** — keep the file as one model, or write one model per top-level
   object, or one per mesh. Packs often ship dozens of props in one file; a
-  split import writes them into `res/models/<name>/`, all sharing one `.mtl`
+  split import writes them into `<folder>/<name>/`, all sharing one `.mtl`
   and the textures. Untick models in the list to leave them out.
 - **Pivot** — as authored, bottom centre (stands on what it is placed on) or
   centre. Applied per model.
@@ -68,8 +74,13 @@ an animated model then shows that material untextured, and the window says so.
 ## Model and Animated model
 
 **Add object > Object** has two entries: **Model...** and **Animated
-model...**. Each opens the model picker — a thumbnail grid with a search box
-— and the entity decides static or animated, not the file:
+model...**. Each opens the model picker — the folders on the left (with model
+counts; the last one opened is remembered), a thumbnail grid and a search box
+— and the entity decides static or animated, not the file. It lists models
+from anywhere under `res/`, so a project made before this importer (models in
+`res/aster/`, a hand-made folder) shows all of them with nothing to migrate;
+build products and derived models (distant versions, procedural chunks) are
+left out.
 
 - **Model** lists every `.obj`, plus any `.glb`/`.fbx` that has no static copy
   yet. Picking one of those writes `<name>.obj` next to it (the bind pose,

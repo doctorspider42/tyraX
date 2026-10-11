@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
+#include <set>
 
 #include <imgui.h>
 
@@ -72,6 +74,44 @@ int pickPlannedModel(const std::vector<modelimport::Planned>& plan, const float 
     return best;
 }
 
+// A folder typed into the import window, made safe and project-relative:
+// "terrain\\Rocks/" -> "res/models/terrain/Rocks"; "res/props" stays under
+// res/. Empty, "." and ".." segments are dropped (the PS2 cannot walk "..").
+std::string normalizeModelFolder(const std::string& in) {
+    std::string path = in;
+    for (char& c : path)
+        if (c == '\\') c = '/';
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= path.size()) {
+        const size_t slash = path.find('/', start);
+        std::string seg = path.substr(start, slash == std::string::npos ? std::string::npos
+                                                                        : slash - start);
+        while (!seg.empty() && seg.front() == ' ') seg.erase(seg.begin());
+        while (!seg.empty() && seg.back() == ' ') seg.pop_back();
+        if (!seg.empty() && seg != "." && seg != "..") parts.push_back(modelimport::safeName(seg));
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    if (parts.empty() || parts[0] != "res") {
+        if (!parts.empty() && parts[0] == "models") parts.erase(parts.begin());
+        parts.insert(parts.begin(), {"res", "models"});
+    }
+    std::string out;
+    for (const std::string& p : parts) out += (out.empty() ? "" : "/") + p;
+    return out;
+}
+
+// Files the picker never offers: build products and derived models (a
+// distant version, a procedural chunk), which a scene never places by hand.
+bool pickableModel(const std::string& r, bool generated) {
+    if (generated) return false;
+    const std::string name = fs::path(r).filename().string();
+    return r.find("/impostors/") == std::string::npos &&
+           r.find("/proxies/") == std::string::npos && !startsWith(name, "procgen-") &&
+           name.find("-impostor.") == std::string::npos;
+}
+
 }  // namespace
 
 // --- import window ----------------------------------------------------------
@@ -103,6 +143,10 @@ void App::importModelFile(const std::string& path, const std::string& targetFold
         const std::string stem =
             modelimport::safeName(fs::path(path).stem().string());
         std::snprintf(modelImportName_, sizeof modelImportName_, "%s", stem.c_str());
+        // the Asset Browser folder that asked, else the last one used
+        const std::string folder =
+            startsWith(targetFolder, "res/") ? targetFolder : modelImportLastFolder_;
+        std::snprintf(modelImportFolder_, sizeof modelImportFolder_, "%s", folder.c_str());
     }
     modelImportFile_ = path;
     modelImportTarget_ = targetFolder;
@@ -170,6 +214,7 @@ void App::modelImportTick() {
         return;
     }
     const modelimport::Result& res = modelImportResult_;
+    modelImportLastFolder_ = normalizeModelFolder(modelImportFolder_);
     // The size the window was told is the asset's recorded real-world size,
     // the same record Model size... edits (docs/world-scale.md).
     std::vector<std::string> outputs = res.staticModels;
@@ -421,6 +466,31 @@ void App::drawModelImportModal() {
     ImGui::SetNextItemWidth(scaled(220));
     if (ImGui::InputText("Name", modelImportName_, sizeof modelImportName_))
         replan = true;
+    // The catalogue: type a path ("res/models/terrain/rocks" - missing folders
+    // are created) or pick an existing folder from the arrow.
+    ImGui::SetNextItemWidth(scaled(220) - ImGui::GetFrameHeight());
+    ImGui::InputText("##folder", modelImportFolder_, sizeof modelImportFolder_);
+    ImGui::SameLine(0, 0);
+    if (ImGui::BeginCombo("##folders", nullptr, ImGuiComboFlags_NoPreview |
+                                                    ImGuiComboFlags_PopupAlignLeft |
+                                                    ImGuiComboFlags_HeightLarge)) {
+        if (assetDirs_.empty()) scanAssetTree();
+        for (const auto& [rel, dir] : assetDirs_) {
+            if (rel == "res") continue;
+            const int depth = (int)std::count(rel.begin(), rel.end(), '/') - 1;
+            const std::string label =
+                std::string((size_t)std::max(0, depth) * 2, ' ') + dir.name + "##" + rel;
+            if (ImGui::Selectable(label.c_str(), rel == modelImportFolder_))
+                std::snprintf(modelImportFolder_, sizeof modelImportFolder_, "%s",
+                              rel.c_str());
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Folder");
+    prefHelp("Where the model goes. Type a new path to file it into a\n"
+             "catalogue - res/models/terrain/rocks - folders are created.\n"
+             "Move it later in the Asset Browser; references follow.");
 
     ImGui::SeparatorText("Use as");
     ImGui::Checkbox("Static model", &opt.writeStatic);
@@ -613,8 +683,7 @@ void App::drawModelImportModal() {
     // ---- footer ----
     ImGui::Separator();
     const std::string stem = modelimport::safeName(modelImportName_);
-    std::string base = "res/models";
-    if (startsWith(modelImportTarget_, "res/models/")) base = modelImportTarget_;
+    const std::string base = normalizeModelFolder(modelImportFolder_);
     const bool split = opt.writeStatic && modelImportPlan_.size() > 1;
     const std::string dest = split ? base + "/" + stem : base;
     // the scene options live in the footer so they are on screen however
@@ -671,21 +740,26 @@ void App::openModelPicker(bool animated, const std::string& objectId) {
     modelPickObjectId_ = objectId;
     modelPickFilter_[0] = 0;
     modelPickItems_.clear();
-    std::vector<std::string> anim = listAnimatedModelFiles();
-    if (animated) {
-        for (const std::string& m : anim) modelPickItems_.push_back("res/models/" + m);
-    } else {
-        for (const std::string& m : listAssetFiles("models", ".obj"))
-            modelPickItems_.push_back("res/models/" + m);
-        // a .glb/.fbx without a static twin yet: picking it makes one
-        std::error_code ec;
-        for (const std::string& m : anim) {
-            const std::string rel = "res/models/" + m;
-            if (!fs::exists(project_.filePath(modelimport::staticTwinPath(rel)), ec))
-                modelPickItems_.push_back(rel);
+    // Every model anywhere under res/ - the Asset Browser's own scan, so a
+    // project from before the importer, with its models in res/aster/ or a
+    // hand-made folder, offers them all; nothing on disk has to move.
+    scanAssetTree();
+    std::set<std::string> statics;
+    for (const AssetItem& item : assetItems_)
+        if (item.kind == AssetKind::Model) statics.insert(item.rel);
+    for (const AssetItem& item : assetItems_) {
+        if (!pickableModel(item.rel, item.generated)) continue;
+        if (animated) {
+            if (item.kind == AssetKind::AnimModel) modelPickItems_.push_back(item.rel);
+        } else if (item.kind == AssetKind::Model) {
+            modelPickItems_.push_back(item.rel);
+        } else if (item.kind == AssetKind::AnimModel &&
+                   !statics.count(modelimport::staticTwinPath(item.rel))) {
+            // a .glb/.fbx without a static twin yet: picking it makes one
+            modelPickItems_.push_back(item.rel);
         }
-        std::sort(modelPickItems_.begin(), modelPickItems_.end());
     }
+    // assetItems_ is sorted by path, so modelPickItems_ is too
 }
 
 bool App::assignModel(SceneObject& o, const std::string& relIn, bool animated) {
@@ -780,6 +854,30 @@ void App::drawModelPicker() {
     }
 
     const float footer = ImGui::GetFrameHeightWithSpacing() * 1.4f;
+
+    // The catalogue: every folder holding a model (deep counts), indented by
+    // depth. "All models" shows everything; the choice is remembered.
+    std::map<std::string, int> folders;
+    for (const std::string& rel : modelPickItems_)
+        for (std::string f = fs::path(rel).parent_path().generic_string();
+             !f.empty() && f != "res"; f = fs::path(f).parent_path().generic_string())
+            ++folders[f];
+    if (!modelPickFolder_.empty() && !folders.count(modelPickFolder_)) modelPickFolder_.clear();
+    ImGui::BeginChild("##modelfolders", ImVec2(scaled(200), -footer), true);
+    if (ImGui::Selectable(("All models (" + std::to_string(modelPickItems_.size()) + ")").c_str(),
+                          modelPickFolder_.empty()))
+        modelPickFolder_.clear();
+    for (const auto& [f, count] : folders) {
+        const int depth = (int)std::count(f.begin(), f.end(), '/') - 1;
+        const std::string label = std::string((size_t)std::max(0, depth) * 2, ' ') +
+                                  fs::path(f).filename().string() + " (" +
+                                  std::to_string(count) + ")##" + f;
+        if (ImGui::Selectable(label.c_str(), f == modelPickFolder_)) modelPickFolder_ = f;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", f.c_str());
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+
     ImGui::BeginChild("##modelgrid", ImVec2(0, -footer), true);
     const std::string filter = lowerOf(modelPickFilter_);
     const float tile = scaled(116);
@@ -789,6 +887,7 @@ void App::drawModelPicker() {
     assetThumbBudget_ = 4;
     for (const std::string& rel : modelPickItems_) {
         const std::string name = fs::path(rel).filename().string();
+        if (!modelPickFolder_.empty() && !startsWith(rel, modelPickFolder_ + "/")) continue;
         if (!filter.empty() && lowerOf(rel).find(filter) == std::string::npos) continue;
         ImGui::PushID(rel.c_str());
         if (col > 0) ImGui::SameLine();
