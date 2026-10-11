@@ -366,10 +366,16 @@ void App::drawPropertiesWindow() {
     // so they come in collapsible sections; every other type keeps its short
     // flat panel and this answers "shown" without drawing anything. The open
     // state is ImGui's own, per header label, so it sticks across selections.
+    // The header's ID carries a "##section" suffix: a header shares the window
+    // with fields of the same caption ("Material" header, "Material" combo),
+    // and two items with one label are one ID - ImGui's conflict error, and a
+    // click on either toggling both. Scripts address a header by its caption,
+    // which the suffix does not change.
     auto section = [&](const char* label, bool defaultOpen) {
         if (!isSolid) return true;
         return ImGui::CollapsingHeader(
-            label, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None);
+            (std::string(label) + "##section").c_str(),
+            defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None);
     };
 
     if (!o.editorGroup.empty()) {
