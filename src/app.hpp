@@ -389,6 +389,7 @@ private:
     std::string modelImportWriteError_;
     uint64_t modelImportVersion_ = 1;
     int modelImportSel_ = -1;  // highlighted planned model (-1 = none)
+    bool modelImportScrollToSel_ = false;  // a preview click: bring the row into view
     float modelImportAngle_ = 40.0f, modelImportPitch_ = 18.0f;
     float modelImportZoom_ = 1.0f;
     float modelImportPanX_ = 0.0f, modelImportPanY_ = 0.0f;

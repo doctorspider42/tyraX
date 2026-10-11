@@ -15,7 +15,8 @@ and the window opens with a preview on the left and the options on the right.
 - **Preview** — right drag to orbit, middle drag to pan, mouse wheel to zoom,
   **Reset view** to start over, **Wireframe** for the triangles. Missing textures show as plain white surfaces, so a broken import
   is visible before it reaches the project. Selecting a row of the model list
-  outlines that model in orange.
+  outlines that model in orange, and in a split import a left click on a piece
+  in the preview selects its row (scrolling the list to it).
 - **Use as** — **Static model** writes an `.obj` (from a `.glb`/`.fbx` that is
   the bind pose). **Animated model** keeps the `.glb`/`.fbx` with its skeleton
   and clips; it is greyed out for a file with neither. Both can be on.

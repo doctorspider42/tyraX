@@ -561,6 +561,10 @@ public:
         bool wireframe = false;
     };
     uint32_t renderImportPreview(int width, int height, const ImportPreviewDesc& d);
+    // World ray through image coords (u, v in [0,1], origin top-left) of the
+    // LAST renderImportPreview frame - the import window's click-to-select.
+    // False before the first frame.
+    bool importPreviewRay(float u, float v, float origin[3], float dir[3]) const;
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals
@@ -1471,6 +1475,10 @@ private:
     std::vector<uint32_t> importTextures_;
     uint64_t importVersion_ = 0;
     bool importHasVersion_ = false;
+    // camera of the last import preview frame (importPreviewRay)
+    bool importCamValid_ = false;
+    float importEye_[3] = {}, importFwd_[3] = {}, importRight_[3] = {}, importUp_[3] = {};
+    float importTanHalf_ = 0.0f, importAspect_ = 1.0f;
     void clearImportPreview();
 
     // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for

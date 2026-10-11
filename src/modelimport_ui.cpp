@@ -30,6 +30,48 @@ std::string lowerOf(std::string s) {
     return s;
 }
 
+// The planned model whose triangle the ray hits first (-1 = none). Each model's
+// pieces are pivot-relative, so the ray is taken into its frame by its origin.
+int pickPlannedModel(const std::vector<modelimport::Planned>& plan, const float ro[3],
+                     const float rd[3]) {
+    int best = -1;
+    float bestT = 1e30f;
+    for (size_t mi = 0; mi < plan.size(); ++mi) {
+        const modelimport::Planned& pl = plan[mi];
+        const float o[3] = {ro[0] - pl.origin[0], ro[1] - pl.origin[1],
+                            ro[2] - pl.origin[2]};
+        for (const modelimport::Piece& pc : pl.pieces)
+            for (size_t t = 0; t + 23 < pc.verts.size(); t += 24) {
+                // Moller-Trumbore, both faces
+                const float* a = &pc.verts[t];
+                const float* b = &pc.verts[t + 8];
+                const float* c = &pc.verts[t + 16];
+                const float e1[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+                const float e2[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float p[3] = {rd[1] * e2[2] - rd[2] * e2[1],
+                                    rd[2] * e2[0] - rd[0] * e2[2],
+                                    rd[0] * e2[1] - rd[1] * e2[0]};
+                const float det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+                if (std::fabs(det) < 1e-12f) continue;
+                const float inv = 1.0f / det;
+                const float s[3] = {o[0] - a[0], o[1] - a[1], o[2] - a[2]};
+                const float u = (s[0] * p[0] + s[1] * p[1] + s[2] * p[2]) * inv;
+                if (u < 0.0f || u > 1.0f) continue;
+                const float q[3] = {s[1] * e1[2] - s[2] * e1[1],
+                                    s[2] * e1[0] - s[0] * e1[2],
+                                    s[0] * e1[1] - s[1] * e1[0]};
+                const float v = (rd[0] * q[0] + rd[1] * q[1] + rd[2] * q[2]) * inv;
+                if (v < 0.0f || u + v > 1.0f) continue;
+                const float tt = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+                if (tt > 1e-6f && tt < bestT) {
+                    bestT = tt;
+                    best = (int)mi;
+                }
+            }
+    }
+    return best;
+}
+
 }  // namespace
 
 // --- import window ----------------------------------------------------------
@@ -319,8 +361,21 @@ void App::drawModelImportModal() {
         // right drag = orbit, middle drag = pan, wheel = zoom (the left button
         // is left alone: it is what closes popups and clicks the panel)
         ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonLeft |
+                                   ImGuiButtonFlags_MouseButtonRight |
                                    ImGuiButtonFlags_MouseButtonMiddle);
+        // Left click picks the planned model under the cursor (split imports):
+        // the nearest triangle hit selects its row in the list, empty space
+        // clears the selection.
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && modelImportPlan_.size() > 1) {
+            const ImVec2 mp = ImGui::GetIO().MousePos;
+            float ro[3], rd[3];
+            if (viewport_.importPreviewRay((mp.x - at.x) / (float)pw,
+                                           (mp.y - at.y) / (float)ph, ro, rd)) {
+                modelImportSel_ = pickPlannedModel(modelImportPlan_, ro, rd);
+                modelImportScrollToSel_ = modelImportSel_ >= 0;
+            }
+        }
         if (ImGui::IsItemActive()) {
             const ImVec2 md = ImGui::GetIO().MouseDelta;
             if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -350,7 +405,9 @@ void App::drawModelImportModal() {
             modelImportPanX_ = modelImportPanY_ = 0.0f;
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("right drag = orbit, middle drag = pan, wheel = zoom");
+        ImGui::TextDisabled(modelImportPlan_.size() > 1
+                                ? "click = select, right drag = orbit, middle = pan, wheel = zoom"
+                                : "right drag = orbit, middle drag = pan, wheel = zoom");
         ImGui::TextDisabled("%s  |  %s, %d tris, %zu object(s), %zu material(s), %zu "
                             "texture(s)",
                             fileName.c_str(), src.format.c_str(), src.tris,
@@ -424,6 +481,10 @@ void App::drawModelImportModal() {
                           modelImportPlan_[i].tris);
             if (ImGui::Selectable(row, modelImportSel_ == (int)i))
                 modelImportSel_ = modelImportSel_ == (int)i ? -1 : (int)i;
+            if (modelImportScrollToSel_ && modelImportSel_ == (int)i) {
+                ImGui::SetScrollHereY(0.5f);
+                modelImportScrollToSel_ = false;
+            }
             ImGui::PopID();
         }
         ImGui::EndChild();

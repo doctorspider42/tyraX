@@ -7761,6 +7761,19 @@ uint32_t Viewport::renderImportPreview(int width, int height,
     const Vec3 eye{center.x + dist * toEye.x, center.y + dist * toEye.y,
                    center.z + dist * toEye.z};
     const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    {
+        // what importPreviewRay needs to turn a click back into a ray
+        const Vec3 f = normalize({center.x - eye.x, center.y - eye.y, center.z - eye.z});
+        const Vec3 r = normalize(cross(f, {0, 1, 0}));
+        const Vec3 u = cross(r, f);
+        const float* vs[4] = {&eye.x, &f.x, &r.x, &u.x};
+        float* ds[4] = {importEye_, importFwd_, importRight_, importUp_};
+        for (int k = 0; k < 4; ++k)
+            ds[k][0] = vs[k][0], ds[k][1] = vs[k][1], ds[k][2] = vs[k][2];
+        importTanHalf_ = std::tan(45.0f * kPi / 360.0f);
+        importAspect_ = (float)width / (float)height;
+        importCamValid_ = true;
+    }
     const Mat4 proj = perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
                                   std::max(dist * 0.002f, 0.001f),
                                   dist + radius * 4.0f + 50.0f);
@@ -7799,6 +7812,21 @@ uint32_t Viewport::renderImportPreview(int width, int height,
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return importTex_;
+}
+
+bool Viewport::importPreviewRay(float u, float v, float origin[3], float dir[3]) const {
+    if (!importCamValid_) return false;
+    const float x = (2.0f * u - 1.0f) * importTanHalf_ * importAspect_;
+    const float y = (1.0f - 2.0f * v) * importTanHalf_;
+    float len = 0.0f;
+    for (int a = 0; a < 3; ++a) {
+        origin[a] = importEye_[a];
+        dir[a] = importFwd_[a] + x * importRight_[a] + y * importUp_[a];
+        len += dir[a] * dir[a];
+    }
+    len = std::sqrt(len);
+    for (int a = 0; a < 3; ++a) dir[a] /= len;
+    return true;
 }
 
 std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,
