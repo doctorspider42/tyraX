@@ -16,112 +16,182 @@ description: >
 
 # TyraX development
 
-This file holds the rules every change needs. The detail lives in `references/` - **read the reference(s) the index at the bottom names for the area you touch before editing**. `PROGRESS NNN` citations point at entries of the retired `PROGRESS.md` (in git history; `docs/backlog.md` has the recipe). New work records itself in its commit message and PR body.
+An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine.
+It edits a **data model** (scenes, objects, terrain heightmaps, flow graphs,
+preferences) stored in a `<name>.tyra` manifest plus one `objects/<id>.json` per
+object, and on every build **generates a complete PS2 game project** (C++ sources,
+Makefile, docker-compose.yml), compiled by native PS2DEV plus vendored OpenVCL and
+launched in PCSX2 (Docker is a selectable fallback; read `docs/toolchain-image.md`
+before touching the image). The pipeline: UI (`app.cpp`) edits the model
+(`project.hpp`) → `commitChange()` (undo `history.hpp`) → `save()` writes
+`<name>.tyra` + `objects/<id>.json` → `refreshGenerated()` → `templates::generate()`
+(`templates.cpp`) → `Runner` (`runner.cpp`) → native PS2DEV build → `bin/<name>.elf`
+→ PCSX2. Sibling skills: **tyra-engine-dev** (the in-tree PS2 engine fork in
+`vendor/tyra`) and **tyra-testing** (building, running and verifying anything —
+read it before claiming a change works). `PROGRESS N` citations point at the
+retired `PROGRESS.md` (git history; recipe in `docs/backlog.md`).
 
-## What this project is
+## Rules
 
-An editor for the [Tyra](https://github.com/h4570/tyra) PS2 engine (C++20, Dear ImGui docking + GLFW + OpenGL 3.3, Windows and Linux). It edits a **data model** (scenes, objects, terrain heightmaps, flow graphs, preferences) stored as a `<name>.tyra` manifest plus one `objects/<id>.json` per object, and on every build **generates a complete PS2 game project** (C++ sources, Makefile, docker-compose.yml). The game is compiled by native PS2DEV + vendored OpenVCL by default (Docker is a selectable fallback; image from `docker/Dockerfile` via `.github/workflows/toolchain-image.yml`, `${TYRAX_IMAGE:-h4570/tyra}`; read `docs/toolchain-image.md` first) and launched in PCSX2 or deployed to a real PS2 over ps2link.
+### 1. Editing model: mutate, then ONE `commitChange()`
+UI code mutates `project_` freely; one logical user action ends with a single
+`commitChange()`, which pushes an undo snapshot and marks the project dirty.
+**There is no autosave** — bytes reach disk only on an explicit Save (Ctrl+S /
+File > Save / the toolbar button). Skip the commit and undo/redo and the dirty
+flag silently break. **Collaboration corollary:** live-session sync detects edits
+through `modelEditSerial_`, bumped only in `commitChange()`, `applySnapshot()` and
+`setDirty(true)`; a mutation that avoids all three saves locally but **silently
+never reaches session peers**.
 
-```
-ImGui UI (app.cpp + *_ui.cpp) ──edits──> Project model (project.hpp)
-        │ commitChange()                    │ save()/load()
-        ▼                                   ▼
-  undo history (history.hpp)     <name>.tyra + objects/<id>.json + <name>.history + terrain-*.heights
-                                            │ refreshGenerated() at build start
-                                            ▼
-                templates::generate() (templates.cpp + game_templates.inc) → game sources
-                                            │ Runner (runner.cpp)
-                                            ▼
-              native PS2DEV build → make → bin/<name>.elf → PCSX2 / ps2link
-```
+**`commitChange()` is the one verb, project-wide data included.** The undo
+snapshot only carries `project_.scenes`, so for a project-wide collection (menus,
+credits, loading screens, splashes, Input Map, fonts, button icons, HUD, save
+values, per-asset overrides) `history_.push()` returns false and no undo step
+appears — the commit still dirties and bumps the serial, so committing per widget
+costs nothing and cannot spam undo during a drag.
 
-Sibling skills: **tyra-engine-dev** (the PS2 engine fork in `vendor/tyra`), **tyra-testing** (build, run, verify - read before claiming a change works), **tyra-docs** (docs update in the same commit), **tyra-pr**, **tyra-vehicle-modeling**.
+**Never reach for `saveAll()` from a widget.** It writes the whole project AND the
+history file and clears the dirty flag, so the save icon never lights, the exit
+prompt never appears, every slider release rewrites the project, the serial bump
+is skipped. `saveAll()` is for an explicit save command or an action whose
+filesystem side effect the model must match on disk (asset import). After the
+repo-wide sweep the only `saveAll()` call sites are the five save commands, the
+three asset imports (music, sfx, HUD image) and the Drone Generator's render.
 
-## Core rules
+**A hand-set `bool changed` is not enough.** A window that owns a `project::Section`
+pairs the flag with a `project::sectionJson()` comparison across the whole body:
+snapshot `before` at the top, and at the bottom `if (changed || project::sectionJson(...) != before) commitChange();`
+— the exact `Section::Credits` form is in the source history. Take `before` **after**
+any entry repair (`if (fonts.empty()) push_back`), or merely opening the panel reads
+as an edit. Windows with early returns wrap it in a `commitIfEdited` lambda
+(`drawLoadingScreenWindow`, `drawCreditsWindow`, `drawGradingWindow`,
+`drawCutsceneWindow`). **View state is not an edit:** render mode, projection and
+active scene are read off the viewport by `saveProject()` at save time; editor state
+stored in the `.tyra` with no undo meaning (window layouts, debugger breakpoints)
+marks dirty directly with `setDirty(true)`.
 
-### 1. Editing model: mutate, then `commitChange()`
+### 2. Generated-file ownership markers + the rewrite gate
+`project::refreshGenerated()` (project.cpp:914) runs at the start of every build
+and decides per file:
+- **Always overwritten** (`// Generated by TyraX. Do not edit - regenerated on every build.`): `docker-compose.yml`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, all `*.gen.hpp` / `*.gen.cpp`.
+- **User-ownable** (`// Generated by TyraX. Delete this line to take ownership of this file.`): `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` — regenerated only while the marker is intact.
+- **Written if missing** (no marker): `.vscode/extensions.json`, `THIRD-PARTY-NOTICES.txt`, `run.ps1`, `run.sh`, `windows-pcsx2.ps1`, `.gitignore`, `bin/.gitignore`, `obj/.gitignore`, `.gitattributes`, `COLLABORATION.md` — created once, never clobbered.
 
-- UI code mutates `project_` freely; one logical user action ends in ONE `commitChange()` (pushes an undo snapshot, marks dirty, bumps `modelEditSerial_`). **No autosave**: bytes reach disk only on an explicit Save. Skip the commit and undo/redo, the dirty flag and collaboration sync silently break (peers see only edits that pass `commitChange()`, `applySnapshot()` or `setDirty(true)`).
-- `commitChange()` is the verb for project-wide data too (no undo step is created - the snapshot carries only scenes - but it dirties and syncs; per-widget commits are free).
-- **Never `saveAll()` from a widget** - only for explicit save commands and asset-import side effects (the list is in editor-ui-and-conventions.md; adding a call site is almost certainly wrong).
-- A window owning a `project::Section` compares `project::sectionJson()` before/after its whole body in addition to any `changed` flag (snapshot `before` AFTER on-entry repairs; `commitIfEdited` lambda for early returns).
-- View state (render mode, projection, active scene) is not an edit. Stored-but-not-undoable editor state (layouts, breakpoints) uses `setDirty(true)`.
-- `commitChange()` does not touch the viewport: a setting that changes the PICTURE calls `applyProjectToViewport()` (deferred until `!IsAnyItemActive()`).
-- **A checkbox never reports `IsItemDeactivatedAfterEdit()`** - commit on its return value. That call is for dragged/typed widgets.
+**"Always overwritten" is a hand-written LIST, not a rule about the suffix.** A new generated file added to `templates::generate()` and nothing else is written once by `project::create` and never refreshed — the Remote Pad's `live_pad.gen.cpp` shipped the full devkit runtime into a release build that way (caught only by `--audit-release`). **Add every new generated file to its explicit refresh list in the same commit**; the `.gen.cpp` suffix alone does not refresh it. A file emitted by `generate()` and in NEITHER category reaches only projects made after it existed (`run.sh` was missing from 21 of 34 examples) — **a file every project should have belongs in the write-once list**. **"Rewritten" means "rewritten when the bytes differ":** `writeFile` compares content first and skips an identical write — that is what makes the build incremental (a fresh mtime on `scene_data.hpp` recompiles most of the game); route a new binary bake through `writeFile` too. A baked asset folder needs a `res/.gitignore` rule AND the append-if-missing migration; `/.res-baked/gi/` is NOT an artifact (spell it `/.res-baked/*` + `!/.res-baked/gi/`). Anything the game must know goes through codegen in `templates.cpp`, never a hand-edited generated file; never break a project where the user took ownership of `terrain_game.cpp`.
 
-### 2. Generated-file ownership
+### 3. The chain map — a feature usually touches the whole chain
+**New scene-object property** → `SceneObject` **including its `operator==`**
+(History::push() short-circuits on equality — miss it and undo silently drops the
+field; `shadowMode` shipped in 1.62.0 without it, fixed 1.67.0) → `objectJson` +
+`readObjectsArray` (save AND load; default the read for backward compatibility) →
+properties UI in app.cpp (+ `commitChange()`) → `sceneDataContent()` in
+templates.cpp → game runtime in the `terrain_game.cpp` template (`TPL_*` strings) →
+viewport rendering if visual.
 
-- `refreshGenerated()` (project.cpp) runs at every build start. **Always overwritten** = an explicit hand-written path LIST (first line `// Generated by TyraX. Do not edit - regenerated on every build.`). **User-ownable** = `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp`, `inc/scripts/flow_nodes.hpp` (regenerated while the `Delete this line to take ownership` marker survives). **Written if missing** = notices, launchers, `.gitignore`s, `.gitattributes`, `COLLABORATION.md`. `.vscode/extensions.json` is merged.
-- **A new generated file must be added to the overwrite list in the same commit**, or it is written once by `project::create` and never refreshed (the Remote Pad shipped devkit code into a RELEASE build this way). A file in no list reaches only projects created after it existed.
-- **Writes compare bytes first** (`writeFile`) - this is what keeps game builds incremental. Never emit volatile content; route binary bakes through `writeFile` too.
-- Game-visible data goes through codegen, never hand edits. New generated files use `.gen.hpp`/`.gen.cpp`. Never emit something that breaks projects that own `terrain_game.cpp` (data into regenerated headers, behavior into ownable sources). A new baked folder needs a `res/.gitignore` rule AND the append-if-missing migration. `.res-baked/gi/` is checked in, not an artifact.
-- A conditionally emitted file is deleted when it stops applying; generated output stays `git diff --check` clean; new features emit nothing when OFF (byte-identical regeneration).
+**New object type** → `PrimitiveType` enum (0–20 used, `kPrimitiveTypeCount`
+bounds "every type" loops; values are serialized, keep them stable) → mesh/marker
+in viewport.cpp → insert menu in app.cpp → codegen + runtime. A geometry-free type
+must join every marker skip list (scattered by NUMBER): the USE-target scan,
+carry/throw sweep, `physObstacle` and the geometry `switch` in templates.cpp,
+`flowRaycast`, `blocksNavigation` (navmesh.cpp), `objectShape`/`regionCountFor`
+(aobake.cpp). Collision goes through the single pair
+**`objectCollides`/`objectCollisionBox`** (host twin
+`placement::collisionBox`/`collides`).
 
-### 3. A feature touches the whole chain
+**New flow-graph node** → a `flowNodeType` entry in flowgraph.hpp (designated
+initializer; `.category` is the add-menu submenu derived by `flowNodeCategories()`;
+`.desc` mandatory and a tip on every parameter: `.numTips[i]`, `.strTip`,
+`.str2Tip`, `.execInTips[i]`) → node UI in the flow-graph editor → codegen in
+`flowGraphScript()` (templates.cpp) → `src/gen/flow_graph.gen.cpp`. `.desc` says
+what the NODE does and why; a tip says what ONE knob does; never restate a raw slot
+name (`num[0]`, `str`) in prose — address a parameter by the label its widget
+carries (`flowStrLabel`/`numLabels`).
 
-| Change | Touch (in order) | Ref |
+**New procedural node** → `procNodeTypes()` (pins, params, `.desc`, a `.tip` per
+parameter) → a branch in `evalNode` (procgen.cpp) → if it can run at runtime, add
+it to `kRuntimeNodes` AND write its `emit*` in procrt.cpp (the table is what the
+capability check reads).
+
+**New project preference** → `ProjectSettings` → save/load in project.cpp → the
+*Project* Preferences dialog (`drawPreferencesWindow`) → usually a constant baked
+into `inc/terrain_config.hpp`/`scene_data.hpp`. A scene-overridable preference is
+one `bool` on `SceneOverrides` (+ `operator==`), a branch in
+`project::resolvedSettings`, and a serializer that writes the flag and scene-local
+values **only when the override is on**.
+
+**Any change to what `project::save()` writes** → `version::kFormatVersion++` in
+version.hpp, so an older editor refuses the newer file. Keep the read tolerant
+(default it); register a step in migrations.cpp only when existing files need
+active transformation. Bump the editor semver in the same PR (feature → MINOR,
+fix → PATCH). See `docs/format-versioning.md`.
+
+The full per-feature detail — batching, runtime geometry, physics, areas/reverb,
+scrollers, player/multiplayer, input actions, menus/styles, live channels, AI
+tools, terrain, fonts, credits, project lifetime — lives in the troubleshoot files
+in the table below; read the one matching your change before you start.
+
+### 4. Never hand pixels straight to `glTexImage2D`
+Every RGBA texture upload goes through **`glUploadTexRgba(w, h, pixels)`**
+(`gl_loader.h`), which allocates the level empty then fills it with
+`glTexSubImage2D`. The one-call form `glTexImage2D(..., pixels)` takes an access
+violation inside the AMD GL driver (`atio6axx.dll`, `0xc0000005`) with entirely
+valid arguments; the allocate-then-fill path does not (PROGRESS 101). Framebuffer
+attachments allocate with `nullptr` and are fine; non-RGBA formats (the R32F
+heightmap) do the same two steps inline.
+
+### 5. Cross-platform paths and platform parity
+The editor builds for Windows AND Linux. **Never hand-join a path with `"\\"`** (outside Windows a backslash is an ordinary filename character): use **`Project::filePath(rel)`** for a project-relative asset path and **`templates::nativePath(rel)`** for a `templates::File::relativePath`. **Never hand-roll the join either** — `std::filesystem::path(dir) / rel` CONCATENATES, so a forward-slashed `rel` leaves a MIXED path the CRT accepts but PCSX2 and `explorer.exe /select` reject; `filePath()` ends in `make_preferred()`. **Anything nested in a command line goes through `platform::shellArg()`** (`/bin/sh` expands `$(...)`/`${...}` inside double quotes on the HOST). **The build container runs as root** — copy-back rsync passes `--chown=` + `platform::containerFileOwner()`. An asset path the GAME opens must be `lexically_normal()` (the PS2 cannot walk `..`). PCSX2's `host:` loader refuses an ELF path over ~145 characters, and the Runner must pass `-elf` an absolute, native-separator path.
+
+Editing one member of a pair without its twin, in the same commit, is a bug:
+
+| Windows | Linux/macOS | Must stay in step on |
 |---|---|---|
-| Scene-object property | `SceneObject` + **`operator==`** (History short-circuits on equality) -> `objectJson` + reader (default the read) -> `props_ui.cpp` + commit -> `sceneDataContent()` -> game templates -> viewport -> `liveLinkRecipeHash`? time-machine walk? asset-path lists? -> `kFormatVersion++` | project-model-and-serialization |
-| Anything `save()` writes | `version::kFormatVersion++` (+ migration step only for transformations) + editor semver bump (feature MINOR, fix PATCH); prefer additive, written-only-when-set | project-model-and-serialization |
-| New manifest key / section | a `write*Section`/`read*Section` pair; `Section::Count` + bump the `static_assert` (26 now) | project-model-and-serialization |
-| Field storing an asset path | `App::retargetAssetPath` (+ `rebuildAssetUsage` if a real reference); paths the GAME opens are `lexically_normal()` | project-model-and-serialization |
-| Project preference | `ProjectSettings` -> save/load -> Preferences window (5 tabs by question) -> constant in `terrain_config.hpp`/`scene_data.hpp`; new-project defaults go in `project::create`, never the member initializer | project-model-and-serialization, editor-ui-and-conventions |
-| Per-scene override | `SceneOverrides` bool + `==` + `resolvedSettings` branch + serialize only when on; consumers read `resolvedSettings` | project-model-and-serialization |
-| Machine-global setting | `EditorConfig` + `loadEditorConfig`/`saveEditorConfig` + App member + `saveGlobalConfig()` | editor-ui-and-conventions |
-| New object type | `PrimitiveType` (0-22 used) + viewport mesh + `pickBounds` case + insert menu + codegen; non-geometry types join every marker skip list; collision only via `objectCollides`/`objectCollisionBox` (+ `placement::collisionBox` twin) | scene-objects-and-gameplay |
-| Flow node | registry entry with `.category`, `.desc`, a tip per param -> codegen in `flowGraphScript` -> Live Logic decision; buttons are read through named input actions only | flow-graph-input-player |
-| Procedural node | `procNodeTypes()` (+ `.desc`, `.tip`) -> `evalNode` -> runtime: `kRuntimeNodes` AND an `emit*`, or leave out | procedural-and-prefabs |
-| New optional window | own `*_ui.cpp` if large; register in `showFlagForKey` AND `kLayoutWindowKeys`; `!hasProject_` guard; workers/caches join `closeProject` | editor-ui-and-conventions |
-| Something the running game mutates | joins the time-machine capture walk (`liveTimeSource`) | devkit-runner-and-network |
-| Devkit layer / channel file | `TXDEVKIT-` marker + `kStringNeedles` + overwrite list + deleted before launch in BOTH Runner blocks; audit both ways | devkit-runner-and-network |
-| Static-batch-relevant property | `staticBatchEligible` + `staticbatch::Reason` (+ `batchBlockedNames` for runtime references); census `batchStatic` first; run `verify-batch-twins.py` | runtime-rendering-and-meshes |
-| `.mtl` material feature | four parsers in sync + `GameModelPart`/`GameMaterial` in BOTH game-hpp templates + staging in `rebuildObjectGeometry` AND `rebuildStaticBatch` | runtime-rendering-and-meshes |
-| Assistant tool / property | `aichat::tools()`/`objectProps()` row + executor branch; check `--chat-prompt` | ai-features |
-| Format / CLI / flow model / menu stylesheet change | also `ai-support/` in the same commit | ai-features |
-| `.flownode`/`.screenfx`/`.menustyle`/VU language syntax | `tools/vscode-tyrax` `SPEC`/grammar + repackage the `.vsix` | codegen-and-generated-files |
+| `deps.ps1` | `deps.sh` | every third-party dependency (`vendor/`, `tools/`) — the ONLY place a dependency is listed |
+| `setup.ps1` | `setup.sh` | how the lists are fetched |
+| `build.ps1` | `build.sh` | flags (`-Run`/`--run`, `-Clean`/`--clean`), the dep guard, the toolchain check |
+| `build.cmd`, `setup.cmd` | — | **nothing**: thin wrappers over the `.ps1`. Keep them that way. |
+| `installer/build-installer.ps1` + `tyrax.iss` | `installer/build-package.sh` | WHAT IS IN THE PACKAGE, not the code |
+| `CMakeLists.txt` `if(WIN32)` | its `else()` | link libraries, compile options |
+| `platform.cpp` `#ifdef _WIN32` | its `#else` | every function in `platform.hpp` |
+| `tools/toolchain/prepare-host.ps1` | `prepare-host.sh` | the Windows-to-WSL bridge vs the apt/prereq owner |
 
-### 4. Twins and oracles
+Two traps by name: **`build` in PowerShell runs `build.cmd`, not `build.ps1`**
+(PATHEXT: `.CMD` before `.PS1`); and **a dependency added to only one of
+`deps.ps1`/`deps.sh`** leaves that platform's build guard blind.
 
-The editor and the PS2 game compute many things twice (host C++ for preview/bake, generated C++ for the console). **Change a formula -> find and change its twin in the same commit.** Known twin sets: viewport shading `SHADE_COMMON` vs generated shading; terrain splat + `tintNoise2`; `occShapeAt`/`aoShadeMul`/`shapeBlocksRay` (host, game, viewport FS); `seqCameraUp` (3-way); `ambience::evaluate` vs `daynight.gen.hpp`; `scrollsim` vs `scroller.gen.cpp`; `procgen` vs `procrt` emitted evaluator; `roadgen` (list + strips) vs `buildRoads`; `vehiclesim` vs the vehicle runtime; `staticbatch` vs `buildStaticBatchList`; `menulayout`/`menubake` text vs runtime `drawFontText`/icons; `hudanim.hpp`; `livedbg`/`livetime`/`livepad`/`livereplay` layouts vs generated runtimes; `blss::composite` vs `RendererCoreBlss`; `tmdl` writer vs `TmdlLoader`; `project::tripleBufferingFit` vs `allocateVramBuffers`; `blssClashes()` vs `blssClashesFor`. Mechanical oracles exist for some: `verify-road-twins.py`, `verify-batch-twins.py`, `--gi-gpu-check`, `--vu-check`/`--vu-replay`, `tools/bag-array-enforcement.sh`, `--audit-release`.
+## Source map (`src/`, one flat directory)
 
-### 5. Platform parity and paths
+One flat directory of `snake_case.cpp/.hpp` pairs. **Model + codegen:** `project.cpp/.hpp` (model + JSON + `refreshGenerated`), `templates.cpp/.hpp` (+ `game_templates.inc`), `flowgraph.hpp`/`flownode.cpp`, `input.hpp`, `facts.{hpp,cpp}`/`facts_ui.cpp`, `menustyle`/`menulayout`/`menustyle_ui`, `sequence.hpp`, `ambience`, `starfield`, `skytex`, `prefab.cpp/.hpp`. **UI shells:** `app.cpp/.hpp` + `app_internal.hpp` and the subsystem TUs (`props_ui`, `flowgraph_ui`, `hud_ui`, `procui`, `cutscene_ui`, `credits_ui`, `mateditor_ui`, `devkit_ui`, `assetbrowser`, `modelimport_ui`, `blss_ui`/`blss_window`, `droneui`, `junction_ui`). **Host-only bakers/generators** (harness-testable): `aobake`, `modelao`, `litbake`, `gibake`/`gigpu`, `matbake`, `bvh`, `bakepar.hpp`, `shadowbake`, `occlusionbake`, `reflscenery`, `blobshadowbake`, `decalproj`, `navmesh`, `placement`, `physhull`, `procgen`/`procgraph`/`procbake`/`procrt`, `treegen`/`treeimpostor`/`modelimpostor`, `stochtile`, `dronegen`, `scrollsim`, `primmesh`, `meshlod`, `meshstrip`, `tmdl`, `savebake`, `texatlas`, `uvunwrap`, `particletex`, `blss`/`blsscorpus`/`blssscene`, `roadgen`. **Importers / pipelines:** `objparser`, `fbxparser`, `glbparser`, `modelimport`, `texbake`, `runner.cpp`, `session.cpp`, `wire.cpp`, `platform.cpp`, `pcsx2_config.cpp`, `iso9660.cpp`/`isoexport.cpp`, `elfsym.cpp`, `version.hpp`/`migrations.cpp`, `update.cpp`, `logview.cpp`, `theme.cpp`, `json.cpp`, `history.hpp`, `gl_loader.h/.cpp`. **Live channels:** `livelogic`, `livedbg`, `livetime`, `livepad`, `livereplay`, `uiscript`, `sessionlog`, `audiopreview`. **VU:** `vuir`/`vuasm`/`vusim`/`vugen`. Full per-file descriptions were compacted from the source; the detail lives in git history and `docs/`.
 
-- Files existing once per platform are edited as a PAIR in the same commit: `deps.ps1`/`deps.sh` (the ONLY dependency list), `setup.*`, `build.*` (`.cmd` files are thin wrappers - keep them so), `tools/toolchain/prepare-host.*`/`native-build.*`, the installer pair (same package CONTENT), `CMakeLists.txt` `if(WIN32)`/`else()`, `platform.cpp` `#ifdef _WIN32`/`#else`. OS differences live only in `platform.cpp`.
-- Never join paths with `"\\"` or by hand: `Project::filePath(rel)` / `templates::nativePath(rel)`; normalize before a path leaves the process. Nested command-line arguments go through `platform::shellArg()`. Never kill processes by name - ownership from the command line (`processesNamed` + `killProcess`); `Process::kill()` kills the tree.
-- Every RGBA texture upload uses `glUploadTexRgba` (one-call `glTexImage2D` with data crashes the AMD driver).
-- A new source file must be added to `CMakeLists.txt` (no glob).
+## When you are stuck
 
-### 6. Conventions
-
-- Panel text is terse: numbers, names, one-line verdicts; explanation in a 1-3 line tooltip; the long story in `docs/`. An empty panel says why in one line.
-- Tools menu: one flat list under `SeparatorText` headers, alphabetical within each; never submenus.
-- Wrap literal pixel sizes in `App::scaled(px)`; zoomable canvases use `PushFont`, not `SetWindowFontScale`.
-- ImGui labels are IDs (`##suffix` to disambiguate); popup open/draw use the same string; `SetNextItemAllowOverlap()` for widgets over a `Selectable`; tooltip helpers after `IsItem*` queries.
-- Files `snake_case.cpp/.hpp`, flat `src/`; split a window past ~2000 lines into its own `*_ui.cpp` (App members still declared in app.hpp).
-- One feature = one commit whose message says what was done and HOW it was verified (dead ends included); a fact worth re-reading goes into `docs/` or a skill. Docs are updated in the same commit (tyra-docs skill). Comments explain constraints, not narration.
-- Imported real-world measurements convert through `ProjectSettings::unitsPerMeter`.
-- Do not add a runtime `if (debugEnabled)` - debug features are compiled out of release builds.
-
-## Reference index - read before touching the area
-
-| Read `references/...` | When you touch |
+| Symptom / topic | Read |
 |---|---|
-| `source-map.md` | Finding which file owns something; every `src/` file with size and its reference |
-| `codegen-and-generated-files.md` | `templates.cpp`, `game_templates.inc`, `refreshGenerated` lists, generated project layout, scene-object data TU, `.gitignore` templates, byte-identical regeneration, `.flownode`/`.screenfx` loaders, VS Code extension, `ai-support/` |
-| `project-model-and-serialization.md` | `SceneObject`/`SceneData`/`ProjectSettings` fields, sections, object ids, `kFormatVersion`, migrations, create-time defaults, presets, scene-indexing fields, asset paths, renames |
-| `editor-ui-and-conventions.md` | Panels and windows, `commitChange`/`saveAll` details, Project Preferences window shape, editor.ini settings, NavConfig, window layouts, project open/close lifetime, log panels, theme, ImGui traps, `--ui-script` internals |
-| `viewport.md` | Editor camera, picking/selection, gizmos/overlays, preview FBOs, material refresh, PS2 output/shading/GS-colour simulations, GI display, light beams, GL uploads |
-| `flow-graph-input-player.md` | Flow nodes (params, choices, number/position planes, branching, triggers, custom nodes, AI nodes), navmesh, input actions and rebinding, player speeds, two players, World Facts |
-| `scene-objects-and-gameplay.md` | New object types, marker skip lists, collision, invisible walls, comments/screen icons, object groups, areas (live catch, reverb, sound voices), scroller, physics + hulls, placement, optional terrain, portals, cutscenes, camera takes, phone camera |
-| `game-screens-menus-text.md` | Menus/option blocks, stylesheets/layout/widescreen, fonts, glyph atlases, inline icons, HUD, credits rolls, memory-card save system, VRAM rule for game textures |
-| `lighting-and-bakes.md` | AO/lightmaps, GI + GPU GI + probes, matbake, model AO, pre-lit, baked shadows, blob shadows, occlusion culling, reflection scenery, decals, ambience/day-night, grading, stars, painted sky |
-| `runtime-rendering-and-meshes.md` | Static batching invariants + twin, `dirty`/matrix path, coarse boxes, `BagArray`/`contentVersion`/`bboxVersion`, VU1-lit bags, triple buffering/headroom, motion blur, submission scopes, impostors/proxies/env maps, tmdl/meshlod/meshstrip/texatlas/texbake/stochtile, `.mtl` features, particles |
-| `procedural-and-prefabs.md` | Procedural graph/evaluator/bake/runtime, frozen bakes, placement filter, the Procedural window, prefabs, runtime-generated chunks (ProcChunk, Blocks AO) |
-| `vehicles-and-roads.md` | Vehicle bake/sim/runtime (strips, far tiers, glass, damage, exhaust, lamps, sound, controls card, tuning inheritance, editor preview), roads (span reduction, strips, junctions, crossings, editing) |
-| `devkit-runner-and-network.md` | Zero-cost devkit rule + release audit, Live Link/Logic/Debugger, time machine, Remote Pad, input recorder, texture hot reload, error catcher, hardware timeline, the Runner (incrementality, ps2link ownership, PCSX2 paths), session log, collaboration session and `wire` transports |
-| `assets-import-animation.md` | Asset Browser, model importer, glb/fbx parsing, clip edits, animation import/bone mapping/retargeting, UV unwrap, tree generator |
-| `ai-features.md` | AI flow-graph generation backends, the AI Assistant (prompt, tools, search, compaction, chat store, acting loop), AI support files |
-| `blss.md` | The neural upscaler: window, settings/modes, per-scene override, interlock, shot plan, twin contract, objective, measurement rules, speed model |
-| `audio.md` | Drone Generator synth + window, editor audio output, WAV conversion and the sfx bake |
-| `vu-framework.md` | vuir/vuasm/vusim/vugen/vucap/vushader/vumain, `--vu-check`/`--vu-replay`, VU clip-image aliases |
-| `build-platform-release.md` | Build scripts and CMake, dependencies, platform parity table, `platform.cpp`, paths and shell quoting, packaging/release workflow, update check |
+| Adding a property/type/node/preference; which files a change touches | `../../troubleshoot/tyra-editor-dev-chain.md` |
+| Batching, matrix fast path, `dirty`, lit bags, AO/GI lightmaps, VRAM, `tintNoise2`, `allocateVramBuffers`, `project::tripleBufferingFit` | `../../troubleshoot/tyra-editor-dev-rendering.md` |
+| Static model consolidation, `TmdlLoader`, material refresh, primitive UV parity | `../../troubleshoot/tyra-editor-dev-models.md` |
+| Runtime geometry, batching, physics, invisible walls | `../../troubleshoot/tyra-editor-dev-runtime.md` |
+| Areas, reverb, scrollers, player/multiplayer, input actions | `../../troubleshoot/tyra-editor-dev-gameplay.md` |
+| Live Link / Live Logic / texture hot reload / devkit zero-cost | `../../troubleshoot/tyra-editor-dev-live.md` |
+| Live Debugger, self-screenshot, Remote Pad, input recorder | `../../troubleshoot/tyra-editor-dev-debugger.md` |
+| Panels, Preferences window, DPI, ImGui traps | `../../troubleshoot/tyra-editor-dev-ui.md` |
+| Menus, option blocks, menu stylesheets, fonts, text icons, credits, `hudanim.hpp` | `../../troubleshoot/tyra-editor-dev-menus.md` |
+| Project lifetime, serialization sections, format version, AI assistant | `../../troubleshoot/tyra-editor-dev-project.md` |
+| AI Assistant tools, prompts, context compaction, installed AI support | `../../troubleshoot/tyra-editor-dev-ai.md` |
+| Object grouping, editor picking, screen icons, terrain optional | `../../troubleshoot/tyra-editor-dev-viewport.md` |
+| Build, packaging, CMake, deps, VU aliases | `../../troubleshoot/tyra-editor-dev-build.md` |
+| Probe directions, SH receivers, impostors, `daynight.gen.hpp` | `../../troubleshoot/tyra-editor-dev-lighting.md` |
+| Vehicles: damage, exhaust, lamps, controls, suspension | `../../troubleshoot/tyra-editor-dev-vehicles.md` |
+| Vehicle tuning inheritance, HUD font, live preview, sound | `../../troubleshoot/tyra-editor-dev-vehicle-tuning.md` |
+| Neural Upscaler (BLSS): settings, shot plan, speed model, `RendererCoreBlss` | `../../troubleshoot/tyra-editor-dev-blss.md` |
+| sequence/ambience/starfield/facts/dronegen/treegen and other host-only subsystems | `../../troubleshoot/tyra-editor-dev-subsystems.md` |
+| Roads (spans, strips, junctions, editing) | `../../troubleshoot/tyra-editor-dev-roads.md` |
+| Procedural placement, frozen bakes | `../../troubleshoot/tyra-editor-dev-procedural.md` |
+| Devkit captures, cadence, hardware timeline, submission scopes | `../../troubleshoot/tyra-editor-dev-devkit.md` |
+| Portal doorway rule | `../../troubleshoot/tyra-editor-dev-portals.md` |
+| Model import, model picker, animation import and retargeting | `../../troubleshoot/tyra-editor-dev-model-import.md` |
+| Asset Browser, UV unwrap, tree generator, clip edits, animation retarget internals | `../../troubleshoot/tyra-editor-dev-assets.md` |
+| Codegen templates, generated-file ownership lists, `.flownode`/`.screenfx`, VS Code extension | `../../troubleshoot/tyra-editor-dev-codegen.md` |
+| Runner, ps2link/PCSX2 ownership, `killProcess`, collaboration session, `wire` transport | `../../troubleshoot/tyra-editor-dev-network.md` |
+| Drone Generator, `audio.md`, editor audio output, WAV conversion and the sfx bake | `../../troubleshoot/tyra-editor-dev-audio.md` |
+| Everything else / index | `../../troubleshoot/tyra-editor-dev.md` |

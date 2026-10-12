@@ -3,150 +3,155 @@ name: tyra-testing
 description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
-  game builds, checking code
-  generation without a game build, full native or Docker-fallback e2e + PCSX2 (boot, emulog.txt,
-  reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
-  EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
-  needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
-  on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
-  Use this skill EVERY time you need to test a change, run the editor, build a
-  game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
-  the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a commit message or
-  claiming a change is verified. There is no unit-test suite in this repo; this
-  skill is the testing story.
+  game builds, checking code generation without a game build, full native or
+  Docker-fallback e2e + PCSX2 (boot, emulog.txt, reliable screenshots, and
+  DRIVING both the game's controller (`--pad`) and the EDITOR's own UI
+  (`--ui-script`, clicking widgets BY NAME) unattended — neither needs window
+  focus — plus synthetic keyboard/mouse via the bundled scripts, GDI on Windows,
+  mutter's D-Bus APIs on Wayland), and audio verification. Use this skill EVERY
+  time you need to test a change, run the editor, build a game, boot PCSX2, take
+  a screenshot, PRESS A BUTTON / move the player / drive the emulator or the
+  editor without a human, create a scratch project, or decide "how do I know
+  this works?" — including before writing a commit message or claiming a change
+  is verified. There is no unit-test suite in this repo; this skill is the
+  testing story. When a check proves nothing or something is stuck, read the
+  matching `troubleshoot/tyra-testing-*.md`.
 ---
 
 # Building, running and verifying
 
-There is **no committed test suite** (no CTest, no test/ dir). Verification is layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks. Use the cheapest layer that exercises your change and state in the commit/PR which layer you reached ("verified in PCSX2" vs "compiles, needs a pad test by a human").
+There is **no committed test suite** (no CTest, no test/ dir). Verification is layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks. Use the cheapest layer that actually exercises your change, and be honest in your commit message and PR body about which layer you reached — the established wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a human". (`PROGRESS 123` / "entry 123" citations point at the retired `PROGRESS.md`, in git history — recipe in `docs/backlog.md`; new work records itself in commit messages and PR bodies.)
 
-Detail lives in `references/` — see the index at the bottom. `PROGRESS 123` / "entry 123" citations point at the retired `PROGRESS.md` (in git history; recipe in `docs/backlog.md`); new work records itself in commit messages / PR bodies.
+**If the thing you need for a clean test does not exist, ADD IT — now, in the same change, not in a backlog entry.** A constant that should be a setting, a state only reachable by a human at the pad, a value the game computes but never logs: each is a small, honest feature (or a `--flag`, or a `TYRA_LOG` line) that makes the test repeatable — and an A/B that depends on a hand-driven input is not an A/B. Ask "what would make this a file edit + one command?" and build that first.
 
-## Ground rules
+**Frozen-camera fixture** (every PCSX2 A/B of a rendering change): on the Player object set `walkSpeed: 0`, `lookSpeed: 0`, the `position` that frames the shot and `rotation: [pitchDownDeg, headingDeg, 0]` (rotation X is the pitch, positive = down), plus `"keyboardMouse": false` in the `.tyra`. Then `--build <dir> --run`, wait ~12 s, `-PrintWindow` screenshot. Same frame every boot, no pad needed.
 
-- **If a clean test needs a hook that doesn't exist, ADD IT in the same change** (a setting instead of a constant, a `--flag`, a `TYRA_LOG` line). Ask "what makes this a file edit + one command?" An A/B that depends on hand-driven input is not an A/B (e.g. the Player's rotation X is the start pitch since 1.66.0, docs/player-start.md — that made the torch fixture a JSON edit).
-- **Frozen-camera fixture** (every PCSX2 A/B of a rendering change): Player `walkSpeed: 0`, `lookSpeed: 0`, framing `position`, `rotation: [pitchDownDeg, headingDeg, 0]` (X = pitch, positive = down), `"keyboardMouse": false`, `displayMode: progressive`. `--build <dir> --run`, wait ~12 s, capture. Same frame every boot, no pad.
-- **Short fixture paths outside the repo** (`%TEMP%\tyra-editor-test\<name>`, `~/tyra-projects/<name>`). PCSX2's host: loader fails on ELF paths > ~145 chars (black window, no `bin/log.txt`, `TLB Miss` spam); never boot from the session scratchpad.
-- **Never kill PCSX2 / tyrax-editor / ps2client by name** — parallel worktree sessions and the owner use them. Select processes by the `-elf` / project on their command line.
-- **Measure, don't eyeball**: count pixels/rows with PIL, read counters from logs, keep an idle/control capture beside every "it changed".
-- Judge visuals in the PCSX2 **software renderer** (`Renderer = 13`, set with PCSX2 closed). PCSX2 is correctness evidence; GS-fill and EE-cache-sensitive timings need a console.
+## The four layers
 
-## The layers
+| Layer | What it is | Cost | Use it for |
+|---|---|---|---|
+| **0 — build** | `./build.ps1` / `./build.sh` (`-Dev`/`--dev` = `-O1`) | seconds–minutes | compile checks; the edit-compile-look loop |
+| **1 — headless CLI** | `TYRAX --new/--build/--resave/--refresh-gen/--bake-*/--dump/--pad/--ui-script` (`--docker` for a Docker game build; `--blss-*` for the upscaler; `--pad`/`--ui-script` also take `--file`/`--stdin`) | seconds | codegen, bakes, fixtures, unattended runs |
+| **2 — codegen** | `--refresh-gen` + grep `inc/*.gen.hpp` / `src/gen/*`, or a host harness, no Docker | seconds | constants and generated logic without a game build |
+| **3 — full e2e** | `--build <dir> --run` + PCSX2 boot, screenshots, `bin/log.txt` / `logs/emulog.txt` | minutes | anything that only exists in the game |
 
-| layer | what | cost |
-|---|---|---|
-| 0 | build the editor (`build.ps1` / `build.sh`) — also the warning-clean compile check of `src/` | seconds–1.5 min |
-| 1 | headless CLI: `--new`, `--refresh-gen`, bakes, `--dump`, `--vu-check`, `--vehicle-check`, `--blss-*` | seconds |
-| 2 | codegen inspection without a game build (`--new`/`--refresh-gen` + grep, host harnesses) | seconds |
-| 3 | native (or `--docker`) game build + PCSX2 boot, `--pad`, `--capture-frame`, logs | 5 s–5 min + boot |
-
-### Layer 0
-```powershell
-./build.ps1 [-Run|-Clean|-Dev]     # → build/tyrax-editor.exe   (-Dev: -O1 → build-dev/)
-```
-```bash
-./setup.sh --deps                  # once on a bare Linux box (editor + game deps)
-./build.sh [--run|--clean|--dev]   # → build/tyrax-editor
-```
-Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1). MinGW-w64 GCC only (MSVC dies with C2026). Deps live only in `deps.ps1` + `deps.sh` (pinned SHAs). Paired platform files change together. → `references/editor-build.md`.
-
-### Layer 1 — CLI cheat sheet (`TYRAX` = `build\tyrax-editor.exe` / `build/tyrax-editor`; `TYRAX --help`)
-
-| verb | purpose / key facts |
-|---|---|
-| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | complete project, no Docker; defaults 100x100, 1 u = 1 m, debug profile, Live Link on, preset `empty` |
-| `--build <dir> [--run \| --run-ps2 [ip]] [--rebuild] [--docker]` | full build, streams log, real exit code; runs procedural + vehicle bakes (and GI/pre-lit auto-bakes when enabled) |
-| `--refresh-gen <dir>` | regenerate sources, no toolchain; runs model/anim/credits/vehicle/procedural bakes but **NOT texbake** (`.res-baked` stays stale) |
-| `--resave <dir>` / `--migrate <dir>` | load+save round trip / backup + apply format migrations |
-| `--bake-gi <dir> [--gpu]`, `--gi-gpu-check` | GI + probes; `giAutoBake` re-bakes STALE scenes in `--build` |
-| `--bake-status <dir>` | read-only cache freshness; exit 3 = stale |
-| `--bake-model-ao <dir> [--texbake]`, `--bake-prelit <dir> [scene]`, `--bake-object-light <dir> <object> [size] [rays]`, `--bake-shadows <dir>`, `--bake-particles <dir>`, `--bake-impostor <dir> <model.obj> <stem> 4\|8\|16 [--gpu]` | per-feature bakes |
-| `--dump <dir>`, `--list-nodes`, `--dump-graph <dir> <obj> [scene]`, `--apply-graph <dir> <obj> <g.json> [scene] [--append]`, `--ai-graph ...`, `--add-ai-support <dir> [claude] [codex] [copilot]` | project / graph I/O, AI tooling |
-| `--atlas-report <dir>`, `--batch-report <dir> [scene]`, `--road-crossings <dir> [scene]` | what atlasing/batching did and why; road crossings (exit 1 = orphaned junction override) |
-| `--import-model <dir> <model> [--split none\|top\|mesh] [--pivot ..] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | the importer, headless |
-| `--vu-check [engineDir]`, `--vu-list`, `--vu-emit`, `--vu-replay <dir>`, `--dump-vucap <dir> [--full] [--peek qw[,n]]` | VU1 host simulator / capture decode |
-| `--vehicle-check` | drive-model property tests, exit 0 = pass |
-| `--blss-train`, `--blss-eval`, `--blss-emit`, `--blss-coverage` | neural upscaler, headless |
-| `--chat-prompt [dir]`, `--search-docs "<q>" [page]` | AI Assistant prompt / doc search (exit 1 = no match) |
-| `--pad <dir> "<script>"` (or `--file`/`--stdin`) | drive the RUNNING game's pad, no focus |
-| `--ui-script [dir] "<script>"` (or `--file`/`--stdin`) | drive the EDITOR's UI by widget name, no focus |
-| `--record <dir> <out.tyrarep> --pad ".." [--seconds s]`, `--replay <dir> <file>` (0 same / 3 diverged / 1 error), `--replay-dump <file> [a b]` | input recording as a regression test |
-| `--capture-frame <dir> [-o out.png] [--alpha a.png] [--timeout s]` | the game's own screenshot (works over ps2link) |
-| `--profile-frame <dir> [-o report.csv]` | synchronized render costs |
-| `--debug-state [--verbose] [dir]` | what is being debugged on this machine right now |
-| `--symbolize <dir> 0x...`, `--audit-release <dir>` | addr2line on `bin/<name>.elf.sym`; prove a release ELF is devkit-free (exit 1 = leaked) |
-| `<dir \| project.tyra>` | open the GUI |
-
-`--build`, `--resave`, `--refresh-gen`, `--apply-graph`, `--ai-graph` refuse a project with pending registered migrations (exit 1).
-
-### Layer 2
-- `--new` writes every generated file; `--refresh-gen` refreshes an existing project. Grep `inc/scene_data.hpp`, `inc/*.gen.hpp`, `src/gen/*`.
-- `.gen.*` + `scene_data.hpp` are always rewritten; `terrain_game.cpp`/`controls.hpp`/`script.hpp` only while their marker line is intact (user-owned otherwise).
-- Edit `<name>.tyra` directly to shape a fixture (source of truth). Checked-in examples' generated files drift — regenerate before diffing.
-- Host harnesses (pure modules, `App` privates, sessions, menus, strips…): `references/host-harnesses.md`.
-
-### Layer 3
-```
-TYRAX --build <projectDir> --run
-```
-Refresh → provision PS2DEV/VU tools → sync engine, rebuild `libtyra` if changed → rsync → `make -j` → `adpenc` sfx → sync `bin/` → close PCSX2 instances running THIS ELF → force `HostFs = true` → launch. First build downloads PS2DEV v2.0.0 (minutes); then seconds. Measure a build by what it recompiled (`grep -c 'elf-g++ .* -c -o'`; no-change build = 0). → `references/e2e-pcsx2.md`.
-
-## Reading results
-
-- **`bin/log.txt`** (host: fs): `TYRA_LOG` output + assertion dump between `======= TYRA =======` and `================`. Grep it; a failed assert halts quietly with the last frame up. Feature counters (`VRAMSTAT`, `FTCLIP`, `VEHCONTACT`, `ROADSTRIP`, `Replay:`, …) land here.
-- **emulog.txt** (beside PCSX2.ini, `logs/`): success = `ELF <path> is executing`. **`TYRA_LOG`/EE printf never lands here.** Stops after `ELF Loading:` = path too long; `Denying access`/`Failed to read ELF` = relative `-elf`.
-- **ps2link**: no `bin/log.txt`; the log is the `[ps2] …` lines (Output panel / `--run-ps2` stdout). Games built before 2026-08-06 log nothing there.
-- **`--capture-frame`**: debug build + Live Debugger on; game writes `bin/frame.tga` (BGRA, bottom-up, `18 + w*h*4` bytes) from GS VRAM — the GS raster, no window, no focus, the only capture on real hardware. Space calls > 1 s apart; delete `bin/frame.tga` / `bin/livedbg.cmd` between arms.
-- Host-side PCSX2.ini traps: HostFs missing → "Failed to load ...png" assert; PCSX2 rewrites the ini on exit; Documents may be OneDrive-redirected.
-
-## Driving and capturing (no human)
-
-- **Game pad**: `TYRAX --pad <dir> "stick r 110 0; wait 1.5; neutral"` — steps `press cross [s]`, `hold up`, `release up|all`, `stick l|r x y`, `wait s`, `neutral`, `pad 1|2`. Debug build, *Remote Pad* on. The game reads only analog sticks. On Windows read the driver's stderr + exit code; `Start-Process -ArgumentList` mangles `;` scripts. → `references/screenshots-and-pad.md`.
-- **Editor UI**: `TYRAX --ui-script <dir> "frames 20; dump"` first, then `click 'Window/Label'`, `expect-checked`, `drag <target> dx dy [left|right|middle]`, `wheel`, `text`, `key`, `shot`. Pair state-changing clicks with an `expect`; select tabs before their contents; `frames 60`–`90` after `wheel`. PowerShell: script in double quotes, targets in single. → `references/ui-script.md`.
-- **Screenshots from outside**: Windows `scripts/screenshot-window.ps1 -ProcessId <pid> -PrintWindow -Auto [-Trim]` (`-PrintWindow` whenever anything may cover the window — GDI reads the SCREEN and once captured the owner's browser); `-Watch DIR` = contact sheet + changed-pixel table. Linux/Wayland `scripts/wayland-control.py shot|script|watch` (mutter D-Bus; no per-window capture → `--area`). Editor self-capture: `TYRAX_SHOT=<dir>`.
-- **Synthetic keys into PCSX2** (only for PCSX2's own hotkeys): wayland-control.py `key`/`keydown`/`keyup` on Linux; ALT-tap + `AttachThreadInput` + verified foreground on Windows.
-
-### The idle-control pattern (every "did input arrive" test)
-idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) → turn (right stick ~197k px) → walk (~1.4M px; an axis-aligned walk over the checkerboard alone barely changes anything) → wait 4 s → idle shot (**release** proven). Or one `-Watch`/`watch` over the whole drive.
+**Only one platform's compiler runs at a time**, so a cross-platform change is only half-checked until the other side builds too. Anything touching `src/platform.*`, `wire.cpp`, the Runner, CMakeLists or a paired build script needs a build on both, or say so in the commit.
 
 ## Choosing the right depth
 
-| Change | Minimum honest verification | read |
-|---|---|---|
-| Editor UI (panel, dialog, toggle) | Layer 0 + `--ui-script` that opens it, does it and ASSERTS (`expect`/`expect-checked`) + a `shot`. Either OS, no focus | ui-script.md |
-| Editor viewport rendering | Layer 0 + capture of the panel (`shot`, `TYRAX_SHOT`, or from outside) — measure pixels; offscreen GL harness for numbers | screenshots-and-pad.md, host-harnesses.md |
-| Serialization (`.tyra`) | `--new` + reopen; `--resave` round-trip diff; migration gate tests | cli-and-codegen.md |
-| Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot | cli-and-codegen.md |
-| Engine (`vendor/tyra`) | Layer 3 always — native backend (Docker too if compatibility-sensitive); SW-renderer capture for visuals; VU scheduling → console | e2e-pcsx2.md, vu-and-blss.md |
-| VU1 microprogram | `--vu-check` (falsified red first), Layer 3, console for timing | vu-and-blss.md |
-| Audio | Layer 3 + peak meter on the PCSX2 process; ADPCM header bytes | acceptance-physics-procedural-import.md |
-| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` with idle control / release shots; `watch`/`-Watch` sheet | screenshots-and-pad.md |
-| "Does it do the same thing as last time" | `--record` + `--replay` exit code, plus tamper + fight checks | screenshots-and-pad.md |
-| How a frame is BUILT or PRESENTED (upscaler, pacing, extrapolation, buffer counts, full-screen pass) | Layer 3 + **motion gate**, two arms one knob apart (parked A/Bs miss motion-only faults) | motion-and-ab-rigs.md |
-| Dynamic-shadow switch | Layer 3 + **shadow A/B rig**, deltas vs a same-value control | motion-and-ab-rigs.md |
-| Performance claim | Instrumented fixture with fresh assets + generated code from the editor under test; profile stated; console for absolute ms | performance-and-profiling.md |
-| Package / update check | Harness for the pure half, `--ui-script` modal, real install + `--vu-check`/`--new` FROM it, uninstall / driven self-update | ai-and-packages.md |
-| ISO export | *Project > Export PS2 ISO*, mount on host, boot in PCSX2 | e2e-pcsx2.md |
-
-## Index — read `references/<file>` when you verify…
-
-| file | when |
+| Change | Minimum honest verification |
 |---|---|
-| `editor-build.md` | editor build failures, deps/pinned SHAs, platform parity, build timing, native incremental-build regressions, scene-object iteration |
-| `cli-and-codegen.md` | `--new` fixtures, `--refresh-gen` vs `--build` (texbake!), GI / bake-status / model AO / pre-lit bakes, vehicle + procedural bakes in refresh, far vehicle tier, codegen inspection, format versioning & migrations |
-| `host-harnesses.md` | link lines for scratch `main()` harnesses: pure modules, `App` privates, offscreen GL viewport, menu styles + Classic pixel identity, collaboration sessions, log panels, Live Logic, editor audio |
-| `vu-and-blss.md` | `--vu-check` (falsify it), 2x2 skew rule, `--vu-replay`, VU1 packet capture (`arm-vucap.py`, `--dump-vucap --full/--peek`), BLSS train/eval/coverage, `--threads` determinism, interlock |
-| `e2e-pcsx2.md` | Layer 3 pipeline, host prep, ADPCM loop byte, toolchain image, incremental-build evidence, PCSX2.ini/path traps, emulog vs log.txt, `--capture-frame` details, rendering-correctness rules, settle tests, savestates/GS dumps (`pcsx2-capture.py`), crashes |
-| `screenshots-and-pad.md` | `--pad` (and its Windows traps), synthetic input, `screenshot-window.ps1` (GDI vs PrintWindow, `-Watch`), `wayland-control.py` (shot/script/watch), `TYRAX_SHOT`, unattended input test, record/replay, two-player |
-| `ui-script.md` | `--ui-script` steps, targets, tabs/combos, Project Preferences, clipped items, trickle/wheel timing, quoting, node canvases |
-| `devkit-and-ps2link.md` | `--debug-state`, Live Debugger probes, `--audit-release`, ps2link deploy/stop/ownership, hosting `ps2client listen`, ps2link in PCSX2 + its unit tests, IOP marker, console race vs wedge |
-| `performance-and-profiling.md` | frame profiler, `TYRA_FRAME_PROFILE` levels, devkit costs on console, clean console measurement, render cost, hardware timeline, adaptive BLSS gate, fixture hygiene (stale assets/sources/editor binary, ELF hashing), removed benchmark tooling |
-| `acceptance-renderer-pipeline.md` | removal visibility, scene-data identity, LOD/impostor pops, skip-when-unchanged, StaPip retained/baked stream/content-version/bbox cache, culling pricing, static submission batch, hull/reflection proxies, first-entry HUD, hybrid triple buffer |
-| `motion-and-ab-rigs.md` | period-2 stability gate, motion gate (`motion-gate.ps1/.py`, `routecam.cpp`), console flicker failure-rate fixture, shadow A/B rig |
-| `acceptance-rendering.md` | animated GI / RGB SH, skeletal animation timing, impostors (views, GPU bake, picking), triangle strips |
-| `acceptance-vehicles-roads.md` | vehicle damage/contact/rendering/editor/inheritance, vehicle sounds + sfx conversion, road/terrain strips, road height index, spans, junctions, road editing, static-batch oracle |
-| `acceptance-physics-procedural-import.md` | physics, particles, procedural placement + frozen bake, model import + picker (fake `zenity`), game audio metering |
-| `ai-and-packages.md` | AI Assistant (prompt, harness, fake backend, traps), update check, Windows installer, Linux packages, self-update |
+| A package or the update check | harness for the pure half, `--ui-script` for the modal, a real install (silent on Windows, unpack the tarball on Linux) + `--vu-check`/`--new` FROM it, then uninstall / a driven self-update |
+| Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot`. No focus, either OS |
+| Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel, and measure the pixels rather than eyeballing |
+| Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
+| Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
+| Engine (`vendor/tyra`) | Layer 3 always — native backend (and Docker too for compatibility-sensitive changes); SW-renderer screenshot for anything visual |
+| Audio | Layer 3 + peak-meter check |
+| A game feature with a gym suite (Gunner) | while building: `scripts\gym.cmd --only <gym>`; when finished: the full suite on the valid renderer (GS Software (13), no frame limiter, hidden window). A gym must pass alone (`--isolated`) |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad`: an idle control shot, then drive, then measure. No human, either OS |
+| Anything that changes how a frame is BUILT or PRESENTED (upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate** (the `motion-gate.ps1/.py` pair + `routecam.cpp`), two arms one knob apart |
+| A dynamic-shadow switch (spot/flashlight volumes, blob shadows, a per-object shadow mode) | Layer 3 + **the shadow A/B rig** (`make-shadow-fixture.ps1` then `shadow-ab.ps1 -Toggle <key> -Values a,b`); quote `report.md` deltas against a same-value control run |
+| ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
 
-Bundled scripts (`.claude/skills/tyra-testing/scripts/`): `screenshot-window.ps1`, `wayland-control.py`, `arm-vucap.py`, `pcsx2-capture.py`, `motion-gate.ps1` + `motion-gate.py` + `routecam.cpp`, `make-shadow-fixture.ps1` + `shadow-ab.ps1` (+ `shadow-ab.lib.ps1`).
+## A DEBUG BUILD OVER PS2LINK IS NOT THE PLAYER'S FRAME
+
+Read this before quoting ANY frame time or FPS off a console. Three debug-only costs sit inside every measurement and each looks like a property of the scene. Measured on a physical PS2 with `TYRA_FRAME_PROFILE 2` at a parked vantage:
+
+| devkit cost | cadence over ps2link | what it did to the frame |
+|---|---|---|
+| **Remote Pad** polls `host:livepad.bin` | every 4th frame (every frame in PCSX2) | a network round trip in `loop()` ahead of `beginFrame()` |
+| **Live Debugger** polls `livedbg.cmd` / writes the snapshot | every 25th frame (6th in PCSX2) | the same, rarer |
+| **HUD `MEM` readout** (`showMemory`) - FIXED in 1.123.10 | every 2 s of game time | `getAvailableRAM()` malloc-probed the heap: **+31 ms** on one pose, **+75 ms** on a fragmented one |
+| **`TYRA_FRAME_PROFILE 1`** | every frame | the packet walker + telemetry: HUD SCENE 13.21 -> 17.70 ms |
+
+The clean console measurement, in order:
+
+1. In the project's `.tyra`: `remotePad`, `liveDebug`, `liveLink`, `liveLogic`, `timeMachine`, `inputRecorder` false (and `showMemory` on an engine older than 1.123.10).
+2. `TYRA_FRAME_PROFILE 2` in `vendor/tyra/engine/inc/debug/frame_profile.hpp` — FRAMETIME alone, transparent. Level 1 is for WHAT a frame is made of, and only its deltas are quotable.
+3. `--refresh-gen`, then `tools/toolchain/native-build.ps1` directly.
+4. Deploy with a bare `execee` straight after a power cycle; read `FRAMETIME` off ps2client. `pre + work + stall` must come to `period`; `miss` high with `over20` low means the cost is OUTSIDE the render.
+5. **Transparency check:** capture the same pose once uninstrumented; its HUD SCENE must match.
+
+## SUBMITTED IS NOT SEEN — ASK BY REMOVAL
+
+An inventory ranks a frame by what each producer hands the GS; it cannot say whether any of it reaches the screen. The game can already hide an object at runtime (`ctx.objects[i].visible`):
+
+> hide exactly one object, photograph the frame, diff it against the control. **Zero pixels changed means the object contributed nothing by ANY path** — silhouette, projected shadow, baked AO or reflection — so it is free to cull. A non-zero count IS its on-screen contribution, and `triangles / visible pixels` ranks the population.
+
+Three checks come BEFORE any verdict, because every claim of this shape is a claim about a zero and a broken instrument produces zeros too:
+
+- **within-probe repeatability**, then **control drift** (photograph the control first AND last in the same boot; a run whose control moves is dead);
+- **a positive control for every zero** — photograph the suspected occluder removed too. Do NOT read that pair against the control; compare pair against occluder.
+
+## A fixture can lie, and so can a null A/B.
+
+- A fixture generated by a **stale editor binary** measures a different game, and nothing in any log says so. Rebuild the editor for the control arm too and diff the two generated `terrain_game.cpp` before measuring (`keyL=`/`batchStatic=` are cheap canaries).
+- `--refresh-gen` does NOT run `texbake`, and an editor binary can be older than HEAD: check the baked constant itself (`grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp`) and the binary's mtime.
+- `Copy-Item`/`cp -p`/`git checkout` carries the source timestamp, so a swapped file can be older than the object and `make` does nothing: stamp the file, delete the `.o` in both trees, then **hash the two ELFs and check they differ**. A null A/B is only evidence if the two arms were two builds.
+- A parked fixture is the BEST case for a skip-when-unchanged change and must be labelled as one; `--keep-routes` is the moving realistic case. The district's NIGHT poses flicker and never settle — use a DAY pose for any pixel A/B.
+- **A matching capture hash is not a fixture check** — a strip run changes how a surface is cut, not which pixels it covers.
+
+## A GREEN CHECK ONLY MEANS SOMETHING IF YOU CAN MAKE IT RED.
+
+Falsify every check before believing it:
+
+- `--vu-check`: invert the branch or zero the term in the HANDWRITTEN program and confirm it reports `DIFFERENT`; use the 2x2 (old/new binary against old/new engine).
+- `--audit-release`: run it against a DEBUG ELF and confirm it fails.
+- `--road-index-verify`: shift the query one cell and confirm a first mismatch; an off-road query agrees trivially.
+- The bag-array negative test: make `data()` non-const and it must go red on exactly the two guarded cases.
+- `--pristine` ps2link tests must FAIL against the untouched upstream file.
+
+## The scripts (`skills/tyra-testing/scripts/`)
+
+| Script | What it does |
+|---|---|
+| `screenshot-window.ps1` | window capture (GDI default / `-PrintWindow`), `-Watch` contact sheets, `-ProcessId` |
+| `wayland-control.py` | Linux capture + synthetic input over mutter D-Bus; `shot`, `script`, `watch` |
+| `pcsx2-capture.py` | private PCSX2 savestates + GS dumps; `run` / `gym` / `gs` / `state` |
+| `arm-vucap.py` | arm a VU1 packet capture without the GUI (`bin/livedbg.cmd`) |
+| `motion-gate.ps1` | capture one four-leg motion-gate arm |
+| `motion-gate.py` | decide the motion gate (cross-platform); exit 0/1/2 |
+| `routecam.cpp` | the frame-indexed four-leg camera route (`hold`/`pan`/`dolly`/`return`) |
+| `make-shadow-fixture.ps1` | build the shadow A/B fixture headlessly, short path |
+| `shadow-ab.ps1` | run the shadow A/B per switch (`-Toggle`, `-Values`) |
+| `shadow-ab.lib.ps1` | shared library for `shadow-ab.ps1` |
+
+## When you are stuck
+
+Read `../../troubleshoot/` before you debug; find yours by the symptom. The index is `../../troubleshoot/tyra-testing.md`; per-topic files are `../../troubleshoot/tyra-testing-<topic>.md`:
+
+| Symptom shape | Read |
+|---|---|
+| Build/bake/native-incremental failures | `tyra-testing-build.md` |
+| A headless verb does nothing / refuses / a migration is a no-op | `tyra-testing-cli.md` |
+| A BLSS number cannot be reproduced; a `--vu-check` result is suspect | `tyra-testing-blss.md` |
+| Codegen/template/menu-harness checks | `tyra-testing-codegen.md` |
+| A PCSX2 boot/launch/gym/toolchain-image failure | `tyra-testing-e2e.md` |
+| Pad ignored / mangled arg / the unattended recipe / input replay | `tyra-testing-pad.md` |
+| A black or wrong-window screenshot; watch over time; Wayland; savestates | `tyra-testing-capture.md` |
+| Driving the editor UI; the editor's own framebuffer/viewport | `tyra-testing-ui-script.md` |
+| A pixel/visual/timing comparison proves nothing | `tyra-testing-measure.md` |
+| Finding what the owner debugs; the console/devkit channel is dead | `tyra-testing-debug-state.md` |
+| Scripted probes: flow-graph, VU1, crash, audit, logs, audio, multiplayer | `tyra-testing-probes.md` |
+| A fault exists only while the picture MOVES | `tyra-testing-motion-gate.md` |
+| A corruption only on real hardware, only some frames | `tyra-testing-flicker.md` |
+| A dynamic-shadow switch | `tyra-testing-shadow-ab.md` |
+| AI Assistant layers | `tyra-testing-ai.md` |
+| Packages / installer / update check | `tyra-testing-packages.md` |
+| Physics or particles | `tyra-testing-simulation.md` |
+| Animated directional GI / RGB SH | `tyra-testing-gi.md` |
+| Impostor data path / eight-view / picking / GPU bake | `tyra-testing-impostors.md` |
+| Vehicle damage/contact/defaults/chase camera/sound | `tyra-testing-vehicles.md` |
+| Roads / junctions / hull & reflection proxies | `tyra-testing-roads.md` |
+| Triangle strips / road-terrain twins / oracles | `tyra-testing-strips.md` |
+| A CONTENT change where the arm is the editor | `tyra-testing-content.md` |
+| Render-cost capture / full-asset gate / hardware timeline | `tyra-testing-perf.md` |
+| Retained commands / content version / baked VIF / static batching | `tyra-testing-stapip.md` |
+| Pricing a culling change / bbox counters / collisions unchanged | `tyra-testing-culling.md` |
+| A POP / a skip-when-unchanged change | `tyra-testing-skip.md` |
+| Exact first-entry HUD / hybrid triple-buffer | `tyra-testing-hud.md` |
+| Procedural placement / frozen bake / scene object iteration | `tyra-testing-procedural.md` |
+| Model import / model picker acceptance | `tyra-testing-model-import.md` |
+| The console frame (debug build is not the player's frame); ps2link launch/cadence | `tyra-testing-ps2link.md` |
+| Submitted geometry may not be reaching the screen | `tyra-testing-visibility.md` |

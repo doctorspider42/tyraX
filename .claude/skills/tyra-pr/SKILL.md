@@ -1,106 +1,182 @@
 ---
 name: tyra-pr
 description: >
-  Checklist for opening and updating pull requests in this repo. Use this
-  skill EVERY time you are about to create a PR (gh pr create), push more
-  commits to an existing PR, merge one, or the user says a PR has conflicts.
-  Core rule: a PR is not "created" until you have VERIFIED it is conflict-free
-  against origin/main - main moves fast here (parallel Claude branches land
-  daily) and stale-base PRs are the norm, not the exception.
+  The default branch model (local work on `dev-local`, `main` mirrors
+  `upstream/main`) plus the checklist for opening and updating pull requests. Use
+  this skill to decide which branch to work on and how to sync upstream, and
+  EVERY time you are about to create a PR (gh pr create), push more commits to
+  an existing PR, or the user says a PR has conflicts. Core rules: `dev-local`
+  carries local work and is rebased onto `main`; and a PR is not "created" until
+  you have VERIFIED it is conflict-free against upstream/main - main moves fast
+  here (parallel Claude branches land daily) and stale-base PRs are the norm, not
+  the exception.
 ---
 
-# Pull requests in this repo
+# Branches and pull requests in this repo
 
-`main` is protected (a push needs a PR - a direct push fails with GH013) and
-moves daily. **Creating the PR is not the last step; verifying it is mergeable is.**
+## The default branch model: local work on `dev-local`
 
-## Before `gh pr create`
+Two remotes, and the split is the point:
 
-```bash
-git fetch origin main
-git log --oneline HEAD..origin/main   # anything incoming?
-git merge origin/main                 # merge NOW, locally
+- **`upstream`** = `https://github.com/doctorspider42/tyraX` - the ORIGINAL
+  project. Latest changes are fetched FROM here.
+- **`origin`** = the developer's fork (`git@github.com:fireapache/tyraX.git`) -
+  `dev-local` is pushed TO here.
+
+Unless the user names a branch, a remote or a fetch strategy, this is how to work
+here:
+
+- **`main` is a local mirror of `upstream/main`.** Treat it as read-only: never
+  commit to it, keep it a fast-forward of upstream and nothing else.
+- **`dev-local` carries every local commit** and is published as
+  `origin/dev-local`. Syncing is a rebase of it onto `main`:
+
+  ```powershell
+  git checkout main
+  git fetch upstream                 # latest from the ORIGINAL project
+  git merge --ff-only upstream/main  # main = the new upstream HEAD
+  git checkout dev-local
+  git rebase main                    # your work replays on top
+  git push --force-with-lease origin dev-local   # publish to the FORK
+  ```
+
+  `dev-local` then sits on the latest `main` HEAD, and commits that already
+  landed upstream drop out of the replay automatically (git matches them by
+  patch id). This is the default "update the local repo, then push" flow.
+- **`dev-local` is yours, so rebasing it is intended** - which is exactly why it
+  needs `--force-with-lease`, never a bare `--force`: the lease refuses the push
+  if anything landed on the remote since your last fetch, so you cannot clobber
+  work by accident. A branch that is *shared* - an open PR others may be reading
+  - is the opposite case: merge `upstream/main` into it and push normally,
+  because rebasing would rewrite history under reviewers (next section).
+- If the user names a branch, a remote or a fetch strategy, use theirs and set it
+  up the same way. Fall back to the above only when nothing was said.
+
+## The golden rule: never ship a PR without checking for conflicts
+
+`main` moves fast (parallel feature branches merge daily), so assume your
+base is stale. **Creating the PR is not the last step - verifying it is
+mergeable is.**
+
+### Before `gh pr create`
+
+```powershell
+git fetch upstream main
+git log --oneline HEAD..upstream/main   # anything incoming?
+git merge upstream/main                 # merge NOW, locally
 ```
 
-On a conflict: resolve, rebuild the editor (`./build.sh` / `./build.ps1`), run
-one game build (`tyrax-editor --build <projectDir>`, native PS2DEV by default -
-codegen conflicts only show up in the PS2 compile), commit the merge, then
+If the merge conflicts: resolve, rebuild the editor (`./build.ps1` or `./build.sh`), run at
+least one Docker game build (`build\tyrax-editor.exe --build <projectDir>` -
+codegen conflicts compile only inside the container), commit the merge, THEN
 create the PR.
 
-## After `gh pr create` / every push
+### After `gh pr create` / after every push
 
-```bash
+Verify what GitHub actually computed - a local merge test can drift from
+GitHub's view if someone merged to main in between:
+
+```powershell
 gh pr view <num> --json mergeable,mergeStateStatus
 ```
 
-- `MERGEABLE` -> done. `CONFLICTING` -> fetch + merge origin/main, resolve,
-  verify, push, re-check. `UNKNOWN` -> GitHub is still computing; ask again,
-  conclude nothing.
-- Report the mergeable state to the user as part of "PR is up".
+- `"mergeable": "MERGEABLE"` → done.
+- `"mergeable": "CONFLICTING"` → fetch + merge upstream/main, resolve, verify,
+  push again, re-check.
+- `"mergeable": "UNKNOWN"` → GitHub is still computing; wait a few seconds
+  and query again (don't conclude anything from UNKNOWN).
 
-## Merging = releasing
+Report the mergeable state to the user as part of "PR is up".
 
-Every push to main runs `.github/workflows/release.yml`: it tags and publishes
-`v<version.hpp>` if untagged, else the next PATCH (docs/updates.md). So a merged
-PR ships within the hour, and even a docs-only merge cuts a patch release. The
-workflow's release notes are only a "Full Changelog" link - put the user-facing
-text in `CHANGELOG.md` (tyra-docs) and onto the release with
-`gh release edit v<x.y.z> --notes-file notes.md` once it is published.
+## Conflict hot spots (this codebase specifically)
 
-## Conflict hot spots
+- **`src/templates.cpp`** - almost every feature touches codegen. Watch for:
+  the emitted `SceneObjectData` and `MenuData` structs + their row emission
+  (parallel branches append fields; after merging, the struct fields and the row
+  columns MUST line up 1:1 - count them), the game-cpp prolog includes, and
+  the header templates (duplicated for orbit + fpp - fix both).
 
-- **`src/templates.cpp`** - almost every feature touches codegen. The emitted
-  `SceneObjectData` / `MenuData` structs and their row emission must line up
-  field for field after a merge (count them); header templates are duplicated
-  for orbit + fpp (fix both). **Nothing on the host compiles those rows** - a
-  mismatch survives editor builds, harnesses and `--refresh-gen`, and first
-  shows in the PS2 compile (`invalid conversion from 'const char*' to 'int'`).
-  Two edits anchored on one struct line cause it without any merge. Cheapest
-  check: compare the struct and one emitted row from the generated header
-  (~15 lines of Python), then one `--build`.
-- **`src/app.cpp` and the `*_ui.cpp` TUs** (props_ui, modelimport_ui, ...) - UI
-  moves; re-apply your widget in main's new location rather than keeping the
-  old block.
-- **`examples/*/` generated files** - not worth hand-merging: resolve any way,
-  regenerate with a build, commit the regenerated files.
-- **`PROGRESS.md`** - retired (git history only). A branch old enough to edit
-  it: `git rm PROGRESS.md`, move the entry into the commit message / PR body.
+  **Nothing on the host compiles those rows**, so a mismatch survives every
+  editor build, the harnesses and `--refresh-gen`; the PS2 toolchain is the first
+  thing that sees it (`invalid conversion from 'const char*' to 'int'`). It does
+  not take a merge to cause one either - two edits anchored on the same struct
+  line put a `const char*` between two ints while the emitter kept the old
+  order. Cheapest check, no Docker: read the struct and one emitted row out of
+  the generated header and compare them field by field (~15 lines of Python),
+  then let one `--build` confirm.
+- **`src/app.cpp`** - UI moves around (Properties window, panels); prefer
+  re-applying your widget in main's new location over keeping the old block.
+- **`examples/script-demo/`** - generated files conflict textually but are
+  NOT worth hand-merging: resolve any way, then regenerate the sample with a
+  Docker build and commit the regenerated files.
+- **`PROGRESS.md`** - gone. It was retired at ~15 800 lines precisely because it
+  was this list's most reliable entry: every branch appended to the same spot,
+  so every PR conflicted there. If you are merging a branch old enough to still
+  edit it, resolve by deleting the file (`git rm PROGRESS.md`) and move anything
+  the entry said into your commit message and PR body.
 
-## After resolving
+## After resolving: verify before pushing
 
-Minimum: editor build clean + one `--build <projectDir>` exit 0 (tyra-testing).
-If player/scene runtime templates were touched, boot PCSX2 once.
+A merge that compiles the editor can still emit game code that does not
+compile on the PS2 toolchain. Minimum: `./build.ps1` / `./build.sh` clean + one
+`--build <projectDir>` returning exit 0 (see tyra-testing). If the merge
+touched player/scene runtime templates, boot PCSX2 once.
 
-## PR content
+## PR content conventions
 
-- Title + body in **English** (CLAUDE.md).
-- Body = per-feature verification (which test layer was actually reached, how)
-  + what a human still owes. With PROGRESS.md gone, commit messages and PR
-  bodies ARE the record.
-- One feature = one commit; merge commits from origin/main are fine.
+- PR title + body in **English** (CLAUDE.md rule).
+- Body summarizes per-feature verification (what was proven and how) and
+  names the remaining hands-on checks. Since `PROGRESS.md` was retired, the
+  commit message and this body ARE the record - hold them to the honesty bar
+  its entries had: which test layer you actually reached, and what a human
+  still owes.
+- One feature = one commit on the branch; merge commits from upstream/main
+  are fine and expected.
 
-## A visible change carries a picture
+## If the change is visible on screen, the PR carries a picture
 
-Anything a reviewer would otherwise build to see. You can always make it
-unattended: `--ui-script "... shot x.png"` for the editor, `--capture-frame` /
-`wayland-control.py` / `screenshot-window.ps1` for the game (tyra-testing).
+A panel, a dialog, a viewport, a generated frame - anything a reviewer would
+otherwise have to build and run to see. **You can produce the picture yourself,
+unattended, on either OS**: `--ui-script "... shot x.png"` drives the editor's
+own widgets with no window focus, and `screenshot-window.ps1` / `wayland-control.py`
+grab PCSX2 (all in tyra-testing). "I could not take a screenshot" is almost
+never true here.
 
-- Put it in **`docs/img/`** - usually required anyway (tyra-docs), so the PR
-  embeds the file the docs ship.
-- **Pin the URL to the commit**, never the branch (a branch URL 404s once the
-  branch is deleted on merge), and check it before publishing:
-  `https://raw.githubusercontent.com/<owner>/<repo>/<full-sha>/docs/img/<name>.png`
-  + `curl -sI <url> | head -1`.
-- Shrink it: no pngquant/optipng here, but a PIL 256-colour quantize
-  (`quantize(256, method=MEDIANCUT, dither=NONE)`) cuts a full-window grab to
-  ~1/4 with text still crisp; check text and gradients at 2x.
+**Where the file lives: `docs/img/`.** That is the repo's own convention (65+
+PNGs, referenced from `docs/*.md` as `img/<name>.png`), and for a visible change
+it is usually **required anyway** - see the `docs/img` bullet in tyra-docs.
+The PR then embeds the same file the documentation now ships, which is one
+artifact doing two jobs instead of a throwaway upload.
 
-## Mechanics
+**Pin the URL to the COMMIT, never to the branch:**
 
-- `gh pr edit --body` can fail with a GraphQL "Projects (classic) is being
-  deprecated" error while changing nothing - use
-  `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@body.md` and read the
-  body back (`gh pr view <n> --json body`).
-- `github.com/user-attachments/assets/...` URLs need a browser session; a token
-  cannot create them. Never put a placeholder in a body. (`gh release upload`
-  is the only token-reachable alternative for a picture kept out of the tree.)
+```
+https://raw.githubusercontent.com/<owner>/<repo>/<full-sha>/docs/img/<name>.png
+```
+
+A branch URL 404s the moment the branch is deleted on merge, which is exactly
+when people start reading the PR as history. Verify before publishing the body -
+one command, and it catches a wrong repo name or an unpushed commit:
+
+```bash
+curl -sI "https://raw.githubusercontent.com/<owner>/<repo>/<sha>/docs/img/<name>.png" | head -1
+```
+
+Two mechanics that cost time the first time:
+
+- **`gh pr edit --body` can fail** with a GraphQL *"Projects (classic) is being
+  deprecated"* error while changing nothing. Use the REST route instead:
+  `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F body=@body.md`. Read the
+  body back (`gh pr view <n> --json body`) rather than trusting the exit code.
+- **`github.com/user-attachments/assets/...` URLs are out of reach.** Those come
+  from the browser's drag-and-drop upload, which needs a github.com web session;
+  a token cannot reach that endpoint and `gh` has no command for it. Do not put
+  a placeholder one in a body hoping to fill it in later - it renders as a broken
+  image the moment you publish. (A release asset via `gh release upload` is the
+  only token-reachable alternative, for a picture you deliberately do not want in
+  the tree.)
+
+Keep the file small: there is no `pngquant` or `optipng` on these boxes, but a
+256-colour quantize in PIL cuts a full-window editor grab to roughly a quarter
+of its bytes with the UI text still crisp - check the text AND any gradient at
+2x before committing it.

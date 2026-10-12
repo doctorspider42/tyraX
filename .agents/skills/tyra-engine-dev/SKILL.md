@@ -1,163 +1,199 @@
 ---
 name: tyra-engine-dev
 description: >
-  Guide to editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
-  renderer/clipper/VU1 pipeline, audio (audsrv), file loading over PS2 host fs,
-  and how engine changes reach running games through native and Docker builds. Use this
-  skill whenever you touch ANY file under vendor/tyra, work on PS2-side
-  rendering, clipping, VU1 microprograms, textures, audio playback or asset
-  loading, or when diagnosing in-game symptoms like rendering corruption, giant
-  smeared polygons, crackling/wrong-speed audio, or "Failed to load" asserts.
-  The pitfalls section records expensive dead ends — read it before attempting
-  any PS2 rendering or performance work, even if the change looks trivial.
+  Rules for editing the in-tree Tyra PS2 engine fork in vendor/tyra — the
+  renderer/clipper/VU1 pipeline, audio (audsrv), VRAM and GS state, file loading
+  over the PS2 host filesystem, and how an engine change reaches a running game
+  through the native and Docker builds. Load it before touching ANY file under
+  vendor/tyra, before PS2-side rendering, clipping, VU1/VU0 microprograms,
+  texture/VRAM or audio work, and when diagnosing in-game symptoms such as
+  rendering corruption, giant smeared polygons, crackling or wrong-speed audio,
+  missing textures, or "Failed to load" asserts. Each rule points at
+  troubleshoot/tyra-engine-dev*.md for the expensive dead ends behind it.
 ---
 
 # Working on the in-tree Tyra engine fork
 
-`vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra) (Apache 2.0, forked at upstream `9273416`), edited like normal project code — no patch machinery, no submodule. This file = rules + pitfall index; details live in `references/` (table at the end). Read the matching reference before editing a subsystem.
+`vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
+(Apache 2.0, forked at upstream commit `9273416`), maintained directly in this
+repo. These are the rules an engine edit must not break; the failures each rule
+prevents are in `../../troubleshoot/tyra-engine-dev*.md` (see "When you are stuck").
 
-`PROGRESS 123` citations point at entries of the retired `PROGRESS.md` (~15 800 lines; in git history — recipe in docs/backlog.md: `git log --diff-filter=D -- PROGRESS.md`). New work records itself in commit messages and PR bodies.
+## Fork policy
 
-## Fork rules
-- Mark every departure from upstream with a `Modified by TyraX` comment near the top of the file (examples: `audio_song.cpp`, `stapip_clipper.cpp`, `planes_clip_algorithm.cpp`, `stapip_qbuffer.cpp`, `render_bbox.cpp`; VU sources use `;// TyraX` notes, e.g. `vcl_sml.i`).
-- **LF only under `vendor/tyra/**`** (`.gitattributes`). vclpp chokes on CRLF in files with a `#macro`, with a misleading `Preprocessor directive inside macro block: '#endmacro'`. Scripts: Python `Path.write_text()` writes CRLF on Windows — write bytes, check `grep -c $'\r'`.
-- The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, tyra's non-engine parts) is git-ignored, cloned by `setup.ps1`/`setup.sh` — never edit. Exception: `vendor/tyra/audsrv/` is an in-tree source fork with committed binaries (references/audio.md).
-- `vendor/tyra` is shared by every project on the machine: revert debug probes before you stop.
-- Several engine pieces have **host twins that must change in the same commit**: `src/objparser.cpp` ↔ `LeanObjLoader`; `src/tmdl.hpp` ↔ `TmdlLoader`; `src/blss.cpp` + `src/blsscorpus.cpp` + docs/blss-reconstruction.md ↔ `RendererCoreBlss` (incl. `TYRA_BLSS_ACT_TABLE` ↔ host `actTable`); `src/vugen.cpp` ↔ the 15 StaPip `.vclpp` programs; `App::ps2ViewportOutput` ↔ `DisplayMode` table; `menulayout.cpp` `gsWords` ↔ `RendererCoreGSVRam::getSize`; `project::tripleBufferingFit` ↔ `allocateVramBuffers` headroom; `src/isoexport.cpp` skip ↔ `RESDIR_SKIP`.
+- Mark every departure from upstream with a `Modified by TyraX` comment near the
+  top of the file (existing examples: `audio_song.cpp`, `stapip_clipper.cpp`,
+  `planes_clip_algorithm.cpp`, `stapip_qbuffer.cpp`, `render_bbox.cpp`; VU sources
+  use `;// TyraX` notes, e.g. `vcl_sml.i`).
+- **LF line endings only** under `vendor/tyra/**`, enforced by `.gitattributes`:
+  the `vclpp` VU1 preprocessor chokes on CRLF (it fails only on files with a
+  `#macro`, and names a fine line, so it reads as a source error). Editing tools
+  respect this; a **script** may not — Python's `Path.write_text()` turns `\n`
+  back into CRLF on Windows. Write bytes, or check `grep -c $'\r'` afterwards.
+- The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, tyra's non-engine
+  parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
 ## How an engine change reaches the game
-No manual engine build: the Runner (`src/runner.cpp`) rebuilds it on every game build (F5 / `tyrax-editor --build <projectDir>`).
-- **Native (default)**: `tools/toolchain/native-build.sh`/`.ps1` syncs the engine into `<configDir>/native-build/<engineVolumeName>` (`~/.config/tyra-editor` or `%LOCALAPPDATA%`), builds with pinned PS2DEV + openvcl; a toolchain stamp invalidates stale objects.
-- **Docker fallback** (`--docker`, Sony `vcl`): `vendor/tyra` mounted read-only at `/engine-src`, checksum-rsynced into shared external volume `tyra-engine-<hash>` at `/tyra`; changed → `libtyra` rebuilt once, ELF relinked.
-- VU1 microprograms rebuild only when a `.vclpp/.vcl/.vsm/.i/.h` changed (full set 109 s; a `.cpp` edit ~7 s). `--build --rebuild` throws away the compiled engine incl. VU objects — required after compiler-flag or toolchain-image changes.
-- `vendor/tyra/Makefile.base` is shared by engine AND every generated game (`-G0`, `RESDIR_SKIP`, `src/vu*/` host-code exclusion). Details/traps: references/build-and-toolchain.md.
-- Engine code cannot be compiled on the host; even a syntax check needs a game build (tyra-testing skill).
 
-## TyraX additions at a glance
-EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 family (on-VU1 Sutherland–Hodgman, **default** clipping since M4; EE clipper = "Precise clipping on EE (legacy)", still the load-time default for pre-M4 `.tyra` files without a `clipping` key; docs/vu1-clipping.md); post-fx (bloom, grain, DoF, god rays, custom effects, motion blur); env map / camera feeds / projected shadows / shadow-volume alpha mask; billboards; portals; split screen; VU0 ray tracer; BLSS neural upscaler; frame extrapolation warp; triple buffering, Hybrid colour depth, extra display modes; VIF1 queue, retained and baked command streams, triangle strips; `TmdlLoader`; USB kbd/mouse, two pads, rumble, input replay; quiet-halt asserts + `TYRA_SOFT_ERROR`; EE crash handler + VU1 packet tap; audsrv fork with both SPU2 cores + hardware reverb.
+You never rebuild the engine by hand: the editor's Runner (`src/runner.cpp`) does it on
+every game build (F5 or `tyrax-editor.exe --build <projectDir>`). The native default syncs
+`vendor/tyra/engine` into a user cache and rebuilds with pinned PS2DEV/OpenVCL; the Docker
+fallback bind-mounts `vendor/tyra` read-only at `/engine-src`, checksum-rsyncs it into the
+shared `tyra-engine-<hash>` volume (`external: true`), rebuilds `libtyra` once if anything
+changed and drops the ELF so it relinks.
 
-## Core rules (break one and you will find it the expensive way)
-1. **Never `frustumCulling = None`** except billboard bags → GS 4096-px window wrap, "giant smeared polygons".
-2. **Coplanar passes over one vertex array share one package size** (`StaPipBag::packageSize` = MIN over passes); nothing backface-culls, so never emit two exactly coplanar faces.
-3. **Anything a DMA chain REFs must stay unchanged until that chain ran** — up to three packets later with `Vif1Queue`. `packet2_utils_vu_add_unpack_data` does not copy. No temporaries, no "other buffer" (`^ 1`) logic: use `kPacketCount`/`kPoolSides`.
-4. **Every VIF1 user calls `Vif1Queue::drain()`**, never `dma_channel_wait(DMA_CHANNEL_VIF1, 0)`; **every PATH3 sender calls `path3Fence()`** first.
-5. **Bump `bboxVersion` when positions change, `contentVersion` (via `BagArray`) when contents change in place — and never when nothing changed.** Add every new command input to the retained/baked cache keys in the same edit.
-6. **GIF tags: NLOOP must equal the register writes exactly** (either direction hangs the GIF with a clean log).
-7. **Global GS state you write, you own**: CLAMP must be REPEAT for 3D (per-bag clamp only via `setBagWrap`); never write `zBuffer.mask`/`GS_SET_ZBUF` from a full-screen pass; don't "restore" `TEXA`/`COLCLAMP` you didn't set; DTHE only for 16-bit destinations and `= 0` around arithmetic targets; `FBA = 0` after `draw_setup_environment`.
-8. **Every raster redirect restores through `emitRasterRestore()`** (ZBUF last); `getCurrentFrameBuffer()` means the display buffer.
-9. **Physical framebuffer sizes use `getRenderHeightF()`, game-facing layout `getHeight()`**; screen `FRAME` writes use `getFrameBufferPsm()`.
-10. **Any new permanent VRAM allocation in renderer init (or a rebuild) joins the triple-buffer reserve**; new optional render targets are opt-in and callers null-check.
-11. **VU1**: nothing between `#macro` and its first instruction; no nested macros; VU-side `#define`s are literals; loop counts multiple of 3; per-batch loads inside `begin:`; micro memory is a SET ceiling of 2042 words — measure with `nm`; a VU edit must build with BOTH openvcl and Sony `vcl`; hand-edits to the 15 StaPip programs need `vugen.cpp` too (`--vu-check`).
-12. **audsrv: never block on an audsrv RPC** (it stops the whole library); `SifWriteBackDCache` before any EE→IOP DMA; play sites offset channels by `ScriptContext::reverbBusBase`.
-13. **Loaders soft-fail** (`TYRA_SOFT_ERROR` + fallback), never assert on a missing file; test asset paths on both `host:` and `cdrom0:`.
-14. **Ids from `generateUniqueId()`**, never `rand()`; texture links only via `addLink`/`removeLink*`.
-15. **Verify**: correctness on PCSX2's software renderer; anything touching GS state, DMA timing, caches, dithering, USB or EE exceptions on real hardware (PCSX2 hides those classes). Timings: one ELF toggled at boot, same assembler, same-build control; never trust PCSX2 GS fill numbers (76x off).
+- The **VU1 microprograms** sit outside make's dependency tracking, so the Runner
+  force-rebuilds them when a changed `.vclpp/.vcl/.vsm/.i/.h` is rsynced.
+  **If you change what a VU source may include, widen that extension list** — a missed
+  extension means stale microprograms, which look like a renderer bug (**109 s** the set).
+- **Build > Rebuild** (`--build --rebuild`) throws away the whole compiled
+  engine, VU1 objects included, and rebuilds it from source.
+- A failed engine `make` used to leave the **previous `libtyra.a`** in the volume
+  (fixed in 1.81.1). If a Docker build says `Build OK` without an
+  `ar rcs bin/libtyra.a` line after engine sources changed, that is the symptom.
+- `vendor/tyra/Makefile.base` is shared by the engine and every generated game.
+  Keep **`-G0`** (the engine outgrew the 16-bit GP-relative `.sdata`/`.sbss`
+  window; without it you get `relocation truncated to fit: R_MIPS_GPREL16` naming
+  a one-byte bool), single-pass `-MMD -MP`, `| directories` order-only prereqs,
+  `rsync -ru` for the resource copy minus `RESDIR_SKIP`, and **`src/vu*` (the
+  `src/vu*/` and `src/vu0/` host-code dirs) excluded from `SOURCES`** (host C++, not
+  PS2 code) — a new host-code directory must be added to that `find` exclusion.
+- Docker's Runner only rebuilds the engine when engine SOURCES changed, so a
+  **compiler-flag change needs `--build --rebuild`**; engine volumes are shared
+  per source checkout, so another checkout needs its own rebuild.
+- `RESDIR_SKIP` excludes `.res-baked`'s `gi/` and `shadow/` caches from the
+  resource copy (no console can read them, and `isoexport` would burn them onto
+  the disc). A new host-only cache joins that list **and** the matching skip in
+  `src/isoexport.cpp`.
+- `vendor/tyra/audsrv/` is a **source fork**, not a blob: changing its sources
+  requires re-running `build.sh`/`build.ps1` and committing `bin/` in the same
+  commit (nothing in the game build compiles audsrv). The from-source image
+  compiles the EE half itself and skips the Runner's overlay.
 
-## Pitfalls index (symptom → cause → full story)
-**Rendering corruption / missing geometry**
-- Objects render twice, giant smeared polygons → bag with `frustumCulling = None`, GS 4096-px wrap (SW renderer/hardware only) → static-pipeline.md
-- Dashed bands / grey wedges / baked shadows z-fighting → coplanar faces or coplanar passes split at different package sizes → static-pipeline.md
-- Hole in geometry at point-blank range → guard-band route without exact near/far planes 6..7 → static-pipeline.md
-- Giant textured wedges near the near plane on strips → odd strip primitives expanded without swapping first two vertices → static-pipeline.md
-- Holes in roads, per camera → retained block replayed with position-dependent `EMIT_STATE_FLAG` → submission-dma.md
-- Culling with stale boxes after moving geometry → `bboxVersion` not bumped (cache keyed by vertex pointer) → static-pipeline.md
-- Stale lighting from the baked stream → in-place colour rewrite without `contentVersion`/`BagArray` → submission-dma.md
-- Corona sliver to the screen corner / screen-sized slabs, console only → slot-pool REF race (pool not double-buffered) → submission-dma.md
-- Lighting flashes despite correct VU math → REF to a temporary array → submission-dma.md
-- Blended decals/blob shadows invisible, every byte identical → queued chains started next frame after the clear (`endFrame` drain) → submission-dma.md
-- `Unknown VifCmd 3f` → pool freed while still owned ("0 or 1" side logic), floats read as tags → submission-dma.md
-- Every 4-bit palettised texture draws nothing; "BLSS deletes the terrain" → full-res pass stamped z past a shrunk z buffer onto the CLUT (`zBuffer.mask`) → blss.md
-- Cutout foliage occludes things behind it along quad edges → `ATEST_KEEP_*` read backwards → gs-state.md
-- Ground streaks converging on vanishing point → CLAMP left at clamp for 3D (REPEAT contract) → gs-state.md
-- Whole picture hue-shifted only with post-fx → a pass "restored" `TEXA`/`COLCLAMP` to a guess → gs-state.md
-- Terrain missing on every batch after the first (openvcl) → value loaded above `begin:` not live across the loop → vu1-microprograms.md
-- Program silently missing a feature / ~27 instructions short → comment inside a `#macro` (expands to nothing) → vu1-microprograms.md
-- Clipper keeps/drops wrong edges, scene-dependent → CLIP flag read too early (24-bit shift window) → vu1-microprograms.md
-- Lit surface brightens when it touches the screen edge → colour clamped after S-H interpolation → vu1-microprograms.md
-- Torch black up close, bright far away → `invSoft` sized off full range (cone term ∝ distance²) → vu1-microprograms.md
-- Wrong texture on HUD sprites after opening a menu → `rand()` id collision → engine-additions.md
-- Surviving objects render another object's texture after unloads → upstream stack-pop `free()` → textures-vram.md
-- Black frame every third present, no HUD → `context ^ 1` with three buffers after a re-lay → display-framebuffers.md
-- HUD 46/32 rows off in 1080i/Pal576i (or 112 in InterlacedField) → 2D origin vs framebuffer height → display-framebuffers.md
-- Garbage right of the picture in 480p/1080i → `graph_set_screen` DISPLAY.DW → display-framebuffers.md
-- Boot logo on random colour → `Color` default ctor uninitialised (`bgColor`) → engine-additions.md
-- Feeds/raster targets upside down → GS rows top-down; flip V → renderer-features.md
-- Sharp rectangles in DoF → DoF ran after 2D (sprites stamp max z) → renderer-features.md
-- God rays wash the whole frame white → bright-pass threshold too low (96; use 150) → renderer-features.md
+## Engine layout (path → what it owns)
 
-**Console-only GS artefacts (PCSX2 shows nothing)**
-- Additive quads darken their footprint by half a step → negative DIMX entries / `GS_SET_DIMX` masking → gs-state.md
-- Moiré/rectangles where alpha was written, TV only → flicker filter `PMODE.MMOD = 0` → gs-state.md
-- Green slivers/halo or checkerboard in shadow masks → GS dithering count targets (DTHE on) → gs-state.md
-- Checker on 32-bit frames → DTHE armed for PSMCT32/24 → gs-state.md
-- DATE-gated passes never draw at 16-bit → ps2sdk sets `FBA = 1` → gs-state.md
-- Marks along straight lines in count bands → slid FRAME.FBP / unclamped rects / TEX0 base slide → gs-state.md, renderer-features.md
-- REGLIST/PACKED-tag compaction stalls first gameplay frame → only PCSX2 accepted it → gs-state.md
-
-**Hangs and crashes**
-- Hang on loading screen in `draw_wait_finish`, clean log → NLOOP miscount → gs-state.md
-- Freeze on the first gameplay frame on hardware → fused/NEXT-joined DMA chains → submission-dma.md
-- Console wedges until Reset → `FlushCache` suppressed for packets → submission-dma.md
-- EE exception right after `EIntr()` → chains started from a DMAC interrupt (EXL ⇒ EPC lies) → submission-dma.md
-- Debug builds freeze at boot with crash handler → `ee_dbg_install(2)` → devkit-debugging.md
-- Boot freeze on Tyra logo under ps2link → USB HID drivers on stock ps2link → engine-additions.md
-- Camera spins on hardware with a still mouse → `PS2MouseData` not zeroed → engine-additions.md
-- Every ISO boot wedges → `TYRA_LOG` opening `cdrom0:LOG.TXT` → loaders-files.md
-- `Out of VRAM for post fx buffers` before frame one → third buffer "fits" but the next alloc fails → display-framebuffers.md
-- Mode switch freezes after Hybrid double-buffer fallback → final DTHE-restore tag without EOP → display-framebuffers.md
-- `VU1 pipeline programs overflow into the draw-finish program` / silent overflow in release → micro-memory set over 2042 → vu1-microprograms.md
-- `std::bad_alloc` with `TYRA_VIF1_QUEUE_HOLD` → depth 128; use 80 → submission-dma.md
-- Console hangs with Live Debugger attached → sleepless loop (`setFrameYield`) → display-framebuffers.md
-
-**Build**
-- `relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile` → small-data overflow, needs `-G0` → build-and-toolchain.md
-- `Build OK` but engine fix "does nothing" → stale `libtyra.a`/VU objects (failed make, image swap, flag change w/o `--rebuild`) → build-and-toolchain.md
-- `no opt table .. for <label>` → register allocator out of VF (31) → vu1-microprograms.md
-- `can't find instruction` / `unresolved expression` → nested macro / two-level `#define` → vu1-microprograms.md
-- `--docker` builds die in the engine after a VU edit → only openvcl's load sinking fitted it → vu1-microprograms.md
-- First `src/vu*` host file breaks every build → missing from `Makefile.base` SOURCES exclusion → build-and-toolchain.md
-- Constant clashes with `LIGHT_AMBIENT` etc. → PS2SDK `math3d.h` defines → build-and-toolchain.md
-
-**Audio**
-- Loud crackle at correct pitch → 8-bit WAV unsigned, needs XOR 0x80 → audio.md
-- Second sound silent on console only → missing `SifWriteBackDCache` before SIF DMA → audio.md
-- Music silent, sfx fine, no error → `sceSdInit()` after `audsrv_init()` cleared ring callbacks → audio.md
-- Reverb noise on first preset → effect attr set before enabling effects → audio.md
-- Frame drops blamed on sound emitters → blocking `audsrv_wait_audio` → audio.md
-- Music stutters over ps2link → host: TCP starving the IOP; don't shrink chunks → audio.md
-- Sound plays in the wrong room → channel not offset by `reverbBusBase` → audio.md
-- Play "succeeds" silently → `AUDSRV_ERR_ARGS` (5) looks like a channel → audio.md
-
-**Files**
-- PCSX2 "Denying access to path outside of ELF directory", game opens nothing → `getcwd()` without trailing slash → loaders-files.md
-- Wrong offsets in parsed files over host: → `fseek`/`ftell` unreliable → loaders-files.md
-
-**Measurement**
-- Half the real FPS in progressive modes → T3 (H-BLNK) clock in old `getFps` → display-framebuffers.md
-- `MEM 32.0/32 MB` with 13.6 MB free → old free-RAM probe → devkit-debugging.md
-- "EE-bound" because `drain ≈ 0` → false discriminator → performance.md
-- Same ELF, different `proxy` ms → scene settled at 201 vs 198 proxies → blss.md
-- Benchmark suspiciously fast → missing `.res-baked`, placeholders → performance.md
-- "VU1 is free" → instrumented a program the scene doesn't run → vu1-microprograms.md
-- `--vu-check` green but branch wrong → harness can't see the gated path; prove it fails inverted → vu1-microprograms.md
-
-**Measured dead ends — do not reopen without a new hypothesis**
-coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; BLSS emitter spatial split; interleaved BLSS accumulators; a fourth BLSS libm win; BLSS+extrapolation history-buffer theory; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band.
-
-## Reference index — read the file when you touch…
-| File | Read when you touch |
+| Path | Owns |
 |---|---|
-| references/build-and-toolchain.md | Runner engine sync, native/Docker builds, `Makefile.base`, `-G0`, `RESDIR_SKIP`, toolchain image, openvcl vs Sony `vcl` |
-| references/engine-additions.md | 2D sprites/aspect, dynamic-light pick, pads/USB kbd-mouse/replay, asserts & soft errors, object ids, collision, boot-time state, SH lighting, skin reuse |
-| references/renderer-features.md | post-fx, env map/cam feeds, shadow map, alpha mask/shadow volumes, billboards (+residency), portals, split view, VU0 ray tracer, frame-extrapolation warp, live texture reload |
-| references/blss.md | neural upscaler, raster redirect, z-buffer sizing/mask, BLSS measurements, nets and incompatibilities |
-| references/vu1-microprograms.md | any `.vclpp`/`.i`, `vugen`/`--vu-check`, vclpp/VCL traps, micro memory, clip images, `VU1_OPTIONS_ADDR`, spot gate, VU1 cost |
-| references/gs-state.md | GS registers, GIF tags, CLAMP/REPEAT, ATEST, FBA, DIMX/DTHE, flicker filter, TEXA/COLCLAMP, debugging an invisible GS pass |
-| references/display-framebuffers.md | display modes, 2D origin, framebuffer PSM, Hybrid, triple buffering, vblank/present, frame pacing, FPS counters |
-| references/textures-vram.md | VRAM allocator, `getSize`, eviction, `VRAMSTAT`/`VRAMRES`/`VRAMEVICT`, texture id cache, `residentHint` |
-| references/static-pipeline.md | StaPip culling/clipping/packages, 75-vertex ceiling, guard band, bbox caches & version stamps, spot bounds, transform cache, strips, generated grids |
-| references/submission-dma.md | packets, REF lifetime, slot pools, batching, `Vif1Queue`, 2D-in-VIF1, retained & baked commands, FlushCache/uncached experiments |
-| references/performance.md | measuring anything: rules, telemetry (`FTCLIP`, `FTPKT`, `TYRA_STAPIP_ATTRIB`), hardware timeline, reusable cost constants |
-| references/audio.md | audsrv fork, ADPCM, streaming, reverb, channel buses, sound conversion/loop flags |
-| references/loaders-files.md | `LeanObjLoader`, `TmdlLoader`, soft-fail loaders, `host:`/`cdrom0:` paths, `fromCwd` |
-| references/devkit-debugging.md | VU1 packet tap, EE crash handler, free-RAM probe |
+| `vendor/tyra/engine/{inc,src}/{audio,debug,file,info,irx,loaders,math,pad,physics,renderer,thread,time}` | mirrored subsystems; `renderer` is the big one (2D, 3D static/dynamic, GS/VU1 core) |
+| `renderer/**/*.vclpp, *.vcl, *.i` | VU1 microprograms, preprocessed by `vclpp` inside the container |
+| `renderer/core/blss/` | neural upscaler console half (`RendererCoreBlss`) |
+| `renderer/core/paths/path1/vif1_queue.*` | `Vif1Queue` (VIF1 submission queue) |
+| `renderer/core/splitview/` | `RendererCoreSplitView` (split-screen raster bracket) |
+| `renderer/rt/vu0_raytracer.*` | the only VU0 microprogram (raytraced reflections) |
+| `renderer/models/unique_id.hpp` | `generateUniqueId()` — the object-id namespace |
+| `physics/` | `CollisionMesh`, `Ray::intersectTriangle` |
+| `debug/debug.hpp`, `debug/crash_handler.cpp` | `TyraDebug::trap`, `TYRA_ASSERT` / `TYRA_SOFT_ERROR`, `CrashHandler::install()` |
+| `renderer/**/stapip_*`, `.../static/core/stapip_vu_tap.*` | StaPip bags/clipper/qbuffer/programs/telemetry, the VU1 packet tap (`g_vuPacketHook`, `g_vuMemHook`) |
+
+TyraX engine additions (clip family, post-fx, shadow/alpha/env targets,
+billboards, dyn lights, portals, USB input, split view, soft errors) are
+catalogued in `../../troubleshoot/tyra-engine-dev-*.md`.
+
+## The non-negotiable rules
+
+1. **Judge rendering correctness on PCSX2's software renderer** — the honest one.
+2. **Never submit bags with `frustumCulling = None`** — off-screen geometry wraps
+   the 4096-px GS raster window ("giant smeared polygons"); the HW renderer masks it.
+3. **Never emit two exactly coplanar faces** — nothing backface-culls, so they
+   dither-fight; offset the two faces by 0.01 local units (`addPlane`/`unitPlane`).
+4. **Coplanar passes over one vertex array must pin one `StaPipBag::packageSize`**
+   (the MINIMUM over the object's passes) or their split boundaries differ and the
+   passes dither-fight.
+5. **Bump `bboxVersion` only when the vertex buffer actually changed** — the stamp
+   disables both the package-bbox cache and the retained-command cache.
+6. **Object ids must be unique** (`renderer/models/unique_id.hpp`
+   `generateUniqueId()`), never `rand() % 1000000` — collisions bind the wrong texture.
+7. **Do not derive the VU1 active-plane mask from `FrustumPlanes`** — the clipper
+   uses the MVP plus `clipMargin`; transform the six clip half-spaces to object space.
+8. **Never arm `DTHE` for PSMCT32/24** — unspecified on the GS; gate every restore
+   site on `RendererSettings::isDitherActive()`.
+9. **`zBuffer.mask` is owned by whoever made the allocation** (`allocateVramBuffers`
+   derives it). Never write the mask from a full-screen pass — grep `GS_SET_ZBUF`.
+10. **`getCurrentFrameBuffer()` means the display buffer**; the four raster
+    brackets share one `emitRasterRestore()` — do not add a fifth that does not.
+11. **`endScene()` restores `gs->getZMaskDefault()`, never a literal `1`.**
+12. **BLSS: the pipeline gate is `wantsProxies()`, never `isEnabled()`** — the
+    per-bag bounding-sphere work is already done before the call.
+13. **Anything sizing/addressing the PHYSICAL framebuffer uses
+    `getRenderHeightF()`; game-facing layout keeps `getHeight()`.**
+14. **A `DisplayMode` change edits both the engine table and `App::ps2ViewportOutput`**
+    (`app.cpp`), or the editor draws a picture the console does not.
+15. **Never call `setDisplayOutput` mid-frame** — it resets the VRAM allocator and
+    is the only caller allowed to `allocateBuffer()` after init.
+16. **Every VIF1 user calls `Vif1Queue::drain()` before touching the channel** (no
+    raw `dma_channel_wait`); **every GIF-channel send calls `path3Fence()` first**.
+17. **Anything a chain `REF`s must stay unchanged until that chain has run** (up
+    to three packets later).
+18. **Never fuse finished uniform and geometry chains** — construct ONE native
+    packet (leading `FLUSHE`, uniforms, geometry, one `END`).
+19. **Do not start chains from a DMAC interrupt** (`TYRA_VIF1_QUEUE_ISR` default 0).
+20. **Never let a blocking audsrv RPC be the thing you wait on** — it stops the
+    whole library; prefer `audsrv_available`/`audsrv_queued` plus a sleep.
+21. **An EE buffer handed to a SIF DMA must be written back first**
+    (`SifWriteBackDCache`) — PCSX2 emulates no EE cache and hides the bug.
+22. **Every play site must offset its channel by `ScriptContext::reverbBusBase`**
+    (0 or 24) — a voice is committed to a bus when it starts.
+23. **Never put anything between a `#macro` line and its first instruction** — not
+    even a comment; `vclpp` silently expands the macro to nothing.
+24. **Count VU words with `nm`, not by counting `.vsm` rows**; the ceiling is on
+    the SET (2042 instructions), not the program.
+25. **A VU edit is not done until BOTH assemblers take it** — the Docker fallback
+    (`vcl`) is exercised by nobody; check `--vu-check` and a `--docker` build.
+26. **Keep `vugen.cpp` and the handwritten `.vclpp` in sync** — `--vu-check`
+    fails otherwise, which is the point.
+27. **Clamp vertex colours BEFORE the VU1 clipper interpolates them** (float clamp
+    only; `ftoi0` belongs in the emitter).
+28. **Keep the prim giftag `NLOOP` at 6× the input count** (`gsVertexCount`) — an
+    under- or over-counting NLOOP stalls the GIF.
+29. **ps2sdk's `ATEST_KEEP_*` name what is PRESERVED, not what is written** — read
+    them backwards and cutout texels stamp z.
+30. **3D texture wrap is `REPEAT`, asserted once per frame**; add any new
+    full-screen writer after the 3D pass to the three-place contract.
+31. **Do not change what a retained block encodes without adding it to the key in
+    `beginRetainedBag`** — the block is captured, never re-derived.
+32. **Never hand-edit only one twin**: `.agents/skills/` is the source of truth,
+    `.agents/skills/` is the two-substitution regeneration, same commit.
+33. **Revert engine probes before anything else** — they live in the shared
+    `vendor/tyra`, and a forgotten `FBMSK = 0` reads as a new rendering bug.
+34. **A rule measured false stays false** — the dead ends (coarser classification,
+    the BLSS spatial split, flush removal, growing the package) are recorded in the
+    troubleshoot files; do not re-open them.
+35. **Attribute performance on hardware, not PCSX2** — the emulator over-weights
+    libm and under-reports GS fill by 76×.
+
+## When you are stuck
+
+| Symptom | File |
+|---|---|
+| Build/flag/toolchain, stale `libtyra.a`, vclpp/CRLF, fork policy | `../../troubleshoot/tyra-engine-dev-build.md` |
+| GS raster state, texture wrap, dither, alpha, flicker, 2D origin | `../../troubleshoot/tyra-engine-dev-raster.md` |
+| Post-fx passes, portals, shadow/alpha-mask raster brackets | `../../troubleshoot/tyra-engine-dev-postfx.md` |
+| Lights, spot cone, DIMX, signed SH, skinning | `../../troubleshoot/tyra-engine-dev-lighting.md` |
+| VRAM allocator, texture footprint, hybrid/PSM, env-map opt-in, triple buffer | `../../troubleshoot/tyra-engine-dev-vram.md` |
+| Display modes, DTV/InterlacedField/PAL, fps counters, vblank, black frames | `../../troubleshoot/tyra-engine-dev-display.md` |
+| Packages, coplanar passes, bbox cache, strips, AABB classification | `../../troubleshoot/tyra-engine-dev-packages.md` |
+| VIF1 queue, REF lifetime, slot pool, baked stream | `../../troubleshoot/tyra-engine-dev-vif1.md` |
+| VU1/VU0 microcode, simulator, packet tap, assemblers, micro memory | `../../troubleshoot/tyra-engine-dev-vu1.md` |
+| VU1 clip family, billboards, micro-memory/tag rules | `../../troubleshoot/tyra-engine-dev-clip.md` |
+| Audio playback, ADPCM, reverb, WAV, sound conversion | `../../troubleshoot/tyra-engine-dev-audio.md` |
+| Paths, loaders, missing assets, soft errors | `../../troubleshoot/tyra-engine-dev-files.md` |
+| Profiling, counters, free-RAM probe, hardware timeline, A/B method | `../../troubleshoot/tyra-engine-dev-measurement.md` |
+| Static submission, batching, EE cost | `../../troubleshoot/tyra-engine-dev-submission.md` |
+| Retained commands, `STAPIPMISS`; baked VIF stream, content version | `../../troubleshoot/tyra-engine-dev-retained.md`, `-baked.md` |
+| BLSS upscaler: plain mode, per-scene, raster redirect | `../../troubleshoot/tyra-engine-dev-blss.md` |
+| BLSS proxies, emitters, spatial split, instruments | `../../troubleshoot/tyra-engine-dev-blss-proxy.md` |
+| BLSS EE cost/cuts/break-even; shipped net, jitter, interlock | `../../troubleshoot/tyra-engine-dev-blss-cost.md`, `-blss-net.md` |
+| Assert/soft error/crash handler, devkit probes | `../../troubleshoot/tyra-engine-dev-debug.md` |
+| USB keyboard/mouse, virtual pad, replay input | `../../troubleshoot/tyra-engine-dev-input.md` |
+| Collision mesh, raycasts, physics | `../../troubleshoot/tyra-engine-dev-physics.md` |
+
+## Debugging discipline: one probe, one question
+
+A multi-stage GS pipeline that fails silently costs days in reasoning. Make each
+stage VISIBLE, one build at a time, and make each probe answer exactly ONE
+question: (1) is the consumer gated — force the mask to its extreme; (2) what does
+the intermediate buffer hold — drop the write mask so it paints as COLOUR; (3)
+which inputs reached the stage — one `TYRA_LOG` per frame-group; (4) A/B the whole
+feature with its switch off and diff the frames. Instrument OUTSIDE the loop you
+are perturbing, log once every N frames, and revert probes before anything else.
+Full pattern and its traps: `../../troubleshoot/tyra-engine-dev-debug.md`.
