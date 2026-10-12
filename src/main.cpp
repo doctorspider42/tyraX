@@ -5089,7 +5089,7 @@ int main(int argc, char** argv) {
             "  --ai-graph <projectDir> <object> <prompt|file> [scene]\n"
             "             [--backend claude|copilot|openai] [--model <m>]\n"
             "             [--thinking]\n"
-            "  --add-ai-support <projectDir> [claude] [copilot]\n"
+            "  --add-ai-support <projectDir> [claude] [codex] [copilot]\n"
             "  --chat-prompt [projectDir]              print the AI "
             "Assistant's system prompt (docs/ai-chat.md)\n"
             "  --search-docs \"<query>\" [page]           full-text search over "
