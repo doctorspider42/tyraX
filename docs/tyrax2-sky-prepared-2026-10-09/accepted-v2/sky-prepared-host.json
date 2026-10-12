@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "slices": 191828,
+  "sanitizers": "ASan/UBSan",
+  "headerSha256": "b9165476eede1bc84ae2b7e8a7a9510bae296864240d8de72302cb67689c3964",
+  "controls": [
+    "parent-relative split",
+    "small direct split",
+    "tail",
+    "version",
+    "count",
+    "maximum",
+    "offset",
+    "length",
+    "replacement buffer",
+    "same-buffer rebuild",
+    "nonfinite",
+    "empty"
+  ]
+}

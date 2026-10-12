@@ -1,0 +1,86 @@
+{
+  "scope": "A08 emulator lifecycle and scalar colour oracle, NOT performance or full raster",
+  "elfSha256": "f1419187da7901ce5cb67c20f462ac3fa44797fd8c5b3777c12270f659622e7f",
+  "nativeSourceFiles": 468,
+  "logSha256": "1f00ebaca3c5237977e577b7464cbd223809fee6d4ce2d25f6fa3f18a0ef0479",
+  "lodAssets": [
+    {
+      "file": "veh-pica00000001-body.tmdl",
+      "sha256": "1adc9d54d4bc1a1b15cc65a6fd7465cd79234388cb20505d3361bc04b20d9f7b",
+      "reflectiveParts": [
+        {
+          "name": "body paint",
+          "farTiers": 1
+        }
+      ]
+    },
+    {
+      "file": "veh-ravager000001-body.tmdl",
+      "sha256": "0370d210553cb86fd91613c84727f79dbbb14ea13a28387c46f7e154eb02964f",
+      "reflectiveParts": [
+        {
+          "name": "body paint",
+          "farTiers": 1
+        }
+      ]
+    },
+    {
+      "file": "veh-strix0000001-body.tmdl",
+      "sha256": "cd66500d7b6fc2238303e6e4a54f66bafaa6d1ad940006496be6a471bb8602d2",
+      "reflectiveParts": [
+        {
+          "name": "body paint",
+          "farTiers": 1
+        }
+      ]
+    }
+  ],
+  "expectedLodMask": 3,
+  "authoredSha256": "3c20bfeac1de6e74c923b6474069f3adbb36947ad3cfca35ac458c9bd9aca69c",
+  "phases": [
+    {
+      "phase": 0,
+      "visits": 4000,
+      "accepts": 582,
+      "refreshes": 312,
+      "held": 22,
+      "modes": 63,
+      "lods": 3,
+      "legacy": 662,
+      "custom": 660,
+      "errors": 0
+    },
+    {
+      "phase": 1,
+      "visits": 4062,
+      "accepts": 582,
+      "refreshes": 314,
+      "held": 20,
+      "modes": 63,
+      "lods": 3,
+      "legacy": 662,
+      "custom": 660,
+      "errors": 0
+    },
+    {
+      "phase": 2,
+      "visits": 4062,
+      "accepts": 582,
+      "refreshes": 314,
+      "held": 20,
+      "modes": 63,
+      "lods": 3,
+      "legacy": 662,
+      "custom": 660,
+      "errors": 0
+    }
+  ],
+  "negativeControls": [
+    "missing-completion",
+    "lost-held-transition",
+    "missing-legacy",
+    "missing-override",
+    "oracle-error",
+    "missing-lod"
+  ]
+}

@@ -102,3 +102,9 @@ docs/tyrax2-loop-balance-2026-10-06/** -text whitespace=-trailing-space,-space-b
 docs/tyrax2-render-audit-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-queue-audit-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-strip-batch-2026-10-07/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+# Investigation archives contain hashes of exact source, log and raster bytes.
+# Preserve payloads on every platform; never normalize sealed evidence.
+docs/tyrax2*/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+tools/tyrax2-* text=auto eol=lf
+tools/verify-* text=auto eol=lf

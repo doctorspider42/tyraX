@@ -1,0 +1,3222 @@
+{
+  "scope": "nine StaPip frames; no DynPip; triangle boundary is not raster visibility",
+  "negativeControlsRejected": [
+    "lost owner",
+    "bad view",
+    "lost clip call",
+    "missing geometry"
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "frames": 720,
+      "captures": 174.0,
+      "workMs": 7.765020596539533,
+      "p95Ms": 10.770806206597221,
+      "loopHz": 59.93995824891427
+    },
+    {
+      "phase": 1,
+      "frames": 720,
+      "captures": 179.0,
+      "workMs": 7.887415549195843,
+      "p95Ms": 10.961693657769096,
+      "loopHz": 59.93995860424047
+    },
+    {
+      "phase": 2,
+      "frames": 720,
+      "captures": 174.0,
+      "workMs": 7.775462308342074,
+      "p95Ms": 10.826114230685764,
+      "loopHz": 59.939888655821605
+    },
+    {
+      "phase": 3,
+      "frames": 535,
+      "captures": 82.0,
+      "workMs": 7.216533156223634,
+      "p95Ms": 10.335076226128471,
+      "loopHz": 59.94000635920261
+    },
+    {
+      "phase": 4,
+      "frames": 535,
+      "captures": 82.0,
+      "workMs": 7.312203532661604,
+      "p95Ms": 10.463897705078125,
+      "loopHz": 59.94000606317604
+    },
+    {
+      "phase": 5,
+      "frames": 535,
+      "captures": 82.0,
+      "workMs": 7.2802197227596865,
+      "p95Ms": 10.38619656032986,
+      "loopHz": 59.9399101051789
+    }
+  ],
+  "frames": [
+    {
+      "phase": 1,
+      "offset": 1300,
+      "z": -74.303497,
+      "speed": 0.0,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 6.5810546875,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 1542.0,
+          "actualCull": 8.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 8.0,
+            "SnapshotBytes": 240.0,
+            "PartialReplay": 5.0,
+            "PartialBytes": 17664.0,
+            "ExpandCachedVerts": 108.0,
+            "CullChunks": 26.0,
+            "CullVerts": 1377.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 11,
+            "degenerate": 9,
+            "outside6": 3,
+            "safe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 9,
+          "sourceVertices": 804.0,
+          "actualCull": 2.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 5136.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 14.0,
+            "CullVerts": 669.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 87.0
+          },
+          "triangles": {
+            "outside6": 9,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 10,
+            "safe8": 10,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 12135.0,
+          "actualCull": 0.0,
+          "actualClip": 16.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 31.0,
+            "Replay": 31.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "CullChunks": 173.0,
+            "CullVerts": 12069.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          },
+          "triangles": {
+            "outside6": 30,
+            "wholeChunkOutside6": 7,
+            "wholeChunkCommonOutside6": 7,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 2,
+            "safe8": 32,
+            "wholeChunkSafe8": 8,
+            "tightBoxSafe8": 8
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 12,
+          "sourceVertices": 5442.0,
+          "actualCull": 1.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 12.0,
+            "Direct": 10.0,
+            "Replay": 10.0,
+            "Partial": 2.0,
+            "Packages": 12.0,
+            "CopyBytes": 1152.0,
+            "SnapshotBytes": 3936.0,
+            "CullChunks": 71.0,
+            "CullVerts": 5262.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 72.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 11,
+            "safe8": 8,
+            "outside6": 5,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 4665.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 32.0,
+            "Replay": 32.0,
+            "CullChunks": 77.0,
+            "CullVerts": 4665.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 11106.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "CullChunks": 153.0,
+            "CullVerts": 11106.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 2,
+          "sourceVertices": 3750.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 2.0,
+            "Direct": 2.0,
+            "Replay": 2.0,
+            "CullChunks": 50.0,
+            "CullVerts": 3750.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 3,
+          "sourceVertices": 3600.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 48.0,
+            "CullVerts": 3600.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 270.0,
+          "actualCull": 3.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 2304.0,
+            "CullChunks": 7.0,
+            "CullVerts": 270.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 2.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 44.0,
+            "SnapshotBytes": 8448.0,
+            "CullChunks": 2.0,
+            "CullVerts": 24.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 147.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 29,
+            "wholeChunkSafe8": 5,
+            "tightBoxSafe8": 5,
+            "outside6": 13,
+            "wholeChunkOutside6": 4,
+            "wholeChunkCommonOutside6": 4,
+            "tightBoxOutside6": 4
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 21.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 5.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "Partial": 2.0,
+            "Packages": 50.0,
+            "CopyBytes": 1440.0,
+            "SnapshotBytes": 6240.0,
+            "PartialReplay": 19.0,
+            "PartialBytes": 52640.0,
+            "CullChunks": 24.0,
+            "CullVerts": 1848.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 120.0
+          },
+          "triangles": {
+            "outside6": 30,
+            "wholeChunkOutside6": 5,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 1,
+            "boundaryOrUncertain": 1,
+            "safe8": 9,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "offset": 1336,
+      "z": -74.303497,
+      "speed": 0.0,
+      "capture": 1.0,
+      "newBodies": 2.0,
+      "workMs": 11.418626573350695,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 2244.0,
+          "actualCull": 10.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 2.0,
+            "Packages": 16.0,
+            "SnapshotBytes": 480.0,
+            "PartialReplay": 7.0,
+            "PartialBytes": 24384.0,
+            "ExpandCachedVerts": 252.0,
+            "CullChunks": 30.0,
+            "CullVerts": 1701.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 120.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "degenerate": 24,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "boundaryOrUncertain": 12,
+            "safe8": 15,
+            "wholeChunkSafe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 10,
+          "sourceVertices": 1008.0,
+          "actualCull": 2.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Outside": 3.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 6288.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 11.0,
+            "CullVerts": 555.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 111.0
+          },
+          "triangles": {
+            "outside6": 15,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "boundaryOrUncertain": 6,
+            "safe8": 16,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 588.0,
+          "actualCull": 12.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 8.0,
+            "SnapshotBytes": 240.0,
+            "PartialReplay": 4.0,
+            "PartialBytes": 14016.0,
+            "ExpandCachedVerts": 486.0,
+            "CullChunks": 12.0,
+            "CullVerts": 618.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 156.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 23,
+            "degenerate": 17,
+            "outside6": 8,
+            "safe8": 21,
+            "wholeChunkSafe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "reflection",
+          "passName": "groundShadow",
+          "bags": 1,
+          "sourceVertices": 156.0,
+          "actualCull": 2.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 5136.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 2.0,
+            "CullVerts": 21.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 87.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "safe8": 19,
+            "wholeChunkSafe8": 3,
+            "tightBoxSafe8": 3,
+            "boundaryOrUncertain": 3
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 14982.0,
+          "actualCull": 16.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 30.0,
+            "Replay": 29.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 58080.0,
+            "BakeMiss": 1.0,
+            "MissNew": 1.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 211.0,
+            "CullVerts": 14850.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 33,
+            "wholeChunkOutside6": 7,
+            "wholeChunkCommonOutside6": 7,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 20,
+            "safe8": 75,
+            "wholeChunkSafe8": 18,
+            "tightBoxSafe8": 18,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 3,
+          "sourceVertices": 222.0,
+          "actualCull": 0.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 480.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 28,
+            "wholeChunkOutside6": 7,
+            "wholeChunkCommonOutside6": 7,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 7,
+            "safe8": 93,
+            "wholeChunkSafe8": 22,
+            "tightBoxSafe8": 22,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 5202.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 68.0,
+            "CullVerts": 5094.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "outside6": 12,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 6
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 35,
+          "sourceVertices": 4968.0,
+          "actualCull": 6.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 35.0,
+            "Direct": 34.0,
+            "Replay": 33.0,
+            "Partial": 1.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 20544.0,
+            "BakeMiss": 1.0,
+            "MissNew": 1.0,
+            "CullChunks": 80.0,
+            "CullVerts": 4932.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 2,
+            "outside6": 2
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 36.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 36.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "objects",
+          "view": "reflection",
+          "passName": "proxy",
+          "bags": 7,
+          "sourceVertices": 252.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 7.0,
+            "Outside": 1.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "CullChunks": 6.0,
+            "CullVerts": 216.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 11106.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "CullChunks": 153.0,
+            "CullVerts": 11106.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 2,
+          "sourceVertices": 3750.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 2.0,
+            "Direct": 2.0,
+            "Replay": 2.0,
+            "CullChunks": 50.0,
+            "CullVerts": 3750.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 3,
+          "sourceVertices": 3600.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 48.0,
+            "CullVerts": 3600.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 270.0,
+          "actualCull": 4.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 1.0,
+            "SnapshotBytes": 5184.0,
+            "Churn": 1.0,
+            "CullChunks": 7.0,
+            "CullVerts": 270.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 3.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 51.0,
+            "CopyBytes": 4608.0,
+            "SnapshotBytes": 9456.0,
+            "CullChunks": 3.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 96.0
+          },
+          "triangles": {
+            "safe8": 16,
+            "wholeChunkSafe8": 4,
+            "tightBoxSafe8": 4,
+            "outside6": 11,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 5
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 11.0,
+          "actualClip": 44.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 114.0,
+            "CopyBytes": 10800.0,
+            "SnapshotBytes": 34512.0,
+            "CullChunks": 11.0,
+            "CullVerts": 249.0,
+            "ClipChunks": 44.0,
+            "ClipVerts": 465.0
+          },
+          "triangles": {
+            "safe8": 57,
+            "wholeChunkSafe8": 12,
+            "tightBoxSafe8": 11,
+            "boundaryOrUncertain": 35,
+            "outside6": 63,
+            "wholeChunkOutside6": 13,
+            "wholeChunkCommonOutside6": 13,
+            "tightBoxOutside6": 10
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "reflection",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 16.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 5.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 2400.0,
+            "SnapshotBytes": 8160.0,
+            "PartialReplay": 13.0,
+            "PartialBytes": 36992.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1395.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 21,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 10,
+            "safe8": 19,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "offset": 1337,
+      "z": -74.303497,
+      "speed": 0.0,
+      "capture": 0.0,
+      "newBodies": 1.0,
+      "workMs": 7.223056369357639,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 2244.0,
+          "actualCull": 13.0,
+          "actualClip": 11.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 7.0,
+            "Replay": 7.0,
+            "Partial": 3.0,
+            "Packages": 19.0,
+            "SnapshotBytes": 720.0,
+            "PartialReplay": 10.0,
+            "PartialBytes": 32304.0,
+            "ExpandCachedVerts": 252.0,
+            "CullChunks": 30.0,
+            "CullVerts": 1689.0,
+            "ClipChunks": 11.0,
+            "ClipVerts": 132.0
+          },
+          "triangles": {
+            "outside6": 14,
+            "degenerate": 24,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "boundaryOrUncertain": 12,
+            "safe8": 18,
+            "wholeChunkSafe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 10,
+          "sourceVertices": 1008.0,
+          "actualCull": 3.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Outside": 2.0,
+            "Direct": 7.0,
+            "Replay": 6.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 8016.0,
+            "BakeMiss": 1.0,
+            "MissNew": 1.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 12.0,
+            "CullVerts": 591.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 111.0
+          },
+          "triangles": {
+            "outside6": 14,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "boundaryOrUncertain": 5,
+            "safe8": 18,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 14982.0,
+          "actualCull": 0.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 30.0,
+            "Replay": 30.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 480.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 211.0,
+            "CullVerts": 14850.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 35,
+            "wholeChunkOutside6": 8,
+            "wholeChunkCommonOutside6": 8,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 20,
+            "safe8": 73,
+            "wholeChunkSafe8": 17,
+            "tightBoxSafe8": 17,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 5202.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 68.0,
+            "CullVerts": 5094.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "outside6": 12,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 6
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 34,
+          "sourceVertices": 4902.0,
+          "actualCull": 0.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 34.0,
+            "Direct": 33.0,
+            "Replay": 33.0,
+            "Partial": 1.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 1392.0,
+            "CullChunks": 79.0,
+            "CullVerts": 4866.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 2,
+            "outside6": 2
+          }
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 11106.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "CullChunks": 153.0,
+            "CullVerts": 11106.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 2,
+          "sourceVertices": 3750.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 2.0,
+            "Direct": 2.0,
+            "Replay": 2.0,
+            "CullChunks": 50.0,
+            "CullVerts": 3750.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 3,
+          "sourceVertices": 3600.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 48.0,
+            "CullVerts": 3600.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 270.0,
+          "actualCull": 4.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 1.0,
+            "SnapshotBytes": 5184.0,
+            "Churn": 1.0,
+            "CullChunks": 7.0,
+            "CullVerts": 270.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 3.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 51.0,
+            "CopyBytes": 4608.0,
+            "SnapshotBytes": 9456.0,
+            "CullChunks": 3.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 96.0
+          },
+          "triangles": {
+            "safe8": 16,
+            "wholeChunkSafe8": 4,
+            "tightBoxSafe8": 4,
+            "outside6": 11,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 5
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 16.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 5.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 2400.0,
+            "SnapshotBytes": 8160.0,
+            "PartialReplay": 13.0,
+            "PartialBytes": 36992.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1395.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 18,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 12,
+            "safe8": 20,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "offset": 1576,
+      "z": -74.303497,
+      "speed": 0.0,
+      "capture": 1.0,
+      "newBodies": 0.0,
+      "workMs": 10.09525892469618,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 2244.0,
+          "actualCull": 10.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 2.0,
+            "Packages": 16.0,
+            "SnapshotBytes": 480.0,
+            "PartialReplay": 7.0,
+            "PartialBytes": 24384.0,
+            "ExpandCachedVerts": 252.0,
+            "CullChunks": 30.0,
+            "CullVerts": 1701.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 120.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "degenerate": 24,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "boundaryOrUncertain": 12,
+            "safe8": 15,
+            "wholeChunkSafe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 10,
+          "sourceVertices": 1008.0,
+          "actualCull": 2.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Outside": 3.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 6288.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 11.0,
+            "CullVerts": 555.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 111.0
+          },
+          "triangles": {
+            "outside6": 15,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "boundaryOrUncertain": 6,
+            "safe8": 16,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 588.0,
+          "actualCull": 12.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 8.0,
+            "SnapshotBytes": 240.0,
+            "PartialReplay": 4.0,
+            "PartialBytes": 14016.0,
+            "ExpandCachedVerts": 486.0,
+            "CullChunks": 12.0,
+            "CullVerts": 618.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 156.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 23,
+            "degenerate": 17,
+            "outside6": 8,
+            "safe8": 21,
+            "wholeChunkSafe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "reflection",
+          "passName": "groundShadow",
+          "bags": 1,
+          "sourceVertices": 156.0,
+          "actualCull": 2.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 5136.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 2.0,
+            "CullVerts": 21.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 87.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "safe8": 19,
+            "wholeChunkSafe8": 3,
+            "tightBoxSafe8": 3,
+            "boundaryOrUncertain": 3
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 14982.0,
+          "actualCull": 0.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 30.0,
+            "Replay": 30.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 480.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 211.0,
+            "CullVerts": 14850.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 33,
+            "wholeChunkOutside6": 7,
+            "wholeChunkCommonOutside6": 7,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 20,
+            "safe8": 75,
+            "wholeChunkSafe8": 18,
+            "tightBoxSafe8": 18,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 3,
+          "sourceVertices": 222.0,
+          "actualCull": 0.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 480.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 28,
+            "wholeChunkOutside6": 7,
+            "wholeChunkCommonOutside6": 7,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 7,
+            "safe8": 93,
+            "wholeChunkSafe8": 22,
+            "tightBoxSafe8": 22,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 5202.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 68.0,
+            "CullVerts": 5094.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "outside6": 12,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 6
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 35,
+          "sourceVertices": 4968.0,
+          "actualCull": 0.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 35.0,
+            "Direct": 34.0,
+            "Replay": 34.0,
+            "Partial": 1.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 1392.0,
+            "CullChunks": 80.0,
+            "CullVerts": 4932.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 2,
+            "outside6": 2
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 36.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 36.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "objects",
+          "view": "reflection",
+          "passName": "proxy",
+          "bags": 7,
+          "sourceVertices": 252.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 7.0,
+            "Outside": 1.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "CullChunks": 6.0,
+            "CullVerts": 216.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 11106.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "CullChunks": 153.0,
+            "CullVerts": 11106.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 2,
+          "sourceVertices": 3750.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 2.0,
+            "Direct": 2.0,
+            "Replay": 2.0,
+            "CullChunks": 50.0,
+            "CullVerts": 3750.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 3,
+          "sourceVertices": 3600.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 48.0,
+            "CullVerts": 3600.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 270.0,
+          "actualCull": 4.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 1.0,
+            "SnapshotBytes": 5184.0,
+            "Churn": 1.0,
+            "CullChunks": 7.0,
+            "CullVerts": 270.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 3.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 51.0,
+            "CopyBytes": 4608.0,
+            "SnapshotBytes": 9456.0,
+            "CullChunks": 3.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 96.0
+          },
+          "triangles": {
+            "safe8": 16,
+            "wholeChunkSafe8": 4,
+            "tightBoxSafe8": 4,
+            "outside6": 11,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 5
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "reflection",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 11.0,
+          "actualClip": 44.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 114.0,
+            "CopyBytes": 10800.0,
+            "SnapshotBytes": 34512.0,
+            "CullChunks": 11.0,
+            "CullVerts": 249.0,
+            "ClipChunks": 44.0,
+            "ClipVerts": 465.0
+          },
+          "triangles": {
+            "safe8": 57,
+            "wholeChunkSafe8": 12,
+            "tightBoxSafe8": 11,
+            "boundaryOrUncertain": 35,
+            "outside6": 63,
+            "wholeChunkOutside6": 13,
+            "wholeChunkCommonOutside6": 13,
+            "tightBoxOutside6": 10
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "reflection",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 16.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 5.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 2400.0,
+            "SnapshotBytes": 8160.0,
+            "PartialReplay": 13.0,
+            "PartialBytes": 36992.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1395.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 21,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 10,
+            "safe8": 19,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "offset": 1577,
+      "z": -74.303497,
+      "speed": 0.0,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 7.259097629123264,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 2244.0,
+          "actualCull": 13.0,
+          "actualClip": 11.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 7.0,
+            "Replay": 7.0,
+            "Partial": 3.0,
+            "Packages": 19.0,
+            "SnapshotBytes": 720.0,
+            "PartialReplay": 10.0,
+            "PartialBytes": 32304.0,
+            "ExpandCachedVerts": 252.0,
+            "CullChunks": 30.0,
+            "CullVerts": 1689.0,
+            "ClipChunks": 11.0,
+            "ClipVerts": 132.0
+          },
+          "triangles": {
+            "outside6": 14,
+            "degenerate": 24,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "boundaryOrUncertain": 12,
+            "safe8": 18,
+            "wholeChunkSafe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 10,
+          "sourceVertices": 1008.0,
+          "actualCull": 2.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 10.0,
+            "Outside": 2.0,
+            "Direct": 7.0,
+            "Replay": 7.0,
+            "Partial": 1.0,
+            "Packages": 17.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 6288.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 12.0,
+            "CullVerts": 591.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 111.0
+          },
+          "triangles": {
+            "outside6": 14,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "boundaryOrUncertain": 5,
+            "safe8": 18,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 32,
+          "sourceVertices": 14982.0,
+          "actualCull": 0.0,
+          "actualClip": 32.0,
+          "counters": {
+            "Bags": 32.0,
+            "Direct": 30.0,
+            "Replay": 30.0,
+            "Partial": 2.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 480.0,
+            "ExpandCachedVerts": 384.0,
+            "CullChunks": 211.0,
+            "CullVerts": 14850.0,
+            "ClipChunks": 32.0,
+            "ClipVerts": 384.0
+          },
+          "triangles": {
+            "outside6": 35,
+            "wholeChunkOutside6": 8,
+            "wholeChunkCommonOutside6": 8,
+            "tightBoxOutside6": 7,
+            "boundaryOrUncertain": 20,
+            "safe8": 73,
+            "wholeChunkSafe8": 17,
+            "tightBoxSafe8": 17,
+            "degenerate": 2
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 10,
+          "sourceVertices": 5202.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 10.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 68.0,
+            "CullVerts": 5094.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "outside6": 12,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 6
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 34,
+          "sourceVertices": 4902.0,
+          "actualCull": 0.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 34.0,
+            "Direct": 33.0,
+            "Replay": 33.0,
+            "Partial": 1.0,
+            "Packages": 2.0,
+            "SnapshotBytes": 1392.0,
+            "CullChunks": 79.0,
+            "CullVerts": 4866.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 2,
+            "outside6": 2
+          }
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 11106.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "CullChunks": 153.0,
+            "CullVerts": 11106.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 2,
+          "sourceVertices": 3750.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 2.0,
+            "Direct": 2.0,
+            "Replay": 2.0,
+            "CullChunks": 50.0,
+            "CullVerts": 3750.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 3,
+          "sourceVertices": 3600.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 2.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 48.0,
+            "CullVerts": 3600.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 270.0,
+          "actualCull": 4.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "Replay": 1.0,
+            "SnapshotBytes": 5184.0,
+            "Churn": 1.0,
+            "CullChunks": 7.0,
+            "CullVerts": 270.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 3.0,
+          "actualClip": 8.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 51.0,
+            "CopyBytes": 4608.0,
+            "SnapshotBytes": 9456.0,
+            "CullChunks": 3.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 8.0,
+            "ClipVerts": 96.0
+          },
+          "triangles": {
+            "safe8": 16,
+            "wholeChunkSafe8": 4,
+            "tightBoxSafe8": 4,
+            "outside6": 11,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 5
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 16.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 5.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 2400.0,
+            "SnapshotBytes": 8160.0,
+            "PartialReplay": 13.0,
+            "PartialBytes": 36992.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1395.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 18,
+            "wholeChunkOutside6": 2,
+            "wholeChunkCommonOutside6": 2,
+            "tightBoxOutside6": 2,
+            "boundaryOrUncertain": 12,
+            "safe8": 20,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "offset": 1380,
+      "z": -69.061638,
+      "speed": 9.940946,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 6.633138020833333,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 1542.0,
+          "actualCull": 7.0,
+          "actualClip": 5.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 8.0,
+            "SnapshotBytes": 240.0,
+            "PartialReplay": 4.0,
+            "PartialBytes": 14016.0,
+            "ExpandCachedVerts": 144.0,
+            "CullChunks": 25.0,
+            "CullVerts": 1326.0,
+            "ClipChunks": 5.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "degenerate": 9,
+            "wholeChunkOutside6": 1,
+            "boundaryOrUncertain": 11,
+            "safe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 9,
+          "sourceVertices": 804.0,
+          "actualCull": 2.0,
+          "actualClip": 5.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 10.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 3840.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 14.0,
+            "CullVerts": 669.0,
+            "ClipChunks": 5.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "boundaryOrUncertain": 4,
+            "safe8": 3
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 31,
+          "sourceVertices": 10962.0,
+          "actualCull": 0.0,
+          "actualClip": 16.0,
+          "counters": {
+            "Bags": 31.0,
+            "Direct": 30.0,
+            "Replay": 30.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "CullChunks": 157.0,
+            "CullVerts": 10896.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          },
+          "triangles": {
+            "outside6": 35,
+            "wholeChunkOutside6": 8,
+            "wholeChunkCommonOutside6": 8,
+            "tightBoxOutside6": 8,
+            "boundaryOrUncertain": 3,
+            "safe8": 26,
+            "wholeChunkSafe8": 6,
+            "tightBoxSafe8": 6
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 12,
+          "sourceVertices": 5442.0,
+          "actualCull": 1.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 12.0,
+            "Direct": 10.0,
+            "Replay": 10.0,
+            "Partial": 2.0,
+            "Packages": 12.0,
+            "CopyBytes": 1152.0,
+            "SnapshotBytes": 3936.0,
+            "CullChunks": 71.0,
+            "CullVerts": 5262.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 72.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 8,
+            "outside6": 8,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 28,
+          "sourceVertices": 4002.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 28.0,
+            "Direct": 28.0,
+            "Replay": 28.0,
+            "CullChunks": 66.0,
+            "CullVerts": 4002.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 5,
+          "sourceVertices": 4110.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "CullChunks": 51.0,
+            "CullVerts": 3714.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 1,
+          "sourceVertices": 2025.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 27.0,
+            "CullVerts": 2025.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 1,
+          "sourceVertices": 1200.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 234.0,
+          "actualCull": 7.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "SnapshotBytes": 11232.0,
+            "Churn": 2.0,
+            "CullChunks": 7.0,
+            "CullVerts": 234.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 2.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 44.0,
+            "SnapshotBytes": 8448.0,
+            "CullChunks": 2.0,
+            "CullVerts": 24.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 147.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 29,
+            "wholeChunkSafe8": 5,
+            "tightBoxSafe8": 5,
+            "outside6": 13,
+            "wholeChunkOutside6": 4,
+            "wholeChunkCommonOutside6": 4,
+            "tightBoxOutside6": 4
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 22.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 44.0,
+            "CopyBytes": 1440.0,
+            "SnapshotBytes": 6048.0,
+            "Churn": 1.0,
+            "PartialReplay": 19.0,
+            "PartialBytes": 52640.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1740.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 11,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "safe8": 9,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "offset": 1381,
+      "z": -68.896835,
+      "speed": 9.888336,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 6.627468532986111,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 9,
+          "sourceVertices": 1542.0,
+          "actualCull": 7.0,
+          "actualClip": 5.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 8.0,
+            "SnapshotBytes": 240.0,
+            "PartialReplay": 4.0,
+            "PartialBytes": 14016.0,
+            "ExpandCachedVerts": 144.0,
+            "CullChunks": 25.0,
+            "CullVerts": 1326.0,
+            "ClipChunks": 5.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "degenerate": 9,
+            "wholeChunkOutside6": 1,
+            "boundaryOrUncertain": 11,
+            "safe8": 2
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 9,
+          "sourceVertices": 804.0,
+          "actualCull": 2.0,
+          "actualClip": 5.0,
+          "counters": {
+            "Bags": 9.0,
+            "Direct": 8.0,
+            "Replay": 8.0,
+            "Partial": 1.0,
+            "Packages": 10.0,
+            "CopyBytes": 720.0,
+            "SnapshotBytes": 3840.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 14.0,
+            "CullVerts": 669.0,
+            "ClipChunks": 5.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "boundaryOrUncertain": 4,
+            "safe8": 3
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 31,
+          "sourceVertices": 10962.0,
+          "actualCull": 0.0,
+          "actualClip": 16.0,
+          "counters": {
+            "Bags": 31.0,
+            "Direct": 30.0,
+            "Replay": 30.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "CullChunks": 157.0,
+            "CullVerts": 10896.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          },
+          "triangles": {
+            "outside6": 35,
+            "wholeChunkOutside6": 8,
+            "wholeChunkCommonOutside6": 8,
+            "tightBoxOutside6": 8,
+            "boundaryOrUncertain": 3,
+            "safe8": 26,
+            "wholeChunkSafe8": 6,
+            "tightBoxSafe8": 6
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 12,
+          "sourceVertices": 5442.0,
+          "actualCull": 1.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 12.0,
+            "Direct": 10.0,
+            "Replay": 10.0,
+            "Partial": 2.0,
+            "Packages": 12.0,
+            "CopyBytes": 1152.0,
+            "SnapshotBytes": 3936.0,
+            "CullChunks": 71.0,
+            "CullVerts": 5262.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 72.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 8,
+            "outside6": 8,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 28,
+          "sourceVertices": 4002.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 28.0,
+            "Direct": 28.0,
+            "Replay": 28.0,
+            "CullChunks": 66.0,
+            "CullVerts": 4002.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 5,
+          "sourceVertices": 4110.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "CullChunks": 51.0,
+            "CullVerts": 3714.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 1,
+          "sourceVertices": 2025.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 27.0,
+            "CullVerts": 2025.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 1,
+          "sourceVertices": 1200.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 258.0,
+          "actualCull": 7.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 3.0,
+            "SnapshotBytes": 12384.0,
+            "Churn": 2.0,
+            "CullChunks": 7.0,
+            "CullVerts": 258.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 2.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 44.0,
+            "SnapshotBytes": 8448.0,
+            "CullChunks": 2.0,
+            "CullVerts": 24.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 147.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 29,
+            "wholeChunkSafe8": 5,
+            "tightBoxSafe8": 5,
+            "outside6": 13,
+            "wholeChunkOutside6": 4,
+            "wholeChunkCommonOutside6": 4,
+            "tightBoxOutside6": 4
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 5,
+          "sourceVertices": 2958.0,
+          "actualCull": 22.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 44.0,
+            "CopyBytes": 1440.0,
+            "SnapshotBytes": 6048.0,
+            "Churn": 1.0,
+            "PartialReplay": 19.0,
+            "PartialBytes": 52640.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1740.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 60.0
+          },
+          "triangles": {
+            "outside6": 11,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "safe8": 9,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "offset": 1500,
+      "z": -39.538498,
+      "speed": 18.991882,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 6.289635552300347,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 12,
+          "sourceVertices": 2652.0,
+          "actualCull": 10.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 12.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 3.0,
+            "Packages": 19.0,
+            "SnapshotBytes": 720.0,
+            "PartialReplay": 8.0,
+            "PartialBytes": 25008.0,
+            "ExpandCachedVerts": 72.0,
+            "CullChunks": 32.0,
+            "CullVerts": 1875.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 24.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "degenerate": 4,
+            "safe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 9,
+          "sourceVertices": 1236.0,
+          "actualCull": 3.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 9.0,
+            "Outside": 1.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "Partial": 2.0,
+            "Packages": 17.0,
+            "CopyBytes": 1728.0,
+            "SnapshotBytes": 4368.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1038.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 39.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "safe8": 6,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 24,
+          "sourceVertices": 8004.0,
+          "actualCull": 1.0,
+          "actualClip": 16.0,
+          "counters": {
+            "Bags": 24.0,
+            "Direct": 22.0,
+            "Replay": 22.0,
+            "Partial": 2.0,
+            "Packages": 25.0,
+            "SnapshotBytes": 480.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 3648.0,
+            "ExpandCachedVerts": 192.0,
+            "CullChunks": 91.0,
+            "CullVerts": 6213.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 2,
+            "safe8": 62,
+            "wholeChunkSafe8": 15,
+            "tightBoxSafe8": 15
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 13,
+          "sourceVertices": 5952.0,
+          "actualCull": 1.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 13.0,
+            "Direct": 12.0,
+            "Replay": 12.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "CopyBytes": 1152.0,
+            "SnapshotBytes": 3120.0,
+            "CullChunks": 79.0,
+            "CullVerts": 5880.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 8,
+            "outside6": 2,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 20,
+          "sourceVertices": 3258.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 20.0,
+            "Direct": 19.0,
+            "Replay": 19.0,
+            "Partial": 1.0,
+            "Packages": 3.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 51.0,
+            "CullVerts": 3222.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 5
+          }
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 5,
+          "sourceVertices": 4110.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "CullChunks": 51.0,
+            "CullVerts": 3714.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 1,
+          "sourceVertices": 2025.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 27.0,
+            "CullVerts": 2025.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 1,
+          "sourceVertices": 1200.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 282.0,
+          "actualCull": 5.0,
+          "actualClip": 6.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 16.0,
+            "CopyBytes": 1728.0,
+            "SnapshotBytes": 8112.0,
+            "Churn": 2.0,
+            "CullChunks": 5.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 6.0,
+            "ClipVerts": 63.0
+          },
+          "triangles": {
+            "safe8": 10,
+            "outside6": 11,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 2.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 44.0,
+            "SnapshotBytes": 8448.0,
+            "CullChunks": 2.0,
+            "CullVerts": 24.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 147.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 29,
+            "wholeChunkSafe8": 5,
+            "tightBoxSafe8": 5,
+            "outside6": 13,
+            "wholeChunkOutside6": 4,
+            "wholeChunkCommonOutside6": 4,
+            "tightBoxOutside6": 4
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 3,
+          "sourceVertices": 2850.0,
+          "actualCull": 14.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 960.0,
+            "SnapshotBytes": 7968.0,
+            "Churn": 1.0,
+            "PartialReplay": 12.0,
+            "PartialBytes": 34080.0,
+            "CullChunks": 14.0,
+            "CullVerts": 1137.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "boundaryOrUncertain": 1,
+            "safe8": 36,
+            "wholeChunkSafe8": 7,
+            "tightBoxSafe8": 5
+          }
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "offset": 1501,
+      "z": -39.220852,
+      "speed": 19.058779,
+      "capture": 0.0,
+      "newBodies": 0.0,
+      "workMs": 6.274953206380208,
+      "groups": [
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "base",
+          "bags": 12,
+          "sourceVertices": 2652.0,
+          "actualCull": 10.0,
+          "actualClip": 2.0,
+          "counters": {
+            "Bags": 12.0,
+            "Direct": 9.0,
+            "Replay": 9.0,
+            "Partial": 3.0,
+            "Packages": 19.0,
+            "SnapshotBytes": 720.0,
+            "PartialReplay": 8.0,
+            "PartialBytes": 25008.0,
+            "ExpandCachedVerts": 72.0,
+            "CullChunks": 32.0,
+            "CullVerts": 1875.0,
+            "ClipChunks": 2.0,
+            "ClipVerts": 24.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "degenerate": 4,
+            "safe8": 1
+          }
+        },
+        {
+          "owner": "terrain",
+          "view": "main",
+          "passName": "groundShadow",
+          "bags": 9,
+          "sourceVertices": 1236.0,
+          "actualCull": 3.0,
+          "actualClip": 4.0,
+          "counters": {
+            "Bags": 9.0,
+            "Outside": 1.0,
+            "Direct": 6.0,
+            "Replay": 6.0,
+            "Partial": 2.0,
+            "Packages": 17.0,
+            "CopyBytes": 1728.0,
+            "SnapshotBytes": 4368.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 336.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1038.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 39.0
+          },
+          "triangles": {
+            "outside6": 7,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "safe8": 6,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "roads",
+          "view": "main",
+          "passName": "base",
+          "bags": 24,
+          "sourceVertices": 8004.0,
+          "actualCull": 1.0,
+          "actualClip": 16.0,
+          "counters": {
+            "Bags": 24.0,
+            "Direct": 22.0,
+            "Replay": 22.0,
+            "Partial": 2.0,
+            "Packages": 25.0,
+            "SnapshotBytes": 480.0,
+            "PartialReplay": 1.0,
+            "PartialBytes": 3648.0,
+            "ExpandCachedVerts": 192.0,
+            "CullChunks": 91.0,
+            "CullVerts": 6213.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 2,
+            "safe8": 62,
+            "wholeChunkSafe8": 15,
+            "tightBoxSafe8": 15
+          }
+        },
+        {
+          "owner": "batches",
+          "view": "main",
+          "passName": "base",
+          "bags": 13,
+          "sourceVertices": 5952.0,
+          "actualCull": 1.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 13.0,
+            "Direct": 12.0,
+            "Replay": 12.0,
+            "Partial": 1.0,
+            "Packages": 6.0,
+            "CopyBytes": 1152.0,
+            "SnapshotBytes": 3120.0,
+            "CullChunks": 79.0,
+            "CullVerts": 5880.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 54.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 8,
+            "safe8": 8,
+            "outside6": 2,
+            "wholeChunkSafe8": 1,
+            "tightBoxSafe8": 1
+          }
+        },
+        {
+          "owner": "objects",
+          "view": "main",
+          "passName": "base",
+          "bags": 19,
+          "sourceVertices": 2847.0,
+          "actualCull": 0.0,
+          "actualClip": 3.0,
+          "counters": {
+            "Bags": 19.0,
+            "Direct": 18.0,
+            "Replay": 18.0,
+            "Partial": 1.0,
+            "Packages": 3.0,
+            "SnapshotBytes": 1968.0,
+            "CullChunks": 45.0,
+            "CullVerts": 2811.0,
+            "ClipChunks": 3.0,
+            "ClipVerts": 36.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 5
+          }
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "base",
+          "bags": 5,
+          "sourceVertices": 4110.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 5.0,
+            "Outside": 2.0,
+            "Direct": 3.0,
+            "Replay": 3.0,
+            "CullChunks": 51.0,
+            "CullVerts": 3714.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "environment",
+          "bags": 1,
+          "sourceVertices": 2025.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 27.0,
+            "CullVerts": 2025.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "vehicles",
+          "view": "main",
+          "passName": "wheel",
+          "bags": 1,
+          "sourceVertices": 1200.0,
+          "actualCull": 16.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "SnapshotBytes": 57600.0,
+            "Churn": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "effects",
+          "view": "main",
+          "passName": "effect",
+          "bags": 3,
+          "sourceVertices": 282.0,
+          "actualCull": 5.0,
+          "actualClip": 6.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 16.0,
+            "CopyBytes": 1728.0,
+            "SnapshotBytes": 8112.0,
+            "Churn": 2.0,
+            "CullChunks": 5.0,
+            "CullVerts": 96.0,
+            "ClipChunks": 6.0,
+            "ClipVerts": 63.0
+          },
+          "triangles": {
+            "safe8": 10,
+            "outside6": 11,
+            "wholeChunkOutside6": 3,
+            "wholeChunkCommonOutside6": 3,
+            "tightBoxOutside6": 3,
+            "wholeChunkSafe8": 2,
+            "tightBoxSafe8": 2
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "base",
+          "bags": 1,
+          "sourceVertices": 1152.0,
+          "actualCull": 2.0,
+          "actualClip": 13.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 44.0,
+            "SnapshotBytes": 8448.0,
+            "CullChunks": 2.0,
+            "CullVerts": 24.0,
+            "ClipChunks": 13.0,
+            "ClipVerts": 147.0
+          },
+          "triangles": {
+            "boundaryOrUncertain": 7,
+            "safe8": 29,
+            "wholeChunkSafe8": 5,
+            "tightBoxSafe8": 5,
+            "outside6": 13,
+            "wholeChunkOutside6": 4,
+            "wholeChunkCommonOutside6": 4,
+            "tightBoxOutside6": 4
+          }
+        },
+        {
+          "owner": "sky",
+          "view": "main",
+          "passName": "skyBody",
+          "bags": 1,
+          "sourceVertices": 6.0,
+          "actualCull": 0.0,
+          "actualClip": 0.0,
+          "counters": {
+            "Bags": 1.0,
+            "Outside": 1.0
+          },
+          "triangles": {}
+        },
+        {
+          "owner": "shadows",
+          "view": "main",
+          "passName": "shadow",
+          "bags": 3,
+          "sourceVertices": 2850.0,
+          "actualCull": 14.0,
+          "actualClip": 10.0,
+          "counters": {
+            "Bags": 3.0,
+            "Direct": 1.0,
+            "Partial": 2.0,
+            "Packages": 56.0,
+            "CopyBytes": 960.0,
+            "SnapshotBytes": 7968.0,
+            "Churn": 1.0,
+            "PartialReplay": 12.0,
+            "PartialBytes": 34080.0,
+            "CullChunks": 14.0,
+            "CullVerts": 1137.0,
+            "ClipChunks": 10.0,
+            "ClipVerts": 150.0
+          },
+          "triangles": {
+            "outside6": 13,
+            "wholeChunkOutside6": 1,
+            "wholeChunkCommonOutside6": 1,
+            "tightBoxOutside6": 1,
+            "boundaryOrUncertain": 1,
+            "safe8": 36,
+            "wholeChunkSafe8": 7,
+            "tightBoxSafe8": 5
+          }
+        }
+      ]
+    }
+  ]
+}

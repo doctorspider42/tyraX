@@ -16,6 +16,38 @@ description: >
 
 # TyraX development
 
+Terrain focus (1.173.5): BOTH template headers declare terrainFocusX/Z and
+BOTH camera loops capture cameraLookAt before flow/vehicle visual shake.
+The shared renderScene streams terrain using this stable target, retaining
+player-two focus and splitSecondPass exclusion. Do not feed shaken targets
+back into LOD: millimetre shake at a snap boundary triggers repeated EE builds.
+Both physical A/B orders qualify the fix, not a stable-60 claim. See A28 and
+tools/verify-terrain-focus.py; rebuild existing generated games.
+
+A11 generated paint integration stays behind default-OFF TYRA_VU1_EXP_PAINT
+in BOTH GeoPart headers and renderEnvPass. Accepted basis lives in the texture
+bag; EE readiness is separate, so a held-basis fallback still materializes
+colours. Normal source/count/stamp invalidates acceptance and the distinct map.
+Set HIGHLIGHT2 before supportsPaintVu and clear paintVu on non-paint draws.
+Keep the existing rebuild invalidation. Default-OFF tokens match the old loop;
+do not promote the flag without physical and full-game qualification.
+
+VU paint qualification uses `vugen::buildPaintExperiment`, a private explicit
+entry point absent from allDescs/--vu-emit and generated game defaults. Ordinary
+emitted shader/wrapper files remain byte-identical. Do not regenerate examples
+to enable this experiment: runtime bag capability, accepted-basis readiness and
+fallback integration are separate gates. See docs/tyrax2-reflection-turn.md A09.
+
+Ground-mask residency (1.173.3): `templates.cpp` emits per-scene accounted
+Indexed4 preload bytes and declares pins in BOTH game headers; the shared
+`resetTerrainChunks` releases chunk and scene references before preparing the
+new scene. Complete sets up to 512 KiB qualify; larger sets stream as before.
+Do not pin VRAM or move loads into the frame update and call it hitch-free.
+Actual loaded format and cumulative cost are checked with rollback. See
+`docs/shadows.md` and `tools/verify-ground-shadow-pins.py`.
+
+Terrain codegen (1.173.2): `game_templates.inc` enables `refineStrips` for base, paint, AO, emission and ground-shadow bags together. Keep shared package sizing and the monotonic `g_bboxStamp` across rebuilds/reloads. This is a generated runtime optimization, not a manifest setting or format change. See `docs/tyrax2-strip-subranges.md`.
+
 > **A note on `PROGRESS 123` citations.** They appear throughout this file and
 > point at numbered entries of `PROGRESS.md`, which was retired at ~15 800
 > lines. They are still exact pointers — the file lives on in git history, and

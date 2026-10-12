@@ -1,0 +1,32 @@
+{
+  "baseElfSha256": "ab1a91ea07e7e8649a9264a67620df1d79a8d1a208a707688d9f4c1a622dc69b",
+  "generatorSha256": "8b0106e49bd04d4d564e381dfe0958a9c0463269c417892d8681a33bba2b3554",
+  "modes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+  ],
+  "daytimeOnly": true,
+  "bufferCount": 2,
+  "movingAutoOrder": true,
+  "fixedSceneStep": true,
+  "inPriceReadbacks": false,
+  "ordinaryControlUnchanged": false,
+  "version": 2,
+  "clipObserver": false,
+  "shakePhaseReset": true,
+  "samePoseEndpointArms": 3,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Ordinary roads, full six-plane terrain clipping, actual SDK writers unchanged.",
+    "All cold bodies compared to opposite compiler at offset1100, outside priced rows.",
+    "Measured local replacement invokes only selected compiler; immutable bank leases unchanged.",
+    "No native/raster/physical gain or60fps/default claim before target gates."
+  ],
+  "variant": "direct-cold",
+  "comparison": "common skip-A31 terrain: materialized versus direct final-owned compiler",
+  "directHeaderSha256": "96275a6324f33ea07fe939723cbab3c1035277875ec91ea757f76faf473c17be"
+}

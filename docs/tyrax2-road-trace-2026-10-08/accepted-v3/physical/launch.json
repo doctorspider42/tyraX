@@ -1,0 +1,7 @@
+{
+  "pid": 27904,
+  "cwd": "F:/Projects/tyrax2-road-trace-day-20261008-v3/physical/bin",
+  "startedUtc": "2026-10-08T20:42:12.6207146Z",
+  "elfSha256": "62A84ED0AA8A7A869F5001E79BE62DA240676273B42388884F7FCEA93CBEBC25",
+  "resetEvidence": "../../tyrax2-road-trace-day-20261008-v2/physical/cleanup-reset.json"
+}

@@ -1,0 +1,23 @@
+{
+  "valid": false,
+  "platform": "physical",
+  "experiment": "A43",
+  "elfSha256": "fe8ccc35001ac343ff834b2c72027bf10302cff9124a907bae43909858cfd872",
+  "promotionAllowed": false,
+  "readerSha256": "b60cba6608c9e235496feabe4a98fd37f6253f333e6a155727799acbd0738930",
+  "logSha256": "1831bd2cf0cd6c3cdcf85026a88305f8ea97ed6e484e43bb2fca5a23b454b790",
+  "command": [
+    "F:\\Python\\Conda\\python.exe",
+    "F:\\Projects\\tyra-editor\\tools\\tyrax2-hybrid-copy-check.py",
+    "F:\\Projects\\tyrax2-retain-ready-game-20261011-v1",
+    "--physical",
+    "--physical-dir",
+    "F:\\Projects\\tyrax2-retain-ready-game-20261011-v1\\physical",
+    "--output",
+    "F:\\Projects\\tyrax2-retain-ready-game-20261011-v1\\unexpected-qualified-physical.json"
+  ],
+  "returncode": 1,
+  "stdout": "",
+  "stderr": "Traceback (most recent call last):\n  File \"F:\\Projects\\tyra-editor\\tools\\tyrax2-hybrid-copy-check.py\", line 129, in <module>\n    witnesses=witness(log)\n              ^^^^^^^^^^^^\n  File \"F:\\Projects\\tyra-editor\\tools\\tyrax2-hybrid-copy-check.py\", line 123, in witness\n    assert outside==late==0,'Copy completion was not witnessed inside qualified blank'\n           ^^^^^^^^^^^^^^^^\nAssertionError: Copy completion was not witnessed inside qualified blank\n",
+  "scope": "Rejected completion-window qualification; no physical FPS/net result admitted"
+}

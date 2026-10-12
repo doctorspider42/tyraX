@@ -1,0 +1,13 @@
+{
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "pid": 13900,
+  "startedUtc": "2026-10-08T11:47:29.1600515Z",
+  "cwd": "F:/Projects/tyrax2-producer-20261008-v4/physical/bin",
+  "elfSha256": "f450aa6e54c63ef95721485836f73985968f12fe12bf4d92aafb7c640e35db55"
+}

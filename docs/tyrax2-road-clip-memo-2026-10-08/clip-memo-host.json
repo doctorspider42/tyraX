@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "trials": 2000,
+  "coldOracleHits": 2000,
+  "checks": [
+    "repeat hit",
+    "each MVP lane bit mutation",
+    "near/far change",
+    "clip margin change",
+    "non-road overwrite",
+    "disabled mode",
+    "corrupted cached output rejected by reference"
+  ],
+  "candidateBodySha256": "e50f9201391cbb3a7e8961e42126b3a139e68d6aa8d9b1d2545c0bbe820308b5",
+  "referenceBodySha256": "3c0e8f60c1a451ead687d3b6106608a7346f917d5fff60604275b34ddf3af117"
+}

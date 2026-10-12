@@ -1,0 +1,203 @@
+{
+  "valid": true,
+  "kind": "target",
+  "cases": 18,
+  "rows": [
+    {
+      "step": 0,
+      "scene": 0,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 1,
+      "scene": 0,
+      "enabled": 1,
+      "tested": 40,
+      "rejected": 16
+    },
+    {
+      "step": 2,
+      "scene": 0,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 3,
+      "scene": 1,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 4,
+      "scene": 1,
+      "enabled": 1,
+      "tested": 40,
+      "rejected": 16
+    },
+    {
+      "step": 5,
+      "scene": 1,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 6,
+      "scene": 2,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 7,
+      "scene": 2,
+      "enabled": 1,
+      "tested": 36,
+      "rejected": 16
+    },
+    {
+      "step": 8,
+      "scene": 2,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 9,
+      "scene": 3,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 10,
+      "scene": 3,
+      "enabled": 1,
+      "tested": 36,
+      "rejected": 16
+    },
+    {
+      "step": 11,
+      "scene": 3,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 12,
+      "scene": 4,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 13,
+      "scene": 4,
+      "enabled": 1,
+      "tested": 40,
+      "rejected": 16
+    },
+    {
+      "step": 14,
+      "scene": 4,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 15,
+      "scene": 5,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    },
+    {
+      "step": 16,
+      "scene": 5,
+      "enabled": 1,
+      "tested": 40,
+      "rejected": 16
+    },
+    {
+      "step": 17,
+      "scene": 5,
+      "enabled": 0,
+      "tested": 0,
+      "rejected": 0
+    }
+  ],
+  "exactRasterGroups": [
+    [
+      "target-env-00.bin",
+      "target-env-01.bin",
+      "target-env-02.bin"
+    ],
+    [
+      "target-env-03.bin",
+      "target-env-04.bin",
+      "target-env-05.bin"
+    ],
+    [
+      "target-env-06.bin",
+      "target-env-07.bin",
+      "target-env-08.bin"
+    ],
+    [
+      "target-env-09.bin",
+      "target-env-10.bin",
+      "target-env-11.bin"
+    ],
+    [
+      "target-env-12.bin",
+      "target-env-13.bin",
+      "target-env-14.bin"
+    ],
+    [
+      "target-env-15.bin",
+      "target-env-16.bin",
+      "target-env-17.bin"
+    ],
+    [
+      "target-main-00.bin",
+      "target-main-01.bin",
+      "target-main-02.bin"
+    ],
+    [
+      "target-main-03.bin",
+      "target-main-04.bin",
+      "target-main-05.bin"
+    ],
+    [
+      "target-main-06.bin",
+      "target-main-07.bin",
+      "target-main-08.bin"
+    ],
+    [
+      "target-main-09.bin",
+      "target-main-10.bin",
+      "target-main-11.bin"
+    ],
+    [
+      "target-main-12.bin",
+      "target-main-13.bin",
+      "target-main-14.bin"
+    ],
+    [
+      "target-main-15.bin",
+      "target-main-16.bin",
+      "target-main-17.bin"
+    ]
+  ],
+  "elfSha256": "406f6b5109136aaa3b3cff2d882b050a640c42294b57f0100e86bf422845076b",
+  "sourceFiles": 399,
+  "csvSha256": "3dc34f03583417e8db3484d026bbfcd27a5a902d65e12c54712c1aa9823bfc62",
+  "logSha256": "5cde76810c0279f21213472d8fa2d28959f57d0713a4b2cbbf1628d40591b091",
+  "limitations": [
+    "Not a scene performance result",
+    "Qualification applies to exercised raster cases"
+  ]
+}

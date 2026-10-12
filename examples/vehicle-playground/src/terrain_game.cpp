@@ -638,6 +638,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.

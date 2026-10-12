@@ -1,0 +1,11 @@
+{
+  "source": "F:\\Projects\\tyrax2-target-drive-20261009-v1",
+  "experiment": "A17 normal census",
+  "timings": "intrusive; not performance evidence",
+  "buckets": [
+    "warmup",
+    "parked camera sweep",
+    "full throttle camera sweep"
+  ],
+  "policy": "unchanged normalization, EE paint; target reject disabled"
+}

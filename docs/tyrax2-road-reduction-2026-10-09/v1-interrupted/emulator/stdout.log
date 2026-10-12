@@ -1,0 +1,7 @@
+Received CTRL+C, attempting graceful shutdown. Press CTRL+C again to force.
+The X11 connection broke: I/O error (code 1)
+XIO:  fatal IO error 4 (Interrupted system call) on X server ":97"
+      after 54510 requests (421 known processed) with 0 events remaining.
+../common/Linux/LnxHostSys.cpp:149: assertion failed in function SharedMemoryMappingArea::~SharedMemoryMappingArea(): No mappings left
+
+Aborting application.

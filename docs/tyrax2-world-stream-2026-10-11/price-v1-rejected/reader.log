@@ -1,0 +1,5 @@
+{"valid": false, "platform": "emulator", "clean": false, "poseEqual": false, "deliveryValid": null, "physicalPrice": false}
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyra-editor/docs/tyrax2-world-stream-2026-10-11/price-v1-rejected/tools/verify-world-cell-price.py", line 118, in <module>
+    assert valid,'World-cell price conditioning/delivery/image gate rejected'
+AssertionError: World-cell price conditioning/delivery/image gate rejected

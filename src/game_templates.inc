@@ -4891,6 +4891,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -7247,6 +7250,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -23480,7 +23486,7 @@ void TerrainGame::renderScene() {
   // terrain around them resident even when the pair walks apart.
   if (!splitSecondPass) {
     const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
-    updateTerrainChunks(cameraLookAt.x, cameraLookAt.z,
+    updateTerrainChunks(terrainFocusX, terrainFocusZ,
                         p2Focus ? players[1].x : 0.0F,
                         p2Focus ? players[1].z : 0.0F, p2Focus, 2);
   }
@@ -23608,8 +23614,16 @@ void TerrainGame::renderScene() {
     // it stays in the same bucket. The reflection coordinates still update
     // continuously; only the broad Fresnel/specular modulation is stepped.
     const int paint = {{VEHICLE_PAINT_FOR}};
+#if TYRA_VU1_EXP_PAINT
+    part.envTexBag->paintVu = false;
+#endif
     if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
       part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
+#if TYRA_VU1_EXP_PAINT
+      part.envTexBag->paintVu = stapip.core.supportsPaintVu(part.envBag.get());
+      const u32 normalStamp = part.envTexBag->contentVersion
+                                  ? *part.envTexBag->contentVersion : 0;
+#endif
       Tyra::Vec4 fwdL(envFwd.x, envFwd.y, envFwd.z, 0.0F);
       // A fixed overhead-ish key light: arcade paint wants a stable hot spot,
       // not the scene's lighting model. H = normalize(L + V), V = -forward.
@@ -23636,6 +23650,12 @@ void TerrainGame::renderScene() {
                             paintKey(hL.y),   paintKey(hL.z)};
       bool paintChanged = !part.envPaintValid ||
                           part.envPaintLod != (signed char)part.shownLod;
+#if TYRA_VU1_EXP_PAINT
+      paintChanged = paintChanged ||
+          part.envPaintSource != part.envTexBag->coordinates ||
+          part.envPaintCount != part.envBag->count ||
+          part.envPaintVersion != normalStamp;
+#endif
       // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
       // hover on either side of a rounded bucket while the apparent view is
       // unchanged; waiting for a real angular move prevents alternating
@@ -23654,6 +23674,19 @@ void TerrainGame::renderScene() {
         for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
         part.envPaintLod = (signed char)part.shownLod;
         part.envPaintValid = true;
+#if TYRA_VU1_EXP_PAINT
+        part.envPaintSource = part.envTexBag->coordinates;
+        part.envPaintCount = part.envBag->count;
+        part.envPaintVersion = normalStamp;
+        part.envTexBag->paintForward = fwdL;
+        part.envTexBag->paintHalf = hL;
+        part.envPaintEeReady = false;
+      }
+      // Representation can change while the accepted camera basis stays held.
+      if (!part.envTexBag->paintVu && !part.envPaintEeReady) {
+        fwdL = part.envTexBag->paintForward;
+        hL = part.envTexBag->paintHalf;
+#endif
         // The tier the bags currently point at - applyGeoLod re-aims
         // envColorBag at part.envColors (tier 0) or at a tier's own array.
         BagArray<Tyra::Color>& dstArr =
@@ -23672,7 +23705,14 @@ void TerrainGame::renderScene() {
         // result is identical to the per-vertex loop it replaces. The loop
         // ran ~1.4 ms of EE on the CC96 every frame the camera turned
         // (physical PS2, 2026-09-23). The map is built once per normal array.
-        if (part.paintMapSrc != nrm || part.paintMapCount != n) {
+        if (part.paintMapSrc != nrm || part.paintMapCount != n
+#if TYRA_VU1_EXP_PAINT
+            || part.paintMapVersion != normalStamp
+#endif
+        ) {
+#if TYRA_VU1_EXP_PAINT
+          part.paintMapVersion = normalStamp;
+#endif
           part.paintMapSrc = nrm;
           part.paintMapCount = n;
           part.paintNormals.clear();
@@ -23740,6 +23780,9 @@ void TerrainGame::renderScene() {
           const unsigned short* map = part.paintMap.data();
           for (u32 k = 0; k < n; ++k) dst[k] = paintColors[map[k]];
         }
+#if TYRA_VU1_EXP_PAINT
+        part.envPaintEeReady = true;
+#endif
       }
     }
     renderObjectBag(objectIndex, part.envBag.get());
@@ -26648,6 +26691,8 @@ void TerrainGame::resetTerrainChunks() {
       releaseTexture(c.gsTexPath);
       c.gsTexPath.clear();
     }
+  for (const std::string& path : groundShadowPins) releaseTexture(path);
+  groundShadowPins.clear();
   // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
   // what makes renderTerrain and the streaming pass no-ops: every loop over
   // them runs zero times.
@@ -26680,6 +26725,47 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunks.clear();
   terrainChunks.resize(pool);  // sized once per scene - slots stay put
   terrainChunkSlot.assign(total, -1);
+  prepareGroundShadowTextures();
+}
+
+
+
+// A small scene's masks stay decoded in EE RAM. Chunk references remain
+// independent; VRAM residency is still managed by the normal texture cache.
+void TerrainGame::prepareGroundShadowTextures() {
+#ifdef GROUND_SHADOWS_ON
+  constexpr unsigned budget = 512 * 1024;
+  if (!SCENE_GROUND || !layerInfoBag ||
+      SCENE_GROUND_CHUNKS_X != terrainChunksX ||
+      SCENE_GROUND_PRELOAD_BYTES[g_activeScene] > budget) return;
+  unsigned retained = 0;
+  for (int cz = 0; cz < terrainChunksZ; ++cz)
+    for (int cx = 0; cx < terrainChunksX; ++cx) {
+      const unsigned short* rows = SCENE_GROUND +
+          (cz * terrainChunksX + cx) * TERRAIN_CHUNK_CELLS;
+      bool any = false;
+      for (int r = 0; r < TERRAIN_CHUNK_CELLS; ++r) any = any || rows[r];
+      if (!any) continue;
+      const std::string path = "gshadow/s" + std::to_string(g_activeScene) +
+          "_" + std::to_string(cx) + "_" + std::to_string(cz) + ".png";
+      Texture* tex = acquireTexture(path);
+      // Generated masks are Indexed4, 64/128 square. Unexpected replacement
+      // assets fall back to ordinary chunk ownership, never an unbounded pin.
+      const bool expected = tex && tex->core->bpp == Tyra::bpp4 &&
+          (tex->getWidth() == 64 || tex->getWidth() == 128) &&
+          tex->getHeight() == tex->getWidth();
+      const unsigned bytes = expected
+          ? unsigned(tex->getWidth() * tex->getHeight() / 2 + 64 + 1024) : budget + 1;
+      if (bytes > budget - retained) {
+        releaseTexture(path);
+        for (const std::string& pin : groundShadowPins) releaseTexture(pin);
+        groundShadowPins.clear();
+        return;
+      }
+      groundShadowPins.push_back(path);
+      retained += bytes;
+    }
+#endif
 }
 
 
@@ -27262,6 +27348,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.colorBag = std::make_unique<StaPipColorBag>();
     ch.bag = std::make_unique<StaPipBag>();
     ch.bag->info = infoBag.get();
+    ch.bag->refineStrips = true;
     ch.bag->lighting = nullptr;
   }
   ch.colors.bind(ch.colorBag);
@@ -27289,6 +27376,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       lp.bag->lighting = nullptr;
     }
     lp.bag->info = layerInfoBag.get();
+    lp.bag->refineStrips = true;
     lp.colors.bind(lp.colorBag);
     lp.bag->color = lp.colorBag.get();
     ch.vertices.bind(lp.bag);
@@ -27317,6 +27405,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.aoBag->lighting = nullptr;
     }
     ch.aoBag->info = layerInfoBag.get();
+    ch.aoBag->refineStrips = true;
     ch.aoCols.bind(ch.aoColorBag);
     ch.aoBag->color = ch.aoColorBag.get();
     ch.vertices.bind(ch.aoBag);
@@ -27339,6 +27428,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.emisBag->lighting = nullptr;
     }
     ch.emisBag->info = lightAddInfoBag.get();
+    ch.emisBag->refineStrips = true;
     ch.emisCols.bind(ch.emisColorBag);
     ch.emisBag->color = ch.emisColorBag.get();
     ch.vertices.bind(ch.emisBag);
@@ -27425,6 +27515,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         ch.gsBag->lighting = nullptr;
       }
       ch.gsBag->info = layerInfoBag.get();
+      ch.gsBag->refineStrips = true;
       ch.gsCols.bind(ch.gsColorBag);
       ch.gsBag->color = ch.gsColorBag.get();
       ch.gsVerts.bind(ch.gsBag);

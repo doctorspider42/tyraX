@@ -1,0 +1,13 @@
+{
+  "startedUtc": "2026-10-08T15:24:36.4590915Z",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "cwd": "F:/Projects/tyrax2-reflection-scatter-20261008-v1/physical/bin",
+  "pid": 40500,
+  "elfSha256": "501DC0DE93DD148F6ACFE86B71FF2E1AD0755116059C1DA92C7809099129ECE6"
+}

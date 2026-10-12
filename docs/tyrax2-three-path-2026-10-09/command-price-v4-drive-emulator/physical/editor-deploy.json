@@ -1,0 +1,15 @@
+{
+  "pid": 20552,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-command-price-20261009-v4\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "667b549ce061ed0fd9d725ee291276268bfef5546eb1d5943fba40e9421fd640",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T15:13:16.8440023+02:00"
+}

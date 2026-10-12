@@ -1,0 +1,13 @@
+{
+  "experiment": "A36 current V7 ordinary baseline capture",
+  "source": "F:\\Projects\\tyrax2-world-front-20261011-runtime-v7",
+  "parentElf": "9193dd242d914377017ac65a686f8a34adf9c841c5e1900227cb5973e18a237e",
+  "stages": [
+    "capture ordinary",
+    "ordinary control",
+    "ordinary control",
+    "ordinary return"
+  ],
+  "frame": "day drive offset1380; update frozen and outer motion suspended; live capture forced",
+  "scope": "Scene only; no timing/replay/default change; identity is actual descriptor owner, NOT per-command ownership"
+}

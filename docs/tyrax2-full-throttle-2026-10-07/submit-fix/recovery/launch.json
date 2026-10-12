@@ -1,0 +1,7 @@
+{
+  "startedUtc": "2026-10-07T21:11:45.4424818Z",
+  "reason": "One bounded recovery after stall during phase9 reload",
+  "elfSha256": "93F2246E37568165361493AE6DB7C4BEBB51ABE2E41A247655F0D56BAE511114",
+  "cwd": "F:/Projects/tyrax2-submit-fix-20261007-v1/recovery/bin",
+  "pid": 19600
+}

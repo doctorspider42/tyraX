@@ -1,0 +1,1030 @@
+[toolchain] Linux host prerequisites are ready.
+[toolchain] ready: /mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain
+[editor] Using WSL filesystem build cache...
+[editor] Game toolchain changed - rebuilding game objects...
+[editor] Engine sources changed - rebuilding libtyra...
+make: Entering directory '/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine'
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/engine.d -c -o obj/engine.o src/engine.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/dynamic/core/dynpip_renderer.d -c -o obj/renderer/3d/pipeline/dynamic/core/dynpip_renderer.o src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.d -c -o obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.o src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.d -c -o obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.o src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.d -c -o obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.o src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.d -c -o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.o src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.d -c -o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.o src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/stapip_bag.d -c -o obj/renderer/3d/pipeline/static/core/bag/stapip_bag.o src/renderer/3d/pipeline/static/core/bag/stapip_bag.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.cpp
+In file included from src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp:17:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp:14:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp:14:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp:14:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/engine.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_clipper.d -c -o obj/renderer/3d/pipeline/static/core/stapip_clipper.o src/renderer/3d/pipeline/static/core/stapip_clipper.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_core.d -c -o obj/renderer/3d/pipeline/static/core/stapip_core.o src/renderer/3d/pipeline/static/core/stapip_core.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_programs_repository.d -c -o obj/renderer/3d/pipeline/static/core/stapip_programs_repository.o src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_qbuffer.d -c -o obj/renderer/3d/pipeline/static/core/stapip_qbuffer.o src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.d -c -o obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/stapip_vu1_program.o src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/static_pipeline.d -c -o obj/renderer/3d/pipeline/static/static_pipeline.o src/renderer/3d/pipeline/static/static_pipeline.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/renderer_3d_utility.d -c -o obj/renderer/3d/renderer_3d_utility.o src/renderer/3d/renderer_3d_utility.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/2d/renderer_core_2d.d -c -o obj/renderer/core/2d/renderer_core_2d.o src/renderer/core/2d/renderer_core_2d.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/alphamask/renderer_core_alpha_mask.d -c -o obj/renderer/core/alphamask/renderer_core_alpha_mask.o src/renderer/core/alphamask/renderer_core_alpha_mask.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/blss/renderer_core_blss.d -c -o obj/renderer/core/blss/renderer_core_blss.o src/renderer/core/blss/renderer_core_blss.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/envmap/renderer_core_envmap.d -c -o obj/renderer/core/envmap/renderer_core_envmap.o src/renderer/core/envmap/renderer_core_envmap.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/gs/renderer_core_gs.d -c -o obj/renderer/core/gs/renderer_core_gs.o src/renderer/core/gs/renderer_core_gs.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/paths/path1/path1.d -c -o obj/renderer/core/paths/path1/path1.o src/renderer/core/paths/path1/path1.cpp
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/2d/renderer_core_2d.cpp:15:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/renderer/3d/pipeline/static/core/stapip_core.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/paths/path1/vif1_queue.d -c -o obj/renderer/core/paths/path1/vif1_queue.o src/renderer/core/paths/path1/vif1_queue.cpp
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/3d/renderer_3d_utility.cpp:13:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'Tyra::CoreBBoxFrustum Tyra::StaPipBagPackager::checkFrustum(const Tyra::StaPipBagPackage&, u8*, bool*)' at src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:234:61:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp: In member function 'Tyra::CoreBBoxFrustum Tyra::StaPipBagPackager::checkFrustum(const Tyra::StaPipBagPackage&, u8*, bool*)':
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:234:23: note: 'probeBucket' declared here
+  234 |   MotionProbe::Bucket probeBucket(MotionProbe::ClassifyTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/alphamask/renderer_core_alpha_mask.cpp:12:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/envmap/renderer_core_envmap.cpp:12:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/paths/path1/path1.cpp:15:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/blss/renderer_core_blss.cpp:18:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/gs/renderer_core_gs.cpp:12:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/renderer/core/paths/path1/vif1_queue.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/paths/path3/path3.d -c -o obj/renderer/core/paths/path3/path3.o src/renderer/core/paths/path3/path3.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/postfx/renderer_core_postfx.d -c -o obj/renderer/core/postfx/renderer_core_postfx.o src/renderer/core/postfx/renderer_core_postfx.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/renderer_core.d -c -o obj/renderer/core/renderer_core.o src/renderer/core/renderer_core.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/renderer_core_sync.d -c -o obj/renderer/core/renderer_core_sync.o src/renderer/core/renderer_core_sync.cpp
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'Tyra::StaPipBagPackage* Tyra::StaPipBagPackager::create(u16*, Tyra::StaPipBag*, u16)' at src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:57:59:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp: In member function 'Tyra::StaPipBagPackage* Tyra::StaPipBagPackager::create(u16*, Tyra::StaPipBag*, u16)':
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:57:23: note: 'probeBucket' declared here
+   57 |   MotionProbe::Bucket probeBucket(MotionProbe::CreateTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/paths/path3/path3.cpp:14:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'Tyra::StaPipBagPackage* Tyra::StaPipBagPackager::create(u16*, const Tyra::StaPipBagPackage&, u16)' at src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:174:59:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp: In member function 'Tyra::StaPipBagPackage* Tyra::StaPipBagPackager::create(u16*, const Tyra::StaPipBagPackage&, u16)':
+src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp:174:23: note: 'probeBucket' declared here
+  174 |   MotionProbe::Bucket probeBucket(MotionProbe::CreateTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/shadowmap/renderer_core_shadow_map.d -c -o obj/renderer/core/shadowmap/renderer_core_shadow_map.o src/renderer/core/shadowmap/renderer_core_shadow_map.cpp
+In file included from src/renderer/core/renderer_core_sync.cpp:1:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/postfx/renderer_core_postfx.cpp:12:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/splitview/renderer_core_splitview.d -c -o obj/renderer/core/splitview/renderer_core_splitview.o src/renderer/core/splitview/renderer_core_splitview.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/core/warp/renderer_core_warp.d -c -o obj/renderer/core/warp/renderer_core_warp.o src/renderer/core/warp/renderer_core_warp.cpp
+In file included from src/renderer/core/renderer_core.cpp:16:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/shadowmap/renderer_core_shadow_map.cpp:12:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopyMax(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:197:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  197 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/./bag/packaging/../stapip_bag.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/./bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp:16,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:13:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:198:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  198 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:199:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  199 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:200:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  200 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By2(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:232:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  232 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:233:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  233 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:234:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  234 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:235:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  235 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By3(const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:261:9: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  261 |   memcpy(vertices, pkg.vertices, bytes);
+      |   ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:262:31: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  262 |   if (pkg.bag->texture) memcpy(sts, pkg.sts, bytes);
+      |                         ~~~~~~^~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:263:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  263 |   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:264:32: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  264 |   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
+      |                          ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/splitview/renderer_core_splitview.cpp:15:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'static bool Tyra::FrameChainArena::copyQwords(void*, const void*, uint32_t)' at inc/renderer/core/paths/path1/frame_chain_arena.hpp:326:60:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+In file included from inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from src/renderer/core/paths/path1/vif1_queue.cpp:8:
+inc/renderer/core/paths/path1/frame_chain_arena.hpp: In function 'static bool Tyra::FrameChainArena::copyQwords(void*, const void*, uint32_t)':
+inc/renderer/core/paths/path1/frame_chain_arena.hpp:326:23: note: 'probeBucket' declared here
+  326 |   MotionProbe::Bucket probeBucket(MotionProbe::PayloadTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:1,
+                 from src/renderer/core/warp/renderer_core_warp.cpp:14:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from inc/renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from inc/renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from inc/renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from src/renderer/3d/pipeline/static/static_pipeline.cpp:11:
+inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp: In member function 'bool Tyra::StaPipQBufferRenderer::fillCachedStrip(Tyra::StaPipQBuffer*, const Tyra::StaPipBagPackage&, u32, u32)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:2277:15: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+ 2277 |         memcpy(out, data, n * 3 * sizeof(Vec4));
+      |         ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/./././bag/packaging/../stapip_bag.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/./././bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/././stapip_qbuffer.hpp:16,
+                 from inc/renderer/3d/pipeline/static/core/./stapip_clipper.hpp:15,
+                 from inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp:7,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:3:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'static u32 Tyra::Vif1Queue::submit(const void*, u32, bool*)' at src/renderer/core/paths/path1/vif1_queue.cpp:331:59:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/core/paths/path1/vif1_queue.cpp: In static member function 'static u32 Tyra::Vif1Queue::submit(const void*, u32, bool*)':
+src/renderer/core/paths/path1/vif1_queue.cpp:331:23: note: 'probeBucket' declared here
+  331 |   MotionProbe::Bucket probeBucket(MotionProbe::SubmitTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'void Tyra::StaPipQBuffer::fillByPointer(const Tyra::StaPipBagPackage&)' at src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:132:57:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByPointer(const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:132:23: note: 'probeBucket' declared here
+  132 |   MotionProbe::Bucket probeBucket(MotionProbe::FillTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+In constructor 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)',
+    inlined from 'MotionProbe::Bucket::Bucket(MotionProbe::Timing)' at inc/debug/motion_probe.hpp:90:12,
+    inlined from 'void Tyra::StaPipQBufferRenderer::addBuffersDataToPacket(const u32&, const u32&, const bool&)' at src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:2799:59:
+inc/debug/motion_probe.hpp:92:39: warning: storing the address of local variable 'probeBucket' in 'MotionProbe::currentBucket' [-Wdangling-pointer=]
+   92 |     parent=currentBucket;currentBucket=this;
+      |                          ~~~~~~~~~~~~~^~~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp: In member function 'void Tyra::StaPipQBufferRenderer::addBuffersDataToPacket(const u32&, const u32&, const bool&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:2799:23: note: 'probeBucket' declared here
+ 2799 |   MotionProbe::Bucket probeBucket(MotionProbe::PacketTicks);
+      |                       ^~~~~~~~~~~
+inc/debug/motion_probe.hpp:86:16: note: 'MotionProbe::currentBucket' declared here
+   86 | inline Bucket* currentBucket=nullptr;
+      |                ^~~~~~~~~~~~~
+mips64r5900el-ps2-elf-ar rcs bin/libtyra.a obj/audio/audio.o obj/audio/audio_adpcm.o obj/audio/audio_reverb.o obj/audio/audio_song.o obj/debug/crash_handler.o obj/debug/debug.o obj/debug/frame_profile.o obj/debug/hardware_trace.o obj/debug/sifrpc_guard.o obj/engine.o obj/file/file_utils.o obj/info/banner.o obj/info/banner_data.o obj/info/info.o obj/irx/irx_loader.o obj/loaders/3d/builder/mesh_builder_data.o obj/loaders/3d/builder/mesh_builder_material_data.o obj/loaders/3d/builder/mesh_builder_material_frame_data.o obj/loaders/3d/md2_loader/md2_loader.o obj/loaders/3d/obj_loader/lean_obj_loader.o obj/loaders/3d/obj_loader/obj_loader.o obj/loaders/3d/tanm_loader/tanm_loader.o obj/loaders/3d/tmdl_loader/tmdl_loader.o obj/loaders/3d/tskl_loader/tskl_loader.o obj/loaders/texture/base/texture_builder_data.o obj/loaders/texture/base/texture_loader.o obj/loaders/texture/base/texture_loader_selector.o obj/loaders/texture/png_loader.o obj/math/m4x4.o obj/math/math.o obj/math/plane.o obj/math/vec2.o obj/math/vec4.o obj/pad/kbd_mouse.o obj/pad/pad.o obj/physics/collision_mesh.o obj/physics/ray.o obj/renderer/2d/renderer_2d.o obj/renderer/3d/bbox/bbox.o obj/renderer/3d/mesh/dynamic/dynamic_mesh.o obj/renderer/3d/mesh/dynamic/dynamic_mesh_animation.o obj/renderer/3d/mesh/dynamic/skel_instance.o obj/renderer/3d/mesh/mesh.o obj/renderer/3d/mesh/mesh_frame.o obj/renderer/3d/mesh/mesh_material.o obj/renderer/3d/mesh/mesh_material_frame.o obj/renderer/3d/mesh/static/static_mesh.o obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.o obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.o obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.o obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.o obj/renderer/3d/pipeline/dynamic/core/dynpip_core.o obj/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.o obj/renderer/3d/pipeline/dynamic/core/dynpip_renderer.o obj/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.o obj/renderer/3d/pipeline/dynamic/dynamic_pipeline.o obj/renderer/3d/pipeline/minecraft/data/mcpip_block_data.o obj/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.o obj/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.o obj/renderer/3d/pipeline/minecraft/minecraft_pipeline.o obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.o obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.o obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.o obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.o obj/renderer/3d/pipeline/minecraft/programs/mcpip_program.o obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.o obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.o obj/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.o obj/renderer/3d/pipeline/static/core/bag/stapip_bag.o obj/renderer/3d/pipeline/static/core/bag/stapip_color_bag.o obj/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.o obj/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o obj/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.o obj/renderer/3d/pipeline/static/core/stapip_clipper.o obj/renderer/3d/pipeline/static/core/stapip_core.o obj/renderer/3d/pipeline/static/core/stapip_programs_repository.o obj/renderer/3d/pipeline/static/core/stapip_qbuffer.o obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o obj/renderer/3d/pipeline/static/core/stapip_vif_hash.o obj/renderer/3d/pipeline/static/core/stapip_vu1_program.o obj/renderer/3d/pipeline/static/core/stapip_vu_tap.o obj/renderer/3d/pipeline/static/static_pipeline.o obj/renderer/3d/renderer_3d.o obj/renderer/3d/renderer_3d_utility.o obj/renderer/core/2d/renderer_core_2d.o obj/renderer/core/2d/sprite/sprite.o obj/renderer/core/3d/bbox/core_bbox.o obj/renderer/core/3d/bbox/render_bbox.o obj/renderer/core/3d/camera_info_3d.o obj/renderer/core/3d/clipper/planes_clip_algorithm.o obj/renderer/core/3d/renderer_3d_frustum_planes.o obj/renderer/core/3d/renderer_core_3d.o obj/renderer/core/alphamask/renderer_core_alpha_mask.o obj/renderer/core/blss/renderer_core_blss.o obj/renderer/core/envmap/renderer_core_envmap.o obj/renderer/core/gs/renderer_core_depth.o obj/renderer/core/gs/renderer_core_gs.o obj/renderer/core/gs/renderer_core_gs_vram.o obj/renderer/core/paths/path1/path1.o obj/renderer/core/paths/path1/vif1_queue.o obj/renderer/core/paths/path1/vu1_program.o obj/renderer/core/paths/path3/path3.o obj/renderer/core/postfx/renderer_core_postfx.o obj/renderer/core/renderer_core.o obj/renderer/core/renderer_core_sync.o obj/renderer/core/shadowmap/renderer_core_shadow_map.o obj/renderer/core/splitview/renderer_core_splitview.o obj/renderer/core/texture/models/texture.o obj/renderer/core/texture/renderer_core_texture.o obj/renderer/core/texture/renderer_core_texture_sender.o obj/renderer/core/texture/texture_data.o obj/renderer/core/texture/texture_repository.o obj/renderer/core/warp/renderer_core_warp.o obj/renderer/models/color.o obj/renderer/renderer.o obj/renderer/renderer_settings.o obj/renderer/rt/vu0_raytracer.o obj/thread/threading.o obj/time/timer.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1.o obj/renderer/core/paths/path1/draw_finish.o obj/renderer/rt/vu0_rt_kernel.o obj/irx/audsrv.o obj/irx/bdm.o obj/irx/bdmfs_fatfs.o obj/irx/fileXio.o obj/irx/iomanX.o obj/irx/libsd.o obj/irx/padman.o obj/irx/ps2kbd.o obj/irx/ps2mouse.o obj/irx/ps2snd.o obj/irx/sio2man.o obj/irx/usbd.o obj/irx/usbmass_bd.o
+make: Leaving directory '/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine'
+[editor] Compiling natively (PS2DEV + OpenVCL)...
+make: Entering directory '/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0'
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/credits.gen.d -c -o obj/gen/credits.gen.o src/gen/credits.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/flow_graph.gen.d -c -o obj/gen/flow_graph.gen.o src/gen/flow_graph.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/game_collision.gen.d -c -o obj/gen/game_collision.gen.o src/gen/game_collision.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/game_lighting.gen.d -c -o obj/gen/game_lighting.gen.o src/gen/game_lighting.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/game_physics.gen.d -c -o obj/gen/game_physics.gen.o src/gen/game_physics.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/game_scene.gen.d -c -o obj/gen/game_scene.gen.o src/gen/game_scene.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/game_vehicles.gen.d -c -o obj/gen/game_vehicles.gen.o src/gen/game_vehicles.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/input_map.gen.d -c -o obj/gen/input_map.gen.o src/gen/input_map.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/input_replay.gen.d -c -o obj/gen/input_replay.gen.o src/gen/input_replay.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_debug.gen.d -c -o obj/gen/live_debug.gen.o src/gen/live_debug.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_link.gen.d -c -o obj/gen/live_link.gen.o src/gen/live_link.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_logic.gen.d -c -o obj/gen/live_logic.gen.o src/gen/live_logic.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_pad.gen.d -c -o obj/gen/live_pad.gen.o src/gen/live_pad.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_tex.gen.d -c -o obj/gen/live_tex.gen.o src/gen/live_tex.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/live_time.gen.d -c -o obj/gen/live_time.gen.o src/gen/live_time.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/object_scripts.gen.d -c -o obj/gen/object_scripts.gen.o src/gen/object_scripts.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/navigation.gen.d -c -o obj/gen/navigation.gen.o src/gen/navigation.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/procedural.gen.d -c -o obj/gen/procedural.gen.o src/gen/procedural.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/scene_objects.gen.d -c -o obj/gen/scene_objects.gen.o src/gen/scene_objects.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/screen_fx.gen.d -c -o obj/gen/screen_fx.gen.o src/gen/screen_fx.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/scroller.gen.d -c -o obj/gen/scroller.gen.o src/gen/scroller.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/sequences.gen.d -c -o obj/gen/sequences.gen.o src/gen/sequences.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/gen/vu_programs.gen.d -c -o obj/gen/vu_programs.gen.o src/gen/vu_programs.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/main.d -c -o obj/main.o src/main.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/save_system.gen.d -c -o obj/save_system.gen.o src/save_system.gen.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/scripts/example_interaction.d -c -o obj/scripts/example_interaction.o src/scripts/example_interaction.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/scripts/district_mood.d -c -o obj/scripts/district_mood.o src/scripts/district_mood.cpp
+mips64r5900el-ps2-elf-g++ -g -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/terrain_game.d -c -o obj/terrain_game.o src/terrain_game.cpp
+In file included from src/gen/game_vehicles.gen.cpp:1:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/gen/game_physics.gen.cpp:1:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/gen/game_collision.gen.cpp:1:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from src/terrain_game.cpp:1:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/input_map.gen.hpp:4,
+                 from src/gen/input_map.gen.cpp:3:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/screen_fx.gen.hpp:4,
+                 from src/gen/screen_fx.gen.cpp:2:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/vu_programs.gen.hpp:8,
+                 from src/gen/vu_programs.gen.cpp:5:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/gen/scroller.gen.cpp:2:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from inc/scripts/credits.gen.hpp:4,
+                 from src/gen/credits.gen.cpp:3:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/gen/object_scripts.gen.cpp:8:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from src/main.cpp:1:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/gen/flow_graph.gen.cpp:3:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/scripts/district_mood.cpp:3:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/scripts/example_interaction.cpp:4:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/scripts/script.hpp:4,
+                 from src/gen/sequences.gen.cpp:3:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/terrain_game.hpp:4,
+                 from inc/game_runtime.gen.hpp:3,
+                 from src/gen/game_lighting.gen.cpp:2:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from inc/terrain_game.hpp:4,
+                 from inc/game_runtime.gen.hpp:3,
+                 from src/gen/game_scene.gen.cpp:2:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+In file included from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp:1,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp:11,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/./stapip_qbuffer_renderer.hpp:14,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/./core/stapip_core.hpp:20,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/./renderer/3d/pipeline/static/static_pipeline.hpp:18,
+                 from /home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/tyra:28,
+                 from src/save_system.gen.cpp:4:
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp: In function 'void MotionProbe::RoadTrace::dump()':
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:153:59: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  153 |       for(U v:frameMetrics[i])fprintf(framesFile,",%u",v);fprintf(framesFile,"\n");}
+      |                                                           ^~~~~~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:7: warning: this 'for' clause does not guard... [-Wmisleading-indentation]
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |       ^~~
+/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/inc/debug/motion_probe.hpp:156:45: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'for'
+  156 |       for(U v:r.c)fprintf(bagsFile,",%u",v);fprintf(bagsFile,"\n");}
+      |                                             ^~~~~~~
+src/save_system.gen.cpp: In function 'void Vehicle_playground::saveEnsureIcons()':
+src/save_system.gen.cpp:149:14: warning: unused variable 'sys' [-Wunused-variable]
+  149 |   const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+      |              ^~~
+src/save_system.gen.cpp:150:14: warning: unused variable 'icn' [-Wunused-variable]
+  150 |   const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+      |              ^~~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::buildRoads(int)':
+src/gen/game_vehicles.gen.cpp:543:9: warning: variable 'y0' set but not used [-Wunused-but-set-variable]
+  543 |   float y0 = 0.0F;
+      |         ^~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::updateVehicleDamage(float)':
+src/gen/game_vehicles.gen.cpp:2368:19: warning: unused variable 'moved' [-Wunused-variable]
+ 2368 |         const int moved = have ? vehicleDentApply(vi, dent) : 0;
+      |                   ^~~~~
+src/gen/game_vehicles.gen.cpp:2408:19: warning: unused variable 'us' [-Wunused-variable]
+ 2408 |         const u32 us = (profTicks() - t0) / 295u;
+      |                   ^~
+src/gen/game_vehicles.gen.cpp: In lambda function:
+src/gen/game_vehicles.gen.cpp:2945:9: warning: variable 'pick' set but not used [-Wunused-but-set-variable]
+ 2945 |     int pick = 0;
+      |         ^~~~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::renderVehicleWheels()':
+src/gen/game_vehicles.gen.cpp:6046:13: warning: variable 'gap' set but not used [-Wunused-but-set-variable]
+ 6046 |         int gap[4], lift[4];
+      |             ^~~
+src/gen/game_vehicles.gen.cpp:6046:21: warning: variable 'lift' set but not used [-Wunused-but-set-variable]
+ 6046 |         int gap[4], lift[4];
+      |                     ^~~~
+mips64r5900el-ps2-elf-g++ -T/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/startup/linkfile -o bin/vehicle-playground.elf obj/gen/credits.gen.o obj/gen/flow_graph.gen.o obj/gen/game_collision.gen.o obj/gen/game_lighting.gen.o obj/gen/game_physics.gen.o obj/gen/game_scene.gen.o obj/gen/game_vehicles.gen.o obj/gen/input_map.gen.o obj/gen/input_replay.gen.o obj/gen/live_debug.gen.o obj/gen/live_link.gen.o obj/gen/live_logic.gen.o obj/gen/live_pad.gen.o obj/gen/live_tex.gen.o obj/gen/live_time.gen.o obj/gen/navigation.gen.o obj/gen/object_scripts.gen.o obj/gen/procedural.gen.o obj/gen/scene_objects.gen.o obj/gen/screen_fx.gen.o obj/gen/scroller.gen.o obj/gen/sequences.gen.o obj/gen/vu_programs.gen.o obj/main.o obj/save_system.gen.o obj/scripts/district_mood.o obj/scripts/example_interaction.o obj/terrain_game.o -L/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/lib -L/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/lib -O3 -Wl,-zmax-page-size=128 -L/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine/bin -ltyra -leedebug -lstdc++ -ldma -lpacket2 -lgraph -ldraw -lmath3d -lpng -ldebug -lz -lpad -lkbd -lmouse -laudsrv -lps2snd -lpatches -lcdvd -lmc
+cp bin/vehicle-playground.elf bin/vehicle-playground.elf.sym
+mips64r5900el-ps2-elf-strip --strip-all bin/vehicle-playground.elf
+make: Leaving directory '/home/spider/.cache/tyrax/native/projects/ed45f10bcfb262ca07506ff0'
+[editor] adpenc -L res/sfx/engine_high.wav
+[editor] adpenc -L res/sfx/engine_idle.wav
+[editor] adpenc -L res/sfx/tires_screech.wav
+[editor] adpenc res/sfx/gear-shift.wav
+[editor] Native build complete: /mnt/f/Projects/tyrax2-road-trace-day-20261008-v2/game/bin

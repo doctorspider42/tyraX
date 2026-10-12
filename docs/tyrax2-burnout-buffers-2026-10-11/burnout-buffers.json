@@ -1,0 +1,330 @@
+{
+  "scope": "Offline formats/addresses only; drained snapshots and untimed dump events do not establish VBlank/copy timing or physical cost.",
+  "readerSha256": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52",
+  "captureSha256": "351d68215a0b581c0391bb7a572eb1ef01d42ca0e37e0dba131612ea69fcc9ab",
+  "auditSha256": "6cd8939694f15d62407c7c7ae903fc8d3b9cb5e97df27f344ba2c06d41b03e6a",
+  "states": [
+    {
+      "slot": 1,
+      "stateSha256": "fe1b785f56a7ae93cce64f77f0b398fe4862c9717403cf2243a0fa405665d12b",
+      "gsSha256": "dff50a3cbdcff59faa5728e3f64a59564b5aea4834404b1b8b8f3591d759ac09",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e3830004a0100000000000000000080000000004a01000000000000"
+    },
+    {
+      "slot": 2,
+      "stateSha256": "46c4acbe434d461a4d01684459eedeb93be847dddcd6b434dd6baf8cdc270e41",
+      "gsSha256": "0c06ae8ae63cddc8cbe8d329c61c156ad089e490ea994d96e9f862a66d0099ed",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e3830004a0100000000000000000080000000000000000000000000"
+    },
+    {
+      "slot": 3,
+      "stateSha256": "21975544ef4ff834f525dca28c4b5c9d73f454da6e9580714a15f89a8a38c876",
+      "gsSha256": "0a4a0b3f50c884bde01e243336aac8b529e2bd9227a66f7bc7dcebb1c95f192a",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e3830001c0000002e000000000000002e0000000000000020000000"
+    },
+    {
+      "slot": 4,
+      "stateSha256": "8c533ae753f4b0063540813209c5500cb2a16c2b3757f08af2c70904daf9e24e",
+      "gsSha256": "e6b2ab54714ba90baa3ecd6b8e09dd4669a1f1d7f9fc6946ce96f0298442f1b6",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e383000000000000000000010000000000000000000000000000000"
+    },
+    {
+      "slot": 5,
+      "stateSha256": "204de1d22a940f661bab93a36b1d6201f4851ed48e758cf122912fe0367d5de4",
+      "gsSha256": "3ccc7d19d4771710aa33f36e847c6dcb3d2c88d5aa4fdf60167200a95879e58a",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e3830000000000080000000000000004ae4c6d5b724567e58f8a29f"
+    },
+    {
+      "slot": 6,
+      "stateSha256": "47e5ce72e42a468a328bcf616403096a15f3a10fcf40189a52ebff33207d1c7f",
+      "gsSha256": "2fb029775a89c723bd428d32044a042a8e98f655abdb121ca7e14083163c895e",
+      "frames": [
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        },
+        {
+          "raw": "00000000000a0046",
+          "block": 2240,
+          "width64": 10,
+          "format": "CT32"
+        }
+      ],
+      "dthe": 0,
+      "version": "0000599a76322e392e393300312d536c6f7430322e7073320043036b7a02000000000000"
+    }
+  ],
+  "dumps": [
+    {
+      "name": "Burnout 3 - Takedown_SLES-52584_20260920201357.gs.zst",
+      "sha256": "a9efbc8f7390432e1cba674142f89d8028ff0c04552ce2ebf67436c96e2a0b8c",
+      "events": 8204,
+      "vsyncs": 4,
+      "privilegedChanges": [
+        {
+          "event": 0,
+          "vsync": 0,
+          "registers": [
+            "PMODE EN1=0 EN2=1 MMOD=1 AMOD=1 ALP=0 | SMODE2 INT=1 FFMD=0",
+            "DISPFB1 FBP=0 FBW=0 PSM=CT32 | DISPLAY DX=0 DY=0 DW=1 DH=1",
+            "DISPFB2 FBP=0 FBW=10 PSM=CT16S | DISPLAY DX=636 DY=50 DW=2560 DH=448"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "block": 0,
+          "format": "CT16S",
+          "coverage": 1146880.0,
+          "primitives": 80
+        },
+        {
+          "block": 2240,
+          "format": "CT16",
+          "coverage": 1146880.0,
+          "primitives": 160
+        },
+        {
+          "block": 2240,
+          "format": "CT32",
+          "coverage": 11307511.770945437,
+          "primitives": 115809
+        },
+        {
+          "block": 6720,
+          "format": "CT32",
+          "coverage": 630784.0,
+          "primitives": 44
+        },
+        {
+          "block": 6752,
+          "format": "CT32",
+          "coverage": 573440.0,
+          "primitives": 40
+        },
+        {
+          "block": 7616,
+          "format": "CT32",
+          "coverage": 640768.0,
+          "primitives": 140
+        },
+        {
+          "block": 11200,
+          "format": "CT32",
+          "coverage": 71680.0,
+          "primitives": 20
+        },
+        {
+          "block": 11552,
+          "format": "CT32",
+          "coverage": 0.0,
+          "primitives": 1024
+        },
+        {
+          "block": 11584,
+          "format": "CT32",
+          "coverage": 24576.0,
+          "primitives": 60
+        },
+        {
+          "block": 11616,
+          "format": "CT32",
+          "coverage": 1806028.4643261465,
+          "primitives": 5732
+        },
+        {
+          "block": 12640,
+          "format": "CT32",
+          "coverage": 208109.49869421133,
+          "primitives": 4248
+        },
+        {
+          "block": 12896,
+          "format": "CT32",
+          "coverage": 166622.3295313847,
+          "primitives": 2820
+        },
+        {
+          "block": 13152,
+          "format": "CT32",
+          "coverage": 163733.68416147263,
+          "primitives": 2778
+        }
+      ]
+    },
+    {
+      "name": "Burnout 3 - Takedown_SLES-52584_20260923200123.gs.zst",
+      "sha256": "b7fd9c46c70ac3bed6d54221d96dd85161b4ee018ef5339cc9e1c034bb215420",
+      "events": 9302,
+      "vsyncs": 4,
+      "privilegedChanges": [
+        {
+          "event": 0,
+          "vsync": 0,
+          "registers": [
+            "PMODE EN1=0 EN2=1 MMOD=1 AMOD=1 ALP=0 | SMODE2 INT=1 FFMD=0",
+            "DISPFB1 FBP=0 FBW=0 PSM=CT32 | DISPLAY DX=0 DY=0 DW=1 DH=1",
+            "DISPFB2 FBP=0 FBW=10 PSM=CT16S | DISPLAY DX=636 DY=50 DW=2560 DH=448"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "block": 0,
+          "format": "CT16S",
+          "coverage": 1146880.0,
+          "primitives": 80
+        },
+        {
+          "block": 2240,
+          "format": "CT16",
+          "coverage": 1146880.0,
+          "primitives": 160
+        },
+        {
+          "block": 2240,
+          "format": "CT32",
+          "coverage": 11015564.222901894,
+          "primitives": 119336
+        },
+        {
+          "block": 6720,
+          "format": "CT32",
+          "coverage": 630784.0,
+          "primitives": 44
+        },
+        {
+          "block": 6752,
+          "format": "CT32",
+          "coverage": 573440.0,
+          "primitives": 40
+        },
+        {
+          "block": 7616,
+          "format": "CT32",
+          "coverage": 640768.0,
+          "primitives": 140
+        },
+        {
+          "block": 11200,
+          "format": "CT32",
+          "coverage": 71680.0,
+          "primitives": 20
+        },
+        {
+          "block": 11552,
+          "format": "CT32",
+          "coverage": 0.0,
+          "primitives": 1024
+        },
+        {
+          "block": 11584,
+          "format": "CT32",
+          "coverage": 24576.0,
+          "primitives": 60
+        },
+        {
+          "block": 11616,
+          "format": "CT32",
+          "coverage": 1806028.4643261465,
+          "primitives": 5732
+        },
+        {
+          "block": 12640,
+          "format": "CT32",
+          "coverage": 208953.9317324236,
+          "primitives": 7211
+        },
+        {
+          "block": 12896,
+          "format": "CT32",
+          "coverage": 158488.0345334256,
+          "primitives": 2160
+        },
+        {
+          "block": 13152,
+          "format": "CT32",
+          "coverage": 153420.71828850455,
+          "primitives": 3230
+        }
+      ]
+    }
+  ]
+}

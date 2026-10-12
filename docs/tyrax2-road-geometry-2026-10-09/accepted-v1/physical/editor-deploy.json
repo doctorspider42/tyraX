@@ -1,0 +1,15 @@
+{
+  "pid": 38952,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-road-geometry-20261009-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "2e9f39dee14e7fd4a3b56b0516967168052e7870e843440c99a40e0a83d32df5",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T01:40:14.5320461+02:00"
+}

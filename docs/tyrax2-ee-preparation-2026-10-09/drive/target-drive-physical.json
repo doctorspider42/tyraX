@@ -1,0 +1,220 @@
+{
+  "valid": true,
+  "platform": "physical",
+  "elfSha256": "f897174fc1d053baccc59538f9068a133a2c2b4a1f4f203669337a36634d888d",
+  "sourceFiles": 472,
+  "phases": [
+    {
+      "phase": 0,
+      "on": false,
+      "hour": 12,
+      "rows": 445,
+      "gasFrames": 325,
+      "lastZ": 108.503296,
+      "cameraDegrees": [
+        -59.99910504875603,
+        60.0064083374292
+      ],
+      "tested": 0,
+      "rejected": 0,
+      "captures": 126.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 18.37335647452591,
+      "p95WorkMs": 24.884752061631943,
+      "maxWorkMs": 29.414621988932293,
+      "entryHz": 36.411916949546985,
+      "periodsOver25ms": 210,
+      "spatialMeanWorkMs": [
+        17.90109000420176,
+        18.11863419277216,
+        22.103993472889957,
+        21.69140869140625,
+        20.11967063969017,
+        18.325422498914932,
+        15.66767261646412,
+        14.931017707375918
+      ]
+    },
+    {
+      "phase": 1,
+      "on": true,
+      "hour": 12,
+      "rows": 441,
+      "gasFrames": 321,
+      "lastZ": 108.033058,
+      "cameraDegrees": [
+        -60.00660934866865,
+        59.999995043478656
+      ],
+      "tested": 1367,
+      "rejected": 180,
+      "captures": 127.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 18.54128410363123,
+      "p95WorkMs": 24.472747802734375,
+      "maxWorkMs": 29.661943223741318,
+      "entryHz": 36.03130662612878,
+      "periodsOver25ms": 213,
+      "spatialMeanWorkMs": [
+        18.073651742244113,
+        18.6212906182981,
+        22.45580607096354,
+        21.667027994791667,
+        20.393029378255207,
+        18.843009163813335,
+        15.321803956722169,
+        14.717734975663442
+      ]
+    },
+    {
+      "phase": 2,
+      "on": false,
+      "hour": 12,
+      "rows": 436,
+      "gasFrames": 316,
+      "lastZ": 108.004433,
+      "cameraDegrees": [
+        -59.988034287428604,
+        60.00850854120293
+      ],
+      "tested": 0,
+      "rejected": 0,
+      "captures": 124.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 18.583674263182907,
+      "p95WorkMs": 25.014211018880207,
+      "maxWorkMs": 29.460703531901043,
+      "entryHz": 35.469640745917516,
+      "periodsOver25ms": 218,
+      "spatialMeanWorkMs": [
+        18.47852563981246,
+        18.876501218237056,
+        21.538563394138954,
+        22.460026069923682,
+        20.87843562938549,
+        19.128582628038195,
+        14.62803065923997,
+        15.00732501659518
+      ]
+    },
+    {
+      "phase": 3,
+      "on": false,
+      "hour": 0,
+      "rows": 422,
+      "gasFrames": 302,
+      "lastZ": 108.021896,
+      "cameraDegrees": [
+        -59.99554158458475,
+        59.999995043478656
+      ],
+      "tested": 0,
+      "rejected": 0,
+      "captures": 121.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 20.545896360328566,
+      "p95WorkMs": 27.342403835720486,
+      "maxWorkMs": 33.06865437825521,
+      "entryHz": 33.898279074361085,
+      "periodsOver25ms": 232,
+      "spatialMeanWorkMs": [
+        21.460858191972896,
+        22.632749477108778,
+        24.23767572386652,
+        23.243983798556858,
+        22.17047974222524,
+        20.974312806740784,
+        15.26322999984499,
+        14.933609479739342
+      ]
+    },
+    {
+      "phase": 4,
+      "on": true,
+      "hour": 0,
+      "rows": 419,
+      "gasFrames": 299,
+      "lastZ": 108.582123,
+      "cameraDegrees": [
+        -59.99911824764653,
+        59.999995043478656
+      ],
+      "tested": 1989,
+      "rejected": 357,
+      "captures": 121.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 20.560282060445264,
+      "p95WorkMs": 27.97437201605903,
+      "maxWorkMs": 34.06816609700521,
+      "entryHz": 33.43633082274171,
+      "periodsOver25ms": 237,
+      "spatialMeanWorkMs": [
+        21.287176061559606,
+        22.250417541270053,
+        24.54297814002404,
+        23.84466326678241,
+        23.04458745320638,
+        19.724804065845632,
+        15.512537638346354,
+        14.85439956907242
+      ]
+    },
+    {
+      "phase": 5,
+      "on": false,
+      "hour": 0,
+      "rows": 418,
+      "gasFrames": 298,
+      "lastZ": 108.040535,
+      "cameraDegrees": [
+        -59.99930860189357,
+        59.999995043478656
+      ],
+      "tested": 0,
+      "rejected": 0,
+      "captures": 122.0,
+      "minVehicleEnvSubmissions": 1.0,
+      "framesWithoutVehicleEnvSubmissions": 0,
+      "meanWorkMs": 20.623636016731915,
+      "p95WorkMs": 27.547624376085068,
+      "maxWorkMs": 30.508168538411457,
+      "entryHz": 33.44843156595708,
+      "periodsOver25ms": 236,
+      "spatialMeanWorkMs": [
+        21.581245799123504,
+        22.356498045939595,
+        23.804419753897903,
+        23.450069308810765,
+        23.014052533873038,
+        20.721044187192565,
+        15.85496361729272,
+        14.574398747196904
+      ]
+    }
+  ],
+  "negativeControls": [
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "gate-witness"
+  ],
+  "csvSha256": "034008534b999098ef95d543e75ad1bafca9a851794a051512f252a68e05b6da",
+  "logSha256": "f3eaee48d5770713a639562594ed0e87db1bdd36ea82228f552650ffffb6ea32",
+  "limitations": [
+    "Work is elapsed non-pacing, not pure EE arithmetic",
+    "No combined VU paint gain",
+    "Gate counts include warm-up; not counts per sampled frame",
+    "One order; whole-scene raster qualification remains"
+  ]
+}

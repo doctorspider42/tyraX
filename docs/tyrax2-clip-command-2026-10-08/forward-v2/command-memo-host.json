@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "headerSha256": "cf5e958f01e002416dcfc7463b4d1b290019686c361f0b3602981f115b8937a8",
+  "checks": [
+    "miss/hit",
+    "no writer on hit",
+    "fresh-byte oracle",
+    "corrupted body rejected",
+    "all five key fields",
+    "4096 replacements",
+    "invalid body length",
+    "output canary",
+    "DMA PAD preservation",
+    "original dynamic header before memo",
+    "TC body source checks"
+  ],
+  "scope": "actual bounded memo helper, not PS2 packet writer or raster"
+}

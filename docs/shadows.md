@@ -621,6 +621,21 @@ On Motor District's main scene that is 932 decal triangles instead of 713,
 
 ### Ground shadow maps
 
+Since 1.173.3, generated games preload and retain a scene's complete ground-mask
+set during scene loading when it fits a 512 KiB accounted EE-memory budget.
+The estimate includes Indexed4 pixels, the palette and 1 KiB per mask for
+ownership/alignment overhead; this is not a VRAM reservation or a bound on
+temporary PNG-loader allocations. Each chunk still owns its ordinary texture
+reference, and the scene's extra references are released on terrain reset,
+including transitions to terrain-disabled scenes. This prevents small scenes
+from synchronously opening/decoding PNGs when driving reveals another chunk.
+Over-budget scenes retain the existing streaming behavior, with no missing
+shadows or changed rendering. Unexpected replacement texture formats abort
+the preload and release its pins. No project-format or setting change is needed;
+rebuild the game from the updated editor. See the
+[physical hitch investigation](tyrax2-road-free-hitch.md).
+
+
 *Ambience Editor > Baked lighting > Ground shadows* (1.163.0). Off by default.
 At 64 or 128 px, the **terrain** stops being a decal receiver. It gets one
 4-bit shadow map per terrain chunk instead (16×16 heightmap cells, the chunk

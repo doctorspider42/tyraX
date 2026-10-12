@@ -19,6 +19,10 @@
 #include "renderer/core/envmap/renderer_core_envmap.hpp"
 #include "debug/debug.hpp"
 
+#ifndef TYRA_ENVMAP_COALESCE_BARRIER
+#define TYRA_ENVMAP_COALESCE_BARRIER 0
+#endif
+
 namespace Tyra {
 
 RendererCoreEnvMap::RendererCoreEnvMap() {}
@@ -91,7 +95,9 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   // Drain in-flight PATH1 3D work - the raster redirect below is global GS
   // state. Before any 3D pipeline is up there is nothing to drain (and the
   // FINISH handshake would spin forever).
-  if (path1->isVU1Configured()) sync->align3D();
+  // recordGif supplies the same ordering barrier before the raster write.
+  if (path1->isVU1Configured() &&
+      !(TYRA_ENVMAP_COALESCE_BARRIER && Vif1Queue::recordingFrame())) sync->align3D();
 
   const int envZbp = static_cast<int>(zVramAddress) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
@@ -156,7 +162,8 @@ void RendererCoreEnvMap::end() {
   if (!allocated) return;  // TyraX: begin() drew nothing - restore nothing
 
   // Drain the env pass itself, then restore the frame drawing environment.
-  if (path1->isVU1Configured()) sync->align3D();
+  if (path1->isVU1Configured() &&
+      !(TYRA_ENVMAP_COALESCE_BARRIER && Vif1Queue::recordingFrame())) sync->align3D();
 
   packet2_reset(endPacket, false);
   // Modified by TyraX: restore whatever was redirected BEFORE this bracket,

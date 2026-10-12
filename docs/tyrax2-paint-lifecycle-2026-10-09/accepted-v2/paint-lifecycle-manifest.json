@@ -1,0 +1,20 @@
+{
+  "experiment": "A08 private lifecycle correctness, not performance",
+  "modes": [
+    "EE",
+    "VU",
+    "legacy fallback",
+    "VU",
+    "custom override fallback",
+    "VU"
+  ],
+  "modeFrames": 30,
+  "lodFrames": 240,
+  "phaseFrames": 2040,
+  "oracle": "every submitted EE paint colour vs accepted basis",
+  "limitations": [
+    "physical hardware blocked",
+    "custom shader is identical built-in image",
+    "not full raster comparison"
+  ]
+}

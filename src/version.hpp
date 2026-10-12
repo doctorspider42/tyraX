@@ -1,5 +1,20 @@
 #pragma once
 
+// 1.173.5: terrain residency/LOD follows the camera target before visual shake.
+// Millimetre camera jitter no longer flips half-chunk detail bands while driving.
+
+// 1.173.4: select the current material's texture filter before encoding TEX1.
+// Static replay and clipped draws no longer inherit the preceding bag's filter.
+
+// 1.173.3: bounded scene-load residency for baked ground-shadow masks.
+// Avoid PNG loading during terrain rendering on qualifying scenes.
+
+// 1.173.2: refine partial terrain strips before VU1 clipping.
+// Preserve strip order and all coplanar passes; no project format change.
+
+// 1.173.1: reuse partial static packet bodies and strip expansion by default.
+// The combined PS2 driving contrast preserves geometry and dynamic captures.
+
 // 1.173.0: all/player dynamic-light receivers with independent scene overrides.
 // Format v96 adds receiver tokens; missing/invalid values preserve full lighting.
 
@@ -5644,7 +5659,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

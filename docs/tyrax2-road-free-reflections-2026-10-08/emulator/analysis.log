@@ -1,0 +1,46 @@
+[
+  {
+    "normalPhases": [
+      0,
+      4
+    ],
+    "freezePhase": 1,
+    "offPhase": 2,
+    "bodyOffPhase": 3,
+    "freezeSavedMs": [
+      0.135301952676687,
+      0.18348988765428054
+    ],
+    "bodyOnFrozenSavedMs": 0.05206863493552838,
+    "bodyOnLiveSavedMs": [
+      -0.028676075464908024,
+      0.019511859512685525
+    ],
+    "bothOffSavedMs": [
+      0.18737058761221537,
+      0.23555852258980892
+    ]
+  },
+  {
+    "normalPhases": [
+      8,
+      4
+    ],
+    "freezePhase": 7,
+    "offPhase": 6,
+    "bodyOffPhase": 5,
+    "freezeSavedMs": [
+      0.12790853985365835,
+      0.1610212661453474
+    ],
+    "bodyOnFrozenSavedMs": 0.06528106034080317,
+    "bodyOnLiveSavedMs": [
+      -0.012809038681662166,
+      0.020303687610026877
+    ],
+    "bothOffSavedMs": [
+      0.19318960019446152,
+      0.22630232648615056
+    ]
+  }
+]

@@ -1,0 +1,5288 @@
+{
+  "scope": "original roads; explicit waits are not all EE stalls; road-triggered queue can mix owners",
+  "negativeControlsRejected": [
+    "off leakage",
+    "wait accounting",
+    "lost ID",
+    "nested waits",
+    "wrong view",
+    "unexpected window"
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "rows": 720,
+      "workMs": 7.610785806914906,
+      "waitMs": 0.0,
+      "roadCoreMs": 0.0,
+      "captureFrames": 174.0,
+      "metrics": {
+        "vifWait": 0.0,
+        "gsWait": 0.0,
+        "otherWait": 0.0,
+        "waitCalls": 0.0,
+        "submitCalls": 0.0,
+        "submitQwords": 0.0,
+        "flushCalls": 0.0,
+        "flushQwords": 0.0,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 0.0,
+        "sequenceWaitCalls": 0.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      }
+    },
+    {
+      "phase": 1,
+      "rows": 720,
+      "workMs": 7.711873273496274,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.229011380230939,
+      "captureFrames": 179.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 77.27638888888889,
+        "submitQwords": 3040.1583333333333,
+        "flushCalls": 1.0,
+        "flushQwords": 1645.2444444444445,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      }
+    },
+    {
+      "phase": 2,
+      "rows": 720,
+      "workMs": 7.614540227254232,
+      "waitMs": 0.0,
+      "roadCoreMs": 0.0,
+      "captureFrames": 174.0,
+      "metrics": {
+        "vifWait": 0.0,
+        "gsWait": 0.0,
+        "otherWait": 0.0,
+        "waitCalls": 0.0,
+        "submitCalls": 0.0,
+        "submitQwords": 0.0,
+        "flushCalls": 0.0,
+        "flushQwords": 0.0,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 0.0,
+        "sequenceWaitCalls": 0.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      }
+    }
+  ],
+  "windows": [
+    {
+      "offset": 1332,
+      "rows": 8,
+      "workMs": 7.766832563612196,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.4707654317220051,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 81.25,
+        "submitQwords": 3008.75,
+        "flushCalls": 1.0,
+        "flushQwords": 1593.75,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.748591952853733,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.707110934787327,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.26607174343532985,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2576446533203125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 4,
+          "elapsedMs": 0.13838280571831596,
+          "vertices": 600.0,
+          "counters": {
+            "Bags": 0.5,
+            "Direct": 0.5,
+            "Replay": 0.375,
+            "SnapshotBytes": 7200.0,
+            "BakeMiss": 0.125,
+            "MissNew": 0.125,
+            "CullChunks": 8.0,
+            "CullVerts": 600.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.11582141452365452,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.5,
+            "BakeMiss": 0.125,
+            "MissNew": 0.125,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06425984700520833,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0513047112358941,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "SnapshotBytes": 6444.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03834491305881076,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03626251220703125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.03376007080078125,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "Partial": 0.125,
+            "Packages": 0.125,
+            "SnapshotBytes": 30.0,
+            "ExpandCachedVerts": 24.0,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25,
+            "ClipChunks": 2.0,
+            "ClipVerts": 24.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031341552734375,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.030982123480902776,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02728822496202257,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.024912516276041668,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0245009528266059,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022123548719618056,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022057427300347224,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021463182237413194,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02083799574110243,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019313388400607638,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019191318088107638,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018971761067708332,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017303466796875,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.016681247287326388,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015898810492621526,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01587125990125868,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015115525987413194,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015038808186848959,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014888339572482638,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013207329644097222,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013197157118055556,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013195461697048612,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0129852294921875,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004784478081597222,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1344,
+      "rows": 8,
+      "workMs": 7.760201348198785,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.4442198011610243,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 77.875,
+        "submitQwords": 3043.875,
+        "flushCalls": 1.0,
+        "flushQwords": 1633.875,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.713839213053386,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.68608644273546,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.26693174574110246,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2626516554090712,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 8,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.1304143269856771,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.5,
+            "SnapshotBytes": 6444.0,
+            "BakeMiss": 0.125,
+            "MissNew": 0.125,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06608157687717015,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.0617006089952257,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.037711249457465276,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03619088066948785,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0351456536187066,
+          "vertices": 1200.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03439542982313368,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.028842502170138888,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0279799567328559,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.027184380425347224,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.024204678005642362,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022960662841796875,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022303263346354168,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021754794650607638,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02081298828125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0205535888671875,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02035225762261285,
+          "vertices": 1074.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1074.0
+          }
+        },
+        {
+          "id": 60,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.020334031846788194,
+          "vertices": 6.375,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "SnapshotBytes": 306.0,
+            "BakeMiss": 0.125,
+            "MissNew": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 6.375
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019297281901041668,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018819173177083332,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017250484890407987,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 50,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.016787211100260418,
+          "vertices": 213.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 3.0,
+            "CullVerts": 213.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01659859551323785,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 32,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015858968098958332,
+          "vertices": 246.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 246.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015855577256944444,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015811920166015625,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014998965793185763,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013807508680555556,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013708326551649306,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004796346028645833,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1500,
+      "rows": 8,
+      "workMs": 7.954356299506293,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 0.9102482265896268,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 69.25,
+        "submitQwords": 2979.875,
+        "flushCalls": 1.0,
+        "flushQwords": 1662.5,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.3901244269476996,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.351548512776693,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.27057478162977433,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.0793609619140625,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.5,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 54.75,
+            "ClipChunks": 4.75,
+            "ClipVerts": 54.75
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06835979885525173,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03399446275499132,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 17,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031328837076822914,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 51,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.028221978081597224,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 64,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.027863820393880207,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02775870429144965,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 21,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025841606987847224,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 65,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025038825141059026,
+          "vertices": 1800.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 24.0,
+            "CullVerts": 1800.0
+          }
+        },
+        {
+          "id": 22,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.023016187879774306,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0208587646484375,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 53,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01926210191514757,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 47,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019042121039496526,
+          "vertices": 57.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 57.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018729739718967013,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 37,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017416212293836806,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 18,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017263624403211806,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 55,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01714791191948785,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 33,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0158738030327691,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 66,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015130784776475694,
+          "vertices": 360.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 360.0
+          }
+        },
+        {
+          "id": 63,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014710744222005209,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 6,
+          "elapsedMs": 0.0141448974609375,
+          "vertices": 56.25,
+          "counters": {
+            "Bags": 0.75,
+            "Direct": 0.75,
+            "Replay": 0.75,
+            "CullChunks": 0.75,
+            "CullVerts": 56.25
+          }
+        },
+        {
+          "id": 46,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013192494710286459,
+          "vertices": 69.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 69.0
+          }
+        },
+        {
+          "id": 62,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013099246554904513,
+          "vertices": 567.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 8.0,
+            "CullVerts": 567.0
+          }
+        },
+        {
+          "id": 20,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 19,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012999640570746528,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 28,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012989044189453125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 23,
+          "view": 0,
+          "calls": 2,
+          "elapsedMs": 0.006548563639322917,
+          "vertices": 18.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 18.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004784478081597222,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 16.5
+          }
+        },
+        {
+          "id": 57,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004778544108072917,
+          "vertices": 3.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 3.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.0023409525553385415,
+          "vertices": 8.25,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1572,
+      "rows": 8,
+      "workMs": 7.425333234998915,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.2553147210015192,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 81.25,
+        "submitQwords": 2963.375,
+        "flushCalls": 1.0,
+        "flushQwords": 1561.625,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.355854034423828,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.370649125840929,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2708655463324653,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.26806598239474827,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06535720825195312,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03855472140842014,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.03654352823893229,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "Partial": 0.125,
+            "Packages": 0.125,
+            "SnapshotBytes": 30.0,
+            "ExpandCachedVerts": 24.0,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25,
+            "ClipChunks": 2.0,
+            "ClipVerts": 24.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03576363457573785,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03508165147569445,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031243218315972224,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.029552883572048612,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02797698974609375,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.024019029405381944,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0238541497124566,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.023144192165798612,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022694057888454862,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.022160000271267362,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.625,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02153778076171875,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02140596177842882,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021282619900173612,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01907899644639757,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018971761067708332,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017303466796875,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 4,
+          "elapsedMs": 0.015706380208333332,
+          "vertices": 600.0,
+          "counters": {
+            "Bags": 0.5,
+            "Direct": 0.5,
+            "Replay": 0.5,
+            "CullChunks": 8.0,
+            "CullVerts": 600.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015151129828559028,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015046437581380209,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014963361952039931,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014695909288194444,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013905843098958334,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013309054904513888,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013207329644097222,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013195461697048612,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013195461697048612,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013088650173611112,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004822625054253472,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1584,
+      "rows": 8,
+      "workMs": 7.683154635959202,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.3391583760579426,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 77.875,
+        "submitQwords": 3030.125,
+        "flushCalls": 1.0,
+        "flushQwords": 1624.125,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.584441290961371,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.590557522243923,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.27763621012369794,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.26882976955837673,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06991407606336805,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06526268853081597,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03780958387586805,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03507783677842882,
+          "vertices": 1200.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03481080796983507,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.029382493760850694,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.029127332899305556,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.028677622477213543,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02814017401801215,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02683469984266493,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0251418219672309,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02299711439344618,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02203581068250868,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021394093831380207,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02079221937391493,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02048958672417535,
+          "vertices": 1074.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1074.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01901033189561632,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018971761067708332,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018873426649305556,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 8,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.018326653374565974,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.625,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 50,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01689910888671875,
+          "vertices": 213.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 3.0,
+            "CullVerts": 213.0
+          }
+        },
+        {
+          "id": 32,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015858968098958332,
+          "vertices": 246.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 246.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015855577256944444,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015140109592013888,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013807508680555556,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013790554470486112,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013708326551649306,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013097127278645834,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004822625054253472,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        },
+        {
+          "id": 60,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.004502190483940972,
+          "vertices": 6.375,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 6.375
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1740,
+      "rows": 8,
+      "workMs": 7.951468573676215,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 0.9133394029405382,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 69.25,
+        "submitQwords": 2979.875,
+        "flushCalls": 1.0,
+        "flushQwords": 1662.5,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.410432603624132,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.363429599338108,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2721472846137153,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.07826317681206597,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.5,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 54.75,
+            "ClipChunks": 4.75,
+            "ClipVerts": 54.75
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06683052910698785,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 17,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0340529547797309,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03399446275499132,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031248728434244793,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 51,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.028221978081597224,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 64,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025879753960503474,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 21,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025841606987847224,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 65,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025038825141059026,
+          "vertices": 1800.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 24.0,
+            "CullVerts": 1800.0
+          }
+        },
+        {
+          "id": 22,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.023016187879774306,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 47,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021195729573567707,
+          "vertices": 57.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 57.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.020609537760416668,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 53,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019005245632595487,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01885986328125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 37,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017416212293836806,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 18,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017263624403211806,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 66,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017074161105685763,
+          "vertices": 360.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 360.0
+          }
+        },
+        {
+          "id": 33,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0158738030327691,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 55,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015131632486979166,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 6,
+          "elapsedMs": 0.0141448974609375,
+          "vertices": 56.25,
+          "counters": {
+            "Bags": 0.75,
+            "Direct": 0.75,
+            "Replay": 0.75,
+            "CullChunks": 0.75,
+            "CullVerts": 56.25
+          }
+        },
+        {
+          "id": 46,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013192494710286459,
+          "vertices": 69.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 69.0
+          }
+        },
+        {
+          "id": 62,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013099246554904513,
+          "vertices": 567.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 8.0,
+            "CullVerts": 567.0
+          }
+        },
+        {
+          "id": 20,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 19,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012999640570746528,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 63,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012990315755208334,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 28,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012989044189453125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 23,
+          "view": 0,
+          "calls": 2,
+          "elapsedMs": 0.006479899088541667,
+          "vertices": 18.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 18.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004784478081597222,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 16.5
+          }
+        },
+        {
+          "id": 57,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004778544108072917,
+          "vertices": 3.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 3.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.0023409525553385415,
+          "vertices": 8.25,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1812,
+      "rows": 8,
+      "workMs": 7.397241380479601,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.2552049424913194,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 81.25,
+        "submitQwords": 2963.375,
+        "flushCalls": 1.0,
+        "flushQwords": 1561.625,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.3157573276095915,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.321072472466363,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.27512359619140625,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.26859452989366317,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.0655398898654514,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03855005900065104,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03508165147569445,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.034722222222222224,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "Partial": 0.125,
+            "Packages": 0.125,
+            "SnapshotBytes": 30.0,
+            "ExpandCachedVerts": 24.0,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25,
+            "ClipChunks": 2.0,
+            "ClipVerts": 24.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03340869479709201,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0320235358344184,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031243218315972224,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02797698974609375,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.024140675862630207,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0233870612250434,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.023144192165798612,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022694057888454862,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.022193060980902776,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.022159152560763888,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.625,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.021490732828776043,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019422743055555556,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01907899644639757,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018971761067708332,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017303466796875,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015842437744140625,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 4,
+          "elapsedMs": 0.015706380208333332,
+          "vertices": 600.0,
+          "counters": {
+            "Bags": 0.5,
+            "Direct": 0.5,
+            "Replay": 0.5,
+            "CullChunks": 8.0,
+            "CullVerts": 600.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015151129828559028,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.014972262912326388,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013309054904513888,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013207329644097222,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013195461697048612,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013195461697048612,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012993706597222222,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0129852294921875,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004822625054253472,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1824,
+      "rows": 8,
+      "workMs": 7.651602427164714,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 1.3303468492296007,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 77.875,
+        "submitQwords": 3030.125,
+        "flushCalls": 1.0,
+        "flushQwords": 1624.125,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.5552431742350254,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.572295294867621,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 2.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.27869627210828996,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2726114061143663,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06884468926323785,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06361219618055555,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03792699178059896,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 40,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03477901882595486,
+          "vertices": 1134.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1134.0
+          }
+        },
+        {
+          "id": 42,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.031412760416666664,
+          "vertices": 1200.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1200.0
+          }
+        },
+        {
+          "id": 11,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.030546400282118056,
+          "vertices": 1293.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 18.0,
+            "CullVerts": 1293.0
+          }
+        },
+        {
+          "id": 61,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.030434078640407987,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02728271484375,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 31,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.027192857530381944,
+          "vertices": 1173.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1173.0
+          }
+        },
+        {
+          "id": 43,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0246781243218316,
+          "vertices": 1362.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1362.0
+          }
+        },
+        {
+          "id": 54,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.024422539605034724,
+          "vertices": 444.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 6.0,
+            "CullVerts": 444.0
+          }
+        },
+        {
+          "id": 44,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02413728502061632,
+          "vertices": 1356.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 19.0,
+            "CullVerts": 1356.0
+          }
+        },
+        {
+          "id": 9,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02250459459092882,
+          "vertices": 1074.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1074.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.020950741238064237,
+          "vertices": 90.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 90.0
+          }
+        },
+        {
+          "id": 45,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02013185289171007,
+          "vertices": 1155.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 16.0,
+            "CullVerts": 1155.0
+          }
+        },
+        {
+          "id": 12,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.019422743055555556,
+          "vertices": 1614.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 22.0,
+            "CullVerts": 1614.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.018971761067708332,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 15,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01885986328125,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 32,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01770231458875868,
+          "vertices": 246.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 246.0
+          }
+        },
+        {
+          "id": 10,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017299652099609375,
+          "vertices": 1122.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 15.0,
+            "CullVerts": 1122.0
+          }
+        },
+        {
+          "id": 50,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01689910888671875,
+          "vertices": 213.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 3.0,
+            "CullVerts": 213.0
+          }
+        },
+        {
+          "id": 8,
+          "view": 0,
+          "calls": 5,
+          "elapsedMs": 0.01661894056532118,
+          "vertices": 671.25,
+          "counters": {
+            "Bags": 0.625,
+            "Direct": 0.625,
+            "Replay": 0.625,
+            "CullChunks": 9.375,
+            "CullVerts": 671.25
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015855577256944444,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 56,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015416039360894097,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 59,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013807508680555556,
+          "vertices": 279.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 4.0,
+            "CullVerts": 279.0
+          }
+        },
+        {
+          "id": 58,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013790554470486112,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 49,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013097127278645834,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 14,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 26,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 60.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 60.0
+          }
+        },
+        {
+          "id": 27,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 42.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 42.0
+          }
+        },
+        {
+          "id": 39,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 13,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 717.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 10.0,
+            "CullVerts": 717.0
+          }
+        },
+        {
+          "id": 30,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 41,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012986924913194444,
+          "vertices": 120.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 2.0,
+            "CullVerts": 120.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004822625054253472,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.5,
+            "CullVerts": 22.5
+          }
+        },
+        {
+          "id": 60,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.004502190483940972,
+          "vertices": 6.375,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 6.375
+          }
+        }
+      ]
+    },
+    {
+      "offset": 1980,
+      "rows": 8,
+      "workMs": 7.947286393907335,
+      "waitMs": 0.0006646050347222222,
+      "roadCoreMs": 0.9050008985731337,
+      "captureFrames": 2.0,
+      "metrics": {
+        "vifWait": 0.00046454535590277775,
+        "gsWait": 3.729926215277778e-05,
+        "otherWait": 0.00016276041666666666,
+        "waitCalls": 7.0,
+        "submitCalls": 69.25,
+        "submitQwords": 2979.875,
+        "flushCalls": 1.0,
+        "flushQwords": 1662.5,
+        "capacityFlush": 0.0,
+        "fallbackFlush": 0.0,
+        "drainCalls": 0.0,
+        "bankWaitCalls": 1.0,
+        "sequenceWaitCalls": 2.0,
+        "barrierFlush": 0.0,
+        "arenaRetry": 0.0,
+        "errors": 0.0
+      },
+      "controls": [
+        {
+          "phase": 0,
+          "rows": 8,
+          "workMs": 7.388242085774739,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        },
+        {
+          "phase": 2,
+          "rows": 8,
+          "workMs": 7.346335940890842,
+          "waitMs": 0.0,
+          "roadCoreMs": 0.0,
+          "captureFrames": 1.0,
+          "metrics": {
+            "vifWait": 0.0,
+            "gsWait": 0.0,
+            "otherWait": 0.0,
+            "waitCalls": 0.0,
+            "submitCalls": 0.0,
+            "submitQwords": 0.0,
+            "flushCalls": 0.0,
+            "flushQwords": 0.0,
+            "capacityFlush": 0.0,
+            "fallbackFlush": 0.0,
+            "drainCalls": 0.0,
+            "bankWaitCalls": 0.0,
+            "sequenceWaitCalls": 0.0,
+            "barrierFlush": 0.0,
+            "arenaRetry": 0.0,
+            "errors": 0.0
+          }
+        }
+      ],
+      "roads": [
+        {
+          "id": 24,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.2644873725043403,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Partial": 1.0,
+            "Packages": 1.0,
+            "SnapshotBytes": 240.0,
+            "ExpandCachedVerts": 192.0,
+            "ClipChunks": 16.0,
+            "ClipVerts": 192.0
+          }
+        },
+        {
+          "id": 35,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.07641432020399305,
+          "vertices": 22.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.5,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 54.75,
+            "ClipChunks": 4.75,
+            "ClipVerts": 54.75
+          }
+        },
+        {
+          "id": 24,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.06312052408854167,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Partial": 0.25,
+            "Packages": 0.25,
+            "SnapshotBytes": 60.0,
+            "ExpandCachedVerts": 48.0,
+            "ClipChunks": 4.0,
+            "ClipVerts": 48.0
+          }
+        },
+        {
+          "id": 38,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03399446275499132,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 17,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.03288480970594618,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 21,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.029614766438802082,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 51,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.028221978081597224,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 57,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.027810414632161457,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 64,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025879753960503474,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 65,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.025038825141059026,
+          "vertices": 1800.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 24.0,
+            "CullVerts": 1800.0
+          }
+        },
+        {
+          "id": 22,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.023016187879774306,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 29,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.020964304606119793,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 47,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.02085664537217882,
+          "vertices": 57.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 57.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.020544264051649306,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 37,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01945792304144965,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 18,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017263624403211806,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 53,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.017194112141927082,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 66,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.01701566908094618,
+          "vertices": 360.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 360.0
+          }
+        },
+        {
+          "id": 46,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.016806708441840276,
+          "vertices": 69.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 69.0
+          }
+        },
+        {
+          "id": 33,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.0158738030327691,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 55,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015131632486979166,
+          "vertices": 12.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 12.0
+          }
+        },
+        {
+          "id": 19,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.015023973253038194,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 16,
+          "view": 0,
+          "calls": 6,
+          "elapsedMs": 0.0141448974609375,
+          "vertices": 56.25,
+          "counters": {
+            "Bags": 0.75,
+            "Direct": 0.75,
+            "Replay": 0.75,
+            "CullChunks": 0.75,
+            "CullVerts": 56.25
+          }
+        },
+        {
+          "id": 62,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013099246554904513,
+          "vertices": 567.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 8.0,
+            "CullVerts": 567.0
+          }
+        },
+        {
+          "id": 20,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.013003879123263888,
+          "vertices": 75.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 75.0
+          }
+        },
+        {
+          "id": 63,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012990315755208334,
+          "vertices": 321.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 5.0,
+            "CullVerts": 321.0
+          }
+        },
+        {
+          "id": 28,
+          "view": 0,
+          "calls": 8,
+          "elapsedMs": 0.012989044189453125,
+          "vertices": 66.0,
+          "counters": {
+            "Bags": 1.0,
+            "Direct": 1.0,
+            "Replay": 1.0,
+            "CullChunks": 1.0,
+            "CullVerts": 66.0
+          }
+        },
+        {
+          "id": 34,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004784478081597222,
+          "vertices": 16.5,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 16.5
+          }
+        },
+        {
+          "id": 57,
+          "view": 1,
+          "calls": 2,
+          "elapsedMs": 0.004778544108072917,
+          "vertices": 3.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 3.0
+          }
+        },
+        {
+          "id": 23,
+          "view": 0,
+          "calls": 2,
+          "elapsedMs": 0.004682752821180556,
+          "vertices": 18.0,
+          "counters": {
+            "Bags": 0.25,
+            "Direct": 0.25,
+            "Replay": 0.25,
+            "CullChunks": 0.25,
+            "CullVerts": 18.0
+          }
+        },
+        {
+          "id": 25,
+          "view": 0,
+          "calls": 1,
+          "elapsedMs": 0.0023409525553385415,
+          "vertices": 8.25,
+          "counters": {
+            "Bags": 0.125,
+            "Direct": 0.125,
+            "Replay": 0.125,
+            "CullChunks": 0.125,
+            "CullVerts": 8.25
+          }
+        }
+      ]
+    }
+  ]
+}

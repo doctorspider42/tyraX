@@ -1,0 +1,16 @@
+{
+  "pid": 31,
+  "xvfbPid": 20,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-terrain-focus-20261011-v2/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-terrain-focus-20261011-v2/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-terrain-focus-20261011-v2/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "bd7af02e8133688014b2aae14035a3ab50a010332e5439cff0b81ec4d5e051cb"
+}

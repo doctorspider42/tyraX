@@ -1,0 +1,163 @@
+{
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "frames": 720,
+      "workMs": 15.107913947399751,
+      "p95Ms": 18.924733479817707,
+      "maxMs": 21.734168158637154,
+      "loopHz": 48.16603038683022,
+      "counts": {
+        "probeCapture": 174.0,
+        "skyEligible": 16734.0,
+        "skySafe": 0.0,
+        "skyOutside": 0.0,
+        "skyApplied": 0.0,
+        "skyCullCalls": 3717.0,
+        "skyClipCalls": 16734.0
+      }
+    },
+    {
+      "phase": 1,
+      "mode": 6,
+      "frames": 720,
+      "workMs": 15.349806123898354,
+      "p95Ms": 19.322282579210068,
+      "maxMs": 21.308142768012154,
+      "loopHz": 47.95186420584628,
+      "counts": {
+        "probeCapture": 179.0,
+        "skyEligible": 16980.0,
+        "skySafe": 7009.0,
+        "skyOutside": 3845.0,
+        "skyApplied": 10854.0,
+        "skyCullCalls": 6380.0,
+        "skyClipCalls": 6126.0
+      }
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "frames": 720,
+      "workMs": 15.123478053528585,
+      "p95Ms": 18.887678358289932,
+      "maxMs": 21.600297715928818,
+      "loopHz": 48.16603255015627,
+      "counts": {
+        "probeCapture": 174.0,
+        "skyEligible": 16734.0,
+        "skySafe": 0.0,
+        "skyOutside": 0.0,
+        "skyApplied": 0.0,
+        "skyCullCalls": 3717.0,
+        "skyClipCalls": 16734.0
+      }
+    },
+    {
+      "phase": 3,
+      "mode": 0,
+      "frames": 489,
+      "workMs": 13.365840413466932,
+      "p95Ms": 17.600752088758682,
+      "maxMs": 20.750084771050346,
+      "loopHz": 54.78634889701963,
+      "counts": {
+        "probeCapture": 78.0,
+        "skyEligible": 8664.0,
+        "skySafe": 0.0,
+        "skyOutside": 0.0,
+        "skyApplied": 0.0,
+        "skyCullCalls": 2433.0,
+        "skyClipCalls": 8664.0
+      }
+    },
+    {
+      "phase": 4,
+      "mode": 6,
+      "frames": 479,
+      "workMs": 13.545650891874981,
+      "p95Ms": 18.087175157335068,
+      "maxMs": 20.924964057074654,
+      "loopHz": 53.665281466766224,
+      "counts": {
+        "probeCapture": 78.0,
+        "skyEligible": 8552.0,
+        "skySafe": 3036.0,
+        "skyOutside": 2710.0,
+        "skyApplied": 5746.0,
+        "skyCullCalls": 3205.0,
+        "skyClipCalls": 2806.0
+      }
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "frames": 478,
+      "workMs": 13.473303489383571,
+      "p95Ms": 17.789642333984375,
+      "maxMs": 21.318322075737846,
+      "loopHz": 53.5536658760682,
+      "counts": {
+        "probeCapture": 79.0,
+        "skyEligible": 8582.0,
+        "skySafe": 0.0,
+        "skyOutside": 0.0,
+        "skyApplied": 0.0,
+        "skyCullCalls": 2414.0,
+        "skyClipCalls": 8582.0
+      }
+    }
+  ],
+  "oracle": [
+    [
+      "0",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ],
+    [
+      "1",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ],
+    [
+      "2",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ],
+    [
+      "3",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ],
+    [
+      "4",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ],
+    [
+      "5",
+      "1300",
+      "0",
+      "500",
+      "400"
+    ]
+  ],
+  "negativeControls": [
+    "unapplied candidate",
+    "lost clip",
+    "bad pose",
+    "failed oracle"
+  ],
+  "scope": "private sky-only bounds; counts do not establish raster equivalence"
+}

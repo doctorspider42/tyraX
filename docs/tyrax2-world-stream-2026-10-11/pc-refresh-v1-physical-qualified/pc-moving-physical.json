@@ -1,0 +1,158 @@
+{
+  "valid": true,
+  "platform": "physical",
+  "elfSha256": "3a1876ebb8c1d6664284f69cf7010415f552ac22b8455d30b9c7d6ae20404af2",
+  "sourceFiles": 502,
+  "samplePins": {
+    "physical/bin/pc-drive-0.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "physical/bin/pc-held-0.csv": "bce495593a334ce95bb0c43c6da7828bbff7628820dfc91e11d2a65c3f2ba17b",
+    "physical/bin/pc-drive-1.csv": "6bc9f289197b969fec97f13c9810fe5f5e23504c625a331c766c1cc041cab689",
+    "physical/bin/pc-held-1.csv": "99548bc7af983195b179af3151898c5536b335da2ca9c6223b4f8fc57e67b194",
+    "physical/bin/pc-drive-2.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "physical/bin/pc-held-2.csv": "1d23dd2badb966936919840587b168711b2ea4d70323d9bd8a0c3b9694edb461",
+    "physical/bin/pc-drive-3.csv": "890dcff4bf6597dfd3bfd9f1cbe1f6c640aa2350cff4f0336cc44d97dcfdf7c6",
+    "physical/bin/pc-held-3.csv": "0f53a4c65b1ed337335b91771b974220d22e16d4488a00d636a1d6f300171745",
+    "physical/bin/pc-drive-4.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "physical/bin/pc-held-4.csv": "927bfe881821f0814963a2a2256fb4a8af4c5733d017bd2dbabc513de503414e",
+    "physical/bin/pc-drive-5.csv": "37e700f1312f5f8982b7f4d130da7edc5291a86dc1fe4c92713b5a96bd412c18",
+    "physical/bin/pc-held-5.csv": "b7c7226e6677f74630794278165472eea13519a823e00bf1d0913aa5c0c3d7ea"
+  },
+  "sampleRecords": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      997,
+      527,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      997,
+      9346,
+      0,
+      0
+    ],
+    [
+      1,
+      1,
+      1733,
+      307,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      997,
+      524,
+      0,
+      0
+    ],
+    [
+      3,
+      0,
+      1733,
+      5378,
+      0,
+      0
+    ],
+    [
+      3,
+      1,
+      1733,
+      305,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      1,
+      997,
+      538,
+      0,
+      0
+    ],
+    [
+      5,
+      0,
+      1733,
+      5368,
+      0,
+      0
+    ],
+    [
+      5,
+      1,
+      1733,
+      306,
+      0,
+      0
+    ]
+  ],
+  "negativeControls": [
+    "missing-record",
+    "overflow",
+    "late-callback",
+    "wrong-period",
+    "missing-row",
+    "wrong-phase",
+    "backwards-time",
+    "IO-in-drive",
+    "warmup-in-drive"
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "periodUs": 0
+    },
+    {
+      "phase": 1,
+      "periodUs": 997
+    },
+    {
+      "phase": 2,
+      "periodUs": 0
+    },
+    {
+      "phase": 3,
+      "periodUs": 1733
+    },
+    {
+      "phase": 4,
+      "periodUs": 0
+    },
+    {
+      "phase": 5,
+      "periodUs": 1733
+    }
+  ],
+  "logSha256": "572b2b3bbb21223a3affd8688436c780cd53e0e215a486b013aa88844d5a8b45",
+  "currentWorkloadQualificationSha256": "33483054c986f9936515b73b1e2e4dd966852e529a99d4a372b1a3a82cbfa87a",
+  "scope": "Qualified current direct+paint raw PC residency; IRQ mask/preemption bias, not exclusive cycles or a60fps ceiling"
+}

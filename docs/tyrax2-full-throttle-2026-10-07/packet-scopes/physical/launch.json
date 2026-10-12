@@ -1,0 +1,7 @@
+{
+  "cwd": "F:/Projects/tyrax2-drive-scopes-20261007-v1/physical/bin",
+  "arguments": "-h 192.168.100.150 execee host:vehicle-playground.elf -ps2link",
+  "pid": 10084,
+  "startedUtc": "2026-10-07T20:03:33.7655954Z",
+  "elfSha256": "50a1b1af6d329a2f252aea102bdd1dade0066c0ad27d3f61d3ae3d26fa6eede4"
+}

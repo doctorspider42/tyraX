@@ -1,0 +1,89 @@
+{
+  "rasterEqual": false,
+  "stages": [
+    [
+      0,
+      102,
+      106,
+      1833792,
+      0
+    ],
+    [
+      1,
+      102,
+      106,
+      1833792,
+      0
+    ],
+    [
+      2,
+      102,
+      106,
+      1833792,
+      1
+    ],
+    [
+      3,
+      102,
+      106,
+      1833792,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "hashes": [
+        "806205ba726fd4f469c3c528e315bf4738b25edaf223b63e37c8e47ca5866ea0",
+        "806205ba726fd4f469c3c528e315bf4738b25edaf223b63e37c8e47ca5866ea0",
+        "806205ba726fd4f469c3c528e315bf4738b25edaf223b63e37c8e47ca5866ea0",
+        "5d8dbf55906fddabb1686e46533a3bb2c21543b296b170abf8694e5a9f59df8e"
+      ],
+      "differingBytesVsCapture": [
+        0,
+        0,
+        0,
+        192
+      ],
+      "replayVsControlBytes": 0,
+      "returnChangedChannels": [
+        0,
+        1,
+        2
+      ],
+      "returnChangedBounds": [
+        13,
+        131,
+        373,
+        147
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "hashes": [
+        "84ff2daa6601973b7580c0e4cc72be231e86869bcf596a12c0b3879670436e04",
+        "84ff2daa6601973b7580c0e4cc72be231e86869bcf596a12c0b3879670436e04",
+        "84ff2daa6601973b7580c0e4cc72be231e86869bcf596a12c0b3879670436e04",
+        "84ff2daa6601973b7580c0e4cc72be231e86869bcf596a12c0b3879670436e04"
+      ],
+      "differingBytesVsCapture": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "replayVsControlBytes": 0
+    }
+  },
+  "elfSha256": "289085e6fa767e15416bb37a4322afeaeda200ef0ce5ad223db247e67c6ef50d",
+  "mode": "replay",
+  "scope": "Only frozen day Scene; no physical speed or complete command replay claim"
+}

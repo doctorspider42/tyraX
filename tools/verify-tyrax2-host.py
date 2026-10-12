@@ -53,8 +53,12 @@ def extract_interleave(directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", default=None, help="Host g++/clang++ executable")
-    parser.add_argument("--only", choices=("all", "adaptive", "count"), default="all")
+    parser.add_argument("--only", choices=("all", "adaptive", "count", "partial-baked"), default="all")
+    parser.add_argument("--submission-candidate", action="store_true",
+                        help="Test the rejected submission experiment in temporary sources; requires --only count")
     args = parser.parse_args()
+    if args.submission_candidate and args.only != "count":
+        parser.error("--submission-candidate requires --only count")
     compiler = args.compiler or shutil.which("g++") or shutil.which("clang++")
     if not compiler:
         parser.error("No host compiler found; pass --compiler /path/to/g++")
@@ -63,6 +67,27 @@ def main():
     environment["PATH"] = str(Path(compiler).parent) + os.pathsep + environment.get("PATH", "")
     with tempfile.TemporaryDirectory(prefix="tyrax2-host-") as scratch:
         directory = Path(scratch)
+        source_root = ROOT
+        if args.submission_candidate:
+            source_root = directory / "candidate"
+            shutil.copytree(ROOT / "vendor/tyra/engine/inc",
+                            source_root / "vendor/tyra/engine/inc")
+            queue = Path("vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp")
+            (source_root / queue.parent).mkdir(parents=True)
+            shutil.copy2(ROOT / queue, source_root / queue)
+            (source_root / "tools").mkdir()
+            shutil.copy2(ROOT / "tools/verify-frame-arena.cpp",
+                         source_root / "tools/verify-frame-arena.cpp")
+            test_source = source_root / "tools/verify-frame-arena.cpp"
+            test_source.write_bytes(test_source.read_text(encoding="utf-8").encode("utf-8"))
+            for source in source_root.rglob("*"):
+                if source.is_file():
+                    source.chmod(0o644)
+            evidence = ROOT / "docs/tyrax2-full-throttle-2026-10-07/submit-fix"
+            for name in ("engine-candidate.patch", "host-candidate.patch"):
+                command = ["git", "apply", "-p1", str(evidence / name)]
+                subprocess.run(command[:2] + ["--check"] + command[2:], cwd=source_root, check=True)
+                subprocess.run(command, cwd=source_root, check=True)
         # HardwareTrace is compiled out; its declarations only need EE typedefs.
         # This is a host type shim, not a stubbed arena or selector algorithm.
         (directory / "tamtypes.h").write_text(
@@ -76,11 +101,15 @@ def main():
             targets.extend(("verify-interleave.cpp", "verify-warp-generation.cpp"))
         if args.only in ("all", "count"):
             targets.append("verify-frame-arena.cpp")
+        if args.only in ("all", "partial-baked"):
+            targets.append("verify-stapip-baked-body.cpp")
+        if args.only == "all":
+            targets.append("verify-frame-writer.cpp")
         for target in targets:
             executable = directory / (Path(target).stem + (".exe" if os.name == "nt" else ""))
             command = [compiler, "-std=c++17", "-O0", "-DTYRA_HARDWARE_TRACE=0",
-                       "-I" + str(directory), "-I" + str(ROOT / "vendor/tyra/engine/inc"),
-                       str(ROOT / "tools" / target), "-o", str(executable)]
+                       "-I" + str(directory), "-I" + str(source_root / "vendor/tyra/engine/inc"),
+                       str(source_root / "tools" / target), "-o", str(executable)]
             subprocess.run(command, check=True, env=environment)
             subprocess.run([str(executable)], check=True, env=environment)
     print("PASS host-only actual-source controls; no target performance claim")

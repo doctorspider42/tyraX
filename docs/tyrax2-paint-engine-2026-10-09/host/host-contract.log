@@ -1,0 +1,55 @@
+{
+  "defaultTextureBagDeclarationsUnchanged": true,
+  "capability-0-guardMutation-False": true,
+  "capability-1-guardMutation-False": true,
+  "capability-1-guardMutation-True": false,
+  "wrappers-000": [
+    "StaPipVU1Cull_TCE",
+    "StaPipVU1Clip_TC",
+    "StaPipVU1Clip_TC",
+    "StaPipVU1Clip_TC"
+  ],
+  "wrappers-001": [
+    "StaPipVU1Cull_TCE_ENVN",
+    "StaPipVU1Clip_TC",
+    "StaPipVU1Clip_TC",
+    "StaPipVU1Clip_TC"
+  ],
+  "wrappers-010": [
+    "StaPipVU1Cull_TCE",
+    "StaPipVU1Clip_TC_FOLD",
+    "StaPipVU1Clip_TC_FOLD",
+    "StaPipVU1Clip_TC_FOLD"
+  ],
+  "wrappers-011": [
+    "StaPipVU1Cull_TCE_ENVN",
+    "StaPipVU1Clip_TC_FOLD",
+    "StaPipVU1Clip_TC_FOLD",
+    "StaPipVU1Clip_TC_FOLD"
+  ],
+  "wrappers-100": [
+    "StaPipVU1Cull_TCE_PAINT",
+    "StaPipVU1Clip_TC_PAINT",
+    "StaPipVU1Clip_TC_PAINT",
+    "StaPipVU1Clip_TC_PAINT"
+  ],
+  "wrappers-101": [
+    "StaPipVU1Cull_TCE_ENVN_PAINT",
+    "StaPipVU1Clip_TC_PAINT",
+    "StaPipVU1Clip_TC_PAINT",
+    "StaPipVU1Clip_TC_PAINT"
+  ],
+  "wrappers-110": [
+    "StaPipVU1Cull_TCE_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT"
+  ],
+  "wrappers-111": [
+    "StaPipVU1Cull_TCE_ENVN_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT",
+    "StaPipVU1Clip_TC_FOLD_PAINT"
+  ]
+}
+PASS actual capability/guard both flags; NDEBUG guard mutation rejected; 32 wrapper preprocesses

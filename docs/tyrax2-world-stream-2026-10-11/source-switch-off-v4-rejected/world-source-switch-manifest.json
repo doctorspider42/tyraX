@@ -1,0 +1,11 @@
+{
+  "runtimeSwitch": true,
+  "mode": "OFF",
+  "generatorSha256": "34c76a6dd60008f64d6d1a477426cfdfa04bc7a8699cbb62894e4db2baa7163d",
+  "controlSha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+  "sourceElfSha256": "50d27d68dd975b1b524ac5426ea9ed3999846cf9b39c9fc880f82737add92dfe",
+  "reuseBuilt": true,
+  "recoveredInvalidControl": true,
+  "reserveBytes": 2097152,
+  "status": "UNQUALIFIED"
+}

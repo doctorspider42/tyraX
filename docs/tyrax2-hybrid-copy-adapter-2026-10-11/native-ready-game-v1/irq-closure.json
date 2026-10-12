@@ -1,0 +1,72 @@
+{
+  "valid": true,
+  "elfSha256": "1cdb92ca0eb321bea33a8088760e77427a640f22fdc695c11bb5a6bd7086f147",
+  "symbolElfSha256": "87e33899beadebe4cd4fcc662cc9efd871665b3c93320d8ebcedbfc0c0a66fa3",
+  "disassemblySha256": "ba68171dde508db086ec7390492c7069c4bde696a29b9fc3ea79d2da14fb0265",
+  "roots": [
+    "Tyra::HybridCopyTrial::startISR(int)",
+    "Tyra::HybridCopyTrial::endISR(int)",
+    "Tyra::HybridCopyTrial::finishISR(int)",
+    "Tyra::HybridCopyTrial::nativeISR(int)"
+  ],
+  "boundCallbacks": [
+    "Tyra::HybridCopyTrial::queueProof(unsigned long)",
+    "Tyra::HybridCopyTrial::window()"
+  ],
+  "reachable": [
+    "Tyra::HybridCopyAdapter<Tyra::HybridCopyTrial::Hardware>::nativeReadyISR() [clone .part.0]",
+    "Tyra::HybridCopyTrial::endISR(int)",
+    "Tyra::HybridCopyTrial::finishISR(int)",
+    "Tyra::HybridCopyTrial::nativeISR(int)",
+    "Tyra::HybridCopyTrial::queueProof(unsigned long)",
+    "Tyra::HybridCopyTrial::startISR(int)",
+    "Tyra::HybridCopyTrial::window()",
+    "Tyra::Vif1Queue::canCopyCompletedNativeFrame(unsigned int)"
+  ],
+  "calls": [
+    {
+      "from": "Tyra::HybridCopyTrial::queueProof(unsigned long)",
+      "to": "Tyra::Vif1Queue::canCopyCompletedNativeFrame(unsigned int)"
+    },
+    {
+      "from": "Tyra::HybridCopyTrial::nativeISR(int)",
+      "to": "Tyra::HybridCopyAdapter<Tyra::HybridCopyTrial::Hardware>::nativeReadyISR() [clone .part.0]"
+    },
+    {
+      "from": "Tyra::HybridCopyTrial::finishISR(int)",
+      "to": "Tyra::HybridCopyAdapter<Tyra::HybridCopyTrial::Hardware>::nativeReadyISR() [clone .part.0]"
+    }
+  ],
+  "indirect": [
+    {
+      "function": "Tyra::HybridCopyTrial::nativeISR(int)",
+      "instruction": "33cc2c:\t0320f809 \tjalr\tt9"
+    },
+    {
+      "function": "Tyra::HybridCopyTrial::nativeISR(int)",
+      "instruction": "33cca8:\t0320f809 \tjalr\tt9"
+    },
+    {
+      "function": "Tyra::HybridCopyTrial::finishISR(int)",
+      "instruction": "33cf6c:\t0320f809 \tjalr\tt9"
+    },
+    {
+      "function": "Tyra::HybridCopyTrial::finishISR(int)",
+      "instruction": "33cfe8:\t0320f809 \tjalr\tt9"
+    },
+    {
+      "function": "Tyra::HybridCopyTrial::startISR(int)",
+      "instruction": "33dce4:\t0320f809 \tjalr\tt9"
+    },
+    {
+      "function": "Tyra::HybridCopyTrial::startISR(int)",
+      "instruction": "33dd58:\t0320f809 \tjalr\tt9"
+    }
+  ],
+  "trialSha256": "4764d42e719bf375da9c9e457d2c1ffc20ec68b6e535b9e284007a36a8ecfdaa",
+  "limits": [
+    "Application closure plus source-bound callback targets, not BIOS interrupt routing.",
+    "No elapsed-time, cache/lifetime, exclusive GS owner or WCET proof.",
+    "Constructor/source binding is required; not arbitrary indirect target resolution."
+  ]
+}

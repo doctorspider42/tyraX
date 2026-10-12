@@ -56,6 +56,48 @@ let the handler put a half-drawn frame on screen.
 
 ## Hybrid triple buffering
 
+### Diagnostic Limit: Two Different Schedules
+
+In this implementation, Hybrid2 is one fixed CT32 draw target and one CT16
+display target, not two interchangeable scene buffers. Core waits for VBlank
+AFTER the old VIF/GS job finishes, then flipBuffers emits the conversion copy
+into the display target. Hybrid3 instead copies into an unscanned CT16 target,
+waits for copy/restore FINISH and queues that target for VBlank ISR publication.
+The comparison therefore changes copy/publication scheduling as well as storage.
+Do not claim that adding a third buffer made EE packet preparation faster.
+
+A38 both physical orders improve roughly49..50 to59Hz day and41 to55Hz night
+while mean non-pacing work remains roughly14/16ms. This demonstrates a scheduling
+dependency, not an exclusive EE/GS attribution or proof that two buffers cannot
+reach60. A39's specific early-ready publication hook activates but regresses;
+do not repeat it as the next fix. User requests two-buffer architecture remain
+the target rather than promoting Hybrid3 as the answer.
+
+Next discriminating design, NOT yet implemented: compare actual Hybrid2 with
+ordinary alternating CT32 double buffering under the same moving scene. CT32x2
+avoids the conversion copy, but uses the same colour-storage budget as Hybrid3,
+not Hybrid2, and changes displayed colour format/dithering. Explicitly qualify
+scene/environment readbacks, actual target rotation, VRAM grants and presentation
+before physical pricing. This is an architecture diagnostic, not a drop-in
+equal-output candidate or isolated measurement of copy cost. A third-buffer
+result alone cannot distinguish output layout, queue timing and tail variation.
+Burnout's reported two-buffer operation is a reference observation; its actual
+format/schedule and equal workload have not been established here.
+
+Follow-up [offline recheck](tyrax2-burnout-buffers-2026-10-11/README.md) now
+establishes the sampled format/address layout: fixed CT32 scene/block2240 and
+fixed CT16S display/block0, with a dithered final conversion copy. This resembles
+Hybrid2, NOT ordinary alternating CT32. It strengthens the synchronization/
+submission-schedule question, not a claim that removing the copy matches Burnout.
+Actual EE waits and physical cost remain unknown; prioritize those dependencies.
+
+[Current linked SDK audit](tyrax2-vblank-sdk-2026-10-11/README.md) proves the
+double path clears old VSINT and waits for a fresh edge. A latched bit does not
+prove active blank; blindly skipping this wait risks tearing. EE already prepares
+N+1 while N runs, but Hybrid2 old-copy submission waits for main callback arrival.
+An independent immutable VBlank copy protocol is a different proposed two-target
+architecture, not A39's rejected renderer callback or a implemented/default fix.
+
 Hybrid colour depth supports the same vblank queue with different buffer roles:
 slot 0 is always the PSMCT32 draw target, and slots 1 and 2 are PSMCT16 display
 targets. One display target is scanned out while the other holds the queued
@@ -96,6 +138,15 @@ BLSS fixture completed two field/full-PAL cycles, granting three/two buffers
 each time, then produced fresh captures; ordinary 32-bit triple buffering
 still drew into all three CT32 targets. These are correctness checks, not a
 hardware speedup measurement.
+
+Current moving Vehicle Playground physical evidence is separate from those
+historical correctness/synthetic-load tests: [A38 both orders](tyrax2-hybrid-triple-2026-10-11.md)
+uses actual Hybrid448x448 permanent VRAM rebuilds, roads/live reflections/night
+lights and exact source/main/env return gates. Triple actual DISPFB hand-offs
+are58.82..58.93Hz day and54.89..55.22 night, versus double48.84..50.42/40.83..41.52.
+The substantial gain is pacing, not reduced packet preparation; long display
+intervals remain, so neither stable60 nor lower input-to-photon latency follows.
+Normal-production promotion remains separate from the common private baseline.
 
 ## The measurements
 

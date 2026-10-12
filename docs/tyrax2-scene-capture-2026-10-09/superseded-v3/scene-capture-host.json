@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "headerSha256": "293b49aab2573f3b8e1c26acc315bdc9044fd87b4597398d8a8b4081f023e084",
+  "checks": [
+    "off gates",
+    "owner/pass/view",
+    "bag reconciliation",
+    "exact float bits",
+    "actual vs logical chunks",
+    "missing planes rejected",
+    "bag/clip overflow rejected",
+    "oversize rejected",
+    "drive gates",
+    "no clocks",
+    "ASan/UBSan"
+  ]
+}

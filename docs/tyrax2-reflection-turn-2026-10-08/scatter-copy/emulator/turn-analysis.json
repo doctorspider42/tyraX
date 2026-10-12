@@ -1,0 +1,1303 @@
+{
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "parked": {
+        "rows": 120,
+        "workMs": 4.2431909066659435,
+        "p50Ms": 4.241217719184029,
+        "p95Ms": 4.277513292100695,
+        "maxMs": 4.306376139322917,
+        "loopHz": 59.939910296836516,
+        "periodP95Ms": 16.697309705946182,
+        "maxPeriodMs": 16.705735948350693,
+        "presentations": 120,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 0,
+          "paint": 0,
+          "captureBlocked": 0,
+          "envEligible": 240,
+          "envDrawn": 240,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "turn": {
+        "rows": 720,
+        "workMs": 6.283839741459599,
+        "p50Ms": 5.715443929036459,
+        "p95Ms": 8.744703504774305,
+        "maxMs": 11.159596761067709,
+        "loopHz": 59.93997087145702,
+        "periodP95Ms": 16.698143853081596,
+        "maxPeriodMs": 16.754187689887154,
+        "presentations": 720,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 174,
+          "paint": 568,
+          "captureBlocked": 0,
+          "envEligible": 1440,
+          "envDrawn": 1440,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "bins": [
+        {
+          "tFrom": 0,
+          "rows": 60,
+          "workMs": 5.983030418113426,
+          "p50Ms": 5.546298556857639,
+          "p95Ms": 7.699954562717014,
+          "maxMs": 8.676720513237846,
+          "loopHz": 59.939280260361244,
+          "periodP95Ms": 16.70410834418403,
+          "maxPeriodMs": 16.754187689887154,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 49,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 20,
+          "rows": 60,
+          "workMs": 6.186165873209635,
+          "p50Ms": 5.697833591037327,
+          "p95Ms": 8.238861083984375,
+          "maxMs": 8.744703504774305,
+          "loopHz": 59.94041486347441,
+          "periodP95Ms": 16.704830593532986,
+          "maxPeriodMs": 16.720872667100693,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 40,
+          "rows": 60,
+          "workMs": 6.522942776150174,
+          "p50Ms": 6.1333262125651045,
+          "p95Ms": 8.945668538411459,
+          "maxMs": 9.023827446831596,
+          "loopHz": 59.94010806158092,
+          "periodP95Ms": 16.699785020616318,
+          "maxPeriodMs": 16.712351481119793,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 60,
+          "rows": 60,
+          "workMs": 6.410694772225839,
+          "p50Ms": 6.066552056206597,
+          "p95Ms": 8.251719156901041,
+          "maxMs": 9.478142632378471,
+          "loopHz": 59.93998745335772,
+          "periodP95Ms": 16.695899115668404,
+          "maxPeriodMs": 16.707482231987846,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 12,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 80,
+          "rows": 60,
+          "workMs": 6.147397076642072,
+          "p50Ms": 5.888127644856771,
+          "p95Ms": 8.013058132595486,
+          "maxMs": 8.182786729600695,
+          "loopHz": 59.94000146337894,
+          "periodP95Ms": 16.692064073350693,
+          "maxPeriodMs": 16.698900010850693,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 100,
+          "rows": 60,
+          "workMs": 5.883071051703559,
+          "p50Ms": 5.451838175455729,
+          "p95Ms": 7.585991753472222,
+          "maxMs": 8.032847086588541,
+          "loopHz": 59.94000186946661,
+          "periodP95Ms": 16.698035346137154,
+          "maxPeriodMs": 16.699357774522568,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 120,
+          "rows": 60,
+          "workMs": 6.0312698929398145,
+          "p50Ms": 5.591520521375868,
+          "p95Ms": 8.19975111219618,
+          "maxMs": 9.07124498155382,
+          "loopHz": 59.93961080959002,
+          "periodP95Ms": 16.697316487630207,
+          "maxPeriodMs": 16.717030843098957,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 140,
+          "rows": 60,
+          "workMs": 6.501376173231337,
+          "p50Ms": 6.214913262261285,
+          "p95Ms": 8.852640787760416,
+          "maxMs": 8.898196750217014,
+          "loopHz": 59.94014339135438,
+          "periodP95Ms": 16.69793023003472,
+          "maxPeriodMs": 16.71444363064236,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 160,
+          "rows": 60,
+          "workMs": 6.690505924931279,
+          "p50Ms": 6.2919921875,
+          "p95Ms": 9.32199435763889,
+          "maxMs": 9.502078586154514,
+          "loopHz": 59.94009973675531,
+          "periodP95Ms": 16.69739447699653,
+          "maxPeriodMs": 16.712293836805557,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 180,
+          "rows": 60,
+          "workMs": 6.566262026186343,
+          "p50Ms": 5.776294284396702,
+          "p95Ms": 9.30085923936632,
+          "maxMs": 11.159596761067709,
+          "loopHz": 59.940000245115975,
+          "periodP95Ms": 16.697316487630207,
+          "maxPeriodMs": 16.734693739149307,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 12,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 200,
+          "rows": 60,
+          "workMs": 6.447332707157841,
+          "p50Ms": 5.832655164930555,
+          "p95Ms": 8.831729465060764,
+          "maxMs": 8.874749077690971,
+          "loopHz": 59.93979415634228,
+          "periodP95Ms": 16.697655571831596,
+          "maxPeriodMs": 16.701334635416668,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 220,
+          "rows": 60,
+          "workMs": 6.036028205023872,
+          "p50Ms": 5.5924072265625,
+          "p95Ms": 7.83708021375868,
+          "maxMs": 8.020260281032986,
+          "loopHz": 59.94020816271389,
+          "periodP95Ms": 16.697947184244793,
+          "maxPeriodMs": 16.704233805338543,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        }
+      ],
+      "worst": [
+        {
+          "offset": 1747,
+          "whole": 4919646,
+          "pacing": 1628547,
+          "update": 152661,
+          "render": 4766985,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1987,
+          "whole": 4919027,
+          "pacing": 1636026,
+          "update": 152156,
+          "render": 4766871,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1507,
+          "whole": 4917698,
+          "pacing": 1636045,
+          "update": 152080,
+          "render": 4765618,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1493,
+          "whole": 4919057,
+          "pacing": 2116780,
+          "update": 153886,
+          "render": 4765171,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1629,
+          "whole": 4919517,
+          "pacing": 2124299,
+          "update": 151525,
+          "render": 4767992,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1389,
+          "whole": 4915321,
+          "pacing": 2128331,
+          "update": 152358,
+          "render": 4762963,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1973,
+          "whole": 4919025,
+          "pacing": 2133761,
+          "update": 157124,
+          "render": 4761901,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1869,
+          "whole": 4916145,
+          "pacing": 2132577,
+          "update": 152271,
+          "render": 4763874,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1733,
+          "whole": 4919025,
+          "pacing": 2138153,
+          "update": 151690,
+          "render": 4767335,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1485,
+          "whole": 4919028,
+          "pacing": 2169860,
+          "update": 156536,
+          "render": 4762492,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "mode": 5,
+      "parked": {
+        "rows": 120,
+        "workMs": 4.254464071768302,
+        "p50Ms": 4.253300984700521,
+        "p95Ms": 4.282101101345486,
+        "maxMs": 4.29176500108507,
+        "loopHz": 59.93991049987973,
+        "periodP95Ms": 16.69678412543403,
+        "maxPeriodMs": 16.70581732855903,
+        "presentations": 120,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 0,
+          "paint": 0,
+          "captureBlocked": 0,
+          "envEligible": 240,
+          "envDrawn": 240,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "turn": {
+        "rows": 720,
+        "workMs": 6.313652749709141,
+        "p50Ms": 5.820281982421875,
+        "p95Ms": 8.791544596354166,
+        "maxMs": 11.402655707465279,
+        "loopHz": 59.939971159102164,
+        "periodP95Ms": 16.69843207465278,
+        "maxPeriodMs": 16.74083794487847,
+        "presentations": 720,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 179,
+          "paint": 568,
+          "captureBlocked": 0,
+          "envEligible": 1440,
+          "envDrawn": 1440,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "bins": [
+        {
+          "tFrom": 0,
+          "rows": 60,
+          "workMs": 5.917786774811922,
+          "p50Ms": 5.626385158962673,
+          "p95Ms": 7.171668158637153,
+          "maxMs": 8.43124050564236,
+          "loopHz": 59.93987273386519,
+          "periodP95Ms": 16.703904893663193,
+          "maxPeriodMs": 16.74083794487847,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 14,
+            "paint": 49,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 20,
+          "rows": 60,
+          "workMs": 6.152958905255353,
+          "p50Ms": 5.866651746961805,
+          "p95Ms": 7.736728244357639,
+          "maxMs": 8.199066162109375,
+          "loopHz": 59.93996999160133,
+          "periodP95Ms": 16.704837375217014,
+          "maxPeriodMs": 16.72087944878472,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 40,
+          "rows": 60,
+          "workMs": 6.522950405544705,
+          "p50Ms": 5.91127692328559,
+          "p95Ms": 9.01841566297743,
+          "maxMs": 9.403717041015625,
+          "loopHz": 59.93996471246768,
+          "periodP95Ms": 16.699588351779514,
+          "maxPeriodMs": 16.72333441840278,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 60,
+          "rows": 60,
+          "workMs": 6.588052142107928,
+          "p50Ms": 5.941396077473958,
+          "p95Ms": 9.3892822265625,
+          "maxMs": 10.961673312717014,
+          "loopHz": 59.939986235095326,
+          "periodP95Ms": 16.699873182508682,
+          "maxPeriodMs": 16.701463487413193,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 80,
+          "rows": 60,
+          "workMs": 6.153392989547164,
+          "p50Ms": 5.827138264973959,
+          "p95Ms": 8.284542507595486,
+          "maxMs": 8.77729966905382,
+          "loopHz": 59.94000105729128,
+          "periodP95Ms": 16.697408040364582,
+          "maxPeriodMs": 16.699049207899307,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 100,
+          "rows": 60,
+          "workMs": 5.887540577076099,
+          "p50Ms": 5.592174953884548,
+          "p95Ms": 7.395562065972222,
+          "maxMs": 7.492740207248264,
+          "loopHz": 59.93913569697958,
+          "periodP95Ms": 16.698299831814236,
+          "maxPeriodMs": 16.711503770616318,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 120,
+          "rows": 60,
+          "workMs": 6.01599612765842,
+          "p50Ms": 5.758595784505208,
+          "p95Ms": 7.381462944878472,
+          "maxMs": 8.390411376953125,
+          "loopHz": 59.939541369584674,
+          "periodP95Ms": 16.7039794921875,
+          "maxPeriodMs": 16.71703423394097,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 140,
+          "rows": 60,
+          "workMs": 6.490061668113426,
+          "p50Ms": 6.254557291666666,
+          "p95Ms": 8.683302137586805,
+          "maxMs": 8.931908501519096,
+          "loopHz": 59.9403044063091,
+          "periodP95Ms": 16.698282877604168,
+          "maxPeriodMs": 16.71432834201389,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 160,
+          "rows": 60,
+          "workMs": 6.701485527886285,
+          "p50Ms": 6.244745890299479,
+          "p95Ms": 9.401743570963541,
+          "maxMs": 9.68252902560764,
+          "loopHz": 59.94087476762889,
+          "periodP95Ms": 16.696896023220486,
+          "maxPeriodMs": 16.726304796006943,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 180,
+          "rows": 60,
+          "workMs": 6.7827306111653645,
+          "p50Ms": 6.085233900282118,
+          "p95Ms": 9.43266126844618,
+          "maxMs": 11.402655707465279,
+          "loopHz": 59.94000004207215,
+          "periodP95Ms": 16.698893229166668,
+          "maxPeriodMs": 16.72573513454861,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 200,
+          "rows": 60,
+          "workMs": 6.4833341245298035,
+          "p50Ms": 6.043726603190104,
+          "p95Ms": 8.720506456163195,
+          "maxMs": 9.26753404405382,
+          "loopHz": 59.94000126033511,
+          "periodP95Ms": 16.68539767795139,
+          "maxPeriodMs": 16.69738091362847,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 220,
+          "rows": 60,
+          "workMs": 6.067543142813223,
+          "p50Ms": 5.732225206163195,
+          "p95Ms": 7.613742404513889,
+          "maxMs": 7.78169420030382,
+          "loopHz": 59.94000166642277,
+          "periodP95Ms": 16.695448133680557,
+          "maxPeriodMs": 16.698333740234375,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        }
+      ],
+      "worst": [
+        {
+          "offset": 1984,
+          "whole": 4919029,
+          "pacing": 1556249,
+          "update": 151419,
+          "render": 4767610,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1744,
+          "whole": 4915433,
+          "pacing": 1557687,
+          "update": 151375,
+          "render": 4764058,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1504,
+          "whole": 4922741,
+          "pacing": 1567902,
+          "update": 151585,
+          "render": 4771156,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1384,
+          "whole": 4919025,
+          "pacing": 1686296,
+          "update": 155801,
+          "render": 4763224,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1864,
+          "whole": 4921906,
+          "pacing": 1690916,
+          "update": 151961,
+          "render": 4769945,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1624,
+          "whole": 4919029,
+          "pacing": 1688776,
+          "update": 151212,
+          "render": 4767817,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1976,
+          "whole": 4923142,
+          "pacing": 2067648,
+          "update": 151041,
+          "render": 4772101,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1496,
+          "whole": 4919028,
+          "pacing": 2064410,
+          "update": 155868,
+          "render": 4763160,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1736,
+          "whole": 4919030,
+          "pacing": 2068039,
+          "update": 151238,
+          "render": 4767792,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1512,
+          "whole": 4919025,
+          "pacing": 2137220,
+          "update": 151299,
+          "render": 4767726,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "parked": {
+        "rows": 120,
+        "workMs": 4.250785629837601,
+        "p50Ms": 4.250339084201389,
+        "p95Ms": 4.276787651909722,
+        "maxMs": 4.297220865885417,
+        "loopHz": 59.939910296836516,
+        "periodP95Ms": 16.697313096788193,
+        "maxPeriodMs": 16.705735948350693,
+        "presentations": 120,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 0,
+          "paint": 0,
+          "captureBlocked": 0,
+          "envEligible": 240,
+          "envDrawn": 240,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "turn": {
+        "rows": 720,
+        "workMs": 6.298371011239511,
+        "p50Ms": 5.7342885335286455,
+        "p95Ms": 8.819095187717014,
+        "maxMs": 11.224724663628471,
+        "loopHz": 59.939970854536725,
+        "periodP95Ms": 16.698099772135418,
+        "maxPeriodMs": 16.741075303819443,
+        "presentations": 720,
+        "workOverField": 0,
+        "longEntryPeriods": 0,
+        "counts": {
+          "probeCapture": 174,
+          "paint": 568,
+          "captureBlocked": 0,
+          "envEligible": 1440,
+          "envDrawn": 1440,
+          "envSkipped": 0,
+          "paintBlocked": 0
+        }
+      },
+      "bins": [
+        {
+          "tFrom": 0,
+          "rows": 60,
+          "workMs": 5.987576689543547,
+          "p50Ms": 5.55712890625,
+          "p95Ms": 7.70597669813368,
+          "maxMs": 8.579630533854166,
+          "loopHz": 59.93883134461139,
+          "periodP95Ms": 16.697580973307293,
+          "maxPeriodMs": 16.741075303819443,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 49,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 20,
+          "rows": 60,
+          "workMs": 6.184886678059896,
+          "p50Ms": 5.705081515842014,
+          "p95Ms": 8.234520806206596,
+          "maxMs": 8.63235812717014,
+          "loopHz": 59.940938322267954,
+          "periodP95Ms": 16.70484076605903,
+          "maxPeriodMs": 16.715067545572918,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 40,
+          "rows": 60,
+          "workMs": 6.562944143789786,
+          "p50Ms": 6.144705878363715,
+          "p95Ms": 8.934627956814236,
+          "maxMs": 9.055433485243055,
+          "loopHz": 59.94074197338675,
+          "periodP95Ms": 16.698018391927082,
+          "maxPeriodMs": 16.718065049913193,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 60,
+          "rows": 60,
+          "workMs": 6.443169600875289,
+          "p50Ms": 6.104549831814236,
+          "p95Ms": 8.25392320421007,
+          "maxMs": 9.512369791666666,
+          "loopHz": 59.93998725031399,
+          "periodP95Ms": 16.69662814670139,
+          "maxPeriodMs": 16.702891031901043,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 12,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 80,
+          "rows": 60,
+          "workMs": 6.149168509024161,
+          "p50Ms": 5.90423583984375,
+          "p95Ms": 8.048126220703125,
+          "maxMs": 8.18520779079861,
+          "loopHz": 59.94000146337894,
+          "periodP95Ms": 16.696190728081596,
+          "maxPeriodMs": 16.698099772135418,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 100,
+          "rows": 60,
+          "workMs": 5.889670817057292,
+          "p50Ms": 5.457022772894965,
+          "p95Ms": 7.627278645833333,
+          "maxMs": 8.052968343098959,
+          "loopHz": 59.94000186946661,
+          "periodP95Ms": 16.69820827907986,
+          "maxPeriodMs": 16.70763481987847,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 120,
+          "rows": 60,
+          "workMs": 6.048543633355035,
+          "p50Ms": 5.602223714192709,
+          "p95Ms": 8.232364230685764,
+          "maxMs": 9.052588568793404,
+          "loopHz": 59.93961040350765,
+          "periodP95Ms": 16.695092095269096,
+          "maxPeriodMs": 16.716922336154514,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 140,
+          "rows": 60,
+          "workMs": 6.4945636890552665,
+          "p50Ms": 6.21992662217882,
+          "p95Ms": 8.83603244357639,
+          "maxMs": 8.912180582682291,
+          "loopHz": 59.94025831492852,
+          "periodP95Ms": 16.698903401692707,
+          "maxPeriodMs": 16.714297824435764,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 54,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 160,
+          "rows": 60,
+          "workMs": 6.717552354600694,
+          "p50Ms": 6.298209296332465,
+          "p95Ms": 9.315321180555555,
+          "maxMs": 9.573038736979166,
+          "loopHz": 59.9399852198767,
+          "periodP95Ms": 16.696519639756943,
+          "maxPeriodMs": 16.712249755859375,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 42,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 180,
+          "rows": 60,
+          "workMs": 6.606962528935185,
+          "p50Ms": 5.81069098578559,
+          "p95Ms": 9.3519287109375,
+          "maxMs": 11.224724663628471,
+          "loopHz": 59.93999983902832,
+          "periodP95Ms": 16.698777940538193,
+          "maxPeriodMs": 16.721934000651043,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 12,
+            "paint": 36,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 200,
+          "rows": 60,
+          "workMs": 6.454153837981047,
+          "p50Ms": 5.845499674479166,
+          "p95Ms": 8.851979573567709,
+          "maxMs": 8.888600667317709,
+          "loopHz": 59.93913853951126,
+          "periodP95Ms": 16.698099772135418,
+          "maxPeriodMs": 16.700341118706596,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        },
+        {
+          "tFrom": 220,
+          "rows": 60,
+          "workMs": 6.041259652596933,
+          "p50Ms": 5.5901336669921875,
+          "p95Ms": 7.84635755750868,
+          "maxMs": 8.041910807291666,
+          "loopHz": 59.94015577708942,
+          "periodP95Ms": 16.69603814019097,
+          "maxPeriodMs": 16.698076036241318,
+          "presentations": 60,
+          "workOverField": 0,
+          "longEntryPeriods": 0,
+          "counts": {
+            "probeCapture": 15,
+            "paint": 51,
+            "captureBlocked": 0,
+            "envEligible": 120,
+            "envDrawn": 120,
+            "envSkipped": 0,
+            "paintBlocked": 0
+          }
+        }
+      ],
+      "worst": [
+        {
+          "offset": 1987,
+          "whole": 4919025,
+          "pacing": 1608719,
+          "update": 152145,
+          "render": 4766880,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1507,
+          "whole": 4923145,
+          "pacing": 1613847,
+          "update": 155724,
+          "render": 4767421,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1747,
+          "whole": 4920494,
+          "pacing": 1612176,
+          "update": 151518,
+          "render": 4768976,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1493,
+          "whole": 4919058,
+          "pacing": 2095854,
+          "update": 155573,
+          "render": 4763485,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1629,
+          "whole": 4922654,
+          "pacing": 2117342,
+          "update": 155806,
+          "render": 4766848,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1973,
+          "whole": 4919029,
+          "pacing": 2116379,
+          "update": 151786,
+          "render": 4767243,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1869,
+          "whole": 4924471,
+          "pacing": 2124202,
+          "update": 151065,
+          "render": 4773406,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1733,
+          "whole": 4919030,
+          "pacing": 2118858,
+          "update": 151821,
+          "render": 4767209,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1389,
+          "whole": 4913265,
+          "pacing": 2127485,
+          "update": 151205,
+          "render": 4762060,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        },
+        {
+          "offset": 1515,
+          "whole": 4919026,
+          "pacing": 2161030,
+          "update": 151384,
+          "render": 4767642,
+          "paint": 2,
+          "probeCapture": 1,
+          "envDrawn": 2
+        }
+      ]
+    }
+  ],
+  "contrasts": [
+    {
+      "phase": 1,
+      "mode": 5,
+      "savedMs": [
+        -0.02981300824954225,
+        -0.015281738469630213
+      ]
+    }
+  ],
+  "negativeControlsRejected": [
+    "wrong path",
+    "car moved",
+    "clock leak"
+  ]
+}

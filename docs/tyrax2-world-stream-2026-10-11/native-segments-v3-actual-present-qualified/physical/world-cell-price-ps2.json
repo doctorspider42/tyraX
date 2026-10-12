@@ -1,0 +1,1810 @@
+{
+  "valid": true,
+  "platform": "ps2",
+  "elfSha256": "73f7c6e0d2771a39911a6a06be01ac8cefa82203e1639ecfb137028596883340",
+  "logSha256": "fece36d139ddceed96d286ac675f158c7f495d3fca3861cb2970c825ad85afff",
+  "clean": true,
+  "poseEqual": true,
+  "deliveryValid": true,
+  "rowsByPhase": [
+    657,
+    657,
+    657,
+    657,
+    657,
+    657
+  ],
+  "images": [
+    {
+      "phase": 0,
+      "kind": "main",
+      "files": [
+        "world-price-0-main.bin",
+        "world-price-1-main.bin",
+        "world-price-2-main.bin"
+      ],
+      "hashes": [
+        "d9a69b20434c7dec575f7313f603801d138f08ba1bf9c6de61ef62fb13c43d52",
+        "9b94c7ef9de5a576bf845d6abefc8deb442b0eb88b2038670facd8e985377cf4",
+        "b68a08cc508a74faae20a731b49b6e144f04b95f350761000b4dcefdf6fe8673"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "kind": "env",
+      "files": [
+        "world-price-0-env.bin",
+        "world-price-1-env.bin",
+        "world-price-2-env.bin"
+      ],
+      "hashes": [
+        "bf75b97dbfedd31a35071d6a26274c90decc153b173732722707673309608208",
+        "78949bd00eeb5dc617dd06408fa448d8c0e8a8fedca4247f6fb792aee8999106",
+        "623762b3e4f29cef75aad4dafc654e233e002afa6092c2c0628e2e3d08eb45d2"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "kind": "display",
+      "files": [
+        "world-price-0-display.bin",
+        "world-price-1-display.bin",
+        "world-price-2-display.bin"
+      ],
+      "hashes": [
+        "44cf147ca1b96c40bb6c9942408d968d738ed0500b9e4253a9245e37cf0e5842",
+        "351271c4d9aaba66c4c90364b65ad3cc4532d9cb21763c4e077955cff04f9b32",
+        "f7446abd454263036ccb0a8c4f5dfeac37b842a5cd0dd5fb7f584c562b884b06"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "kind": "main",
+      "files": [
+        "world-price-3-main.bin",
+        "world-price-4-main.bin",
+        "world-price-5-main.bin"
+      ],
+      "hashes": [
+        "260605176f0feac6f2d084cbc38fc434f013598845226acc2d522d0243282d2c",
+        "548f2cca50a243357dadc2e13398f3eca854f972413e046ddd9f7e405df05f53",
+        "941cef5740acf8b917568f1cc01cf2b74233bf1fd25c999e67239a37aee3c997"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "kind": "env",
+      "files": [
+        "world-price-3-env.bin",
+        "world-price-4-env.bin",
+        "world-price-5-env.bin"
+      ],
+      "hashes": [
+        "9d01d72c907b5ba787fee08ec48370e70a3e39f71f2df909a281145cffb80452",
+        "e9a0372667b8aefce0433f28889c61580578fa8eca0fe01d0fdf31cd9cdfab3a",
+        "5ea8d6e1f004207a7963e5008b8a3e18ff9f91bb5154944f5ae444d893184886"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "kind": "display",
+      "files": [
+        "world-price-3-display.bin",
+        "world-price-4-display.bin",
+        "world-price-5-display.bin"
+      ],
+      "hashes": [
+        "0b0b3bd4b45b9070849cfd093aab8351ba1b33cde7d0f891a29d92ccca9ec9e9",
+        "4ae2d95bc7ee78bcba8d5e41938cc8b9413091ce820bfe3756b63c900efc4164",
+        "589364e44d2fb7a70f5cd028056d283b8cc3f5d687f4612d2301b268267c43a1"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "kind": "main",
+      "files": [
+        "world-price-6-main.bin",
+        "world-price-7-main.bin",
+        "world-price-8-main.bin"
+      ],
+      "hashes": [
+        "989be5138aa04be1e01172ff04cde426c2c5d6d3ad04d6133ad0abe023d5950a",
+        "1bad64bc975f608a92d545b4145f960e71e1204c473af8ec69deff472c24d726",
+        "2f0c003cf00890181e0df52d4bf20b6affeca1ed255e8c0ae6c1e6700d8ca70b"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "kind": "env",
+      "files": [
+        "world-price-6-env.bin",
+        "world-price-7-env.bin",
+        "world-price-8-env.bin"
+      ],
+      "hashes": [
+        "9af85bce88ddde37ef9b05b33d2e23c8131af08666a7c0398232581cc7bf6fd1",
+        "b4bf8c2f864a129b911521c475de79aacc50900a743ade07630107f03a2d6eb6",
+        "93bae665306e3ec236aaab5ec0c97fea9f43bba3d8ee1737c58d3a4f9fa07081"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "kind": "display",
+      "files": [
+        "world-price-6-display.bin",
+        "world-price-7-display.bin",
+        "world-price-8-display.bin"
+      ],
+      "hashes": [
+        "76284b0799ea240657a1e5d5b1da739b3d3e250f1a91770609b386500972a1b5",
+        "1cb053e5190fc68046ce48b0383d5c80f6aee0fa828bf3ea26ebbc53f938c908",
+        "be0f4592241db9ff774df83830e65a00f9dc4f2ee0edcc0d0e74150c20d881aa"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "kind": "main",
+      "files": [
+        "world-price-9-main.bin",
+        "world-price-10-main.bin",
+        "world-price-11-main.bin"
+      ],
+      "hashes": [
+        "0440ecf36a301b90777b17038343c7d73127090b58e084b0e88df011beb1c63b",
+        "0f0af85856297c9cef14b6e84bf490dce25d2aaf981e3ae0f9fe12140b05854f",
+        "14b5aacb343fb90cf79d0de0dac166c21ed1d54df3ef5bced1662761d26c7db5"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "kind": "env",
+      "files": [
+        "world-price-9-env.bin",
+        "world-price-10-env.bin",
+        "world-price-11-env.bin"
+      ],
+      "hashes": [
+        "f314a6c0dbe007712d39625c0e8c7a7f05fbb197aeea86cfd6fee0fdd0e85cc3",
+        "ed066e79b96cbdfec3217380861cc2d2c4dbb700431a16393e6448f5fad2196a",
+        "a0e517add166c2f7a02f4cf3d9da568e2156e0a370f5db2c5321adc6fe57e2b4"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "kind": "display",
+      "files": [
+        "world-price-9-display.bin",
+        "world-price-10-display.bin",
+        "world-price-11-display.bin"
+      ],
+      "hashes": [
+        "159dc506b2138d05aa2af13d11d3fceddcfe4a82d615ed6bdbc0e8add9e73033",
+        "0421cfe9ca21ab58765baf1a3ebfbd32ede27db21d4b0d33cc0a50e6fc33ddde",
+        "c6b02f241347f0b815fd20b0dc5c5a9e44b1a7af9a11b4a57b9746c6ef535164"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "kind": "main",
+      "files": [
+        "world-price-12-main.bin",
+        "world-price-13-main.bin",
+        "world-price-14-main.bin"
+      ],
+      "hashes": [
+        "74ecd83f3a644a362fd41baaafc5c2d98695c43daf016af0b8dd3a06071a1775",
+        "1e54e3219674694afb190ba85c5564473cc0a53756fb83c39292abc1b929fe8d",
+        "5438f91ffb15ea97c2be3e6a6ce26e9a480284ed95a39d6bfea73417944ac871"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "kind": "env",
+      "files": [
+        "world-price-12-env.bin",
+        "world-price-13-env.bin",
+        "world-price-14-env.bin"
+      ],
+      "hashes": [
+        "075883cbcc221e6a6686af6ebb552c14afc9294ee7c6fcd2ca4edafd07e2bc9d",
+        "7eb1c7e40867ccf1b7afc4b645a8a5783577eb3522197c292d346ed9f206ddb4",
+        "4549cc4b3c8bc19341791b075a9b023ecab52a44e5f4a04270a830459bf282e3"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "kind": "display",
+      "files": [
+        "world-price-12-display.bin",
+        "world-price-13-display.bin",
+        "world-price-14-display.bin"
+      ],
+      "hashes": [
+        "90b1c4dcf72c3b7227e1b882e602a7412dfbe1bb9f05d992530860ab9080ce06",
+        "274c5168ba2e32ff076c527b88d42718036657fdb169063b1aab65d9b7c23604",
+        "b578bc3a8f53f5ea51a5b0d409d69f1377cbd6ee2fe90fdd6479190b4d7d8b41"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "kind": "main",
+      "files": [
+        "world-price-15-main.bin",
+        "world-price-16-main.bin",
+        "world-price-17-main.bin"
+      ],
+      "hashes": [
+        "97d202de6f5d5a01ff48bcc3b721f245d6cf6139863b2b98a9ede19b3d00aa2b",
+        "28611434f280581e793436e0441f6967cb5be808a3e13bbe1a9d9e435d27f9f1",
+        "e5f4523fd0a54f856087321f150ad281e66e60ccf0fee9417a7687bf58d9cb05"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "kind": "env",
+      "files": [
+        "world-price-15-env.bin",
+        "world-price-16-env.bin",
+        "world-price-17-env.bin"
+      ],
+      "hashes": [
+        "cf48322fec35cc5d26879f80b81e3c4d0ecbec1d05fc72ab02d65311f79433a5",
+        "32ef6f2010628a333c0f5c1a51efdd51ad50ab9659c29255d0a67e5d1ea8a587",
+        "84a82f2366de87e513115cc7f4edef9bd245fbed6304def58da11a1d8160ae75"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "kind": "display",
+      "files": [
+        "world-price-15-display.bin",
+        "world-price-16-display.bin",
+        "world-price-17-display.bin"
+      ],
+      "hashes": [
+        "30f808724e049bc716139e12c627e2d79e10fc190f44b84aafbe77ec0a501b2b",
+        "e5c27aab175f78073f82ac078fd13d2247ea4fb1a57532fdbeb126a523fa1576",
+        "b810ac8effa402997f13e5f1502e189c04aecf157cef3614566ff112337bb95a"
+      ],
+      "differences": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "physicalPrice": true,
+  "promotionAllowed": false,
+  "limits": [
+    "Fixed-step controlled workload, not final ordinary variable-dt FPS qualification.",
+    "Non-pacing elapsed work is not exclusive EE time; no scene-capacity ceiling proof.",
+    "Local compiler boundary includes pre-price replacements and preemption/publication; not exclusive EE cycles or all terrain build work."
+  ],
+  "variant": "native-segments",
+  "wheelMoving": [
+    [
+      0,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ],
+    [
+      1,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ],
+    [
+      2,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ],
+    [
+      3,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ],
+    [
+      4,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ],
+    [
+      5,
+      -1,
+      1,
+      537,
+      2148,
+      644400
+    ]
+  ],
+  "wheelHeld": [
+    [
+      0,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      0,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      0,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      1,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      1,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      1,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      2,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      2,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      2,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      3,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      3,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      3,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      4,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      4,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      4,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      5,
+      0,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      5,
+      1,
+      1,
+      1,
+      4,
+      1200
+    ],
+    [
+      5,
+      2,
+      1,
+      1,
+      4,
+      1200
+    ]
+  ],
+  "paintHeads": [
+    [
+      0,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      0,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      0,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      1,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      1,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      1,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      2,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      2,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      2,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      3,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      3,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      3,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      4,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      4,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      4,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      5,
+      0,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      5,
+      1,
+      1,
+      1,
+      1,
+      19,
+      3
+    ],
+    [
+      5,
+      2,
+      1,
+      1,
+      1,
+      19,
+      3
+    ]
+  ],
+  "coldCompilation": [
+    [
+      0,
+      1,
+      113,
+      0,
+      20
+    ],
+    [
+      1,
+      1,
+      113,
+      0,
+      20
+    ],
+    [
+      2,
+      1,
+      113,
+      0,
+      20
+    ],
+    [
+      3,
+      1,
+      113,
+      0,
+      20
+    ],
+    [
+      4,
+      1,
+      113,
+      0,
+      20
+    ],
+    [
+      5,
+      1,
+      113,
+      0,
+      20
+    ]
+  ],
+  "coldEndpointCompilation": [
+    [
+      0,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      0,
+      2,
+      1,
+      25,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      1,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      1,
+      2,
+      1,
+      25,
+      0
+    ],
+    [
+      2,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      2,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      2,
+      2,
+      1,
+      25,
+      0
+    ],
+    [
+      3,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      3,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      3,
+      2,
+      1,
+      25,
+      0
+    ],
+    [
+      4,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      4,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      4,
+      2,
+      1,
+      25,
+      0
+    ],
+    [
+      5,
+      0,
+      1,
+      25,
+      0
+    ],
+    [
+      5,
+      1,
+      1,
+      25,
+      0
+    ],
+    [
+      5,
+      2,
+      1,
+      25,
+      0
+    ]
+  ],
+  "legacyPreparation": [
+    [
+      0,
+      1,
+      0,
+      0
+    ],
+    [
+      1,
+      1,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      0,
+      0
+    ],
+    [
+      3,
+      1,
+      0,
+      0
+    ],
+    [
+      4,
+      1,
+      0,
+      0
+    ],
+    [
+      5,
+      1,
+      0,
+      0
+    ]
+  ],
+  "wheelStatic": [
+    [
+      0,
+      -1,
+      1,
+      3961
+    ],
+    [
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      0
+    ],
+    [
+      0,
+      2,
+      1,
+      0
+    ],
+    [
+      1,
+      -1,
+      1,
+      3961
+    ],
+    [
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      1,
+      1,
+      1,
+      0
+    ],
+    [
+      1,
+      2,
+      1,
+      0
+    ],
+    [
+      2,
+      -1,
+      1,
+      3961
+    ],
+    [
+      2,
+      0,
+      1,
+      0
+    ],
+    [
+      2,
+      1,
+      1,
+      0
+    ],
+    [
+      2,
+      2,
+      1,
+      0
+    ],
+    [
+      3,
+      -1,
+      1,
+      3961
+    ],
+    [
+      3,
+      0,
+      1,
+      0
+    ],
+    [
+      3,
+      1,
+      1,
+      0
+    ],
+    [
+      3,
+      2,
+      1,
+      0
+    ],
+    [
+      4,
+      -1,
+      1,
+      3961
+    ],
+    [
+      4,
+      0,
+      1,
+      0
+    ],
+    [
+      4,
+      1,
+      1,
+      0
+    ],
+    [
+      4,
+      2,
+      1,
+      0
+    ],
+    [
+      5,
+      -1,
+      1,
+      3961
+    ],
+    [
+      5,
+      0,
+      1,
+      0
+    ],
+    [
+      5,
+      1,
+      1,
+      0
+    ],
+    [
+      5,
+      2,
+      1,
+      0
+    ]
+  ],
+  "audioIdle": [
+    [
+      0,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      5,
+      -1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      5,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      5,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      5,
+      2,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ]
+  ],
+  "nativeSegmentWitnesses": [
+    [
+      0,
+      -1,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      537,
+      0,
+      1
+    ],
+    [
+      0,
+      2,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      1,
+      -1,
+      1,
+      537,
+      185,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      537,
+      185,
+      1
+    ],
+    [
+      1,
+      1,
+      0,
+      537,
+      185,
+      0
+    ],
+    [
+      1,
+      2,
+      1,
+      537,
+      185,
+      1
+    ],
+    [
+      2,
+      -1,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      1,
+      537,
+      0,
+      1
+    ],
+    [
+      2,
+      2,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      3,
+      -1,
+      1,
+      537,
+      185,
+      0
+    ],
+    [
+      3,
+      0,
+      1,
+      537,
+      185,
+      1
+    ],
+    [
+      3,
+      1,
+      0,
+      537,
+      185,
+      0
+    ],
+    [
+      3,
+      2,
+      1,
+      537,
+      185,
+      1
+    ],
+    [
+      4,
+      -1,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      4,
+      1,
+      1,
+      537,
+      0,
+      1
+    ],
+    [
+      4,
+      2,
+      0,
+      537,
+      0,
+      0
+    ],
+    [
+      5,
+      -1,
+      1,
+      537,
+      185,
+      0
+    ],
+    [
+      5,
+      0,
+      1,
+      537,
+      185,
+      1
+    ],
+    [
+      5,
+      1,
+      0,
+      537,
+      185,
+      0
+    ],
+    [
+      5,
+      2,
+      1,
+      537,
+      185,
+      1
+    ]
+  ],
+  "nativeSegmentAudits": [
+    [
+      0,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      1,
+      2,
+      1
+    ],
+    [
+      0,
+      2,
+      0,
+      1,
+      0
+    ],
+    [
+      1,
+      0,
+      1,
+      2,
+      1
+    ],
+    [
+      1,
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      1,
+      2,
+      1,
+      2,
+      1
+    ],
+    [
+      2,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      2,
+      1,
+      1,
+      2,
+      1
+    ],
+    [
+      2,
+      2,
+      0,
+      1,
+      0
+    ],
+    [
+      3,
+      0,
+      1,
+      2,
+      1
+    ],
+    [
+      3,
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      3,
+      2,
+      1,
+      2,
+      1
+    ],
+    [
+      4,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      4,
+      1,
+      1,
+      2,
+      1
+    ],
+    [
+      4,
+      2,
+      0,
+      1,
+      0
+    ],
+    [
+      5,
+      0,
+      1,
+      2,
+      1
+    ],
+    [
+      5,
+      1,
+      0,
+      1,
+      0
+    ],
+    [
+      5,
+      2,
+      1,
+      2,
+      1
+    ]
+  ],
+  "nativeSegmentCaptureWorkEqual": true,
+  "nativeSegmentCaptureFields": [
+    "probeCapture",
+    "envEligible",
+    "envDrawn",
+    "paintVu"
+  ],
+  "nativeSegmentActualPresents": [
+    {
+      "phase": 0,
+      "records": 538,
+      "sha256": "f64f152049e4a1959f7f3a8c3ae019bcef6a4af9d7a6037ddd124475e5384e68",
+      "presentHz": 59.06021232465574,
+      "latePresentIntervals": 8
+    },
+    {
+      "phase": 1,
+      "records": 538,
+      "sha256": "1dee73a9cee0913307ad984e2c91e28bf829bcb2768eb582c652937e056f9366",
+      "presentHz": 50.5303207340207,
+      "latePresentIntervals": 100
+    },
+    {
+      "phase": 2,
+      "records": 538,
+      "sha256": "3d8439f21b2d1ccd24e39c60e9d74afb31e93bb850b1c5d6ac6637b706f5dab4",
+      "presentHz": 59.16877794835679,
+      "latePresentIntervals": 7
+    },
+    {
+      "phase": 3,
+      "records": 538,
+      "sha256": "7b36612b7798a018c291e2a32a764694647ce677b868364c8d29fec96bfc51e3",
+      "presentHz": 50.53041485843332,
+      "latePresentIntervals": 100
+    },
+    {
+      "phase": 4,
+      "records": 538,
+      "sha256": "25e7c502af759c5de03ec38f7ad4679c51a294f430304d9b84095a423b3e2cfb",
+      "presentHz": 59.16877569350176,
+      "latePresentIntervals": 7
+    },
+    {
+      "phase": 5,
+      "records": 538,
+      "sha256": "c68f42a664af6885226338b1cd07e7350949ff3641b1ed44aaf1b9bffb6ea197",
+      "presentHz": 50.68946843413716,
+      "latePresentIntervals": 98
+    }
+  ],
+  "actualPresentStable60": false,
+  "phases": [
+    {
+      "phase": 0,
+      "candidate": 0,
+      "rows": 537,
+      "nonPacingMeanMs": 10.972996028787275,
+      "nonPacingP95Ms": 15.390580919053818,
+      "entryHz": 59.060236508525506,
+      "periodP95Ms": 16.89814249674479,
+      "lateNominal60Intervals": 8
+    },
+    {
+      "phase": 1,
+      "candidate": 1,
+      "rows": 537,
+      "nonPacingMeanMs": 12.00807219303446,
+      "nonPacingP95Ms": 20.32477823893229,
+      "entryHz": 50.53034153229334,
+      "periodP95Ms": 26.46583048502604,
+      "lateNominal60Intervals": 268
+    },
+    {
+      "phase": 2,
+      "candidate": 0,
+      "rows": 537,
+      "nonPacingMeanMs": 10.936135770172996,
+      "nonPacingP95Ms": 15.402686225043402,
+      "entryHz": 59.16880142538699,
+      "periodP95Ms": 16.89057413736979,
+      "lateNominal60Intervals": 7
+    },
+    {
+      "phase": 3,
+      "candidate": 1,
+      "rows": 537,
+      "nonPacingMeanMs": 12.008350399940028,
+      "nonPacingP95Ms": 20.28327433268229,
+      "entryHz": 50.53033688895655,
+      "periodP95Ms": 26.43044704861111,
+      "lateNominal60Intervals": 269
+    },
+    {
+      "phase": 4,
+      "candidate": 0,
+      "rows": 537,
+      "nonPacingMeanMs": 10.952221242729832,
+      "nonPacingP95Ms": 15.293473985460068,
+      "entryHz": 59.16880381288262,
+      "periodP95Ms": 16.88056437174479,
+      "lateNominal60Intervals": 7
+    },
+    {
+      "phase": 5,
+      "candidate": 1,
+      "rows": 537,
+      "nonPacingMeanMs": 11.99224022538327,
+      "nonPacingP95Ms": 20.3985358344184,
+      "entryHz": 50.689487189554754,
+      "periodP95Ms": 26.45447794596354,
+      "lateNominal60Intervals": 266
+    }
+  ],
+  "forwardSavedMs": -1.0535062935543245,
+  "reverseSavedMs": -1.0480740699318165,
+  "controlledStable60": false,
+  "localCompilerBoundary": [
+    {
+      "phase": 0,
+      "replacements": 93,
+      "elapsedTicks": 16546049,
+      "elapsedTotalMs": 56.10503811306423,
+      "elapsedMeanPerReplacementMs": 0.6032799797103681
+    },
+    {
+      "phase": 1,
+      "replacements": 93,
+      "elapsedTicks": 16386780,
+      "elapsedTotalMs": 55.564982096354164,
+      "elapsedMeanPerReplacementMs": 0.5974729257672491
+    },
+    {
+      "phase": 2,
+      "replacements": 93,
+      "elapsedTicks": 16661464,
+      "elapsedTotalMs": 56.49639214409722,
+      "elapsedMeanPerReplacementMs": 0.6074880875709379
+    },
+    {
+      "phase": 3,
+      "replacements": 93,
+      "elapsedTicks": 16596763,
+      "elapsedTotalMs": 56.277001274956596,
+      "elapsedMeanPerReplacementMs": 0.6051290459672752
+    },
+    {
+      "phase": 4,
+      "replacements": 93,
+      "elapsedTicks": 16714559,
+      "elapsedTotalMs": 56.67642890082465,
+      "elapsedMeanPerReplacementMs": 0.6094239666755338
+    },
+    {
+      "phase": 5,
+      "replacements": 93,
+      "elapsedTicks": 16504440,
+      "elapsedTotalMs": 55.96394856770833,
+      "elapsedMeanPerReplacementMs": 0.6017628878248208
+    }
+  ]
+}

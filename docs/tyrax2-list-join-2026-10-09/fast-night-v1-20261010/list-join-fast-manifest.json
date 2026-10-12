@@ -1,0 +1,17 @@
+{
+  "experiment": "A22",
+  "ordinaryProducers": true,
+  "candidateStages": [
+    2,
+    4,
+    6,
+    8
+  ],
+  "oracleLocal": 222,
+  "rasterLocal": 223,
+  "sampleLocal": [
+    64,
+    192
+  ],
+  "scope": "Frozen ordinary scene; actual copy bypass, unchanged queue ownership; not live FPS or non-recording qualification"
+}

@@ -11,6 +11,7 @@
 #pragma once
 
 #include "math/vec4.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
 #include "renderer/core/texture/models/texture.hpp"
 
 namespace Tyra {
@@ -36,12 +37,23 @@ class StaPipTextureBag {
    * reflective materials. When true, `coordinates` carries OBJECT-SPACE
    * NORMALS (one per vertex) and the texture ST is computed on VU1 from
    * this camera basis: s = 0.5 + 0.5*dot(n, right), t = 0.5 - 0.5*dot(n, up).
-   * Requires no lighting bag and the EE-clipper pipeline (asserted in
-   * StaPipCore::render - the VU1-clipping program set has no env variant).
+   * Requires no lighting bag. Both EE and VU1 clipping have env programs;
+   * the optional paint prepass below requires VU1 clipping specifically.
    */
   bool coordinatesAreNormals;
   Vec4 envRight;
   Vec4 envUp;
+
+#if TYRA_VU1_EXP_PAINT
+  /** Opt-in HIGHLIGHT2 paint. Requires supportsPaintVu() at submission time,
+   * many colours and unit object-space normals. The basis is the caller's
+   * LAST ACCEPTED paint basis, independent of continuously updated envRight/
+   * envUp. VU overwrites only its local colour stream before clipping; the
+   * EE array may be stale until the caller explicitly materializes fallback. */
+  bool paintVu = false;
+  Vec4 paintForward;
+  Vec4 paintHalf;
+#endif
 
   /**
    * Added by TyraX: the GS texture function (TFX) this bag draws with.

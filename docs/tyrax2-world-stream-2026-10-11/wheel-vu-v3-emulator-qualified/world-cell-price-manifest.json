@@ -1,0 +1,36 @@
+{
+  "baseElfSha256": "7acc83945caebb720442bb9ca75de9a47b9cf434425ad7cc4a239b2b877876f3",
+  "generatorSha256": "50f46923df8d0e0ce1f24134fcddfbc9c67beb6dd3f76962a30aff81d3d0dc3d",
+  "modes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+  ],
+  "daytimeOnly": true,
+  "bufferCount": 2,
+  "movingAutoOrder": true,
+  "fixedSceneStep": true,
+  "inPriceReadbacks": false,
+  "ordinaryControlUnchanged": false,
+  "version": 2,
+  "clipObserver": false,
+  "shakePhaseReset": true,
+  "samePoseEndpointArms": 3,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Existing still-rig/trig/strip fixes preserved in ordinary arm.",
+    "Same per-wheel padded source geometry, rig visibility, suspension/steer/spin/LOD and material retained.",
+    "ON uses four standard draws per admitted car; added heads/consumer work included in net.",
+    "Common cold local source preparation both arms; source clear drains queue before release.",
+    "Standard VU MVP arithmetic differs from EE bake followed by VP; exact raster gate remains required, no retrospective tolerance.",
+    "Per-wheel light selection versus old definition batch must pass actual image qualification; no night/default claim.",
+    "Only nonzero-speed cars take new route; zero-speed rigs always use existing current-state world batches, never disappear."
+  ],
+  "variant": "wheels-vu",
+  "comparison": "common direct+paint/Hybrid2/ordinary roads: EE world wheel bake versus immutable local wheel meshes and live matrices",
+  "directHeaderSha256": "96275a6324f33ea07fe939723cbab3c1035277875ec91ea757f76faf473c17be",
+  "wheelMovingOnly": true
+}

@@ -1,0 +1,67 @@
+{
+  "valid": true,
+  "experiment": "A44-cell-source",
+  "sources": {
+    "tyrax2-world-cell-plan.hpp": "29720d273df0e13466c1562cc3ef489b12af2978294647a69df6636f86a1b8c1",
+    "tyrax2-world-strip-plan.hpp": "2a4d798c0e2df701d300eaabf70026375f228487ee9051789540dfa1c2e856b9",
+    "verify-world-cell-plan.cpp": "f4405e94f215ed0d1c60f9450341d5ad36829ea85adf5d0c84c7a86aae5fb5cb",
+    "verify-world-cell-plan.py": "b7d044babbc690ebdcbfc750f9173469bbd67bf80bef52325b8bf4c09a3059c4"
+  },
+  "commands": [
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/verify-world-cell-plan.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/optimized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/verify-world-cell-plan.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/sanitized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/sanitized"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "-c",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/verify-world-cell-plan.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-world-cell-source-20261011-v1/cell-ee.o"
+    ]
+  ],
+  "sourceCasesPerHostMode": 840,
+  "failedReplacementsPerHostMode": 1680,
+  "negativeControlsPerHostMode": 16,
+  "eeObjectSha256": "f9432b312f6246b1233535e1384aa0c3005c653fe2f99362a44ff3f732271641",
+  "promotionAllowed": false,
+  "limits": [
+    "Source-level whole-cell ownership/partition test, not actual VIF compiler.",
+    "Material identity is a value, NOT an actual VRAM reservation or texture lease.",
+    "Byte budget counts owned stream payload only, not allocator/VIF/whole scene RAM.",
+    "No shader, raster, main/ISR lifetime, cache publication or physical performance qualification.",
+    "Target object compilation is not execution; integrate actual builder/emitter before pricing."
+  ]
+}

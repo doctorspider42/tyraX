@@ -1,0 +1,387 @@
+{
+  "valid": false,
+  "experiment": "A44-moving-cell-correctness",
+  "elfSha256": "efcd3cf35a71913fbc7077cb38f58f9f845c17c2b3f8a48a29003d43971fdb63",
+  "sourceFiles": 500,
+  "poseRows": 1971,
+  "deliveryValid": false,
+  "offSummary": [
+    [
+      0,
+      0,
+      757,
+      537,
+      0,
+      0,
+      0,
+      50,
+      839700043,
+      49,
+      4
+    ],
+    [
+      1,
+      0,
+      757,
+      537,
+      0,
+      0,
+      0,
+      50,
+      844680117,
+      49,
+      4
+    ],
+    [
+      2,
+      0,
+      757,
+      537,
+      0,
+      0,
+      0,
+      50,
+      844469794,
+      49,
+      4
+    ]
+  ],
+  "onSummary": [
+    [
+      0,
+      1,
+      757,
+      537,
+      6561,
+      6536,
+      25,
+      50,
+      847749543,
+      49,
+      4
+    ],
+    [
+      1,
+      1,
+      757,
+      537,
+      6560,
+      6535,
+      25,
+      50,
+      847716121,
+      49,
+      4
+    ],
+    [
+      2,
+      1,
+      757,
+      537,
+      6561,
+      6536,
+      25,
+      50,
+      852041015,
+      49,
+      4
+    ]
+  ],
+  "images": [
+    {
+      "stage": 1408,
+      "kind": "main",
+      "file": "game/bin/moving-1408-main.bin",
+      "offSha256": "a12a3856ab33db26df2697358af8d7bd132270c593276e912f8accbc3b3e0b11",
+      "onSha256": "a12a3856ab33db26df2697358af8d7bd132270c593276e912f8accbc3b3e0b11",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1408,
+      "kind": "env",
+      "file": "game/bin/moving-1408-env.bin",
+      "offSha256": "5e48df619a371bd741e76c381ef7524a25a160e1c9a76b45bd8c924f2a6c5e22",
+      "onSha256": "5e48df619a371bd741e76c381ef7524a25a160e1c9a76b45bd8c924f2a6c5e22",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1408,
+      "kind": "display",
+      "file": "game/bin/moving-1408-display.bin",
+      "offSha256": "72db2e0fec04f7bf051a7e4f3c3d0fa59777cf223c5996ee2295950319e22b11",
+      "onSha256": "72db2e0fec04f7bf051a7e4f3c3d0fa59777cf223c5996ee2295950319e22b11",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1536,
+      "kind": "main",
+      "file": "game/bin/moving-1536-main.bin",
+      "offSha256": "fcdfdf378de38483ad35511797d095a3acc9bcfa16ba007d85015de108b12cac",
+      "onSha256": "fcdfdf378de38483ad35511797d095a3acc9bcfa16ba007d85015de108b12cac",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1536,
+      "kind": "env",
+      "file": "game/bin/moving-1536-env.bin",
+      "offSha256": "671990cabde8e52bd6d9af306b55816dee5789f496c990cca12f84a404626506",
+      "onSha256": "671990cabde8e52bd6d9af306b55816dee5789f496c990cca12f84a404626506",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1536,
+      "kind": "display",
+      "file": "game/bin/moving-1536-display.bin",
+      "offSha256": "a147a67cefc427282777384db84085182f3321a1894cb3c07b63e7ab90f5feb7",
+      "onSha256": "a147a67cefc427282777384db84085182f3321a1894cb3c07b63e7ab90f5feb7",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1664,
+      "kind": "main",
+      "file": "game/bin/moving-1664-main.bin",
+      "offSha256": "32826b25b50679d067c06c9c339464b4747cd76cadead1427e2d763d91a19c70",
+      "onSha256": "32826b25b50679d067c06c9c339464b4747cd76cadead1427e2d763d91a19c70",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1664,
+      "kind": "env",
+      "file": "game/bin/moving-1664-env.bin",
+      "offSha256": "e856cef40d4a1f5964d77910588d7510398ad057395136ce697400ebf4cb0a23",
+      "onSha256": "e856cef40d4a1f5964d77910588d7510398ad057395136ce697400ebf4cb0a23",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1664,
+      "kind": "display",
+      "file": "game/bin/moving-1664-display.bin",
+      "offSha256": "24fdd3364b37604753ee89fe08d19c07ca21400d7c7b8c146d3b971337eab135",
+      "onSha256": "24fdd3364b37604753ee89fe08d19c07ca21400d7c7b8c146d3b971337eab135",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1792,
+      "kind": "main",
+      "file": "game/bin/moving-1792-main.bin",
+      "offSha256": "5cb3300e725000c4721792e023a544d2bfd6fb3247a0de5500e97c8c3e0d0d9e",
+      "onSha256": "5cb3300e725000c4721792e023a544d2bfd6fb3247a0de5500e97c8c3e0d0d9e",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1792,
+      "kind": "env",
+      "file": "game/bin/moving-1792-env.bin",
+      "offSha256": "2ec417a6c1a54f6886642e1867f941cea5b37930f9d9025c78e5251df417e085",
+      "onSha256": "2ec417a6c1a54f6886642e1867f941cea5b37930f9d9025c78e5251df417e085",
+      "differentBytes": 0
+    },
+    {
+      "stage": 1792,
+      "kind": "display",
+      "file": "game/bin/moving-1792-display.bin",
+      "offSha256": "f6b2e706104071ea21b55c9de69da8cb2ae3204759693c715b7f35699d676a8a",
+      "onSha256": "f6b2e706104071ea21b55c9de69da8cb2ae3204759693c715b7f35699d676a8a",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5504,
+      "kind": "main",
+      "file": "game/bin/moving-5504-main.bin",
+      "offSha256": "b8aa3ee71f6052bddb4b983a6c0c8a3fca929528358420f16c6df0830c1c6d7b",
+      "onSha256": "b8aa3ee71f6052bddb4b983a6c0c8a3fca929528358420f16c6df0830c1c6d7b",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5504,
+      "kind": "env",
+      "file": "game/bin/moving-5504-env.bin",
+      "offSha256": "296d8c4f5914b4db0ae01f8415e98cb5764c85ed8075d8090d1abc0c59726d0b",
+      "onSha256": "296d8c4f5914b4db0ae01f8415e98cb5764c85ed8075d8090d1abc0c59726d0b",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5504,
+      "kind": "display",
+      "file": "game/bin/moving-5504-display.bin",
+      "offSha256": "7008aa2be035cc907a85baf57f9b4a93d3fda412dc99cbc6720d926933c57569",
+      "onSha256": "7008aa2be035cc907a85baf57f9b4a93d3fda412dc99cbc6720d926933c57569",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5632,
+      "kind": "main",
+      "file": "game/bin/moving-5632-main.bin",
+      "offSha256": "764f6476b57ed09d2458609861ecb23be760c3df38540dab0d932157edbcf442",
+      "onSha256": "764f6476b57ed09d2458609861ecb23be760c3df38540dab0d932157edbcf442",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5632,
+      "kind": "env",
+      "file": "game/bin/moving-5632-env.bin",
+      "offSha256": "15746590c0754924aa1eb389d785f4972147512e9e697f0286ab81926297a817",
+      "onSha256": "15746590c0754924aa1eb389d785f4972147512e9e697f0286ab81926297a817",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5632,
+      "kind": "display",
+      "file": "game/bin/moving-5632-display.bin",
+      "offSha256": "6d2ccf7f0d09b3d4731954b9253999b78aca071bb6f5926034771371afb6371b",
+      "onSha256": "6d2ccf7f0d09b3d4731954b9253999b78aca071bb6f5926034771371afb6371b",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5760,
+      "kind": "main",
+      "file": "game/bin/moving-5760-main.bin",
+      "offSha256": "4838e863091d5cb735bad9852cec048410012aa00d732589ed73aa0a9d9a5955",
+      "onSha256": "4838e863091d5cb735bad9852cec048410012aa00d732589ed73aa0a9d9a5955",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5760,
+      "kind": "env",
+      "file": "game/bin/moving-5760-env.bin",
+      "offSha256": "425ca6885a0880fb318f8bf27737a210cbdc3acab2bcbefedf57ec57a02f1d28",
+      "onSha256": "425ca6885a0880fb318f8bf27737a210cbdc3acab2bcbefedf57ec57a02f1d28",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5760,
+      "kind": "display",
+      "file": "game/bin/moving-5760-display.bin",
+      "offSha256": "c41912a52348623370dba4aecc3b8a9ad5bf26ccef9e3a37b210c61de32f9326",
+      "onSha256": "c41912a52348623370dba4aecc3b8a9ad5bf26ccef9e3a37b210c61de32f9326",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5888,
+      "kind": "main",
+      "file": "game/bin/moving-5888-main.bin",
+      "offSha256": "ef688d36f0040076f6719220e171eae94f294f52a94ebd1a9060ca24753d8e10",
+      "onSha256": "ef688d36f0040076f6719220e171eae94f294f52a94ebd1a9060ca24753d8e10",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5888,
+      "kind": "env",
+      "file": "game/bin/moving-5888-env.bin",
+      "offSha256": "2293fd7d64a7e81accd2a57d95bd28f4e08bd64b980d1cd2864aa9f65669077c",
+      "onSha256": "2293fd7d64a7e81accd2a57d95bd28f4e08bd64b980d1cd2864aa9f65669077c",
+      "differentBytes": 0
+    },
+    {
+      "stage": 5888,
+      "kind": "display",
+      "file": "game/bin/moving-5888-display.bin",
+      "offSha256": "ebb8f4700ff66def5f74a0d03fab2578fbe87f499cd27caee4228cc53d1c6310",
+      "onSha256": "ebb8f4700ff66def5f74a0d03fab2578fbe87f499cd27caee4228cc53d1c6310",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9600,
+      "kind": "main",
+      "file": "game/bin/moving-9600-main.bin",
+      "offSha256": "fecfc8aaad0cda0600f39c607842e489ee23387bb9bc6d114bc93b43e8c02259",
+      "onSha256": "fecfc8aaad0cda0600f39c607842e489ee23387bb9bc6d114bc93b43e8c02259",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9600,
+      "kind": "env",
+      "file": "game/bin/moving-9600-env.bin",
+      "offSha256": "8bf76d0f4f439574f65798566c1105d188888555cea7a8546da9ef106c1f1207",
+      "onSha256": "8bf76d0f4f439574f65798566c1105d188888555cea7a8546da9ef106c1f1207",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9600,
+      "kind": "display",
+      "file": "game/bin/moving-9600-display.bin",
+      "offSha256": "19f79e6088f1ef436953136e5a6b55b7231fa38957be89c47493b9f8b7247386",
+      "onSha256": "19f79e6088f1ef436953136e5a6b55b7231fa38957be89c47493b9f8b7247386",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9728,
+      "kind": "main",
+      "file": "game/bin/moving-9728-main.bin",
+      "offSha256": "1150bd8e6b42dcc30db3281af28616030363732fb8608fd5e4daadd7fa50cab2",
+      "onSha256": "1150bd8e6b42dcc30db3281af28616030363732fb8608fd5e4daadd7fa50cab2",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9728,
+      "kind": "env",
+      "file": "game/bin/moving-9728-env.bin",
+      "offSha256": "b735adc3e25fac664e5fc10b4a77701a019aec4535a04af3235c52d10b568ac4",
+      "onSha256": "b735adc3e25fac664e5fc10b4a77701a019aec4535a04af3235c52d10b568ac4",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9728,
+      "kind": "display",
+      "file": "game/bin/moving-9728-display.bin",
+      "offSha256": "d6a371f9b9bf646ba155a253a58adc6226cb6e2750a1fa11b12386e562c7804d",
+      "onSha256": "d6a371f9b9bf646ba155a253a58adc6226cb6e2750a1fa11b12386e562c7804d",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9856,
+      "kind": "main",
+      "file": "game/bin/moving-9856-main.bin",
+      "offSha256": "f833e1041346661f8ec26eec6b71ae139a0799c35f86fcefd54292e9158ff6d7",
+      "onSha256": "f833e1041346661f8ec26eec6b71ae139a0799c35f86fcefd54292e9158ff6d7",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9856,
+      "kind": "env",
+      "file": "game/bin/moving-9856-env.bin",
+      "offSha256": "515be70d57696ddde801ee55d06affb562620e77588b8941656ffd7fa055244d",
+      "onSha256": "515be70d57696ddde801ee55d06affb562620e77588b8941656ffd7fa055244d",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9856,
+      "kind": "display",
+      "file": "game/bin/moving-9856-display.bin",
+      "offSha256": "5407f0f998a4c19f446b770d0dde6ffa6f798fe9ff9a962b1ec79c71c3df08cd",
+      "onSha256": "5407f0f998a4c19f446b770d0dde6ffa6f798fe9ff9a962b1ec79c71c3df08cd",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9984,
+      "kind": "main",
+      "file": "game/bin/moving-9984-main.bin",
+      "offSha256": "d2a3b4e4b97487b873f4d453fd296e9c4ecb683eb1ee8d880b645bf3bc33cf1d",
+      "onSha256": "d2a3b4e4b97487b873f4d453fd296e9c4ecb683eb1ee8d880b645bf3bc33cf1d",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9984,
+      "kind": "env",
+      "file": "game/bin/moving-9984-env.bin",
+      "offSha256": "fce81b4193d30fc046081d73adb01e2146328be0e89e507e8807236fd18cbf52",
+      "onSha256": "fce81b4193d30fc046081d73adb01e2146328be0e89e507e8807236fd18cbf52",
+      "differentBytes": 0
+    },
+    {
+      "stage": 9984,
+      "kind": "display",
+      "file": "game/bin/moving-9984-display.bin",
+      "offSha256": "f8ee86f6f5be49ef2fb84a9d6fa839f8443965b3d86ce771116bb8caeddb3789",
+      "onSha256": "f8ee86f6f5be49ef2fb84a9d6fa839f8443965b3d86ce771116bb8caeddb3789",
+      "differentBytes": 0
+    }
+  ],
+  "offLogSha256": "b6cb9102c1999fbf2a23c12b9dea9439b8c757d31215da02088d725c8f3a0cd9",
+  "onLogSha256": "39922213ba0234cea173c3ddd65fd8003f5bbf116e405f9f9a7e7b0d3013923c",
+  "promotionAllowed": false,
+  "limits": [
+    "Forced moving order2, common slots and synchronous readbacks: no performance proof.",
+    "Daytime sampled driving only; not all poses, rebuild pressure or nighttime coverage."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "captures": [
+    {
+      "phase": 0,
+      "beforeOffset": 1401,
+      "afterOffset": 1417,
+      "file": "drive-phase-0.png"
+    },
+    {
+      "phase": 1,
+      "beforeOffset": 1402,
+      "afterOffset": 1416,
+      "file": "drive-phase-1.png"
+    },
+    {
+      "phase": 2,
+      "beforeOffset": 1401,
+      "afterOffset": 1413,
+      "file": "drive-phase-2.png"
+    }
+  ],
+  "missed": []
+}

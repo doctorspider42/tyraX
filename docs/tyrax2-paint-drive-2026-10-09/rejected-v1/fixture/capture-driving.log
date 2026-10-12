@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyra-editor/tools/tyrax2-sky-capture.py", line 37, in <module>
+    p,o=read('phase'),read('offset')
+  File "/mnt/f/Projects/tyra-editor/tools/tyrax2-sky-capture.py", line 32, in read
+    size=struct.unpack('<I',recv(4))[0];data=recv(size-4)
+  File "/mnt/f/Projects/tyra-editor/tools/tyrax2-sky-capture.py", line 28, in recv
+    chunk=s.recv(n-len(data));assert chunk;data+=chunk
+TimeoutError: timed out

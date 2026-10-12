@@ -1,0 +1,6 @@
+{
+  "passed": true,
+  "cases": 50,
+  "gateSha256": "51220a33c260b2a82b069e71698b5746a4c74f0e8d44c6f662eda761a4b67739",
+  "scope": "destructive ID/mode/cold-window gate, before qbuffer allocation; not raster equivalence"
+}

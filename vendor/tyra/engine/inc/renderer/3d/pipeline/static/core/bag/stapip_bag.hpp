@@ -152,6 +152,11 @@ class StaPipBag {
    */
   bool stripped;
 
+  /** Opt-in spatial refinement of partial VU1 strips. Owners must change
+   * bboxVersion/contentVersion whenever positions change or storage is reused.
+   * Coplanar passes must share package size and enable this together. */
+  bool refineStrips;
+
   /**
    * @param maxVertCount This parameter is available in renderer API.
    */

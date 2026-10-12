@@ -1,0 +1,189 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: cached id -> texture lookup (findLinked); list changes
+# bump Texture::linkGeneration.
+*/
+
+#include "renderer/core/texture/texture_repository.hpp"
+#include "renderer/core/texture/renderer_core_texture.hpp"
+
+namespace Tyra {
+
+TextureRepository::TextureRepository() {}
+
+TextureRepository::~TextureRepository() {
+  TYRA_LOG("Texture repository destructed!");
+  if (getTexturesCount() > 0) {
+    for (u32 i = 0; i < getTexturesCount(); i++) delete textures[i];
+    textures.clear();
+  }
+}
+
+void TextureRepository::init(
+    std::vector<RendererCoreTextureBuffers>* t_textureBuffers,
+    RendererCoreTexture* t_coreTexture) {
+  textureBuffers = t_textureBuffers;
+  coreTexture = t_coreTexture;  // Modified by TyraX (see header)
+}
+
+Texture* TextureRepository::findLinked(const u32& t_id) const {
+  // Fibonacci hashing: ids come from UniqueId (rand() draws), so any bit mix
+  // does; the top bits of the product are the well-mixed ones.
+  LinkCacheEntry& slot =
+      linkCache[(t_id * 2654435761U) >> (32 - kLinkCacheBits)];
+  if (slot.texture != nullptr && slot.id == t_id &&
+      slot.generation == Texture::linkGeneration)
+    return slot.texture;
+  for (u32 i = 0; i < textures.size(); i++) {
+    if (textures[i]->isLinkedWith(t_id)) {
+      slot.id = t_id;
+      slot.generation = Texture::linkGeneration;
+      slot.texture = textures[i];
+      return textures[i];
+    }
+  }
+  return nullptr;  // not cached: the callers assert on it anyway
+}
+
+Texture* TextureRepository::getBySpriteId(const u32& t_id) const {
+  return findLinked(t_id);
+}
+
+Texture* TextureRepository::getByMeshMaterialId(const u32& t_id) const {
+  return findLinked(t_id);
+}
+
+Texture* TextureRepository::getByTextureId(const u32& t_id) const {
+  for (u32 i = 0; i < textures.size(); i++)
+    if (t_id == textures[i]->id) return textures[i];
+  return nullptr;
+}
+
+const s32 TextureRepository::getIndexOf(const u32& t_texId) const {
+  for (u32 i = 0; i < textures.size(); i++)
+    if (textures[i]->id == t_texId) return i;
+  return -1;
+}
+
+Texture* TextureRepository::add(Texture* texture) {
+  textures.push_back(texture);
+  ++Texture::linkGeneration;
+  return texture;
+}
+
+void TextureRepository::removeByIndex(const u32& t_index) {
+  textures.erase(textures.begin() + t_index);
+  ++Texture::linkGeneration;
+}
+
+int TextureRepository::removeBufferId(const u32& t_texId) {
+  for (u32 i = 0; i < textureBuffers->size(); i++)
+    if ((*textureBuffers)[i].id == t_texId) {
+      (*textureBuffers)[i].id = -1;
+      return 0;
+    }
+  return -1;
+}
+
+void TextureRepository::removeById(const u32& t_texId) {
+  s32 index = getIndexOf(t_texId);
+  TYRA_ASSERT(index != -1, "Cant remove texture, because it was not found!");
+  removeByIndex(index);
+  // Modified by TyraX: release the GS VRAM + texbuffer structs for
+  // real; removeBufferId() only tombstoned the allocation entry and leaked
+  // both (harmless when nothing was ever freed, fatal for layer streaming).
+  if (coreTexture != nullptr)
+    coreTexture->freeTextureBuffers(t_texId);
+  else
+    removeBufferId(t_texId);
+}
+
+void TextureRepository::freeByMesh(const Mesh& mesh) {
+  for (auto* material : mesh.materials) {
+    auto* texture = getByMeshMaterialId(material->id);
+
+    if (texture != nullptr) {
+      free(texture);
+    }
+  }
+}
+
+void TextureRepository::freeByMesh(const Mesh* mesh) { freeByMesh(*mesh); }
+
+void TextureRepository::freeBySprite(const Sprite& sprite) {
+  auto* texture = getBySpriteId(sprite.id);
+
+  if (texture != nullptr) {
+    free(texture);
+  }
+}
+
+void TextureRepository::free(const Texture* t_tex) { free(t_tex->id); }
+
+void TextureRepository::free(const Texture& t_tex) { free(t_tex.id); }
+
+void TextureRepository::free(const u32& t_texId) {
+  s32 index = getIndexOf(t_texId);
+  auto* tex = textures[index];
+
+  TYRA_ASSERT(index != -1, "Cant remove texture, because it was not found!");
+  removeByIndex(index);
+  // Modified by TyraX: same as removeById() - actually free the GS
+  // buffers instead of tombstoning the allocation entry.
+  if (coreTexture != nullptr)
+    coreTexture->freeTextureBuffers(t_texId);
+  else
+    removeBufferId(t_texId);
+
+  delete tex;
+}
+
+Texture* TextureRepository::add(const char* fullpath) {
+  TextureLoader& loader = texLoaderSelector.getLoaderByFileName(fullpath);
+
+  auto* data = loader.load(fullpath);
+  Texture* texture = new Texture(data);
+  delete data;
+
+  // Modified by TyraX: remember the load path (name is just the basename,
+  // ambiguous across directories) - the texture hot-reload poller resolves
+  // repainted files against it.
+  texture->sourcePath = fullpath;
+
+  textures.push_back(texture);
+  ++Texture::linkGeneration;
+  return texture;
+}
+
+void TextureRepository::addByMesh(const Mesh* mesh, const char* directory,
+                                  const char* extension) {
+  auto& loader = texLoaderSelector.getLoaderByExtension(extension);
+
+  std::string dirFixed = directory;
+  if (dirFixed.back() != '/' && dirFixed.back() != ':') dirFixed += "/";
+
+  for (u32 i = 0; i < mesh->materials.size(); i++) {
+    if (!mesh->materials[i]->textureName.has_value()) {
+      continue;
+    }
+
+    std::string fullPath =
+        dirFixed + mesh->materials[i]->textureName.value() + "." + extension;
+
+    auto* data = loader.load(fullPath.c_str());
+    Texture* texture = new Texture(data);
+    delete data;
+
+    texture->addLink(mesh->materials[i]->id);
+    textures.push_back(texture);
+    ++Texture::linkGeneration;
+  }
+}
+
+}  // namespace Tyra

@@ -1,0 +1,16 @@
+{
+  "pid": 39128,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-pc-moving-20261011-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "185560b0f31abc32e325c66023faefb52a2925e6c85464e51f2eedc5384e7b9a",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-11T15:27:02.0497137+02:00"
+}

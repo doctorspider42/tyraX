@@ -1,0 +1,17 @@
+{
+  "experiment": "A16 private target OUTSIDE-only gate",
+  "drive": true,
+  "filterOrder": "fixed in all arms",
+  "paint": "EE in all drive arms",
+  "order": [
+    "off",
+    "on",
+    "off"
+  ],
+  "guardBand": "unchanged",
+  "source": "/mnt/f/Projects/tyrax2-paint-qualification-20261009-v2",
+  "limitations": [
+    "Not promoted",
+    "Physical raster and performance pending"
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "valid": true,
+  "experiment": "A44-complete-terrain-GPU",
+  "platform": "emulator",
+  "phase": 0,
+  "activation": {
+    "requested": 3,
+    "submitted": 3,
+    "fallback": 0,
+    "cells": 25,
+    "passes": 43,
+    "textures": 19,
+    "words": 39104,
+    "heap": 501760
+  },
+  "images": [
+    {
+      "kind": "main",
+      "files": [
+        "game\\bin\\cell-0-main.bin",
+        "game\\bin\\cell-1-main.bin",
+        "game\\bin\\cell-2-main.bin"
+      ],
+      "hashes": [
+        "de5593e5757fe814aa2acb605868023fd6ff67bc909d71f63217ccf4dbe651ba",
+        "cd61fdbaa0dcb3a7220f8989e9f41e1079cb2dda64f137355ab8de353e3a41f9",
+        "b536f6f00f4f7e60a54a0175d3ccb2308bae1f3eb7b3406394b0983d76bfe1e3"
+      ],
+      "differentBytes": 0
+    },
+    {
+      "kind": "env",
+      "files": [
+        "game\\bin\\cell-0-env.bin",
+        "game\\bin\\cell-1-env.bin",
+        "game\\bin\\cell-2-env.bin"
+      ],
+      "hashes": [
+        "c9582ded68d42286d94c74351b6304f401db45c5402e6aaacfa2f55ce6ba0aa8",
+        "f613174ac892ca9535f9f725b96fe7f08992228350b7fc18f0e7d954e897bd48",
+        "e674525d3d36b3f16d598ab1b00c1808949e2bac76a7fe0442c62c3ea57ea44d"
+      ],
+      "differentBytes": 0
+    }
+  ],
+  "readerNegativeControls": [
+    "missing",
+    "duplicate",
+    "fallback",
+    "noActivation",
+    "partialActivation",
+    "controlActivation",
+    "missingProducer",
+    "budget"
+  ],
+  "elfSha256": "5649249696f254331cafd7bea88e0a64e88836516cdeb454dc9d938d4cba71c7",
+  "logSha256": "e8d7ba8977fe5ad0d57142a4a459af6e393295fb856fde9adf0f5f9ad000e607",
+  "promotionAllowed": false,
+  "limits": [
+    "Held main/env, not display qualification.",
+    "No moving candidate, sustained pressure, full lifetime or physical price.",
+    "Exact differences are reported; no tolerance introduced after failure."
+  ]
+}

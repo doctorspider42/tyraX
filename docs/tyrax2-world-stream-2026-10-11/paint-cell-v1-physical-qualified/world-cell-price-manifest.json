@@ -1,0 +1,32 @@
+{
+  "baseElfSha256": "cee24e8e573a2f9ecd4a9202e9abaf956a9250e03469eef9a88f0c3992ca5daf",
+  "generatorSha256": "caae044b0f8f51edbecf8f4bb2a3c2908cf309762874b292862d513a810a879b",
+  "modes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+  ],
+  "daytimeOnly": true,
+  "bufferCount": 2,
+  "movingAutoOrder": true,
+  "fixedSceneStep": true,
+  "inPriceReadbacks": false,
+  "ordinaryControlUnchanged": false,
+  "version": 2,
+  "clipObserver": false,
+  "shakePhaseReset": true,
+  "samePoseEndpointArms": 3,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Existing A13/A40 accepted paint basis/readiness and all capability fallbacks retained.",
+    "No triple buffers, ISR copy, reflection freeze or geometry omission.",
+    "Moving activation uses existing paintVu CSV counter; head/+3QW witness only outside price.",
+    "Native/full same-ELF image/physical both-order net/tail gates required."
+  ],
+  "variant": "paint-cells",
+  "comparison": "common direct terrain/ordinary roads/Hybrid2: EE paint versus VU paint",
+  "directHeaderSha256": "96275a6324f33ea07fe939723cbab3c1035277875ec91ea757f76faf473c17be"
+}

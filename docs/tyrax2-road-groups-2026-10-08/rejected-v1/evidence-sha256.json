@@ -1,0 +1,17 @@
+{
+  "build.log": "f671d21af0b8a32474307395f8d7158764649cdaad9bbb7f408dadab587c292b",
+  "emulator/drive-captures.json": "398f894170417a04d025b7e543901b1e33f11eba9b2a70f4c660989b1cecfdc1",
+  "emulator/drive-phase-0.png": "2680b4285e10d45c84f65ec6d3c1d67f4d7b737379d2d247570671162153ec07",
+  "emulator/drive-phase-1.png": "1aebc9c59e311a898e8a165d4cbf0ca5f75062cf2776c83330759c645d3a690a",
+  "emulator/drive-phase-2.png": "d57dd25bf89b10c175325fa4a885b016d2d13b50c2e8951ebf9cabe5865233f7",
+  "emulator/drive-probe.csv": "041f63feb0e813bedc5c7035378ef82be735294017308d5ab06b635d2c71af36",
+  "emulator/emulator.log": "2cce6ee2e8935be23d206f1e5d8eb1b06efad961cf15359f8122d97ea26ff4ce",
+  "emulator/launch.json": "99644949bb7d4f538d0cb95c93a2f9ee412dd77ee5104fbea3e0ea06a8fd88c5",
+  "emulator/stdout.log": "842705082950a5fd7c125b346f49faacf37e8ff4d820bfa69ac02a385dc37dd4",
+  "emulator/xvfb.log": "b4c7eeeb685d357271d5d414216d2d02523a3720e8b721504d7b177ea6cc0713",
+  "game/inc/terrain_game.hpp": "571eb4dc30347c4422bf98597ca287aa06504d47c02cb722937fcc2a318bff00",
+  "game/src/gen/game_vehicles.gen.cpp": "781833746df37bac2363df2dcf4a0ecb887951d4a41cca2ac9675cccf45e0fae",
+  "native-binding.json": "812abc35b5201c67a57b20fe8eabe2e4872ef1aa807be4df773882201b1d4efc",
+  "road-groups-host.json": "0094a78d7b93aed5832f5bf0612e4672ee9443db712bd0b74fdfe3788c0a30a6",
+  "source-manifest.json": "311ec11bf5fa4cb144a9bf051c0b4538ad0a4a59a79b467e5cec6ef89f99d5e1"
+}

@@ -1,0 +1,35 @@
+{
+  "roi": [
+    1,
+    70,
+    641,
+    505
+  ],
+  "scope": "one parked world view excluding HUD; not a full moving GS oracle",
+  "pairs": [
+    {
+      "phases": [
+        0,
+        1
+      ],
+      "differentPixels": 16,
+      "maxChannelDelta": 60
+    },
+    {
+      "phases": [
+        1,
+        2
+      ],
+      "differentPixels": 0,
+      "maxChannelDelta": 0
+    },
+    {
+      "phases": [
+        0,
+        2
+      ],
+      "differentPixels": 16,
+      "maxChannelDelta": 60
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "parent": "F:\\Projects\\tyrax2-command-price-20261010-v5",
+  "parentElf": "2c44d651446d6f6c4fc455b7d8058a322604f18d1689f9f409b594096d005f77",
+  "policies": [
+    0,
+    0,
+    1,
+    2,
+    1,
+    0,
+    1,
+    2,
+    1,
+    0
+  ],
+  "routes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "hooks": [
+    {
+      "file": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+      "anchor": "void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {",
+      "kind": "StaPip"
+    },
+    {
+      "file": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+      "anchor": "void StaPipCore::onFrameEnd() {",
+      "kind": "StaPip"
+    },
+    {
+      "file": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "anchor": "void StaPipQBufferRenderer::flushPendingPacket() {",
+      "kind": "StaPip"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "  closeOpenChain();\n#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT\n  u32 snapshotRecords = 0;",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "  const u32 qwords = packet2_get_qw_count(const_cast<packet2_t*>(packet));",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::beginRecordingFrame(bool pipeline) {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::endRecordingFrame() {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::recordBarrier() {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::drain() {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::waitFor(u32 sequence) {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "void Vif1Queue::enqueue(const void* chain, u32 sequence) {",
+      "kind": "Queue"
+    },
+    {
+      "file": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "anchor": "  if (!nativePendingSequence) return;",
+      "kind": "Queue"
+    }
+  ],
+  "scope": "Exclusive elapsed StaPip/queue plus residual, split before endFrame; includes waits/preemption and observer cost; not pure EE or live FPS"
+}

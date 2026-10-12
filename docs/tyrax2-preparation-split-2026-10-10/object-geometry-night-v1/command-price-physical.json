@@ -1,0 +1,492 @@
+{
+  "valid": true,
+  "rasterEqual": true,
+  "presentationFence": true,
+  "legacySamplerSuspended": true,
+  "phase": 3,
+  "offset": 1380,
+  "pose": {
+    "z": -56.974754,
+    "speed": 14.770469,
+    "yaw": 0.0
+  },
+  "target": "physical",
+  "elfSha256": "3220a1e3850a7bdc02afa7486856e12eefe5e4b4e6644415ca98a25e6e859dd1",
+  "logSha256": "48ce2567fbcb817fd0ec6ae1944210e5050042bedf7530f9d252e51db597a3fd",
+  "timesSha256": "ff9e315212d654bacf5b394ceb1ce31e409de01e78114282cfabc58eb0e9aeae",
+  "checks": [
+    [
+      0,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      6,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      8,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      121,
+      125,
+      2019504,
+      8,
+      0,
+      2,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "rawSha256": [
+        "87a163d9317dc466d6e8a9ca607fdce5ef0e1d3801822fbbc12615f69af1466c",
+        "bbea08e1d0bf0f31fdcfc3f276e15594c61f3288043026d43dade912e5b4b6f4",
+        "d6648b5556ce8512b9fe90f021bd69c65c129132903f0cf952ce9ef0fab66b06",
+        "a6c1b3c94b4c97182498884b100341d7abdf255e5b5e0b7f6c4d59d3162f9858",
+        "c79f84e4bac10a6217ecdccd6bcdc1e777f1ca22ad265021b3fc2ed4cbcafc92",
+        "116f288beb9fcf91dc71889172b30dabeba11d572ce6879ad31d86d196b4ad8d",
+        "721548f45e9d04f7c89e82b4993996fa021ddf43ca29f6fdf4c10d0858e7e789",
+        "6f25969874f8f583b55dd16da5e6a24a9ec1cbd6b3403621f710b698b037838b",
+        "32a014c78fdbb3f2b4bbcfd15968826bdd5ab6e6361b486df7340154843a0a96",
+        "663a90aac349f00bb6368863f9db4e7dfa5154c42626dddf16aa11764b34d357"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "rawSha256": [
+        "26f89418821141c129d608ed2fda71d3eadf250970c9ecb59fe7effbb565dc09",
+        "300b3826e58ca28fee24a35e58c67bf3bdc19c49357a7b61f5fc0c08999746bf",
+        "1d38d60c03b3d0cda82fa4a615ab7630bb22ae255110f0f815f928e73d8e6200",
+        "2e5b2cab4836384415281f283831bfd88397400a6c37f226ecb79b37e31947e9",
+        "a8a8599f87dfaf6373bc41a1e48c566af0fc390c7b4e6b18bb16eeace50e1998",
+        "05923aa022b5b920797c1ef219b0de64255219cd32c34a9c1314d4fe37835200",
+        "2aa3c177b948735d3f018163a31f1bbd919a5c2b2c4e490454e5982bf3e270db",
+        "dfffbbdff933cdaf21c9a2e1ff33751def4d6ebb05bb20ac3292a5f0d578f594",
+        "4ea7a37c58ed1b3be28f17d8390678a1ee57357752cf82a980b19313aadcd155",
+        "b2ba89039cf366f4b6b67d028ed9b36f3f940df60b359ddabac4c1de5feabb95"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "closure": {
+    "qwords": 2358,
+    "bytes": 1992256,
+    "vuCalls": 805,
+    "sha256": "4a58b669425eef05b524a9be64cd928d740f11d698708ce21272bf10de970375"
+  },
+  "scope": "All-ordinary frozen scene, exclusive elapsed StaPip/queue plus residual; queue includes waits/preemption; observer footprint retained; not live FPS; StaPip means object setup/maintenance excluding geometry dispatch and queue",
+  "units": "ms from EE Count / 294912; pacing subtracted, startup included",
+  "stages": [
+    {
+      "stage": 1,
+      "mode": "ordinary",
+      "mean": 28.784735891554092,
+      "median": 28.773756239149307,
+      "p95": 28.856665717230904,
+      "maximum": 28.880828857421875,
+      "startup": 0.0,
+      "prepareInclusive": 18.099037912156845,
+      "observer": "off"
+    },
+    {
+      "stage": 2,
+      "mode": "ordinary",
+      "mean": 29.089271969265408,
+      "median": 29.093519422743057,
+      "p95": 29.136545817057293,
+      "maximum": 29.163469102647568,
+      "startup": 0.0,
+      "prepareInclusive": 18.40859752231174,
+      "observer": "count"
+    },
+    {
+      "stage": 3,
+      "mode": "ordinary",
+      "mean": 29.58618246184455,
+      "median": 29.585077921549477,
+      "p95": 29.630544026692707,
+      "maximum": 29.670834011501736,
+      "startup": 0.0,
+      "prepareInclusive": 18.8983932601081,
+      "observer": "timed"
+    },
+    {
+      "stage": 4,
+      "mode": "ordinary",
+      "mean": 29.081454383002388,
+      "median": 29.086144341362846,
+      "p95": 29.134253607855904,
+      "maximum": 29.153805202907986,
+      "startup": 0.0,
+      "prepareInclusive": 18.39597283469306,
+      "observer": "count"
+    },
+    {
+      "stage": 5,
+      "mode": "ordinary",
+      "mean": 28.783349355061848,
+      "median": 28.77428181966146,
+      "p95": 28.855600992838543,
+      "maximum": 28.867360432942707,
+      "startup": 0.0,
+      "prepareInclusive": 18.097846243116592,
+      "observer": "off"
+    },
+    {
+      "stage": 6,
+      "mode": "ordinary",
+      "mean": 29.087523036532932,
+      "median": 29.091027153862846,
+      "p95": 29.136349148220486,
+      "maximum": 29.154483371310764,
+      "startup": 0.0,
+      "prepareInclusive": 18.408872604370117,
+      "observer": "count"
+    },
+    {
+      "stage": 7,
+      "mode": "ordinary",
+      "mean": 29.587490134769016,
+      "median": 29.587385389539932,
+      "p95": 29.635067409939236,
+      "maximum": 29.669728597005207,
+      "startup": 0.0,
+      "prepareInclusive": 18.90157084994846,
+      "observer": "timed"
+    },
+    {
+      "stage": 8,
+      "mode": "ordinary",
+      "mean": 29.083385758929783,
+      "median": 29.088422987196182,
+      "p95": 29.143042670355904,
+      "maximum": 29.166839599609375,
+      "startup": 0.0,
+      "prepareInclusive": 18.397987286249798,
+      "observer": "count"
+    },
+    {
+      "stage": 9,
+      "mode": "ordinary",
+      "mean": 28.78750165303548,
+      "median": 28.77661810980903,
+      "p95": 28.866797553168404,
+      "maximum": 28.868743896484375,
+      "startup": 0.0,
+      "prepareInclusive": 18.1004245546129,
+      "observer": "off"
+    }
+  ],
+  "diagnosticMemory": {
+    "closureAllocatedBytes": 1992256,
+    "heapRows": [
+      [
+        0,
+        22942060,
+        21973252,
+        968808
+      ],
+      [
+        1,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        2,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        3,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        4,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        5,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        6,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        7,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        8,
+        22942060,
+        21737556,
+        1204504
+      ],
+      [
+        9,
+        22942060,
+        21737556,
+        1204504
+      ]
+    ],
+    "scope": "Allocator arena/used/free blocks, not total free EE RAM; off-clock stage checks"
+  },
+  "preparationSplit": {
+    "policies": [
+      0,
+      0,
+      1,
+      2,
+      1,
+      0,
+      1,
+      2,
+      1,
+      0
+    ],
+    "counts": [
+      121,
+      104,
+      1,
+      10,
+      175,
+      1
+    ],
+    "sha256": "982eec7da00c9f9e83bbf692073fa8da7a3b465d5d5dfb33cd2f42b271372c8a",
+    "observerBytes": 82944,
+    "geometrySplit": true,
+    "timedStages": [
+      {
+        "stage": 3,
+        "prepare": 18.8983932601081,
+        "staPip": 5.600145101547241,
+        "queue": 4.035847187042236,
+        "residual": 2.436157703399658,
+        "finish": 14.413946681552464,
+        "finishStaPip": 0.04283502366807726,
+        "finishQueue": 9.808594968583849,
+        "finishResidual": 4.560880343119304,
+        "pacing": 3.726157479816013,
+        "reads": 696,
+        "geometry": 6.826243268118964,
+        "finishGeometry": 0.0016363461812337239
+      },
+      {
+        "stage": 7,
+        "prepare": 18.90157084994846,
+        "staPip": 5.622153706020779,
+        "queue": 4.038067844178942,
+        "residual": 2.4337949752807617,
+        "finish": 14.410657776726616,
+        "finishStaPip": 0.04366948869493273,
+        "finishQueue": 9.806828816731771,
+        "finishResidual": 4.5588531494140625,
+        "pacing": 3.72473849190606,
+        "reads": 696,
+        "geometry": 6.807554324467977,
+        "finishGeometry": 0.0013063218858506945
+      }
+    ],
+    "observerContrasts": [
+      {
+        "stage": 3,
+        "timedMinusCountBefore": 0.49691049257914344,
+        "timedMinusCountAfter": 0.5047280788421631,
+        "prepareTimedMinusCountBefore": 0.48979573779636,
+        "prepareTimedMinusCountAfter": 0.5024204254150391,
+        "timedMinusOffBefore": 0.8014465702904587,
+        "timedMinusOffAfter": 0.8028331067827033
+      },
+      {
+        "stage": 7,
+        "timedMinusCountBefore": 0.499967098236084,
+        "timedMinusCountAfter": 0.5041043758392334,
+        "prepareTimedMinusCountBefore": 0.4926982455783424,
+        "prepareTimedMinusCountAfter": 0.5035835636986619,
+        "timedMinusOffBefore": 0.8041407797071685,
+        "timedMinusOffAfter": 0.7999884817335357
+      }
+    ],
+    "countMinusOff": [
+      {
+        "countStage": 2,
+        "offStage": 1,
+        "work": 0.3045360777113153,
+        "prepare": 0.30955961015489564
+      },
+      {
+        "countStage": 4,
+        "offStage": 5,
+        "work": 0.29810502794054017,
+        "prepare": 0.2981265915764695
+      },
+      {
+        "countStage": 6,
+        "offStage": 5,
+        "work": 0.3041736814710845,
+        "prepare": 0.3110263612535249
+      },
+      {
+        "countStage": 8,
+        "offStage": 9,
+        "work": 0.29588410589430225,
+        "prepare": 0.29756273163689784
+      }
+    ],
+    "limits": "Finish is raw elapsed including pacing, not additive to non-pacing work. Do not subtract observer contrasts as a uniform correction. Off retains branches/code/data footprint."
+  }
+}

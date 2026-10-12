@@ -1,0 +1,136 @@
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_types.h:22,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:28,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:22,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘u8 _lb(u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:104:13: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  104 |     return *(vu8 *)addr;
+      |             ^~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘u16 _lh(u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:106:43: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  106 | static inline u16 _lh(u32 addr) { return *(vu16 *)addr; }
+      |                                           ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘u32 _lw(u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:107:43: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  107 | static inline u32 _lw(u32 addr) { return *(vu32 *)addr; }
+      |                                           ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘void _sb(u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:109:45: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  109 | static inline void _sb(u8 val, u32 addr) { *(vu8 *)addr = val; }
+      |                                             ^~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘void _sh(u16, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:110:46: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  110 | static inline void _sh(u16 val, u32 addr) { *(vu16 *)addr = val; }
+      |                                              ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘void _sw(u32, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:111:46: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  111 | static inline void _sw(u32 val, u32 addr) { *(vu32 *)addr = val; }
+      |                                              ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘u64 _ld(u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:116:13: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  116 |     return *(vu64 *)addr;
+      |             ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘u128 _lq(u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:118:44: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  118 | static inline u128 _lq(u32 addr) { return *(vu128 *)addr; }
+      |                                            ^~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘void _sd(u64, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:119:46: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  119 | static inline void _sd(u64 val, u32 addr) { *(vu64 *)addr = val; }
+      |                                              ^~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h: In function ‘void _sq(u128, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/tamtypes.h:120:47: warning: cast to pointer from integer of different size [-Wint-to-pointer-cast]
+  120 | static inline void _sq(u128 val, u32 addr) { *(vu128 *)addr = val; }
+      |                                               ^~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:22,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h: In function ‘void packet2_pad96(packet2_t*, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:166:18: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  166 |         while ((((u32)packet2->next + 4) & 0xf) != 0)
+      |                  ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h: In function ‘void packet2_pad128(packet2_t*, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:175:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  175 |         while (((u32)packet2->next & 0xf) != 0)
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h: In function ‘u32 packet2_get_qw_count(packet2_t*)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:200:74: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  200 |     static inline u32 packet2_get_qw_count(packet2_t *packet2) { return ((u32)packet2->next - (u32)packet2->base) >> 4; }
+      |                                                                          ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:200:95: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  200 |     static inline u32 packet2_get_qw_count(packet2_t *packet2) { return ((u32)packet2->next - (u32)packet2->base) >> 4; }
+      |                                                                                               ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h: In function ‘u8 packet2_doesnt_have_even_number_of_quads(packet2_t*)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2.h:203:93: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  203 |     static inline u8 packet2_doesnt_have_even_number_of_quads(packet2_t *packet2) { return ((u32)packet2->next & 0xF) != 0; }
+      |                                                                                             ^~~~~~~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:23,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_set_dma_tag(dma_tag_t*, u32, u32, u32, u8, const u128*, u8)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:54:27: warning: cast from ‘const u128*’ {aka ‘const __int128 unsigned*’} to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+   54 |         tag->ADDR = (u64)((u32)addr);
+      |                           ^~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:24,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:23,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_add_dma_tag(packet2_t*, u32, u32, DmaTagType, u8, const u128*, u8)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:76:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+   76 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_close_tag(packet2_t*)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:103:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  103 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:23,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:104:41: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  104 |         packet2->tag_opened_at->QWC = (((u32)packet2->next - (u32)packet2->tag_opened_at) / 16 - 1);
+      |                                         ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:104:62: warning: cast from ‘dma_tag_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  104 |         packet2->tag_opened_at->QWC = (((u32)packet2->next - (u32)packet2->tag_opened_at) / 16 - 1);
+      |                                                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:24,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:23,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_ref(packet2_t*, const void*, u32, u8, u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:156:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  156 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_next(packet2_t*, const dma_tag_t*, u8, u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:172:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  172 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_refs(packet2_t*, const void*, u32, u8, u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:190:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  190 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_refe(packet2_t*, const void*, u32, u8, u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:208:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  208 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h: In function ‘void packet2_chain_call(packet2_t*, const void*, u8, u8, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_chain.h:225:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  225 |         assert(((u32)packet2->next & 0xF) == 0); // Free space in packet is aligned properly.
+      |                 ^~~~~~~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:24,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:24,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h: In function ‘void packet2_vif_close_unpack_manual(packet2_t*, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:71:17: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+   71 |         assert(((u32)packet2->next & 0x3) == 0);                   // Make sure we're u32 aligned
+      |                 ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h: In function ‘void packet2_vif_close_direct_manual(packet2_t*, u32)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:112:18: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  112 |         assert((((u32)packet2->next - ((u32)packet2->vif_code_opened_at + 4)) & 0xF) == 0);
+      |                  ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:112:40: warning: cast from ‘vif_code_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  112 |         assert((((u32)packet2->next - ((u32)packet2->vif_code_opened_at + 4)) & 0xF) == 0);
+      |                                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_utils.h:24,
+                 from /mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/verify-object-head.cpp:2:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h: In function ‘void packet2_vif_close_direct_auto(packet2_t*)’:
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:125:58: warning: cast from ‘qword_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  125 |         return packet2_vif_close_direct_manual(packet2, ((u32)packet2->next - ((u32)packet2->vif_code_opened_at + 4)) >> 4);
+      |                                                          ^~~~~~~~~~~~~~~~~~
+/mnt/f/Projects/tyrax2-head-hot-20261011-host-v2/inc/packet2_vif.h:125:80: warning: cast from ‘vif_code_t*’ to ‘u32’ {aka ‘unsigned int’} loses precision [-fpermissive]
+  125 |         return packet2_vif_close_direct_manual(packet2, ((u32)packet2->next - ((u32)packet2->vif_code_opened_at + 4)) >> 4);
+      |                                                                                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

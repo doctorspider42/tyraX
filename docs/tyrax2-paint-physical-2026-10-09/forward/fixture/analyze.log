@@ -1,0 +1,189 @@
+{
+  "target": "emulator",
+  "scope": "A13 lean control/workload qualification; NOT proof of sustained physical 60 Hz",
+  "elfSha256": "996b459f73ca13173e741c373cef57b9fd459262e92dd38ab82b3cfb40b46162",
+  "sourceFiles": 470,
+  "phases": [
+    {
+      "phase": 0,
+      "hour": 12,
+      "mode": 0,
+      "rows": 637,
+      "gasFrames": 517,
+      "firstZ": -74.303497,
+      "lastZ": 108.280052,
+      "cameraDegrees": [
+        -60.00871365244177,
+        60.00719987086366
+      ],
+      "distanceBinCounts": [
+        72,
+        56,
+        52,
+        43,
+        45,
+        44,
+        44,
+        43
+      ],
+      "paintUpdates": 246.0,
+      "envDraws": 571.0,
+      "vuDraws": 0.0,
+      "captures": 180.0
+    },
+    {
+      "phase": 1,
+      "hour": 12,
+      "mode": 6,
+      "rows": 642,
+      "gasFrames": 522,
+      "firstZ": -74.303497,
+      "lastZ": 108.270378,
+      "cameraDegrees": [
+        -59.999995043478656,
+        60.00177158671135
+      ],
+      "distanceBinCounts": [
+        72,
+        58,
+        52,
+        44,
+        45,
+        45,
+        45,
+        43
+      ],
+      "paintUpdates": 248.0,
+      "envDraws": 576.0,
+      "vuDraws": 576.0,
+      "captures": 182.0
+    },
+    {
+      "phase": 2,
+      "hour": 12,
+      "mode": 0,
+      "rows": 637,
+      "gasFrames": 517,
+      "firstZ": -74.303497,
+      "lastZ": 108.304527,
+      "cameraDegrees": [
+        -59.999995043478656,
+        60.00450255499072
+      ],
+      "distanceBinCounts": [
+        72,
+        58,
+        52,
+        41,
+        45,
+        44,
+        44,
+        43
+      ],
+      "paintUpdates": 246.0,
+      "envDraws": 571.0,
+      "vuDraws": 0.0,
+      "captures": 180.0
+    },
+    {
+      "phase": 3,
+      "hour": 0,
+      "mode": 0,
+      "rows": 630,
+      "gasFrames": 510,
+      "firstZ": -74.303497,
+      "lastZ": 108.286812,
+      "cameraDegrees": [
+        -59.999995043478656,
+        59.999995043478656
+      ],
+      "distanceBinCounts": [
+        72,
+        56,
+        49,
+        41,
+        43,
+        45,
+        45,
+        43
+      ],
+      "paintUpdates": 242.0,
+      "envDraws": 562.0,
+      "vuDraws": 0.0,
+      "captures": 177.0
+    },
+    {
+      "phase": 4,
+      "hour": 0,
+      "mode": 6,
+      "rows": 629,
+      "gasFrames": 509,
+      "firstZ": -74.303497,
+      "lastZ": 108.293816,
+      "cameraDegrees": [
+        -59.999995043478656,
+        59.999995043478656
+      ],
+      "distanceBinCounts": [
+        72,
+        56,
+        48,
+        40,
+        45,
+        45,
+        44,
+        43
+      ],
+      "paintUpdates": 241.0,
+      "envDraws": 561.0,
+      "vuDraws": 561.0,
+      "captures": 176.0
+    },
+    {
+      "phase": 5,
+      "hour": 0,
+      "mode": 0,
+      "rows": 624,
+      "gasFrames": 504,
+      "firstZ": -74.303497,
+      "lastZ": 108.284714,
+      "cameraDegrees": [
+        -59.999995043478656,
+        60.00404269965834
+      ],
+      "distanceBinCounts": [
+        72,
+        50,
+        51,
+        39,
+        44,
+        45,
+        44,
+        43
+      ],
+      "paintUpdates": 239.0,
+      "envDraws": 556.0,
+      "vuDraws": 0.0,
+      "captures": 176.0
+    }
+  ],
+  "negativeControls": [
+    "stationary",
+    "no-gas",
+    "capture-frozen",
+    "missing-cars",
+    "scoped-profiler",
+    "wrong-paint-path",
+    "missing-phase",
+    "missing-completion",
+    "wrong-mood"
+  ],
+  "csvSha256": "8fcae9b1ce8f26e079ec6cd0ca08d509fdc621cacf1e9cbe66f1df82d6e60960",
+  "logSha256": "8b45e1b5a03f66191f2d866005d4293cbba3595238be475a410c8c4712c4359e",
+  "limitations": [
+    "same compiled paint images in both controls; not flag-OFF whole-image price",
+    "light per-draw counters and deferred CSV remain; common observer cost unpriced",
+    "camera sweep during straight driving; not a standalone parked-turn benchmark",
+    "no physical target available; do not deploy or infer PS2 speed from emulator"
+  ]
+}

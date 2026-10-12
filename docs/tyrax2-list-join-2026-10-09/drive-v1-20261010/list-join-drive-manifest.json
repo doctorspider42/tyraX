@@ -1,0 +1,39 @@
+{
+  "experiment": "A23",
+  "source": "F:\\Projects\\tyrax2-target-drive-20261009-v1",
+  "sourceElf": "f897174fc1d053baccc59538f9068a133a2c2b4a1f4f203669337a36634d888d",
+  "modes": [
+    0,
+    6,
+    0,
+    6,
+    0,
+    6,
+    0,
+    6,
+    0,
+    6,
+    0,
+    6
+  ],
+  "hours": [
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "sampleStart": 1200,
+  "gasStart": 1320,
+  "endZ": 108,
+  "oracle": "On moving offset%128==64; exclude this frame and next frame from pricing",
+  "raster": "After each live trip, current producer state frozen for O/J/O main/env readbacks",
+  "scope": "Ordinary moving producers with real dt, roads and live reflections; same-ELF forward/reverse triples"
+}

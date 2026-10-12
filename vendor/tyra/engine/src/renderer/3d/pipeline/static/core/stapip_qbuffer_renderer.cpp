@@ -25,6 +25,7 @@
 #include <algorithm>
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_baked_body.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "renderer/core/gs/renderer_core_depth.hpp"
 #include "packet2/packet2_tyra_utils.hpp"
@@ -627,6 +628,9 @@ void StaPipBakedStreams::onFrameEnd() {
 
   bool expired = false;
   for (auto& item : storage) {
+#if TYRA_STAPIP_PREPARED_STATIC
+    if (item->scenePinned) continue;
+#endif
     if (item->framesLeftToDestroy > 0) {
       item->framesLeftToDestroy--;
       if (item->framesLeftToDestroy <= 0) expired = true;
@@ -670,6 +674,9 @@ bool StaPipBakedStreams::evictFor(u32 wanted) {
     int victim = -1;
     int oldest = kLifetimeFrames;  // never an entry this frame has touched
     for (u32 i = 0; i < storage.size(); ++i) {
+#if TYRA_STAPIP_PREPARED_STATIC
+      if (storage[i]->scenePinned) continue;
+#endif
       if (storage[i]->framesLeftToDestroy < oldest) {
         oldest = storage[i]->framesLeftToDestroy;
         victim = static_cast<int>(i);
@@ -963,6 +970,8 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   bakedCurrent = nullptr;
   bakeScratch.clear();
   baked.clear();
+  if (partialBakePacket) packet2_free(partialBakePacket);
+  partialBakePacket = nullptr;
 #endif
   packet2_free(staticDataPacket);
   for (u16 i = 0; i < kPacketCount; i++) packet2_free(packets[i]);
@@ -1162,6 +1171,11 @@ constexpr bool kInlineUniforms = TYRA_VIF1_QUEUE != 0;
 
 void StaPipQBufferRenderer::sendObjectData(
     StaPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) {
+#if TYRA_VU1_EXP_PAINT
+  const bool paintVu = bag->texture && bag->texture->paintVu;
+  TYRA_ASSERT(!paintVu || supportsPaintVu(bag),
+              "VU paint uniforms require a supported built-in paint program!");
+#endif
   // Modified by TyraX: build uniforms at the head of the same packet that the
   // first geometry flush will append to. This removes one VIF1 DMA launch and
   // its intervening EE wait per visible bag without relying on a NEXT/CALL
@@ -1420,7 +1434,11 @@ void StaPipQBufferRenderer::sendObjectData(
     // negative. The two cannot collide - the peer variant is selected by a
     // lighting bag or matcap coordinates, and neither of those classes has
     // the spot macro at all - so the variant wins when both are true.
-    const s32 variantLane = sharedClipVariant ? 1 : (spotActive ? -1 : 0);
+    const s32 variantLane =
+#if TYRA_VU1_EXP_PAINT
+        paintVu ? 2 :
+#endif
+        (sharedClipVariant ? 1 : (spotActive ? -1 : 0));
     {
       qword_t& q = opt[optQw++];
       // Single color enabled - or, Modified by TyraX, -1 for a TD bag: the
@@ -1568,6 +1586,15 @@ void StaPipQBufferRenderer::sendObjectData(
                                        r.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
                                        r.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
       emitUnpack(objectDataPacket, VU1_ENV_BASIS_ADDR, e, 3);
+#if TYRA_VU1_EXP_PAINT
+      if (paintVu) {
+        const Vec4& f = bag->texture->paintForward;
+        const Vec4& h = bag->texture->paintHalf;
+        alignas(16) const float p[8] = {f.x, f.y, f.z, 0.0F,
+                                      h.x, h.y, h.z, 0.0F};
+        emitUnpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, p, 2);
+      }
+#endif
     }
   }
 
@@ -2184,9 +2211,134 @@ u32 StaPipQBufferRenderer::getRetainedBytes() const { return 0; }
  * how every caller that has not opted in keeps its previous behaviour. */
 static inline u32 stampOf(const u32* p) { return p != nullptr ? *p : 0u; }
 
+bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer* buffer,
+    const StaPipBagPackage& pkg, u32 first, u32 triangles) {
+  auto* bag = pkg.bag;
+  if (!vu1Clipping || !triangles || first + triangles + 2 > pkg.size ||
+      bag->billboard || repository.hasAnyOverride()) return false;
+  const u32 count = triangles * 3;
+  const u32 expandedCount = (pkg.size - 2) * 3;
+  const u32 streams = 1 + unsigned(bag->texture != nullptr) +
+      unsigned(bag->color->many != nullptr) + unsigned(bag->lighting != nullptr);
+  const u32 qw = expandedCount * streams;
+  if (qw > 4096) return false;
+  StaPipBakedEntry key{};
+  key.vertices = pkg.vertices;
+  key.sts = pkg.sts;
+  key.colors = pkg.colors;
+  key.normals = pkg.normals;
+  key.program = getClipProgramByBag(bag);
+  key.count = expandedCount;
+  // Disjoint from ordinary VU package sizes: this entry stores arrays, not VIF.
+  key.maxVertCount = 0x80000000u | pkg.size;
+  key.bboxVersion = bag->bboxVersion;
+  key.contentVersion = stampOf(bag->contentVersion) * 0x9E3779B1U +
+      stampOf(bag->color->contentVersion) * 0x85EBCA6BU +
+      stampOf(bag->texture ? bag->texture->contentVersion : nullptr) * 0xC2B2AE35U +
+      stampOf(bag->lighting ? bag->lighting->contentVersion : nullptr) * 0x27D4EB2FU;
+  key.singleColor = bag->color->many == nullptr;
+  key.packages = 1;
+  auto* entry = baked.acquire(key);
+  if (!entry) return false;
+  if (!entry->complete) {
+    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
+    entry->arena = reinterpret_cast<qword_t*>(aligned);
+    // One registry slot per original strip, not per tiny clip chunk. Never
+    // publish a copy-only entry after registry saturation: it would stay so.
+    if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
+      entry->raw.reset(); entry->arena = nullptr; return false;
+    }
+    if (!baked.reserve(qw)) {
+      Vif1Queue::retireImmutableSpan(entry->arena);
+      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
+      TYRA_ASSERT(released, "Unpublished expansion acquired a DMA reader");
+      entry->raw.reset(); entry->arena = nullptr; return false;
+    }
+    for (u32 t = 0; t < pkg.size - 2u; t += triangles) {
+      const u32 n = std::min(triangles, pkg.size - 2u - t);
+      buffer->fillByStripExpand(pkg, t, n);
+      Vec4* out = reinterpret_cast<Vec4*>(entry->arena) + t * 3;
+      const Vec4* source[] = {buffer->vertices,
+          bag->texture ? buffer->sts : nullptr,
+          bag->color->many ? buffer->colors : nullptr,
+          bag->lighting ? buffer->normals : nullptr};
+      for (const auto* data : source) if (data) {
+        memcpy(out, data, n * 3 * sizeof(Vec4));
+        out += expandedCount;
+      }
+    }
+    entry->arenaQw = qw;
+    entry->offsets[0] = 0;
+    entry->sizes[0] = qw;
+    entry->built = entry->complete = 1;
+  }
+  StaPipBagPackage cached = pkg;
+  const Vec4* in = reinterpret_cast<const Vec4*>(entry->arena) + first * 3;
+  cached.size = count;
+  cached.vertices = in; in += expandedCount;
+  cached.sts = bag->texture ? in : nullptr;
+  if (bag->texture) in += expandedCount;
+  cached.colors = bag->color->many ? in : nullptr;
+  if (bag->color->many) in += expandedCount;
+  cached.normals = bag->lighting ? in : nullptr;
+#if TYRA_STAPIP_EXPANSION_VERIFY
+  // Compare every stream to the original expansion, including odd winding.
+  buffer->fillByStripExpand(pkg, first, triangles);
+  bool equal = memcmp(buffer->vertices, cached.vertices, count * sizeof(Vec4)) == 0;
+  if (cached.sts) equal &= memcmp(buffer->sts, cached.sts, count * sizeof(Vec4)) == 0;
+  if (cached.colors) equal &= memcmp(buffer->colors, cached.colors, count * sizeof(Vec4)) == 0;
+  if (cached.normals) equal &= memcmp(buffer->normals, cached.normals, count * sizeof(Vec4)) == 0;
+  static u32 checked = 0, failed = 0;
+  ++checked; if (!equal) ++failed;
+  if (!equal || checked == 1 || checked % 4096 == 0) {
+    printf("EXPANDCHECK checked=%u failed=%u\n", unsigned(checked), unsigned(failed));
+    fflush(stdout);
+  }
+  if (!equal) return true;  // original expanded data is already in the buffer
+#endif
+  buffer->fillByPointer(cached);
+  buffer->stripped = false;
+#if TYRA_STAPIP_PREPARED_STATIC
+  if (preparingStatic) entry->scenePinned = true;
+#endif
+  return true;
+}
+
+#if TYRA_STAPIP_PREPARED_STATIC
+bool StaPipQBufferRenderer::prepareStaticGeometry(StaPipBag* bag,
+    u32 packageSize, u32 clipSize) {
+  if (!programsPacket || repository.hasAnyOverride() || !clipSize ||
+      Vif1Queue::recordingFrame()) return false;
+  const bool ready = beginBakedBag(bag, packageSize, true);
+  if (ready) bakedCurrent->scenePinned = true;
+  endBakedBag();
+  if (!ready || !bag->stripped || !vu1Clipping) return ready;
+  StaPipQBuffer scratch;
+  scratch.setMaxVertCount(packageSize);
+  preparingStatic = true;
+  for (u32 offset = 0; offset < bag->count; offset += packageSize) {
+    StaPipBagPackage pkg;
+    pkg.bag = bag;
+    pkg.size = std::min(packageSize, bag->count - offset);
+    if (pkg.size < 3) continue;
+    pkg.vertices = bag->vertices + offset;
+    pkg.sts = bag->texture ? bag->texture->coordinates + offset : nullptr;
+    pkg.colors = reinterpret_cast<const Vec4*>(bag->color->many) + offset;
+    pkg.normals = nullptr;
+    pkg.clipPlaneMask = 0x3f;
+    // This creates no draw. Runtime classification supplies its fresh mask.
+    fillCachedStrip(&scratch, pkg, 0, std::min(clipSize / 3, u32(pkg.size - 2)));
+  }
+  preparingStatic = false;
+  return true;
+}
+#endif
+
 bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
-                                          const u32& packageSize) {
+                                          const u32& packageSize, bool partial) {
   bakedCurrent = nullptr;
+  bakedPartial = partial;
   bakeScratch.clear();
   if (bag == nullptr || packageSize == 0) return false;
   // Same two exclusions the retained cache and the submission-batch scope
@@ -2252,7 +2404,93 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
   // speed. See StaPipBakedStreams::verifying.
   if (baked.verifying(bakedCurrent)) bakedCurrent->built = 0;
 #endif
+  if (partial && bakedCurrent && !preparePartialBakedBag(bag, packageSize)) {
+    bakedCurrent = nullptr;
+    return false;
+  }
   return bakedCurrent != nullptr;
+}
+
+// Modified by TyraX: build immutable fixed slices with the real packet writers.
+// No geometry is submitted here. Clipped/expanded slices still use the old path.
+bool StaPipQBufferRenderer::preparePartialBakedBag(StaPipBag* bag, u32 size) {
+  auto* entry = bakedCurrent;
+  if (entry->complete && !baked.verifying(entry)) return true;
+  if (static_cast<u64>(bag->count) * 4 + entry->packages * 16u >
+      StaPipBakedStreams::kMaxQwords) return false;
+  if (!partialBakePacket)
+    partialBakePacket = packet2_create(64, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  if (!partialBakePacket) return false;
+  StaPipQBuffer buffer;
+  buffer.setMaxVertCount(size);
+  auto* program = getCullProgramByBag(bag);
+  const prim_t savedPrim = *prim;
+  entry->built = 0;
+  for (u32 i = 0, offset = 0; offset < bag->count; ++i, offset += size) {
+    packet2_reset(partialBakePacket, false);
+    buffer.fillByPointer(bag, offset, std::min(size, bag->count - offset));
+    program->addBufferDataToPacket(partialBakePacket, &buffer, prim, i == 0);
+    if (i == 0)
+      packet2_utils_vu_add_start_program(partialBakePacket, program->getDestinationAddress());
+    else packet2_utils_vu_add_continue_program(partialBakePacket);
+    if (!bakeBlock(partialBakePacket, 0, packet2_get_qw_count(partialBakePacket), entry, i)) {
+      entry->built = 0;
+      bakeScratch.clear();
+      *prim = savedPrim;
+      return false;
+    }
+  }
+  *prim = savedPrim;
+  endBakedBag();
+  bakedCurrent = entry;
+  return entry->complete;
+}
+
+bool StaPipQBufferRenderer::replayPartialBakedBuffer(packet2_t* packet,
+    StaPipQBuffer* buffer, StaPipVU1Program* program, bool emitState) {
+  auto* entry = bakedCurrent;
+  const int index = buffer->bakeIndex;
+  if (!bakedPartial || !entry || !entry->complete || baked.verifying(entry) ||
+      index < 0 || index >= entry->packages || entry->sizes[index] <= 4 ||
+      program != entry->program) return false;
+  const auto* block = entry->arena + entry->offsets[index];
+  const u32 size = entry->sizes[index];
+#if TYRA_STAPIP_PARTIAL_BAKED_VERIFY
+  if (!partialBakePacket)
+    partialBakePacket = packet2_create(64, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  packet2_reset(partialBakePacket, false);
+  program->addBufferDataToPacket(partialBakePacket, buffer, prim, emitState);
+  if (emitState) packet2_utils_vu_add_start_program(partialBakePacket, program->getDestinationAddress());
+  else packet2_utils_vu_add_continue_program(partialBakePacket);
+  const bool equal = BakedBody::matches(
+      reinterpret_cast<const uint32_t*>(partialBakePacket->base),
+      packet2_get_qw_count(partialBakePacket), reinterpret_cast<const uint32_t*>(block),
+      size, VU1_STAPIP_EMIT_STATE_FLAG,
+      [](uint32_t address, uint32_t) { return reinterpret_cast<const uint32_t*>(address); });
+  static u32 checked = 0, failed = 0;
+  ++checked;
+  if (!equal) ++failed;
+  if (!equal || checked == 1 || checked % 4096 == 0) {
+    printf("PARTIALCHECK checked=%u failed=%u index=%d words=%u\n",
+           unsigned(checked), unsigned(failed), index, unsigned(size));
+    fflush(stdout);
+  }
+  if (!equal) { bakedCurrent = nullptr; return false; }
+#endif
+  // The standard writer emits a three-qword CNT block; the kick is one CNT.
+  // Both are regenerated, since culling/clip interleaving changes entry state.
+  const u32 before = packet2_get_qw_count(packet);
+  program->addStandardBufferDataToPacket(packet, buffer, prim, emitState);
+  if (packet2_get_qw_count(packet) - before != 3) {
+    packet->next = packet->base + before;
+    return false;
+  }
+  emitRef(packet, block + 3, size - 4);
+  if (emitState) packet2_utils_vu_add_start_program(packet, program->getDestinationAddress());
+  else packet2_utils_vu_add_continue_program(packet);
+  lastProgramName = program->getName();
+  baked.countHit();
+  return true;
 }
 
 /**
@@ -2523,7 +2761,10 @@ u32 StaPipQBufferRenderer::getVerifyFailed() const { return 0; }
 
 #else
 
-bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&) {
+bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer*,
+    const StaPipBagPackage&, u32, u32) { return false; }
+
+bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&, bool) {
   return false;
 }
 bool StaPipQBufferRenderer::replayWholeBakedBag() { return false; }
@@ -2566,6 +2807,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
 #endif
 
 #if TYRA_STAPIP_BAKED_STREAM
+    if (replayPartialBakedBuffer(currentPacket, buffers[i], program, emitState)) continue;
     // Modified by TyraX: the baked VIF stream. A run of consecutive packages
     // of one complete bag is ONE DMA REF tag - the arena holds them in package
     // order, so a run is contiguous - and that REF's payload carries the
@@ -2579,7 +2821,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     {
       StaPipBakedEntry* bakedEntry = bakedCurrent;
       const int bakeIdx = buffers[i]->bakeIndex;
-      if (!baked.verifying(bakedEntry) && bakedEntry != nullptr &&
+      if (!bakedPartial && !baked.verifying(bakedEntry) && bakedEntry != nullptr &&
           bakedEntry->complete && bakeIdx >= 0 &&
           bakeIdx < bakedEntry->packages) {
         u32 runQw = bakedEntry->sizes[bakeIdx];

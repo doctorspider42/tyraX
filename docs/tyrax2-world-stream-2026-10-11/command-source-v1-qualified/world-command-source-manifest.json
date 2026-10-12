@@ -1,0 +1,23 @@
+{
+  "baseElfSha256": "71cf0f87823a8f7795f5cdeff8e19e4f7b4b4059b11f97bbd3990d7aa0f41804",
+  "generatorSha256": "1db442bced72114ba24c94b7a1ea06160e856afcdb7e4d8d241f0a80de7bf081",
+  "commandTemplateSha256": "348e2abe037bc7db1b304f0fe8758c2f605914d44fd66ca10b39bbedea04fb6e",
+  "sourceTemplateSha256": "29861ada19213ba2b3f28a1a7adde7ec429161737d8780345e857cc6f9633c82",
+  "capacityBytes": 2097152,
+  "stages": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Actual native prefix; requires ONE captured prefix/submission per stage.",
+    "Private cold diagnostic, not a command replay or performance price."
+  ]
+}

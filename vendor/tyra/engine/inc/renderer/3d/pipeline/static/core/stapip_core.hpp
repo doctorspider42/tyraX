@@ -11,6 +11,8 @@
 #pragma once
 
 #include <tamtypes.h>
+#include <memory>
+#include "./stapip_strip_subranges.hpp"
 #include "./bag/stapip_bag.hpp"
 #include "./bag/packaging/stapip_bag_packages_bbox.hpp"
 #include "./bag/packaging/stapip_bag_package.hpp"
@@ -41,6 +43,11 @@ class StaPipCore {
   void init(RendererCore* t_core);
 
   void onFrameEnd();
+#if TYRA_STAPIP_PREPARED_STATIC
+  // Modified by TyraX: private bounded scene-residency trial, outside recording.
+  bool prepareStaticGeometry(StaPipBag* bag);
+  void releasePreparedGeometry() { qbufferRenderer.releasePreparedGeometry(); }
+#endif
 
   /** Render 3D via "bags" */
   void render(StaPipBag* bag,
@@ -68,6 +75,10 @@ class StaPipCore {
    * setRenderer() or between frames.
    */
   void setVU1Clipping(const bool& enabled);
+
+  bool supportsPaintVu(const StaPipBag* bag) const {
+    return qbufferRenderer.supportsPaintVu(bag);
+  }
 
   /** TyraX addition: which material classes keep a resident VU1 program
    * (docs/vu-framework.md). Safe at run time: a level that stops needing, say,
@@ -145,6 +156,7 @@ class StaPipCore {
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
  private:
+  std::unique_ptr<StaPipStripSubranges::Cache> stripSubranges;
   void setPrim();
   void setLod();
 

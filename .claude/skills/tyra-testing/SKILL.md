@@ -19,6 +19,1686 @@ description: >
 
 # Building, running and verifying
 
+Run tools/verify-world-input-compact.py OUT under WSL for frozen cold-format
+component optimized/ASan/UBSan checks. Host V2 passes1120 cases/eight controls,
+exact modeled VU memory at each kick and restored incoming ROW/MASK. Decoder
+is bounded/synthetic, NOT actual SDK/native VIF or FPS. Actual SDK body inputs,
+incoming hardware state, target decoded memory/images/leases and PS2 net follow.
+world-input-sdk fixture extends the actual cold SDK gate to dump60 bodies, then
+explicit INPUTSDKDONE/SleepThread. It is NOT a rendering/FPS candidate. Extended
+host runner accepts the dump; bind it to actual ELF/log and check both state
+snapshots. Observed MODE/ROW/MASK stability is not queue-wide lifetime proof.
+SDK-dump V2 native504/hidden emulator cold gate passes; verify-world-input-sdk.py
+freezes531 payloads and checks60 actual SDK bodies with optimized/sanitized
+model decoder plus eight corrupt-file controls. Actual compact VIF execution,
+moving exact images/lifetimes/physical net are still unqualified.
+Private input-native component runs before world init/recording, drains the queue,
+polls DMA/FIFO/VPS/VEW before reads, compares all4096 VU1 data words and restores
+data/ROW/MASK/CYCLE. Shader kicks are removed deliberately. Verify completed
+VIFINPUTDONE with verify-world-input-native.py and both log paths; source alone
+is not target execution, nor is the component moving image/FPS qualification.
+Input-native V1 now passes real emulator+PS2 same ELF540 comparisons/restoration.
+Physical file logging is disabled under ps2link; require console assertion flush
+and completion, inspect log.txt if present. Emulator log.txt is mandatory.
+Archive both completed readers after owned clients stop; no moving/FPS claim.
+input-compact price variant keeps direct/paint/hybrid wheels/event audio ON;
+only cold encoding alternates. Require INPUTINIT once, positive cold format
+witnesses only ON, full native SDK inverse audits, original image/pose/lifetime
+gates and exact capture/env/paint sequences. Actual PS2 present records decide
+stable60; source/model/component success is not moving FPS proof.
+Input-price V2 FULL target gate passes but both-order physical net is negative
+(-0.087910/-0.118910ms), ON actual58.21Hz/16 misses. Archive correctness must
+not be presented as accepted optimization. Keep native format proof separate.
+
+Run verify-terrain-lod-key.py QUALIFIED_FIXTURE OUT under WSL for source-bound
+actual edgeMix/hAtE/shadeAtE host extraction, optimized+ASan/UBSan. V1 passes
+36.67M points, but callbacks are synthetic stable height/shade; no full producer
+or native/FPS claim. Budget-preserving raw-metadata no-op needs actual complete
+stream/material/light guard proof before A/B; do not advance real LOD changes.
+Private terrain-lod fixture adds an actual full native producer byte oracle
+before complete owner preparation in every phase. Require base/shadow streams,
+bounds/material/package exactness, preserved88 stale budgets plus five new
+residents accounted as93 rebuilds plus metadata skips, and skips ONLY ON. Retain full
+SDK/owner/image/pose/live capture gates and actual presentation CSVs. No default
+or gain claim before same-ELF physical A/B. Pause after the requested next PS2
+attempt, including a failed start; do not retry automatically.
+V1 now completes both targets/full gates:20 resident chunks/16 shadows/allLOD
+per native oracle,54 exact images/3942 poses. ON70 rebuilds+23 skips, OFF93.
+Physical net+0.045194/+0.034259ms is minor; ON59.387Hz/5 misses equals settled
+OFF cadence. Not60/default/night. User pause reached; keep devices powered on.
+
+Run tools/verify-native-segments.py OUT --engine-inc QUALIFIED/tyra/engine/inc
+for frozen actual FrameVifWriter storage/command checks, optimized plus ASan/UBSan.
+3371 cases pass in host v3, including final sole packed GS FINISH. This does NOT
+exercise actual queue/GS callbacks, bank leases or PS2 performance; do not deploy
+or accept early segments from these host checks alone. Keep native/target gates.
+Native-segments price variant keeps event audio/wheels/direct+paint common ON;
+require positive gas publication only ON and held exact prior-window byte audits,
+plus original image/pose/delivery/lifetime gates. Generation pins helpers before
+copy and rejects edits during generation. Superseded unaudited V1 is not deployed.
+V2 quiet assertion lives in game/bin/log.txt, not emulator stdout. Read BOTH
+before calling idle CPU/DMA completion a renderer deadlock. Held reuse may skip
+capture; V3 forces common final held capture only under audit, keeps moving
+reuse unchanged and positive two-window gate. Never weaken that gate to pass.
+Native-segments full gate also pins exact per-gas capture/env-eligible/env-drawn/
+paintVu sequences in all six phases and ON publication for every capture. A
+mean gain from fewer live captures is not an acceptable optimization result.
+Early prefix moves presentation within the loop: entry late counts268..269 in
+V3 differ from actual98..100 display misses. Require actual538 present records
+for537 gas loops, slot1/ISR0 and wrap-safe intervals before an FPS conclusion.
+
+Terrain-normal V1 physical-v3 completes all gates after human physical reset
+and ConsoleAlreadyReset; physical-v2 stdout was only freepad DMA Busy, not EE
+boot. Both-order gain0.050959/0.042518ms is minor, not stable60 qualification.
+Sealed entry/present-tail reader accepts qualified event-audio or terrain-normal
+archives; normal mode requires six native sources/rebuilt exact endpoint gates.
+Existing pose/update/render fields are offline attribution, not pure EE cycles.
+
+terrain-normals price variant keeps event audio/local hybrid wheels common ON
+in every arm; only normal source mode alternates. Require NORMALSOURCE native
+exact lattice and NORMALWITNESS moving build activation/held mode, plus original
+full raster/pose/lifetime/net gates. No priced per-vertex counters or host FPS.
+For terrain-normals also require SIX cross-phase reconstructed endpoint main/
+env/display rasters exact: toggling mode in held views alone never rebuilds the
+terrain and is insufficient to qualify a producer-attribute change.
+
+Existing Hybrid2 drive entry periods refer to preceding whole loops, not just
+non-pacing work. Deferred old-job presentation can move the late entry one row
+beyond the initiating overrun. Use source-bound entry/present-tail reconciliation;
+14.573ms work alone did NOT prove a pacing defect (prior work18.858ms).
+
+PCM lifecycle V1 real PS2+emulator six actual rounds PASS,520-file component
+archive/exact verifier replays. Seal report/log hashes AFTER owned emulator stop;
+live emulator may append shutdown lines after component completion. Callback
+feeding/kernel wake does not qualify audible quality/FPS; preserve low-ring warn.
+
+Event V1 FULL real PS2 gate PASS54 images/3942 poses/kernel waiter/mode wakes,
+net+0.572/+0.543ms BOTH orders,59.17..59.28Hz/6..7 late intervals NOT60.
+No extra gain over idle16 V2 proved across ELFs. Actual PCM start/feed/stop/
+resume/return-to-wait and audio quality remain separate, no default acceptance.
+
+Audio event V1 FULL emulator gate PASS54 exact images/3942 poses, actual
+waiting1/kernel waiter1 ON and ordinary polling OFF, both mode changes wake
+correctly. Common renderer and PCM starts0 pass; actual active PCM/audio and
+physical net remain separate. Do not substitute host mocks for kernel witness.
+
+audio-event reader retains full common render gates but requires real
+AUDIOEVENT waiting1/waiters1 ON, idleHalf0; OFF waiting0/waiters0/idleHalf>0,
+PCM/start events0. Mode/reset epochs retain source correctness; witnesses OFF
+in all sampled rows. Earlier audio-idle V2 must replay unchanged. Actual PCM
+start/stop/resume/quality remains a separate gate, not implied by idle images.
+
+Clean idle-audio V2 FULL PS2 gate PASS54 images/3942 poses/PCM starts0,
+net+0.573/+0.492ms BOTH orders, ON59.0619Hz all trips but8 late intervals,
+NOT60.1287-file/305-input archive exact both reader replays PASS. Keep private;
+active PCM/start latency remains unqualified. Existing period rows refer to
+previous entry interval, never pair late period with SAME row's work.
+
+Clean audio V2 FULL emulator PASS54 exact images/3942 poses, idle16 only ON/
+idleHalf only OFF outside price, zero PCM starts, common hybrid wheels all arms.
+Archive911 hashes/305 inputs/exact reader replay PASS. Physical price pending;
+empty PCM fixture does NOT qualify active music/audio latency/public behavior.
+
+Audio idle V1 is native-only/UNPRICED (wake witnesses were hot). Clean V2
+requires audioIdleNoPriceObserver, bound MotionProbe setObserved(!sample),
+outside-price wake witnesses and global PCM play starts0. No cost attribution
+from V1 or active PCM/audio-quality claim. Preserve original active polling.
+
+audio-idle variant keeps accepted hybrid wheels ACTIVE in ALL arms, with
+positive retained ordinary wheel batches, direct+paint/Hybrid2/ordinary roads.
+AUDIOIDLE moving/held modes must match phase roles, actual idle16 ONLY ON,
+idleHalf ONLY OFF, PCM ZERO; mode/reset epochs drop in-flight old-arm wakes.
+Full image/pose/net gates remain. Active PCM runtime/audio/start latency are
+separate unqualified surfaces, never claim them from this empty-worker test.
+
+Hybrid wheel V3 FULL real PS2 gate PASS54 exact images/3942 poses, ON537
+local car draws+3961 ordinary retained batches, net+0.512/+0.481ms BOTH orders.
+57.68..57.79Hz/20..21 late intervals NOT60.1284-file/305-input archive exact
+both reader replays PASS. Cross-ELF V2/V3 rates do NOT prove extra hybrid gain.
+
+Hybrid wheel V3 FULL emulator gate PASS54 exact images/3942 poses, moving ON
+1815 VU car submissions/7260 draws/2178000 vertices PLUS2683 ordinary retained
+batches. Held1/4/1200. Source preservation is qualified for this fixture;
+real PS2 net remains open. Same engine library as V2, fresh game ELF required.
+
+wheelMovingOnly requires matching WHEELSTATIC witnesses, positive retained
+ordinary parked batches during moving ON, and fewer candidate car draws than
+all-car V2. Zero-speed cars still use current-state ordinary rebake logic,
+never get omitted. Older all-car V2 manifests keep their original exact gate.
+
+Wheel-local V2 FULL emulator+PS2 gate PASS54 exact images/3942 poses, net
++0.543/+0.495ms BOTH orders,57.58..57.68Hz/21..22 late intervals NOT60.
+Input5397600 vertices is new-path volume, not removed EE transforms (old
+still-rig skip remains). Added parked-car heads are included. Keep private;
+moving-only hybrid is distinct next A/B, not already qualified/night/default.
+
+wheels-vu price variant keeps direct+paint/Hybrid2/ordinary roads common,
+requires six moving/eighteen held WHEELVU witnesses, ON four draws per car
+and positive vertices, OFF zero candidate activity. Full inherited image/pose
+gates still required before physical net. Cold local geometry preparation is
+common BOTH roles; baseline old Motor District wheel costs do not price this.
+
+V9 full real PS2 gate PASS54 images/3942 poses/ROADLIFE1/3/5 and early whole/
+partial routing; net+0.132/+0.125ms BOTH orders,56.47..56.67Hz,31..33 late
+intervals per537 gas. Small private gain, NOT60/default/night. Both roles have
+common road owner preparation; never treat cross-ELF rate differences as net.
+
+roadLifetime manifest requires exactly ROADLIFE phases1/3/5 with positive
+ROAD old reader/replacement/old-new exact bytes/stale rejection; each must
+occur before its LOGWINDOWBEGIN and after previous LOGWINDOWEND. Native alone
+does not prove this gate, and earlier manifests must replay unchanged.
+
+roadWholeReplay manifest requires one ROADWHOLE per ROADPREP witness, identical
+phase/arm/activation and replayed+fallback==inside. Moving ON must have positive
+early replay (>300); OFF must have zero replay/fallback. Older V6 manifests
+omit this new gate and must continue to replay unchanged. Emulator equality
+still does not qualify road old-bank-reader pressure or physical net/tails.
+V8 FULL emulator PASS54 exact images/3942 poses, ON moving36307 replay/38
+fallback each, held4/4; original V6 verifier still PASS. No physical gain yet.
+
+Road-prepared price variant requires common direct+paint/Hybrid2, positive
+moving/held PARTIAL emission only ON, original-package route audit outside
+price at1100, zero producer failures/unready. Full54-image/3942-pose gate is
+necessary before PS2 net/tails. Terrain old-bank reader witnesses do NOT prove
+new road lifetime pressure; that gate remains separate. Generator V1 wrong
+WorldMoving hook placement stopped before build; it lives in terrain_game.cpp.
+V6 full actual partial GPU gate PASS54 images/3942 poses/47 owners/fail0/unready0,
+first emitted ROADWIRE actual writer+transport equality outside price. No road
+old-reader or physical gain yet. Archive runner conditionally retains road
+helpers/snippets/generator; old paint report still replays byte-identically.
+
+Road-package SDK fixture is cold EE writer qualification ONLY. New native
+binding required; `verify-road-package-sdk.py FIXTURE` requires exact completed
+48 bodies/4128 actual-writer comparisons/192 controls/48 owned witnesses,
+all64 masks and both state/kick modes, then8 malformed reader controls.
+ROADSDKDONE is this component's completion, NOT full moving raster/DRIVEDONE
+or physical timing. New geometry is not GPU-executed; no lease/FPS claim.
+
+`verify-road-package-plan.py OUT --engine FIXTURE/tyra/engine` freezes bound
+actual packager/bbox source; only host ABI, trace/debug and VU0 leaf shimmed,
+all probes OFF. Compares translated/rotated package routes, eight-plane guards,
+ranges and program continuation; optimized+ASan/UBSan. This is cold-plan host
+evidence, NOT actual SDK writer output/queue lifetime/GPU or PS2 performance.
+
+World PC refresh reuses original calibrated A37 adapter/store on accepted
+direct+paint/Hybrid2. OFF/997/OFF and1733/OFF/1733 moving, held OFF/ON/OFF,
+sampler stopped before export/readback/reload. verify-world-cell-pc first replays
+current54-image/pose gate, then raw12 exports/zero OFF/overflow/late IRQ/SDK and
+negative controls. Original symbolizer can consume its pc-moving report after
+copying matching debug ELF to fixture root. No emulator timing/exclusive-cycle
+or scene60 ceiling claim; quantify observer cost and retain unknown/raw bins.
+Current V1 full PS2 PASS22599 rows/54 images/9 controls; overhead0.115/0.116ms,
+OFF~57Hz NOT60. Archive1319 exact price+PC and symbolizer replays. Function
+mapping is qualified, many line locations unresolved: never invent line costs.
+
+Paint-cells price variant requires positive existing moving paintVu only ON,
+held actual paint3QW/head and whole-head delta,54 exact main/env/Hybrid2 images.
+Both modes retain directCold=true/skip-A31 cells/ordinary roads. No hot observer
+or triple-buffer import; inherited A13/A40 results are not current net proof.
+Paint-cell V1 full current emulator/PS2 PASS3942 poses/54 images,599 moving
+paintVu ON/0 OFF, held actual+3QW/head. Physical both-order0.887/0.872ms gain,
+57.07..57.17Hz NOT60. Archive1275 hashes/305 inputs/exact both reader replays;
+default/night/normal variable-dt remain open.
+
+`verify-world-cell-direct.py OUT` freezes direct-cold component/independent
+Plan+flatten oracles, tests840 range cases/12 source/14 fragment-budget controls
+optimized and ASan/UBSan. Host mode does NOT compile the SDK adapter or prove
+GPU/physical gain. Integrate with common skip-A31 terrain/ordinary roads; require
+actual cold body-byte equality before same-ELF real PS2 net/tail qualification.
+Direct-cold fixture uses offset1100 complete opposite-body oracle ONLY outside
+price; phase/endpoints must show actual selected compiler calls,93 replacements
+and positive old readers. Both roles keep cells/skip-A31 and ordinary roads.
+Direct V2 full emulator/PS2 PASS120 body oracles/54 exact images/3942 poses,
+113 selected calls/other0,93 replacements/21 old readers. Both-order net gain
+0.465/0.399ms,55.0..55.2Hz, NOT60. Archive1274 hashes/305 inputs/exact both
+reader replays; local boundary covers pre-price work too, not pure EE cycles.
+
+Private `tyrax2-world-road-cell-fixture.py` derives qualified skip-A31 evidence;
+price reader variant road-cells requires candidate road activation/zero fallback,
+ordinary road zero candidate work and common terrain cleanup in all six roles.
+Endpoint terrain cells stay enabled in every arm; road role alone alternates.
+No default/performance claim from native compilation or emulator timing.
+Road V1 full correctness PASS but PS2 NET FAIL-2.94/-2.99ms. Archive1269 exact
+replays has testValid=true for correctness, NOT net success. Keep roads ordinary.
+
+`tools/tyrax2-terrain-pass-presence.py FIXTURE OUT.json` audits qualified A44
+skip-A31 source/logs, not target timing. All500 hashes/ELF/accepted PS2 report
+must bind. Driving scenes0/1 have no terrain layer/AO/emission companions;
+ground shadows are separate lifted subsets. Do not invent fusion activation
+or generalize this absence to future maps. Log decoding preserves raw hash.
+
+A44 four-view V1 fails direction3/main-display although candidate==return.
+Ordinary-only control reproduces all36 exact transition signatures with ZERO
+new submissions;99/108 full captures match, not universal candidate innocence.
+Both rejected archives937 hashes/303 inputs/3 failing replays are preserved.
+Additional --settle-frames32 fails all3 phases: direction3 candidate differs
+from BOTH matching controls. Do not treat warmup as a qualified correction.
+Compare matched ordinary-only/32-settle control; retain exact main/env/display
+acceptance. A failed image gate is never a physical price.
+Matched ordinary-only/32-settle V2 reproduces ALL108 full captured rasters with
+ZERO new submissions. This is exact sequence equivalence, not stationary held
+acceptance or a physical price. Diagnose ordinary test-state/source drift next.
+World-source audit requires9 complete bounded raw captures, both solo/batch
+coverage, stream-length checks and108 exact images versus uninstrumented matched
+control. Exclude source-*.bin diagnostic output from launch staging. Seven
+malformed controls are host/parser evidence only, not target execution.
+Source V2 actual9 captures each31 records/404296 payload bytes; all fields
+equal across arms. Observer gate FAILS105/108 exact (phase2 main33/34/35 each
+2-byte delta). Keep rejected; isolate SAME-ELF OFF/ON before broad source claims.
+Source-switch OFF/ON uses runtime source-control.txt and equal2MiB reservation.
+Clone completed OFF --reuse-built; do not rebuild ON. Reader requires same ELF,
+mode/control-hash witnesses and108 exact rasters. Stage has304 inputs with switch;
+archive must retain switch manifests/config. No observer/FPS result until tested.
+Write runtime control as exactly one byte (write_bytes), not platform text:
+Windows CRLF rejects on target. V3 invalid input preserved; V4 reuses SAME ELF
+with byte0. Host9 cases include CRLF rejection; not target image acceptance.
+Cross-boot scene poses are not automatically identical: real CP0 dt drives world
+AND vehicle physics despite frame-scripted gas. Source-switch V5 fixed-scene-step
+overrides global dt/scale from first loop in BOTH modes, leaves real timers and
+original clock update intact. Diagnostic only; qualify exact same-ELF images.
+V5 observer qualifies108 exact OFF/ON images/9 raw35-record captures. Actual
+command V1 qualifies9 one-prefix/548-call owned dumps and108 parent images.
+Stationary gate still fails: Auto interleave1 probes order during held test,
+an A18-known conditioning trap. Pin held order separately, restore on exit;
+do not reuse FastJoin checkpoint (also changes shared env-basis invalidation).
+
+Held-order control completes all3 strict view gates/108 exact images. Its
+successful archive freezes1028 hashes/304 inputs and3 exact reader replays;
+raw source/command dump inventory is not additional observer qualification.
+Conditioned actual terrain-cell V1 passes all3 four-view gates/108 exact
+main/env/display images with3/4/13/13 admitted cells and no fallback. Preserve
+fixed-step/held-only order conditioning; moving activation, lifetime/pressure
+and same-ELF real PS2 price remain separate required gates.
+
+A44 moving correctness tools use world-moving-control.txt exactly one byte.
+Build OFF once; ON --reuse-built copies completed same ELF/bound sources.
+Both modes use fixed simulation/order2 and common slots, with gas-frame GS
+readbacks. verify-world-cell-moving requires exact poses/schedules/rasters and
+positive zero-fallback delivery. Deferred dirty pre-record preparation costs
+remain visible. This is NOT a production Auto-order or FPS experiment.
+
+Motion staging excludes moving-*.bin readbacks as generated diagnostic output,
+alongside cell/source/command/tape captures; world-moving-control.txt remains
+a real launch input. Do not deploy stale captured frames as authored assets.
+
+Moving V1 failed display-count assertion because inherited A38 trip hook still
+toggles3/2/3; held checkpoints alone force2. V2 --recover-hybrid-control accepts
+ONLY this explicit failed OFF source, preserves it, pins actual2 each phase,
+then rebuilds. Reader requires6 A44BUFFER witnesses. No timeout restart or
+Hybrid3 display waiver. Exclude stale log/drive/presentation output on clone.
+
+Moving V2 full same-ELF observer36 images/1971 pose rows EXACT, but25 fallback
+per phase rejects delivery. Keep saved valid=false separate from108 passing
+held images. Archive --moving-audit-off requires a hash-verified frozen OFF
+archive and exact fresh moving reader replay, including expected rejection.
+Launch count is303+sourceSwitch+movingSwitch=305, excluding diagnostic bins.
+
+Incremental-cell fixture derives from V2 rejected-delivery/36 exact-image
+evidence. Build OFF; ON --reuse-built must use same completed ELF. Reader
+requires incremental config, one cold preparation,49+ local rebuilds, zero
+deferred dirty/fallback and positive held old readers on ON, plus unchanged
+pose/image gates. Do not weaken witnesses to promote a nonactivated route.
+
+Incremental V1 subsequently PASS all36 moving rasters/1971 poses, zero fallback
+and21 held old readers each phase. This common-work observer is not a net price:
+production-role preflight must leave OFF ordinary with0 cell preparations,
+ON pays own1 cold/93 local work. Require exact roles config/poses/images before
+clean Auto-order physical A/B/reverse; never charge unused candidate compilation
+to baseline and call that production saving.
+
+Clean world-cell price V1 rejects unconditioned cross-phase camera shake;
+vehicle endpoints alone do not prove identical camera. V2 resets shake phase
+at gasStart without removing its math/amplitude, disables old ClipTrial packet
+reference observer, compares3 endpoint roles at SAME pose after price rows.
+probeCapture is LIVE reflection capture; require it positive, not zero. Stage
+excludes world-price-*.bin. Emulator never supplies a net price/60fps claim.
+
+Price V2 full real PS2 net/54 image/3942 pose/zero-fallback gates PASS both
+orders,1.17ms saving/~47.5->53Hz, NOT60. price archive --physical-attempt replays
+both emulator and PS2 reports exactly;1267 hashes verified. ICMP/ARP preflight
+can fail while editor-equivalent ps2link reset/execee succeeds: not availability
+proof. Preserve owned file server until actual completion/error; never restart
+on observation timeout. Physical V2 server5288 stopped only after DRIVEDONE/read.
+
+Price reader variant skip-a31 keeps both moving roles cell-active; parity means
+old/new producer, not cells OFF/ON. Endpoints stay cell/ordinary/cell all phases.
+Require positive eligible old A31 calls/successes, skipped0 and one cold/local
+replacement each phase. Count no unready startup as supposedly skipped work.
+Legacy Price V2 replay stays unchanged; do not subtract different ELFs.
+
+Skip-A31 full emulator+PS2 gates subsequently PASS, old372 calls/93 successful
+bodies versus new0, net0.21..0.25ms both orders, still~53.8Hz/not60. Physical
+archive1268 hashes/exact paired reader replays verifies. File server35140 stopped
+only after DRIVEDONE/read; no shutdown. Small gain does not complete goal.
+
+A44 terrain GPU V2 qualifies three SAME-pose daytime repetitions:25 cells/43
+passes/19 textures/39104 GS words, actual3/3 cells/no fallback,18 exact main/env
+images. NOT diverse-view/display/moving/physical/FPS evidence. Reader8 negative
+witnesses and844-file archive/303 separate inputs/3 exact replays PASS.
+Stage excludes cell-*.bin diagnostic outputs. Native libtyra.a stays in WSL
+mirror; hash-check it against native-binding before copying into an archive.
+
+A44 complete-cell-fixture V2 native495-source/ELF6b7a1ab3...935d289 binds all
+three backend methods, but has NO runtime terrain caller or GPU/FPS result.
+V1 alias/integer-template compilation failure is preserved. Require complete
+producer/pass delivery and main/env/display gates before hardware pricing;
+old per-bag routing counters cannot establish whole-cell source equivalence.
+
+A44 tyrax2-world-texture-fixture.py creates an actual bounded texture-manager reservation
+backend; cold one-texture A44SLOTS gate is not whole-scene VRAM/GPU/FPS proof.
+Require both victim tiers, real core/CLUT addresses, six controls and fenced release.
+align3D inside recording is only a recorded barrier: release outside recording
+after actual GS drain. V1 generator int-return span failure remains preserved.
+
+A44 slots V2 native494/ELF3235af3a...474b29 and emulator2112-word slot/6 controls/
+both tiers/epoch+GS release PASS. verify-world-texture.py adds8 malformed-witness
+controls; archive --texture-reservation requires exact replay of both cold gates.
+This does not prove full-world budget, sustained pressure or new GPU/FPS behavior.
+
+A44 tyrax2-world-cell-sdk-fixture.py OUT FROZEN_PARENT inserts a one-time actual
+EE SDK compiler check:12 five-pass C/TC list/strip cells and54 rejection controls.
+Require native-binding and actual A44SDK completion log. It does NOT run the new
+bodies on VU/GS or price a world-cell path; inherited drive FPS is not its result.
+Use hidden emulator first. All held/moving presentation arms use original Hybrid2.
+
+A44 SDK execution V1 native494/ELF8d5a5b5d...325f50 and emulator12 cells/60 passes/
+270 parts/54 rejection controls PASS. Reader verifies source/launch/ELF and seven
+malformed witnesses. Archive freezes cold gate and replays exact report; it must
+not label these bodies GPU-executed or use inherited timing as a performance fix.
+
+A44 verify-world-cell-sdk.py OUT --engine FROZEN_ENGINE --toolchain TOOLCHAIN
+instantiates the actual cold SDK cell compiler into a real EE object and freezes
+288 dependency headers. This is compile-only, not linked emitter execution,
+decoded geometry, raster validation or FPS. List parts require sixfold reserve;
+do not give them the native-strip72 capacity. No runtime/VRAM/GS lease binding yet.
+
+A44 verify-world-cell-plan.py OUT --ee-cxx PATH freezes whole-cell SOURCE model,
+840 optimized+sanitized cases/1680 failed replacements/16 controls plus EE object.
+18-file cell-source-v1 hashes verify. This does NOT qualify actual VIF emission,
+texture residency, PS2 execution or FPS; do not price or promote source tests.
+
+A43 first physical run rejected at unchanged completion-window gate in a night
+CONTROL (outside1); do not price or waive. Candidate retained waits1/day519,
+1/night469 are not substantial activation. Archive --rejected-physical requires
+actual strict rejection, emits valid=false and preserves full replay evidence;
+998-file rejected archive reproduces physical rejection/emulator PASS exactly.
+
+A43 --retain-ready varies only main withdrawal policy; copy/notifications ON
+all arms. Component131/644 optimized+sanitized/five EE entries PASS. Full reader
+requires20 negative controls,54 exact rasters, positive moving retained waits
+on PS2 plus old native-ready/window/restore gates; component is not FPS proof.
+
+A42 physical full54-raster/18-control/restoration gates PASS, moving late-ready
+copies day2/night17. Notifications day no net gain; night~0.44-0.54Hz gain,
+stable60 FAIL both. native-ready-game-v1 archive998 hashes/both exact replays
+PASS. No default/reverse claim; next inspect early main withdrawal policy.
+
+A42 fixture --late-ready keeps A41 copy ON all arms, varies only VIF/GS late-ready
+notification. HELD START deferral qualifies actual native IRQ kind3; moving no
+extra delay. Component runner now91 guards/five EE entries. Full A42 reader,
+native/closure/raster/activation/PS2 gates required; implementation is not proof.
+
+A41 late-ready V7 component90/644 optimized+ASan/UBSan and EE four-entry gates
+PASS; v7 inventory hashes verified. Slow live linker I/O is a verified wait,
+not a failed attempt. Full-game native-ready ISR activation/IRQ ownership still
+required; keep old queue ISR OFF and never call queue/cache work from observer.
+
+A41 late-ready component runner now expects90 adapter controls (32 delayed-ready
+masks plus12 START/VIF/GS order/budget cases),644 packet cases and four EE IRQ
+entries. Component success does not reserve DMAC/GS or prove game/FPS benefit.
+
+A41 reverse physical passes54 rasters/16 controls and positive ISR each candidate;
+day57.559/47.656/57.450, night51.247/40.074/51.230, stable60 still FAIL.
+Both998-file archives hash-verified; exact readers replay both reports identically.
+Do not call slight night p95 increase no-regression or default promotion.
+
+A41 fixture --reverse uses ON/OFF/ON for moving/held, all Hybrid2. Checker source-
+binds exact order, prices BOTH candidates vs middle OFF, mutates active candidate
+for negatives. First-order game-v9 archive998 hashes/readers BOTH replay PASS.
+
+A41 hybrid-copy-archive.py preserves both full54-raster reports and exact readers,
+all bound sources/ELFs/IRQ audit and every immutable launch input for strict replay.
+Select attempt/report filenames explicitly; no omitted-input hash waiver.
+
+A41 checker --physical --physical-dir PATH selects a separate retry directory
+(bin/log/launch pins). Preserve failed startup attempts; a user-confirmed reset
+uses deploy -ConsoleAlreadyReset, unchanged ELF, no extra network reset.
+Use motion-run.py stage FIXTURE --stage-dir PATH from original game/bin, NEVER
+copy a prior deployed bin: it includes mutable exports and invalidates input pins.
+
+A41 V9 emulator complete PASS:496 native files/54 rasters/1262 copy completions/
+eight held ISR/16 negatives/linked IRQ closure. Require elapsed completion<288*512
+Count ticks as well as edge ages (missed whole fields can alias ages). Physical
+moving ISR must be positive before pricing. Stage excludes hybrid-copy CSVs;
+never include emulator outputs in mutable physical launch input hash set.
+
+A41 V8 HELD-only frame1 delay40ms is identical all arms, outside moving prices,
+and preserves next unsubmitted clear prefix across old-job START. Require held
+ISR AND fallback positive; physical moving ISR positive, no forced emulator
+moving slowdown. V9 checker adds CT16 display equality:54 rasters, not only36
+main/env. IRQ audit inspects six linked app routines/two constructor-bound
+callbacks; source pins are required, not BIOS/WCET/physical safety proof.
+
+A41 reader V4 complete36 rasters/baseline PASS then installed0 activation FAIL.
+Common pre-capture retirement before begin gives first-gas(offset1320) flips0;
+checker binds source and requires exactly0 there/1 elsewhere, never ignores all
+flip counts. V5 finds write-only IMR/CSR mirror, V6 main GsGetIMR/frozen ISR mask
+pending. Do not accept a complete emulator run with zero candidate activation.
+
+A41 full-game V4 native496/ELF builds, emulator REFUSES activation (installed0),
+so no PS2 price. V5 reports reservation state once outside steady-state. Native
+symbol witness should use HybridCopyTrial::rows: adapter has an additional C++
+guard-variable suffix match. New hybrid-copy-check.py inherits complete baseline
+36-raster/travel/owner contracts and requires positive ISR/fallback,81qw packet,
+owned paired job/FINISH and physical blank ages. Python compile is not reader
+qualification; negative controls/full replay remain required.
+
+A41 queue V4 runner now varies transient nativeInFlight independently of stable
+nativePresentationSequence:65536 states/240 admissions; source guards bind final
+publication and enqueue revoke order, next begin must NOT clear presentation.
+Adapter V6 passes46/644 controls and direct completion-ISR relocation inspection.
+Full-game V4 build pending; V2 shadowed inherited queueProof callback and V3
+ambiguous generator anchor remain rejected private fixtures, never priced.
+
+A41 hybrid-copy-fixture.py BOUND_A38_REVERSE OUT snapshots full game/engine,
+actual queue predicate and immutable original copy with fixed Hybrid2 OFF/ON/OFF.
+Need native binding and held full main/env output before PS2 pricing. Adapter
+runner now expects46 guards and audits copyFinishISR as well as S/E direct
+relocations. Trial witness hardware ages are NOT emulator price or universal
+WCET; every physical copy and old/native ownership must qualify. No full-game
+test result yet; preserve failed fixture attempts rather than overwrite/restart.
+
+A41 verify-hybrid-copy-queue.py snapshots actual queue method and extracts it
+unchanged:16384 states/60 admissions, no state writes, optimized/sanitized pass.
+EE mock setup must remain mutable so pipeline=false cannot fold wrapper away.
+This is not full engine linking, actual ISR/foreign-DMA/Core safety or FPS proof.
+See adapter queue-v3 (EE loads/no-stores/calls gate). New API has no runtime caller yet.
+
+A41 copy-budget.py BOUND_A40 OUT --toolchain PS2DEV_ROOT extracts actual GS methods
+with pinned source; check.py --platform physical/emulator verifies packet columns,
+complete120-copy trace, all200704 pixels and six negatives. Use aligned row raw
+ps2_screenshot(address/64); rejected V1/V2 file-readback fixtures are not production
+bugs. Physical median0.179562ms is isolated cost, not game/IRQ WCET. Replay uses
+--output OUTSIDE archive. See adapter copy-budget-v3.
+
+A41 window-preflight.py builds standalone signal/timer-only ELF; check.py validates
+120 S/E edges, modes, restored state, source/ELF pins and six rejecting controls.
+Both targets pass; physical blank1.4288..1.4306ms differs from PCSX2. Archive replay
+uses --output OUTSIDE archive. No copy WCET/game/FPS qualification. Negative ICMP
+alone is not ps2link failure: editor-equivalent reset succeeded in this run.
+
+A41 verify-hybrid-copy-window.py OUT --ee-cxx EE_GXX snapshots actual predicate/
+driver/runner before optimized/ASan+UBSan/EE builds;280800 positions/20000 safe
+admissions/137 rejection guards and24/32-byte ABI pass. Bounds/epoch are synthetic:
+not MMIO, timer reservation/polarity, copy budget or physical FPS proof. Archive
+adapter window-v1; qualify real sampling and original packet before admission.
+
+A41 runner --adapter V5:42 same-adapter mocked-hardware controls and644 extracted
+actual EE packet-tail/bounds cases pass optimized/sanitized; real backend explicitly
+instantiates in EE object with `_EE`/SDK headers and60-byte adapter ABI. Direct IRQ
+relocation inspection is NOT full indirect closure. Preserve failed V2 host driver
+and earlier component reports. Delayed START/END handlers cannot prove physical
+blank budget; explicit window callback is mandatory and unbound backend refuses
+copy. Core/queue/cache/lifetime/physical-window/native/raster/PS2 gates still pending.
+See docs/tyrax2-hybrid-copy-adapter-2026-10-11/README.md; no runtime speed claim.
+
+A41 verify-hybrid-copy-protocol.py snapshots header/driver/runner and uses structured
+compiler arguments (quote sanitizer commas in PowerShell). V1 optimized and ASan/
+UBSan each pass144 guards/161280 schedules; EE relocatable compilation verifies
+36-byte protocol/12-byte readiness ABI. Models require atomic external transitions
+and immediate VBlank-start ISR claims. Fresh-field fallback and completion evidence
+retained until blank end are mandatory. No actual Core/MMIO/cache/INTC timing or
+zero-sequence qualification yet. Preserve full inventory; source and model success
+cannot substitute for adapter extraction/native/raster/physical blank-end gates.
+See docs/tyrax2-hybrid-copy-protocol-2026-10-11/README.md.
+
+A41 tools/tyrax2-vblank-sdk-audit.py binds492 current source files and exact
+stripped/symbol ELF text before checking14 linked SDK instructions.32 CSR latch
+model cases/four rejecting instruction controls are host/source evidence, not
+measured deadline losses. VSINT cannot establish active blank. Next independent
+Hybrid2 copy protocol requires atomic ISR/fallback and exact old-job FINISH/GIF/
+source ownership, positive activation AND copy completion within blank. Main/env
+readbacks alone cannot qualify scanout tearing. No target candidate yet; see
+docs/tyrax2-vblank-sdk-2026-10-11/README.md. Do not repeat rejected A39 as this fix.
+
+A40 paint-triple-fixture.py BOUND_A38_REVERSE OUT tests known A13 paint with
+Hybrid3 ALL arms/current ABI, NOT A39. paint-triple-check keeps complete travel/
+source/clip/36 exact-raster gates, permits ONLY prescribed+3qw per actual cold
+paint head, and normalizes original SDK emitter against pinned parent source
+after removing two cold-only observer edits. Require moving and ALL held paint
+activation; unsupported fallback/basis invalidation stay live. V1 BOTH-target
+36-image/17-control gates pass/native492; physical59.378 day/56.679 night, still
+late5/29 and stable60 FAIL.617-file archive copied readers replay exact. Fresh
+user-reset launch has no reset log; allow missing reset artifacts ONLY with
+user-confirmed-reset provenance, preserving initial no-output deployment separately.
+Reverse/macro0 image/production qualifications remain open, no default promotion.
+
+Burnout buffer audit: tools/tyrax2-burnout-buffers.py reads existing six slots
+and two dumps without launching/mutating the user's emulator. Use pinned ZIP CRC
+reader plus existing freeze-v9/GIF parser; Counter target formats are strings,
+fill scalar, draws separate. Saved FRAME and decoded DISPFB metadata corroborate
+fixed CT32-to-CT16S conversion like Hybrid2, not alternating CT32. Snapshots drain
+consumers and GS dump order has no EE wait durations: no physical pricing or
+complete scheduling claim. See docs/tyrax2-burnout-buffers-2026-10-11/README.md.
+
+A39 ready-fixture.py BOUND_A38_REVERSE OUT is private Hybrid3 BOTH arms,
+Off/On/Off publication trial. verify-ready-guard.cpp tests the actual RAII header
+on host; not target readiness/latency proof. ready-check.py adapts only all-three
+buffer guards in inherited A38 full gates, then requires positive actual protected
+prefix presentation in BOTH moving candidate phases. Do not price inactive or
+partial runs. Native binding/full targets pending; no promotion.
+V1 missing assertion include fails native. V2 builds but held per-frame drains
+would mask candidate activation; not deployed/priced. V3 normal held overlap
+and common40ms qualification-only post-clear pause in ALL arms require positive
+protected-prefix activation all six held candidates too, outside moving price.
+verify-ready-runtime.py extracts actual Core/queue methods; modeled4096 state/
+sequence/wrap controls pass optimized/sanitized, not hardware completion proof.
+V3 checkpoint FrameProfile name fails native; V5 direct CP0 pause plus explicit
+try-ready before reflection fences builds. Host now4099 actual-method modeled
+cases plus32 header states. Keep native source binding and positive ALL held
+activation/full rasters mandatory. ready-archive requires BOTH accepted targets
+and actual host source pins/logs; no archive/price from an incomplete run.
+Hidden V5 then passes full six-trip/36 exact-raster/17 controls; all held30..31
+protected, moving0/1 day/night. Reader allows inactive emulator MOVING only,
+not physical or held. PS2 candidate must actually present protected prefixes in
+BOTH moving phases. First PS2 day190/37106 checks/held31, full/net pending.
+V5 subsequently closes BOTH full gates, PS2 moving190/340/held31,36 exact
+rasters each/17 negatives;621-file copied readers replay byte-identically.
+Net FAIL day58.815/58.701/58.813Hz, night54.338/54.013/54.450. Keep private
+OFF/no reverse. Owned5168/26/15 stopped after export, devices ON. Next known
+A13 combination in Hybrid3 must qualify current ABI/output/activation/net,
+not sum old gains or treat source-safe publication as a performance success.
+
+A37 PC sampling is NOT SDK gprof: prof.c samples last __mcount function entry,
+not callback pc_value. tools/verify-pc-sample-store.cpp tests the bounded raw
+store/delay policy on host only. Pin installed timer implementation and require
+two-leaf target PC/EPC calibration, stopped-callback lifecycle and multiple
+intervals BEFORE renderer interpretation. Never claim host tests qualify IRQ
+safety or samples are exclusive EE cycles. Contract: docs/tyrax2-pc-sampling-2026-10-11.md.
+tyrax2-pc-calibration.py BOUND_V7 OUT now implements shared SDK two-leaf alarms.
+Actual native490/ELFa87be09e...af2c3, hidden375/physical372 rows PASS;97..100%
+callback leaf hits, ZERO CP0 EPC leaf hits. Always use callback PC, never CP0
+read inside callback as interrupted game PC. Pin installed/mirror libkernel and
+forwarding disassembly; no -pg symbol. Five reader controls;519-file archive
+replays both reports byte-identically. Staging excludes pc-calibration.csv.
+No renderer distribution/observer bias/FPS claim until moving/raster gates.
+
+A37 moving fixture: tyrax2-pc-moving.py BOUND_V7 OUT keeps A35 OFF/common A31/A30.
+Each day/night997/1733us then OFF driving return; held OFF/ON/OFF exact main/env
+gates.24576 reusable rows, release before export, no ISR allocation/IO. New
+independent pc-moving-check.py requires full trips/owner/source/header/raster
+and sample lifecycle; do NOT relax/reuse A35 activation reader. Symbolizer
+checks native debug/deployed .text equality and raw unknown/kernel bins.
+Coarse main-loop region is NOT thread ownership. Staging omits pc-drive/held CSVs.
+Native/hidden/physical moving qualification pending; no new performance claim.
+
+Moving V1 then passes native490/ELF185560b0...e7b9a, closed hidden30604/PS230492
+samples,36 exact rasters each/15 controls.623-file archive copied qualifiers and
+physical symbolizer replay byte-identically. Windows sample-pin separators were
+fixed to POSIX before WSL symbolization. OFF return49.26/41.18Hz, observer is
+not free; instruction shares aren't cycles. Actual Hybrid448x448/x2, VBlank
+31..34% versus copyQwords5..6%. Next current-scene double/triple boundary A38,
+not unlimiting/removing fences/claiming existing feature as new packet fix.
+
+A38 tyrax2-triple-fixture.py BOUND_A37 OUT removes PC sampling, implements real
+Hybrid2/3/2 settings/rebuild/drain, forces actual grant. Held arm rebuilds refresh
+shadow owners outside price. triple-check.py reuses A37 ordinary travel/owner/
+header/36-raster gate, independent buffer/event/net controls. Record actual
+DISPFB calls with ISR flag; never confuse flip return/entryHz with photons.
+No promotion until full targets/net/reverse. Staging excludes triple-present CSV.
+
+A38 V1 completes native491/ELF108375b7...df5cf, BOTH six-trip/36 exact-raster/
+14-control gates. Raw FRONTORACLE hashes change with relocated TEX0: reader pins
+unchanged original head writer and retains counts/lengths/source/full rasters,
+not impossible same-layout byte hashes.603-file copied readers replay exact.
+Physical DISPFB58.928/55.217 day/night, baseline49.629..50.422/41.401..41.515;
+still9/42 late intervals, no60proof/default. Next reverse3/2/3. Devices ON;
+owned15024/emulator428/Xvfb417 stopped only after completion/export.
+Reverse A38 uses triple-fixture.py --reverse: moving3/2/3, held2/3/2 unchanged.
+Reader takes actual mode/ISR from manifest and prices BOTH triple endpoints
+against middle double, not the old middle-candidate formula. Use separate
+reverse fixture/archive; old V1 immutable. Full target gates still required.
+Reverse V1 then passes BOTH/native491/ELF6f6ea95f...daae3,36 exact rasters each/
+14 controls/603-file exact copied-reader replay. Display day58.818/48.836/58.815,
+night55.104/40.832/54.889, both endpoint net gates PASS; stable60 FAIL10/10 and
+43/45 late intervals. Owned6428/26/15 stopped after export, devices ON. No
+production default; normal production boot is separate from private A31/A30.
+
+A35 world-front V4 uses world-front-preflight.py: complete parent gates plus
+positive early inside/partial activation and30 actual whole-original-head
+oracles. Native488 and closed hidden60 rasters pass; physical preflight pending
+client34280/editor reset. NO pricing/performanceCandidate/firstOrderGate.
+verify-world-front.py OUT --fixture BOUND extracts actual shape/scalar checks
+and tests2496 mutations/64 registry rounds optimized+sanitized, plus actual bbox
+foundation. V1 TEST exceeded1024 cap; V2 releases a slot before populated move.
+Pipeline/VU0/ABI shims are component-only evidence. verify-world-front-reader.py
+passes1 positive/22 mutations on actual generated parsers. Full producer/net-
+cost/stale/lifetime qualification remains; never price this preflight reader.
+V4 physical then FAILS phase2 reload/freepad DMA Busy/no DRIVEDONE; full reader
+rejects10 heads/20 rasters. Client34280 stopped, raw failed evidence preserved.
+No accepted archive or partial pricing; hardware retry needs human power-cycle.
+world-front-archive.py requires BOTH full accepted preflight reports, not price.
+Extended verify-world-front.py also extracts actual producer method; explicit
+SDK/compiler/cacher and M4 assignment ABI shims. Original V4 with injected bbox
+bad_alloc terminates uncaught (producer-host V2), V1 host compile lacks ABI
+bridge. V5 moves lookup inside try, native and expanded host rerun pending.
+Do not infer target hang cause, actual SDK compiler fault recovery or speed.
+V5 native488/ELFd38e2039...f86e4 and producer-host V3/V4 pass optimized/sanitized;
+V4 records original method/core/owner pins.36-file host archive recompiles/runs
+optimized read-only unchanged; never rerun creation INTO it. Hidden V5 PID46/
+Xvfb35 live, full preflight pending; no physical staging/deploy or price yet.
+V5 then completes hidden60 rasters/30 whole heads/47 controls, CLOSED full
+preflight valid, no price. PID46/Xvfb35 stopped after exports.303 physical
+inputs staged ONLY; no V5 launch. Human power-cycle required, no blind reset.
+V7 adds world-front-admission.inc actual early renderWorldTicket stale/shape/
+missing-owner rejection probes after sync/program reset, OFF-PRICE. Require
+fresh supported ticket and current packet qw unchanged, restore before frames.
+V6 native accessor objectDataPacket nonexistent; V7 packets[context], pending.
+Opt-in preflight requires6 >=39-check records +5 rejecting mutations; generated
+parsers1 positive/27 controls pass. Updated reader replays V5 report unchanged.
+V7 native488/ELF9193dd24...a237e passes; hidden PID26/Xvfb15 running, first two
+actual admission44-check records pass, full gate pending. No physical V7 launch.
+V7 then passes CLOSED hidden60 rasters/30 heads/52 reader controls/6 actual
+44-check admission probes (264 calls), positive moving routes/zero baseline
+owners. PID26/Xvfb15 stopped after exports;303 physical inputs staged only.
+Use V7 for next full physical preflight after human-confirmed power-cycle.
+V7 then passes full physical six trips/60 rasters/30 heads/52 controls/264
+actual admission rejections. Closed log requalified after owned37164 stop.
+First archive rejects historical emulator idle-tail hash drift; full unchanged
+closed emulator reanalysis passes. No preflight pricing or default promotion.
+verify-world-front-switch.py extracts actual warm helper/Core wrapper/ticket
+guard, with explicit storage/compiler/capacity shims:512 frames/4 controls.
+tyrax2-world-front-net.py reruns full physical preflight, tests12 report controls
+and computes net adjacent/spatial/tail contrasts without modifying preflight.
+V7 first order FAILS: day0.008ms mixed signs, night0.086ms regression/worse p95.
+Keep OFF/no reverse launch; initial load excluded, moving rebuilds included,
+strip-only and common A31/A30 both arms. Evidence world-front-net-v1.
+tyrax2-command-lineage.py ARCHIVE --output NEW_JSON decodes accepted A18
+physical owned closures offline. Compile verify-command-lineage.cpp against
+bound actual Vif1ChainCheck::Stream; pin used archive files and native nm
+export for stripped ELF, exact resident-image matching, dense REF cursor/bounds.
+Day759/night805 calls map, four corruptions reject. V1 missing symbol-table
+assumption rejected; use pinned nm only. MVP runs are NOT confirmed owners;
+UNPACK bytes are NOT copies/timing, VIF FLUSH counts are NOT DMA launches.
+A36 is historical, not A35/current attribution. Next matched current capture
+must retain synchronized freeze/ordinary-return main/env raster qualification.
+`tyrax2-bag-tape.py OUT BOUND_V7 --current-v7` builds that private ordinary-only
+capture bridge: A35 OFF, current common baseline, outer motion suspended,
+per-frame presentation fence, forced live capture, one bounded A18 dense
+closure. Descriptor-owner lookup is unpriced diagnostics, not command ownership
+or an EE cost measurement. V1/V2 source-anchor mismatches reject generation;
+V3 first native classifier used RuntimeObject.parts incorrectly; repaired to
+the actual objectGeometry table. Native491 and BOTH targets later pass eight
+ordinary-return rasters each, zero descriptor mismatches, one submission,
+stable programs and4 report/raster plus4 actual-parser corruptions each.
+Current physical657 calls; descriptor roads46.48% of main source vectors,
+not EE time or emitted work.602-file archive copied readers replay unchanged;
+physical decoder byte-identical. --current emulator/physical selects explicitly
+qualified current reports, never historical pricing. Pose differs by real dt
+across platforms. Staging now excludes inert old bag-identity.csv outputs.
+
+A34 uses head-hot-fixture/analyze with common A31 hot bodies, positive head
+moving witness, exact independently prepared cold heads and all parent gates.
+V1 build wrong GeoPart field; V2 native490 completes emulator but FAILS retained
+75 baseline words. V3 fixes silhouette/wheel/portal and baseline cold release;
+native490 binding passes, fresh emulator pending. Do not waive zero baseline.
+verify-head-hot.py OUT --fixture BOUND --sdk-host SDK_HOST copies bound owner,
+extracts actual fixed-facts helper and tests128 ownership/budget rounds plus
+16384 mutations optimized/sanitized. Pipeline host shims are not target proof.
+verify-head-hot-reader.py exercises generated parsers1 positive/18 negatives;
+decode nested A33 escapes before extracting its function. Hardware pricing
+requires full closed-log/60-raster/source/lifecycle gates; no emulator price.
+V3 finishes60 exports but final night baseline retains13 words; reject, no PS2.
+V4 switches to intrusive actual-owner complete transition release. Re-run
+bound host ownership tests (populated move/self-move/registry release), fresh
+native binding and full emulator before hardware.22/30-file SDK/V3-host archives
+recompile read-only unchanged, but do not qualify V4 registry or moving speed.
+V4 native490/ELF2692b91c...369dc1c and bound128 owner/16384 facts host controls
+pass optimized/sanitized, including registry/populated-move/self-move. Next
+fresh hidden emulator full gates, then physical; neither V4 target started yet.
+V4 subsequently passes closed hidden60 rasters/30 semantic heads/49 controls,
+zero baseline ownership.303 physical inputs/same ELF deployed via editor reset;
+client28308 running. Use head-hot-analyze on full closed console log before
+pricing and head-hot-archive after both targets; no emulator speed evidence.
+V4 physical passes60 rasters/30 heads/49 controls but regresses0.510/0.671ms
+and tails: firstOrderGate=false, no promotion.684-file archive replays both
+full reports exactly, hashes unchanged. Do not tune head keys; next A35 needs
+full early-Core ticket activation/source/dispatch proof with original heads.
+
+A33 verify-object-head.py OUT --sdk ACTUAL_SDK copies14 native SDK headers.
+Host V3 checks24576 changed writes/61440 stale/command/alias controls optimized
+and ASan/UBSan; manual UNPACK close only, host64-bit pointers/-fpermissive target
+casts, NOT native auto-close/raster/FPS proof. V1 fails unavailable auto-close
+link, V2 switches explicitly to actual manual helpers. Cold-only fixture uses
+tyrax2-object-head-fixture/analyze, derives qualified A31 V8 and retains old hot
+head serializer. Cold original bytes supply spot/fog/TEX0 values, so the oracle
+qualifies serialization/execution, not independent numerical/producer admission.
+The reader must forbid performanceCandidate, contrasts and firstOrderGate.
+V1 include-anchor generation fails, V2 native489 binding passes; hidden emulator
+pending. Full producer facts/lifecycle/direct-live-input/net-cost hot bypass is
+required before any head speed attribution or production promotion.
+A33 V2 then completes closed emulator60 exact rasters/30 head contracts/44
+controls. Generated head parser1 positive/10 controls and22-file host archive
+read-only recompilation pass. Cold source reset assertion includes HeadTrial.
+Use object-head-archive after both targets, not a pricing archive/gate.
+A33 V2 physical then passes60 rasters/30 heads/44 controls;678-file archive
+replays both reports exactly. Remove BOTH inherited late physical/reverse pricing
+blocks or physical analysis reads removed contrasts. Final reports MUST omit
+contrasts/firstOrderGate and retain hotOriginalHead=true, performanceCandidate=false.
+Current verifier checks no late assignments. Actual hot producer bypass remains.
+
+A32 first runtime uses tyrax2-prepared-runtime-fixture.py and the full
+tyrax2-prepared-runtime-analyze.py, not the foundation host reader. V1 native489
+files, closed hidden emulator six trips/60 exact rasters/47 controls qualify
+owned validation/capacity/bounds only; live heads/dispatch remain original.
+Contrast combines A31 owner + A32 stage, not isolated frontend price. The global
+8192-part budget includes replacement old+new. verify-prepared-runtime.py OUT
+--fixture BOUND_RUNTIME copies bound headers/actual bbox sources and passes64
+budget/replacement/copy/move rounds optimized/sanitized plus512 foundation cases.
+Host V1 renamed-main compilation failed; fresh V2 includes explicit return.
+Reader repairs inherited World-only release/no-witness Core assertions without
+allowing mode-dependent Core routes, and creates report before adding controls.
+Hardware net cost/raster gates remain required; never price emulator cadence.
+A32 V1 later passes physical six trips/60 rasters/47 controls, but combined
+0.141/0.235ms mean gain and0.898/0.651ms worse p95 FAIL first-order promotion.
+Use prepared-runtime-archive;680-file archive replays both reports exactly.
+No isolated A32 price,60fps/default or capacity ceiling. Close the combined
+bounds-only policy; broader frontend work is not thereby disproven.
+
+A32 verify-prepared-front.py OUT --engine BOUND_FIXTURE/tyra/engine pins11
+actual bbox files and runs optimized/sanitized ownership/admission tests.
+Host V4 passes512 cases/12288 changed views/15360 stale controls;23-file archive
+recompiles read-only with unchanged inventory. VU0 min/max and platform ABI are
+host shims on finite inputs, not target packet/raster/FPS proof. This is only
+owned frontend facts: legal-bag adapter/producer hooks/live Core/global RAM
+gates remain. Never rerun the fixture-creation driver INTO its archive.
+
+A31 producer-owner runtime uses tyrax2-world-runtime-fixture.py, not the cold
+body/mask fixture. V4 hits an inherited native-call assertion because owner
+replay bypasses ordinary native calls. Preserve/reject that apparatus stage.
+V5 scopes admitted full-owner sources separately from ordinary residual/header
+observation; keep Core flushBuffers inside the scope, coarse in every cold arm.
+world-runtime-preflight passes15 mutations but FORBIDS pricing: complete owner
+travel/lifecycle/SDK/body proof remains required. WorldPayload decoder tests560
+cases/5040 controls optimized/sanitized; actual-writer runtime pending. Source
+digest must read decoded compiled payload, not just the pre-emission qbuffer.
+V6 now binds487 source files and completes closed hidden six-trip/60-raster/
+15-control preflight. It remains performanceCandidate=false; complete moving
+activation/travel/lifecycle acceptance before editor-protocol hardware A/B.
+A31 V7 moving witness activates, but both arms compile owner bodies on rebuild:
+reject pricing because this hides candidate compilation cost. V8 must guard hot
+prepare by candidate/cold, free baseline owners at warm boundaries and sweep on
+epoch OR role transitions only. Use world-runtime-analyze, not preflight, with
+worldNetProducerCost flag. Actual generated reader tests2 positives/21 controls.
+verify-world-runtime-switch.py compiles the actual helper/producer guard with
+host storage shims:512 steady frames, role transitions, baseline owner release,
+candidate rebuild cost and3 rejecting controls pass. V8 native487 binding passes;
+full emulator/physical acceptance remains required before price.
+V8 subsequently completes both targets, six trips/60 rasters/38 controls,
+net producer cost and positive moving owners.0.303/0.393ms net saving is NOT60fps
+or pure EE cycles.670-file archive replays both full reports byte-identically,
+inventory unchanged. Use world-runtime-archive; preflight remains nonpricing.
+
+A30's cold coarse-strip oracle is tools/verify-coarse-strip-input.cpp with
+tyrax2-coarse-strip-input.hpp and the A29 input header. Compare pre-route
+ordered source to actual candidate delivery, independently expanded lists and
+residual non-source jobs; retain baseline post-route equality and exact60
+rasters. Do not simply permit changed candidate input hashes. Host execution
+passes17920 cases/seven controls optimized and ASan/UBSan. The actual generated
+reader test verify-coarse-strip-reader.py passes one positive/14 controls.
+Runtime native/emulator/physical qualification remains pending. Deriving a reader
+must strip only the final exec: A29's exec spelling also appears in its quoted
+parent finish marker, so whole-string count/replace is invalid at this layer.
+Audit final report assignment too: inherited A28 code overwrote A30's earlier
+consumerInputEqual=false flag. Override the final assignment and test generated
+flags; source/delivery/residual equality is NOT whole post-route input equality.
+A30 V1 full emulator60 rasters/29 negatives PASS; physical qualification pending.
+A30 V1 performance is subsequently rejected before pricing: its main-loop
+false/true setter drains every frame. Preserve proof/raw output but do not price.
+V2 must use conditional mode-change drains; verify-coarse-strip-switch.py compiles
+the actual main-loop snippet, checks256 frames and rejects per-frame drains
+and missing transition resets. Keep the real renderer's unchanged early return.
+A30 V2 full emulator/physical60 rasters/29 negatives PASS; reverse pending.
+After stopping a run, requalify its closed log before archiving: unpriced output
+after initial analysis changes logSha256. Never weaken the archive hash guard.
+654-file V2 archive reanalyzes exactly, inventory unchanged. --reverse keeps
+coarse mode7; inherited A28 reversed semantic labels are not applicable.
+Reverse A30 also requires quiet negative injection to use plan['modes'][1],
+not hard-coded mode7 (phase1 is mode0 in reverse). Actual generated focus
+reader tests both orders/two positives/eight mutations. V3 full closed-log
+emulator60-raster/29-negative gates PASS; reverse physical price remains pending.
+V3 then passes complete reverse hardware qualification,0.740/0.689ms savings
+and improved tails, still46.4..46.8/39.7..39.8Hz.654-file archive reproduces both
+reports exactly. Order is qualified, production lifecycle/default remains private.
+A31 verify-world-strip-plan.cpp tests private owned geometry, not VIF commands:
+360 cases/six corruptions/13 invalid inputs and failed replacement preservation
+pass optimized and ASan/UBSan. Host leases are not actual DMA lease integration.
+Require SDK/program emitted-word and main/env raster gates before physical price.
+A31 cold actual-writer gate is tyrax2-world-body-fixture.py: original and owned
+source bodies must flatten exactly, then compiled REF executes under live heads.
+Storage resets after cold-arm drains only; this is NOT production lease wiring.
+V1 missing ClipTrial include fails before link; fresh V2 includes clip_capacity.hpp,
+native484-file binding PASS, full emulator pending. Host body controls=10;
+actual-reader controls=6 and no-performance flag. Preserve full layered-reader
+dependencies (host-v3 has15 files); host-v2's reader copy alone is incomplete.
+A31 V2 completes emulator60 exact rasters/35 negatives and six positive compiled
+cold execution records. Stop/requalify closed logs as usual. Its reader/archiver
+must keep performanceCandidate=false and omit contrasts/firstOrderGate: ordinary
+hot routes are unchanged. Same-ELF physical correctness now passes60 rasters/
+35 controls too.664-file archive replays both reports byte-identically with
+unchanged inventory. This is NOT a speedup or production owner/lease proof.
+A31 all-plane cold follow-up uses world-mask fixture/reader, NOT world-body
+reader (which rightly requires byte-identical masks). Require actual SDK body
+equality except one packed mask word, changed-mask positive activation, exact60
+rasters and unchanged performanceCandidate=false. Host controls15, reader4.
+World-mask V1 host signature missed SDK unsigned bit14 and asserts in emulator;
+preserve rejected V1. V2 requires exact6c02c000 UNPACK and STCYCL01000101,
+plus a rejecting unsigned-flag control; no raster-failure inference from V1.
+V2 all-plane native485-file binding and emulator60 rasters/39 controls pass.
+This qualifies selected native cold buffers only, not full owner input/lifetime
+or speed. Same-ELF physical correctness is running; preserve no-performance flag.
+Physical all-plane gate now passes too;671-file archive reproduces both reports
+exactly. Compiled-owner tests use verify-world-owner.py --engine-inc against
+preserved actual engine headers. Only typedef/address shims are synthetic;
+bank table is not copied logic. Host-v3 ten-file source/log inventory excludes
+binaries; optimized/sanitizers/raw-fence/12 admission controls pass, no runtime
+callback or speed proof. Recompile copied C++ with -DTYRA_HARDWARE_TRACE=0 -Iinc.
+
+A29 private clip-ring host proof: tools/tyrax2-clip-ring-host.py copies/pins
+the ACTUAL generator, derives list/native-strip bounded output and snapshots
+RAM at EACH XGKICK. Final RAM alone hides overwritten ring outputs.
+Host V6 checks 1280 cases/29392 triangles, all64 masks, both strip parities,
+single/many colour, shared lighting/env/spot, immutable uploads and 3 rejection
+controls. C positive lighting requires a normal stream even with a single
+colour setting; V4's mistaken harness layout is rejected, not renderer failure.
+Use --toolchain to require actual VCL/DVP assembly and scheduled NOP/XGKICK.
+Image words C376/TC404 for strips are not whole-set residency or PS2 FPS proof.
+Production code/defaults are untouched. See docs/tyrax2-clip-ring-2026-10-11.
+A29 V8 adds hybrid legacy/native input, fold/paint:176352 host triangles PASS.
+Runtime V1 native481-file binding and six hidden-emulator trips/60 exact
+rasters complete. It is PRELIMINARY: old packet-shaped hashes differ and lack
+a distinct native activation gate. Do not price or deploy V1 as accepted.
+Use the canonical cold header in tools/tyrax2-clip-ring-input.hpp;4480 host
+cases/four controls pass. V2 must retain SDK byte/state checks per header,
+require identical ordered canonical triangles and positive candidate native
+activation (zero in controls), but not identical removed header COUNTS.
+Use tools/tyrax2-clip-ring-analyze.py, not A28's reader. It requires equal
+canonical ordered triangles, positive native activation only in the candidate,
+fewer positive SDK-verified headers, linked2034-word residency, bound source
+and shader hashes, and all60 exact raster exports. Its rejection controls
+exercise missing/inactive native contracts, native controls, zero triangles
+and changed canonical input. V1 remains excluded; qualify a fresh V2 first.
+The --native-fallback extension retains original package masks/order but
+borrows unrefined/cache-unavailable partial strips too. Require positive
+RINGFALLBACK only in candidates plus four rejecting fallback controls; the
+V2 refined-only admission does not qualify ordinary unrefined road offload.
+V3 completes these gates on emulator/PS2:26 negatives,60 exact rasters and
+positive fallback; first-order gain0.649/0.667ms, NOT60fps or default promotion.
+State-once host output uses one full GS state then geometry-only kicks.
+Compare cumulative effective state plus each primitive descriptor; require
+first state even when its polygon is empty. V10 passes264528 triangles/five
+controls and selected394/466 images fit2038/2042. V9 oversize and partial
+runtime V4/V5 symbol-guard failures are rejected, not deployment evidence.
+
+A27 gas-only ordinary-log gate uses the A26 travel/raster harness but SDK
+automatic header close in every arm. Window markers occur outside priced
+travel; require positive baseline vehicle/terrain output and ZERO ordinary
+LOG output in quiet windows, all six trips and all-arm exact raster/input
+checks. No hot counters/clocks. A23..A26 logs are active despite profiler-off.
+A27 V2 passes both platforms and first-order physical gate (1.060/1.163 ms),
+but only 38.02/34.55 Hz, not goal completion/default promotion. Archive 639
+files read-only reanalyzes byte-identically. Terrain triangle census and raw
+periodic reports remain even with ordinary logs quiet. Next causal A/B uses
+quiet BOTH arms. A corrected terrain LOD focus may change transitional
+rasters: require held-focus return controls and neighbor edge invariants,
+not false exact-candidate equality or destructive no-LOD geometry omission.
+A28 private terrain-focus generator derives from bound A27 V2; pre-shake
+camera target selects terrain only in mode7, both gas arms quiet. Cold all
+arms share held stable focus, settle32 frames, verify own/four-neighbor LOD
+contracts and exact rasters/input/header. Moving LOD changes are expected.
+Use terrain-focus-analyze, not the old logging reader. V1 passes all-six
+emulator/physical contracts and 17 rejection controls; savings1.735/1.500 ms,
+NOT60. V2 --reverse keeps numeric modes0/7/0 but swaps intervention roles;
+reader phaseRoles/reverse recomputes candidate/baseline/candidate contrasts.
+Require both outer means/spatial means faster and max p95<=control+.15.
+Never price reverse data with the forward formula or compare different ELFs
+as a causal delta. Reverse native/emulator/physical qualification PASS, with
+1.799/1.603 ms savings. Both archives reanalyze byte-identically. Production
+1.173.5 host snapshots/streaming tests, Release editor, fresh FPP/orbit target
+syntax and normal example native build PASS. Compilation is not hardware FPS.
+
+A26 fixed-header uses A25's held-input harness but restores NORMAL clip dispatch.
+All five checkpoint arms, including candidate, must have exact main/env pixels.
+Require positive actual-SDK auto/manual byte/state comparisons in each arm and
+sparse moving checks, native binding, hidden emulator, then editor-protocol PS2.
+No new timer scopes. Do not price sparse-oracle or emulator frames.
+A26 completes both platforms with six trips/60 images each, exact SDK bytes
+and packet state, and 13 reader rejection controls. Physical first-order gate
+FAILS (day/night mean saving -0.008/-0.050 ms): no default or reverse-order
+qualification. Archive and read-only reanalyze outside the archive.
+
+A25 clip-consumer derives from bound A23 via the shared A24 fixture harness,
+then restores original Core/renderer and changes final consumer selection only.
+Native-bind, hidden emulator, clip-consumer-analyze, then editor-protocol PS2.
+Require all six moving trips, five cold input-hash arms per pose and exact
+baseline/return rasters; candidate clipping-loss differences are expected.
+Archive with clip-consumer-archive and reanalyze read-only outside the archive.
+Both targets complete A25 with 60 images each and 13 reader rejection controls;
+56 actual-header hash controls pass sanitizers. Physical consumer bypass has no
+useful gain. The legacy groupRasterEqual report field means RETURN controls
+only here; consumerInputEqual/controlRasterEqual name the actual gates.
+
+A24 derives from bound A23 but restores original qbuffer gathers. Run the
+capacity/range sanitizer harness, native binding and hidden emulator before
+hardware. Ten trips use 0/7/0/8/0 for day/night: 7 groups true Clip ranges,
+8 omits the full clip route. Sparse witnesses in all arms exclude offset%128
+64 and 65 from price. Require complete travel/live captures, positive candidate
+activation, zero clip submissions for 8, and exact 0/7/0/0 checkpoint images;
+report arm8 raster differences as destructive attribution. Five checkpoint
+arms produce 100 readbacks/platform. Do not promote no-clip or price PCSX2.
+See docs/tyrax2-clip-capacity-2026-10-11/README.md.
+V2 refined-only grouping has no physical activation; retain it for full
+NoClip attribution only. V3 widens ordinary strips too and runs six 0/7/0
+trips day/night, retaining five cold raster arms (60 images/platform). Native
+binding, sanitizers (131072 capacity +730 winding cases), emulator and PS2 pass;
+group gain is mixed/small and no default follows. All source revisions are
+bound separately; never subtract V2/V3 timing or price their emulator cadence.
+
+A23 uses list-join-drive from bound lean A16, EE paint and rejected target gate
+off in every arm. Twelve full trips cover both orders/day-night; preserve real
+dt, roads, three cars, live captures and camera sweep. Sparse moving byte
+oracles and next frames are excluded from pricing. Post-trip Off/On/Off GS
+checks settle eight frames with held scene/current capture, outside pricing.
+Reader requires all trips, 72 readbacks/platform and eleven negative controls.
+Gate requires positive mean/spatial savings and p95 <= slower Off +0.15 ms in
+all four triples. A23 completes both platforms but gate FAILS in reversed day;
+no default promotion. Settle console logs by stopping only the owned client
+AFTER completion, then reanalyze/archive. Keep PS2/computer on. Read-only archive
+reanalysis output must be outside the archive. See the A19 report's A23 result.
+
+A22 uses tyrax2-list-join-fast.py from bound A18 V5: ordinary producers in all
+arms, actual copy bypass in stages 2/4/6/8, gather byte oracle only on frame 222,
+actual bypass rasters on frame 223, samples 64..191. No split scopes. Native
+bind and use command-price-analyze plus its rejection controls. Never reuse
+A19 oracle-retained timings as a speed result. See the A19 report's A22 section.
+A22 completes emulator and PS2 night, 304 host checks, 18 reader rejection
+controls and a 587-file archive with read-only reanalysis. Physical net saving
+is 0.276..0.287 ms; frozen timing is not moving-game FPS.
+
+A21 uses preparation-split --geometry from bound A18 V5, not from the already
+instrumented A20 fixture. Native-bind the new build. The bound geometry define
+selects 72-byte rows; the reader also retains old 56-byte A20 support. Run host
+tests for both layouts and parser controls before hardware. Deferred flushes
+belong to Geometry, including callbacks from Setup/Queue. See A20 report's A21
+section; these scopes include cache policy and waits, not pure instruction costs.
+A21 completes emulator/PS2 night with exact rasters and 28 negative reader
+controls. Native binding/586-file archive reanalysis pass. Timed frames make
+696 extra reads; net Timed-minus-Off is ~0.80 ms, not a uniform correction.
+
+A20 preparation-split derives a fresh all-ordinary fixture from bound A18 V5.
+Run verify-preparation-split.py under WSL sanitizers, native binding, hidden
+emulator and command-price-analyze before editor-protocol hardware. The reader
+detects the bound split header and requires all split rows/activation/balances;
+verify-command-price-analyze adds split rejection controls. Finish is raw
+elapsed including pacing, not additive to non-pacing whole work. Off/Count/Timed
+controls price net observer perturbation, not a uniform correction. See
+docs/tyrax2-preparation-split-2026-10-10/README.md.
+A20 night now passes emulator and PS2 with stable within-run counts, equal
+images, 24 reader rejection controls and immutable archive reanalysis. Counts
+include same-kind nested entries; timed frames have 454 new reads. About
+0.46 ms Timed-minus-Off is net perturbation, not a per-bucket correction.
+
+A19 list-join is qualification only: the original gather remains and an actual
+byte oracle precedes pointer submission in A18 descriptor-list stages 2/8.
+Use tyrax2-list-join-analyze.py, which reports activation/rasters but no timings;
+zero activation is an observation, not qualification of a working candidate.
+The clone/archive tools preserve its optional manifest and reader. Source-owned
+producer storage, non-recording lifetime and physical speed remain separate
+gates. See docs/tyrax2-list-join-2026-10-09/README.md; do not deploy while the user
+cannot reset PS2. Host helper tests use ASan/UBSan plus a corrupt-copy rejection.
+
+A18 `tyrax2-bag-tape.py` is a private descriptor-list qualification prototype,
+not a timing harness. Bind with symbol `BagTape::iteration` (the vector symbol
+has an ABI suffix). Compare all main/env GS readbacks using bag-tape-analyze;
+ordinary return must match too. `bag-tape-control.cfg` selects all-ordinary in
+V3; bag-tape-clone creates a fresh replay run of that SAME ELF without the marker.
+Never regenerate or alter source-bound fixtures to switch arms. Old V7
+23.33/10.73 ms compares validation policies WITHIN replay, not normal vs replay.
+V5 pins pre-freeze interleave order: otherwise the producer-free gap resets
+automatic order probing and changes ordinary-return inputs. The shared stage
+helper excludes tape readbacks from physical launch inputs; the analyzer checks
+those inputs and any available descriptor comparisons as well as actual pixels.
+The command continuation uses command-tape/pricing generators and the dedicated
+command-price-analyze reader (never derive PS2 prices from emulator samples).
+Hybrid presentation can leave GIF DMA live after synchronizeFrame; a common
+post-presentation align2D fence is required INSIDE all measured arms. V2's
+physical capture is rejected; its emulator raster pass does not qualify this
+fence. Preserve resident-program and startup-state checks, complete mutable REF
+ownership, ordinary returns, both intervention orders and off-clock GS readbacks.
+The reader has 11 negative controls in verify-command-price-analyze.py.
+V4 must suspend the inherited Engine drive sampler after freezing; merely
+clearing sample flags once is insufficient. Final physical pricing rejects
+unsuspended sources (an explicit legacy flag permits historical comparison).
+Archive reanalysis uses --archive --output OUTSIDE the immutable archive and
+verifies all archived hashes; omitted assets are checked against the preserved
+launch inventory. A deploy status of console-output-received can be only stale
+freepad output: require a fresh boot and completed test markers, not that status.
+V4 physical day now passes, but night fails with std::bad_alloc BEFORE freepad;
+the older V3 night log has the same precursor. Do not diagnose those runs from
+the last error alone. V5 sizes the owned closure with command_size.hpp rather
+than reserving 4 MiB; verify-command-size.py compares against actual arena copies
+under host sanitizers. Preserve the hard cap and full target payload oracle.
+PRICEHEAP is off-clock allocator bookkeeping, not total free EE RAM. Require
+all stages and COMMANDMEM bounds; neither partial night prices nor emulator
+success qualify the repair on hardware. Existing bound V4 files stay immutable.
+V5 now passes four emulator states / 80 GS images and complete physical night.
+The reader has 14 rejection controls for V5 (12 for older allocation formats).
+Archive only settled evidence and reanalyze outside the archive. Hardware
+later-view/parked and live-game performance remain separate pending gates.
+
+A17 `tools/verify-env-normal-churn.py` runs under WSL with g++ and sanitizers.
+It extracts the actual EE normal-preparation function and checks stable
+colliding/noncolliding arrays plus legitimate mutations. It proves cache-slot
+churn, not that the game experiences it, nor any PS2 timing or raster result.
+Use the investigation register's census gate before changing normalization.
+A17 `tyrax2-normal-census.py <new> <completed-A16-drive>` verifies the parent
+binding, disables the rejected target gate and adds warmup/parked/driving
+normalization counters without changing its policy. Native-bind before another
+build replaces the mirror; run hidden emulator then editor-equivalent PS2.
+`tyrax2-normal-analyze.py [--physical]` requires all six trips and count identities;
+it intentionally reports no timings. `verify-normal-census.cpp` tests observer
+accounting under host sanitizers. V1 failed linking unused TargetAudit counters;
+V2 defines them in the common probe header, not only in discarded engine code.
+A17 completes six emulator and six physical routes: 3,450 physical post-warmup
+normal-preparation calls, all hits, zero roots. Do not reopen this as the current
+drive slowdown without new workload evidence. Archive and reanalyze snapshots;
+the live ps2client log may gain an idle tail after completion.
+
+A16 `tyrax2-packet-audit.py` stages actual emitted TEX1 checks with a legacy
+negative control; qualify copied packet bytes, not only desired filter fields.
+`tyrax2-target-audit.py` stages the private OUTSIDE-only reflection gate and
+paired env/main GS readbacks; `--drive` starts from completed A13 forward with
+EE paint fixed in every arm. Packet/target and drive analyzers are separate;
+only physical drive analysis reports prices. See the A16 evidence report for
+coverage and unqualified cases. Never infer full-scene raster equality from
+the isolated synthetic raster test or overwrite completed fixture evidence.
+
+A13 `tyrax2-paint-qualification.py <new-fixture> <completed-A12-V2> [--reverse]`
+removes heavy paint diagnostics/forced fallback/LOD and installs same-ELF
+EE/VU/EE day then night controls (reverse selects VU/EE/VU). Explicitly compile
+hardware trace AND frame profile out: A13 V1 inherited trace=1 and was never
+launched. Native-bind, run the hidden emulator, then qualification-analyze.
+The analyzer checks exact production-loop identity apart from declared hooks,
+no linked diagnostic state, actual VU counts, live capture and complete travel.
+Emulator analysis intentionally emits no prices. --target physical requires
+editor-deploy.json plus pinned inputs; partial runs must fail. Both control
+arms link PAINT images, so this does NOT price the whole-image tax versus flag0.
+A13 V2 also completes six physical controls after recovery: about 1.0-1.2 ms
+mean work savings, not sustained 60 Hz; see docs/tyrax2-paint-physical-2026-10-09.
+Reverse is only partly emulator-tested, not physically deployed. For a physical
+host that must stay alive, archive a read-shared log snapshot and reanalyze that
+snapshot: post-completion log tails can change its hash without changing CSV
+results. Keep the earlier report and require all other fields to agree.
+Stop the owned emulator BEFORE
+final analysis: A12's final log gained a harmless post-completion tail after
+its original hash was recorded. An immutable-archive reanalysis under A13 host/
+matches all results except that hash. Archive creation now rejects mismatched
+final-log hashes. paint-drive-analyze --output supports read-only reanalysis.
+
+A12 `tyrax2-paint-drive.py <new-fixture> <completed-A11>` verifies the entire
+source binding before cloning it, restores throttle and ends only at z>=108
+(or fails at the 1,200-row capacity). Authored moods alternate day/night/day;
+camera sweeps, fallback modes, LOD and the accepted-basis oracle remain active.
+Run paint-drive-analyze after native binding and hidden emulator completion:
+it requires actual CSV travel/gas/camera coverage and moving EE/VU paint visits,
+not just warmup checks. No timing result from these intrusive tests.
+Use ONE PINE screenshot client at a time: a second socket may connect but time
+out while the first is active. Do not restart a live emulator for this timeout.
+Count dynamic lights only within [0,dynLightCount). clearDynLights resets the
+count, not enabled bits outside that prefix. A12 V1's return-to-day witness
+counts stale slots; V2 corrects the observer and requires day=0/night>0.
+A12 V2 completes all trips: 8,981 paint visits, 1,138 at speed >5, zero errors,
+both authored LODs/all modes. Ten lifecycle and five travel mutations are
+rejected. Both attempts are preserved in a verified 1,039-file archive.
+
+A11 `tyrax2-paint-game.py <new-fixture> <completed-A08>` uses rebuilt Dev
+--refresh-gen on isolated FPP/orbit copies, then transplants the exact current
+paint block into the preserved A08 driver with explicit diagnostic hooks.
+Current engine/public capability and normal whole images are used, not C16
+injections. Night is selected through the authored mood script; require roads,
+active lights, all three reloads and zero PAINTLIFE errors. The existing
+lifecycle analyzer recognizes paint-game-manifest.json and requires midnight.
+Run verify-paint-game.py with the before template snapshot under Linux sanitizers
+(6,000 transitions, three rejected mutations, default-OFF token equality).
+verify-paint-generated.py uses the native compiler on BOTH generated physics
+TUs/headers with flag 0/1. Native bind BEFORE another build replaces the mirror.
+The PINE sky-capture helper must run in WSL (AF_UNIX), not Windows Python.
+These intrusive tests do not measure speed or establish whole-scene pixel equality.
+A11 completes 12,124 night-road visits and 62 held refreshes with zero errors;
+both authored tiers/all modes and three scene loads pass. The 673-file archive
+verifies. Driving remains a distinct next case; do not call the parked sweep a
+full-throttle test. Use analyzer --output to recheck old evidence without changes.
+
+A10 `tyrax2-paint-engine.py <new-fixture> <A09-V3> [--enabled]` runs the public
+engine API on the isolated raster harness. Build both flags, bind each native
+build BEFORE replacing the shared mirror with another: `tyrax2-motion-run.py
+verify <fixture> --symbol paintRasterCull`. The ordinary verifier still requires
+MotionProbe::rows; a missing requested symbol must fail. Keep the old private
+motion header for unused generated TUs, without importing old renderer hooks.
+Require PAINTCAP 17 checks plus null rejection and all 54 fog-off/on readbacks;
+disabled means EVERY group actually uses EE. Run `verify-paint-engine.py` with
+Linux g++/ASan/UBSan for actual capability/guard fragments and all 32 wrapper
+flag combinations; its NDEBUG-return mutation must fail. Rebuild and run
+--vu-check, four actual paint-image scalar/GIF oracles, and derived-image --check.
+This does not qualify full-game lifecycle, night or physical performance.
+A10 completed both builds: 471 bound native sources each, 54 exact readbacks
+each, and exact pixels against A09. Disabled ELF links no PAINT images. The
+default texture-bag declarations compare identical after preprocessing against
+the before snapshot (`verify-paint-engine.py --baseline <engine-snapshot>`).
+All 1,173 archived files verify. Historical C16/A08 injectors require their
+pre-A10 source anchors; use a fresh public-API harness for game integration.
+
+A09 `verify-paint-generator.cpp <new-output> <C16-engine>` links vugen, vuir,
+vusim and vuasm. It snapshots ordinary output, checks 8,400 generated/private
+draws including shared TC/TD, rejects unsupported/custom descriptions and three
+real instruction mutations. Keep a pre-change snapshot: 45 ordinary files must
+remain byte-identical. Run the actual-source `verify-vu-paint.cpp` oracle too.
+`tyrax2-paint-generator.py <new-fixture> <authored-project> <generated-output>`
+requires WINDOWS Python for the Windows editor staging chain. It selects
+separate whole images with generated paint prepasses, preserving FOLD/ENVN
+bodies and shared TC/TD/TCE ownership. Native bind/build and hidden emulator,
+then the raster analyzer require 54 completed fog-off/on GS readbacks. Fog
+must change every matching raster, and all EE/VU/EE groups must be exact and
+nontrivial. `--output <dir>` writes analyzer reports outside an old fixture.
+V2's 12-near fog range reduces two view-edge bases to 110/115 RGB colours and
+fails the unchanged >128 nontriviality gate; V3 uses 24-near, not a weaker gate.
+No performance, full-game night or physical qualification follows from this.
+V3 passes all 54 cases: exact EE/VU/EE RGBA, observable fog, plus exact pixels
+against A07 for the first 27. Both 473-file native bindings and all 1,336
+archived files verify. The rejected V2 remains preserved, not overwritten.
+
+A08 `tyrax2-paint-lifecycle.py <new-fixture> <authored-project>` adds private
+accepted-basis/EE-readiness state, real clipping/override fallback toggles and
+forced authored LOD tiers. Compile/run `verify-paint-lifecycle.cpp` with
+ASan/UBSan, native build/binding, hidden emulator, then
+`tyrax2-paint-lifecycle-analyze.py <fixture>`. The screenshot helper accepts
+`--phases 3` for this run (its existing default stays six). Require every-vertex
+EE oracle, zero basis/state errors, held-key refreshes, all six modes, authored LODs
+and all three phase/reload completions. These heavy checks are NOT timing data.
+V1 generation failed before build on a wrong include anchor; use V2 or newer.
+The three authored cars have one far tier each (mask 3), not the two far tiers
+of unused car assets left in bin. The analyzer reads TMDL layouts and binds the
+expected LOD mask to authored vehicle IDs; do not infer coverage from filenames
+or count a clamped request as a third actual tier.
+
+A07 `tyrax2-paint-raster.py <new-fixture> <authored-project>` generates an
+isolated C16 target-assembled shader harness: 27 EE/VU/EE cases, three bases,
+inside/near-crossing/view-edge geometry, fixed texture and raw CT32 readback.
+Run native build/binding, then the hidden emulator and
+`tyrax2-paint-raster-analyze.py <fixture>` with Windows Python (numpy/Pillow).
+Require all cases, actual cull/clip witnesses, nontrivial images, exact off/off
+controls and exact EE/VU RGBA. Candidate uploaded colours are intentionally
+wrong, so bypassing the prepass cannot silently pass. This does not qualify
+game lifecycle, legacy/custom fallback or physical performance. Status is in
+the investigation register; do not deploy while A06's console remains wedged.
+V2 passes all 27 cases with exact RGBA. V1 is rejected: omitted TerrainGame's
+clipMargin setup made every clip image blank. Set it BEFORE setRenderer, and
+do not weaken nonblank checks. Include the SDK screenshot.h, not debug.h.
+
+A06 `tyrax2-road-reduction.py <new-fixture> <authored-project>` derives a
+234 -> 72 vertex draw-only plan from the union of BOTH archived A05 targets.
+Run `verify-road-reduction.py <fixture>` under WSL/Linux, native source binding,
+then `tyrax2-road-reduction-analyze.py <fixture> <csv-dir> <target-log>`.
+Require runtime exact original-stream matches, all four plans in every phase,
+candidate-only reduced counts, actual qbuffer consumption and sky refinement
+OFF. The A03 validator's optional `sky_refine=False` is only for this distinct
+policy; its default remains unchanged. A06 passes all six emulator phases, but
+physical PS2 stalls with freepad DMA Busy during phase-2 reload after two valid
+phases. Missing DRIVEDONE must fail validation; never price that partial A/B.
+No reset loop or promotion. Preserve the owned file server on the stalled run.
+Stationary image differences exceed off/off noise; no raster equivalence.
+The stage helper excludes road-reduction-analysis.json as an output, not an asset.
+
+A05 `tyrax2-road-geometry.py <new-fixture> <authored-project>` captures unchanged
+road streams once at offset 1050, outside timing. Bind native sources, run the
+hidden emulator, require ROADGEOMETRY valid=1 and DRIVEDONE valid=1, then run
+`tyrax2-road-geometry-analyze.py <bin>/road-geometry.bin <target-log>`. This is one phase,
+not an A/B performance run; do not use the six-phase sky analyzer on it.
+RDA1 records little-endian chunk/run identity plus XYZ/W, STQ/W and RGBA floats.
+The initial audit only accepts single-run, nonblended, nonedge, constant-colour
+monotone UV rails with <=1e-5 world-position affine residual. That is a geometry
+opportunity, not raster/depth qualification. Never rewrite collision receivers
+or relax the error budget merely to make more chunks eligible.
+A05 now passes emulator/PS2: four chunks, physical 234 -> 66 versus emulator
+234 -> 39 vertices. Source float differences matter: never reuse emulator-only
+selection indices without target validation. The offline full UV triangle
+intersection oracle bounds world-surface error, not GS depth/pixel identity.
+Evidence: `docs/tyrax2-road-geometry-2026-10-09/`. The stage helper now excludes
+sky analysis and road geometry output files when staging after an emulator run;
+they are results, not launch assets. Editor-equivalent deployment is unchanged.
+
+A04 overnight follow-up: `tyrax2-sky-prepared.py <new-fixture> <authored-project>`
+extends A03 without changing its routing policy. Run `verify-sky-prepared.py
+<fixture>` under WSL/Linux (191,828 ranges plus A03 replay/fuzz), native build
+and source binding, then emulator and physical `tyrax2-sky-prepared-analyze.py
+<csv-dir> <log>`. Require geometry-build SKYPREP before timing, zero misses,
+every measured candidate eligibility matched by a prepared hit, and cold
+equality with A03's per-input classifier. V1 failed compilation before launch:
+Tyra Vec4 assignment returns void; never chain its assignments. The host mock
+now preserves that signature. See the investigation register for results.
+A04 V2 passes host/emulator/PS2 but regresses turn work 0.195-0.242 ms;
+not promoted. `tyrax2-sky-pixels.py <fixture>` records stationary ROI differences
+and input hashes, not a moving/depth oracle. Its sky ROI is identical; world
+differences remain, and drive A/B exceeds the off/off temporal control.
+Raw evidence is in `docs/tyrax2-sky-prepared-2026-10-09/`.
+
+## Physical PS2: use the editor deployment protocol
+
+The source of truth is `src/runner.cpp::claimPs2Channel`,
+`resetPs2Link`, `deployToPs2` and `stageReplayChannel` (checked 2026-10-09).
+For normal projects use the editor's Run on PS2. For a frozen diagnostic
+fixture, do NOT use `--build --run-ps2`: it regenerates instrumentation away.
+Use `tools/tyrax2-deploy-ps2.ps1 -BinDir <fresh-staged-bin>` on Windows;
+the helper mirrors the protocol below without building. It refuses other live
+ps2client sessions; `-OwnedClientId` is only for an explicitly verified client
+owned by this test. Never infer ownership from the executable name alone.
+
+1. Stop only the owned file server BEFORE resetting (release tty and host polls);
+   refuse an unrelated live session, never kill all ps2client processes.
+2. Start a captured `ps2client -h IP listen` witness. Send exactly one
+   `ps2client -h IP -t 10 reset`. On nonzero exit stop. Otherwise allow up to
+   eight 250 ms intervals for witness output, then stop that owned listener.
+   A successful but silent reset is SENT, not proof of a wedge.
+3. In the selected bin clear `log.txt`, `livedbg.bin/cmd`, `frame.tga`,
+   `livelogic.bin`, `livetime.bin/rst`, `livepad.bin`, plus
+   `replay.in/arm/out/stop/st` when no replay was requested. Write
+   `ps2link.run` containing `deployed by TyraX\n`; the marker is necessary
+   because crt0 may not deliver the `-ps2link` argument.
+4. Wait 40 x 250 ms (10 seconds). Start a captured, hidden, long-lived
+   `ps2client -h IP execee host:<elf-name> -ps2link` with cwd EXACTLY bin.
+5. Wait up to 15 seconds for console output. A dead client is failure.
+   A live client with no log is UNCONFIRMED: KEEP THE FILE SERVER ALIVE.
+   Do not automatically kill/re-send execee based only on silence. Initial tty
+   output acknowledges a launch, not successful gameplay; check target markers.
+6. Retain the file server while the game needs assets. Preserve launch inputs,
+   ELF hash, PID and logs; release only owned processes after evidence export.
+
+This supersedes older ad-hoc 8-second/reset/re-send recipes below. The protocol
+does not prove the historical freepad DMA Busy root cause or guarantee recovery
+from a real IOP wedge. A confirmed physical restart already at ps2link permits
+the documented bare-execee recovery, but it is an explicit recovery exception,
+not the normal editor launch sequence.
+`tools/tyrax2-deploy-ps2.ps1 -ConsoleAlreadyReset` encodes this exception after
+the user confirms recovery. It skips only reset/listen, retaining ownership
+checks, marker/channel preparation, input pins, 10-second settle and keep-live
+startup handling. The launch record names `resetMode=user-confirmed-reset`.
+Never infer this permission from a silent or wedged previous deployment.
+
+A02b `tyrax2-scene-capture.py <new-fixture> <authored-project>` extends P06
+with nine bounded full-StaPip frames, owner/view/pass identity, actual EE
+cull/clip calls (separate from logical replay), and raw clip input/plane bits.
+Run `verify-scene-capture.py <fixture>` under WSL, then
+`tyrax2-scene-capture-analyze.py <fixture> <csv-dir> <log>`.
+Require zero overflow/errors and frame/bag/clip reconciliation. The classifier
+is conservative: safe against eight planes, definitely outside a common one
+of six VU planes, or boundary/uncertain; it is NOT a raster visibility oracle.
+DynPip is outside this recorder. No production optimization is implied.
+
+A03 `tyrax2-sky-bounds.py <fixture> <original-project>` is a private sky-only
+tight-list-bounds turn/drive A/B/A. Run `verify-sky-bounds.py <fixture>` under
+WSL, bind native sources, then `tyrax2-sky-bounds-analyze.py <csv-dir> <log>`.
+The host replays A02b's 221 actual sky inputs and fuzzes 50,000 safety cases.
+Require six positive cold SKYORACLE records with zero failures, candidate-only
+applied decisions and exact eligible = applied + actual clip reconciliation.
+`tyrax2-sky-capture.py <fixture>` reads PINE on the owned hidden Xvfb session
+and captures stationary offsets 1240..1289 in each phase; start it immediately
+after the emulator, before phase 0 passes the window. A still sky image is
+not a full moving/depth oracle. Existing cull-first partition can change
+dispatch ordering, so geometric safety alone does not justify promotion.
+A03 V2 completed host/emulator/PS2 on the first editor-protocol deployment.
+It is not promoted: turn work regresses 0.226-0.242 ms despite fewer clips.
+Driving uses real dt and an endpoint; unequal frame counts are not paired
+operation costs. Preserve the negative result in the scene work audit and
+`docs/tyrax2-sky-bounds-2026-10-09/`. PINE may initially reject requests before
+the guest is mapped; the capture helper retries that condition within its
+bounded deadline. Do not restart the emulator or steal another PINE session.
+
+A01 offline reconstruction: run `python tools/tyrax2-scene-ledger.py --output
+docs/tyrax2-scene-ledger-2026-10-08 --selftest`. It verifies frozen P06 input
+hashes, reconciles 72 frames / 2,220 road bags and rejects six corruptions.
+This is not a new target run. See `docs/tyrax2-scene-work-audit.md` for missing
+current-scene pass/plane/build-event coverage; the historical producer census
+predates terrain refinement and must remain separate.
+
+A02a `tyrax2-first-build.py <new-fixture> <authored-project>` extends unchanged
+P06 with bounded per-road bake/finalize scopes, payload/arena sizes and existing
+prefix deltas. Run `verify-first-build.py <fixture>` under WSL, then
+`tyrax2-first-build-analyze.py <fixture> <csv-dir> <log>` (includes P06 gates).
+Growth blocks are not allocation counts; build/finalize overlap parent timing.
+This does not implement A02's full owner/pass/plane census. Check the audit's
+actual hardware result before drawing conclusions or changing cache policy.
+
+For this Vehicle Playground performance campaign, consult and update
+`docs/tyrax2-performance-investigation.md` before a test. Add its question,
+non-duplication rationale and decision gate; after execution record platform,
+result, acceptance status and evidence. The register is the shared entry point,
+not another raw log. Closed leads need an explicit reason to reopen.
+
+P06 `tyrax2-road-trace.py <new-fixture> <full-source>` extends the P02 baseline
+with whole-frame non-pacing wait leaves and native-queue counters, plus original
+road ID/view records in three eight-frame windows per turn cycle. No grouping.
+Run `verify-road-trace.py <fixture>` under WSL; analyze with
+`tyrax2-road-trace-analyze.py <fixture> <bin-directory> <log>` (it also runs P02
+validation). RAM records export only after each phase. Explicit wait time is
+not all EE stalls; road-triggered copies may include mixed pending owners.
+Require all per-window road Core calls to have records, off-arm zero metrics,
+positive native submissions, no overflow/nesting errors and observer pricing.
+P06 V2 had columns without optional expansion/partial-replay source hooks:
+retain it as superseded partial evidence, never interpret those zeros. V3
+requires installed hooks and positive cache activity. Partial baked replay
+itself may legitimately be zero for expanded clipping (a cull-only cache).
+
+P07 `tyrax2-road-pair-omit.py` uses original road IDs 24/34 and omits only
+their unrefined partial-strip dispatch loop before qbuffer allocation. Run
+`verify-road-pair-omit.py` under WSL and the turn analyzer with
+`--vu-paint --roads-day --road-pair-omit --selftest`. Require both exact
+66-vertex IDs and equal positive cold eligibility across off/on/off; only
+mode 6 may skip. This deliberately removes triangles and is attribution,
+NEVER a production optimization or raster-equivalent result.
+
+P08 `tyrax2-clip-command-memo.py <new-fixture> <full-source> [--reverse]`
+memoizes clip-TC stream commands for IDs 24/34, not geometry or the dynamic
+header/kick. Run `verify-clip-command-memo.py <fixture>` under WSL. Analyze
+with `--vu-paint --roads-day --road-command-memo --selftest`, plus
+`--reverse` for the reverse fixture. Require positive cold actual-writer
+byte checks/hits, zero mismatch, candidate-only applied witness and equal
+eligible calls. Cold qualification executes in every arm; scoped clocks
+remain off. Normal snapshots retain ownership of the current REF sources.
+Host memo tests do not replace the actual target packet-writer oracle.
+P08 V1 failed on untouched DMA PAD bits; V2 preserves destination PAD bits
+and passes target equality, but is slower on PS2 and stays rejected.
+
+P09 `tyrax2-strip-lookup-once.py <new-fixture> <full-source> [--reverse]`
+acquires one expansion per selected strip loop. No new cache or cross-frame
+pointer lifetime. Run `verify-strip-lookup-once.py <fixture>` under WSL and
+analyze with `--vu-paint --roads-day --road-strip-once --selftest` (plus
+`--reverse` for reverse order). Cold controls acquire 16 times per loop;
+candidate acquires once and verifies 15 derived slices against the original
+lookup. Require zero mismatch/fallback, same original IDs and positive reuse.
+P09 was stopped after cold emulator checks on user redirection, with no
+completed timing or physical run. A01 scene/packet audit now takes priority;
+do not treat those checks as a measured improvement or resume automatically.
+
+`tyrax2-road-prep.py <new-fixture> <full-source>` selects road-bag Core calls
+through deferred execution, with normal road rendering and constant VU paint.
+Clocks run only in the middle arm. Analyze with `--vu-paint --roads-day
+--road-prep-scopes --selftest`; `partialTicks` means ALL selected dispatch
+routes in this apparatus. Nested create/classify/fill/packet/submit/copy times
+are exclusive, but submission/copy can contain mixed pending owners. They are
+elapsed scopes without explicit-wait subtraction, not pure EE time.
+Run `verify-road-prep.py <fixture>` under WSL for the actual header ledger,
+clock-off/non-road controls, wrap, nesting and deferred-tag source checks.
+See P01 in the register for qualification status; no production fix implied.
+Add `--prefix` to the generator and `--road-prefix` to the analyzer for P02's
+five disjoint pre-dispatch regions; do not add them to inclusive Core times.
+`tyrax2-road-clip-memo.py` is P03's counter-off exact-MVP/near/far road-plane
+reuse trial, with interleave pinned to 2 in all arms. Analyze with `--vu-paint
+--roads-day --road-clip-memo --selftest`; require positive cold target hit/check
+witnesses. `verify-road-clip-memo.py` compiles the actual candidate and original
+bodies on the host with mutation and corrupted-output controls. No production
+promotion is implied; use the register for the actual result.
+P04 `tyrax2-road-groups.py` creates private draw-only groups of up to four
+compatible opaque road strips. Original chunks remain the physics/receiver and
+visibility authority; use a group only when all its members are accepted.
+Analyze with `--vu-paint --roads-day --road-groups --selftest`.
+Use `--reverse` on generator and analyzer for the on/off/on confirmation.
+Generator `--pairs` selects P05's two-member coverage experiment; analysis flags
+stay the same. Read its separate acceptance gate in the register.
+Require equal original input counts, explicit padding accounting and a real
+reduction in submissions. The host
+`verify-road-groups.py` exhausts actual dispatch logic over visibility masks;
+target load-time assertions compare all concatenated streams byte-for-byte.
+This is not a raster/lifecycle or lit/night qualification; do not promote it
+without the P04 gates and follow-ups recorded in the investigation register.
+
+`tyrax2-road-submit.py <new-fixture> <full-source>` retains physical road
+geometry/receivers but omits accepted road submissions in the middle arm.
+VU paint stays on. Default is day; `--night-roads` keeps the midnight mood.
+Analyze with `--vu-paint --roads-day --road-submit-off --selftest` (replace
+the context flag for night). Require equal positive cold accepted/input counts,
+complete middle-arm omission and unchanged poses/pins. This removes drawing,
+including road reflection-view submissions, not a production optimization or
+an EE-only timer. Do not equate it with deleting authored roads.
+Its `--no-kick` mode keeps submissions but changes road GIF XYZF2 to XYZF3;
+both retained and baked keys include the private bag flag. Analyze with
+`--road-no-kick` instead of `--road-submit-off`; ROADRASTER's historical
+`skipped` field means raster-suppressed bags, not skipped submissions.
+`verify-road-nokick.py <fixture>` checks the actual substitution and both key
+sites on the host. This preserves VU programs and packet lengths, not rendered
+pixels; the contrast includes primitive setup/raster and downstream overlap,
+and cannot by itself distinguish EE from VU execution.
+`tyrax2-road-vu.py <new-fixture> <full-source>` holds road no-kick ON in
+every arm and bypasses VU vertex work/output only in the middle. It retains
+EE geometry submission and emits material state plus a zero-loop primitive
+tag. Analyze with `--vu-paint --roads-day --road-vu-bypass --selftest`;
+require ROADVU positive equal uniform counts and candidate-only mode 3.
+`verify-road-vu.cpp`, linked with vuasm/vuir/vusim, checks the actual three
+patched shaders: control memory/output equality and bounded bypass writes,
+with a corrupted EOP negative control. Check native micro-memory residency
+and runtime assertions before hardware pricing. This is VU plus output-path
+attribution, not a pure VU arithmetic timer or a production optimization.
+
+Private VU paint: `tyrax2-vu-paint.py <new-fixture> <source-project>` creates
+0/6/0 (EE/VU/EE); `--reverse` creates 6/0/6. Analyze with the turn analyzer's
+`--vu-paint --selftest` and matching `--reverse`. `verify-vu-paint.cpp`, linked
+with vuasm/vuir/vusim, checks actual prepass and full-shader GIF output,
+including nonempty clipped geometry and a specular-zero negative control.
+Host math and moving screenshots do not qualify target GS raster equality.
+No production VU paint path is enabled. See the reflection-turn report.
+`tyrax2-road-single.py` compares ordinary road/junction many-colour versus
+single-colour binding with constant VU paint and unchanged geometry. Use
+`--vu-paint --roads-day --road-single --selftest` and matching `--reverse` in
+the turn analyzer. Require ROADCOLORS eligibility, selection and cold draws;
+spill/edge alpha streams must remain many-colour. This is a private fixture.
+Its `--repack` follow-up retains chunk boundaries and compares every real
+triangle's position/ST bytes before replacing storage; invalidate road indices.
+Add `--road-pack` to analysis. `verify-road-repack.py <fixture>` sanitizes the
+actual repacker and checks a corruption negative control. No arbitrary clip
+capacity changes: obtain the real single-colour program capacity from Core.
+`tyrax2-road-refine.py` holds VU paint on and compares only road refinement
+off/on/off in the full daytime scene. Analyze with `--vu-paint --roads-day
+--road-refine --selftest`; require positive cold road-partial/cache witnesses.
+`--verify` enables range witnesses separately; do not price that build.
+Matching `--reverse` selects on/off/on. Paint remains VU in both controls,
+unlike the original VU-paint experiment; require all body submissions enabled.
+`--night-roads` on the VU generator and analyzer selects the full seven-road
+main scene at the project's ordinary midnight mood. Require NIGHTROADS
+witnesses (hour 0, paused time, road chunks, active lights) in every phase;
+this is still a parked sweep, not full-throttle driving.
+Factorial follow-up flags `--roads-day`, `--night-no-roads`, `--day-no-roads`
+use the SAME full seven-road source, skipping main-scene runtime buildRoads
+after cleanup for the latter two. Removing authored references before generation
+invalidates shadow bakes (zero pins); reject rather than weakening the gate.
+Do not use the user's separate No roads copy as an exact
+control: vehicle pieces/envLimits and Strix glass metadata differ. Require
+the matching context flag in the analyzer; the NIGHTROADS label is historical.
+Day witnesses require zero active lights. Run `tyrax2-factorial-analyze.py`
+with day/no-roads, day/roads, night/no-roads, night/roads roots and an output
+JSON path; it checks authored objects, staged assets, shadow/paint sources
+and sampled poses before reporting contrasts. Price the complete night mood,
+not individual lights, and do not confuse these parked sweeps with driving.
+Strict cross-road pose equality fails because road omission lowers the car
+and camera .12 units. Explicit `--allow-road-height-shift` validates that rigid
+shift only (residual .00002); label the result a natural road intervention,
+not pure drawing cost. Day/night comparisons retain identical world poses.
+
+`tyrax2-reflection-turn.py` builds a five-phase stationary-car camera sweep:
+normal / frozen paint / body pass off / frozen capture / normal. Use its
+dedicated `tyrax2-reflection-turn-analyze.py ... --selftest`; CSV gas means
+sweep, not throttle. Require positive normal paint counts and matching camera
+paths before pricing. See `docs/tyrax2-reflection-turn.md`.
+
+Ground-mask pin tests: `wsl --exec python3 tools/verify-ground-shadow-pins.py`
+(use the absolute Linux repo path) compiles actual template reset/preload bodies
+with ASan/UBSan ownership stubs. `tyrax2-hitch-probe.py ... --production-pins`
+compares no scene pins / production pins / no pins on the road-free route;
+require GROUNDPINS records and completed phases, not just successful startup.
+Use `--all-pins` for the unchanged production call and three full-length drives;
+analyze those with `tyrax2-hitch-analyze.py ... --full --selftest`.
+
+`tyrax2-hitch-probe.py <new-fixture> <source-project>` narrows the road-free
+drive to control/local-scopes/control around z=-53.593. Do not enable the
+existing synchronous render-cost profiler: its fences change the workload.
+See `docs/tyrax2-road-free-hitch.md`; inclusive nested intervals are not additive.
+
+Road-free reflection attribution: `tyrax2-reflection-isolation.py <new-fixture>
+<source-project>` preserves current geometry-cache defaults and uses one shiny
+vehicle bake across normal/frozen capture and body-pass on/off arms. Nine drives
+use 0/1/2/3/0/3/2/1/0; the dedicated analyzer validates actual gates and sparse
+counters. Inspect saved source settings first: a road-free/matte copy may still
+enable Live Debugger and Remote Pad. Never assume that means the preceding user
+run had those settings. See `docs/tyrax2-road-free-reflections.md`.
+
+For physical deployment, follow the complete editor protocol at the start of
+this skill (`Runner::resetPs2Link/deployToPs2`), including channel cleanup,
+marker, ten-second settle and preserving a live but unconfirmed file server.
+A bare execee after repeated manual resets is not equivalent. Do not ask for a
+manual reset before trying this normal path.
+
+Terrain strip refinement: rebuild the editor, generate a scratch fixture with
+`tyrax2-strip-subranges.py <new-directory> [--verify]`, native-build and bind
+sources before another native build. Twelve phases compare A/B/A counted and
+B/A/B counters-off for rotation and full-throttle driving; both geometry caches
+stay enabled. Analyze with `tyrax2-strip-subranges-analyze.py <csv-dir> <log>`
+(add `--oracle` for the witness build). Host ASan/UBSan:
+`verify-strip-subranges.py --production`. Oracle/emulator timings are not PS2
+prices. Preserve parked captures and compare world pixels excluding HUD;
+this is not a moving full-frame GS oracle. See `docs/tyrax2-strip-subranges.md`.
+
+`tyrax2-producer-probe.py` creates a private twenty-phase attribution fixture.
+Use `tyrax2-producer-analyze.py <csv-directory> <runtime-log>` and
+`verify-producer-probe.py` (host g++). Require complete phase logs, matching
+row/bin ledgers, no deferred owner imbalance or scoped-clock leakage, and valid
+parked/rotation/drive poses. Rotation deactivates vehicle instances and suppresses
+captures caused by their still-resident materials; drive retains normal capture.
+Do not use emulator timings as physical PS2 prices. Protocol:
+`docs/tyrax2-producer-attribution.md`.
+
+`tyrax2-static-plan.py` creates a private 36-phase fixed-view static-batch trial.
+Use its dedicated analyzer and runtime log, never the old motion parser. Require
+all6480 rows, exact semantic counts, cold physical oracle activation and zero
+warm misses. Vehicle-free selected batches do not cover roads/terrain or shared
+reflections. All36 oracle/emulator/PS2 phases pass; B is mixed and C only saves
+hundredths of a millisecond with a mixed center contrast. No promotion or drive
+follow-up. See `docs/tyrax2-static-plan.md` and its frozen evidence.
+
+`--prepared-static` keeps both promoted geometry caches on in all six driving
+arms, preparing/pinning static batches only in phases1/3/5 at offset1000.
+Analyze with the same flag and `--activation-log=<matching-runtime-log>`;
+require positive preparation readiness, both normal reuse paths, restored
+parked controls and both actual-writer oracles in a separate correctness ELF.
+Preparation clocks/logging are outside sampled windows. Six oracle, emulator
+and PS2 routes pass correctness but show no useful gain; do not promote this
+default-off policy. Analyzer controls reject16 malformed inputs, including
+missing/empty/reordered preparation and control-arm preparation leakage.
+The cache lifecycle host harness now runs62 checks including scene pins.
+
+`--geometry-reuse` combines partial baked-body replay and strip expansion in
+six driving phases (Off/On/Off with counters, On/Off/On without). Use the
+matching drive-analyzer flag. Both actual-writer oracles can be enabled together
+with `--verify-partial --verify-expansion` in a separate non-priced build.
+Normal captures and TTL250 remain unchanged. Six oracle/emulator/PS2 routes
+passed; combined default-on promotion is recorded in the full-throttle report.
+`--geometry-sweep` keeps both candidates on for the vehicle-free camera protocol,
+then visits dense/procedural/main at frames7200/7800/8400. Require scene witnesses
+and GEOMETRYSCENEDONE at9000, in addition to MOTIONDONE and both byte oracles.
+`verify-stapip-cache-lifecycle.py` runs 59 actual-cache ASan/UBSan host checks
+with explicitly mocked DMA readers; it is not a target concurrency proof.
+
+`--clip-followup` uses eight full-throttle phases (0,1,2,3,3,2,1,0), where mask1
+is immutable strip expansion and mask2 is env-map barrier coalescing. Counters
+are always on, no new clocks, normal captures/TTL250. The matching analyzer
+requires complete routes, recording-mode env calls with no fallback, actual
+expansion reuse and omitted barriers only in their arms, plus parked controls.
+`--verify-expansion` is a separate actual-expander byte oracle, never a timing
+build. These trials leave the earlier partial baked-body candidate off.
+Corrected oracle/performance builds completed all eight emulator/PS2 passes.
+The rejected per-chunk prototype failed parked snapshot controls despite zero
+geometry mismatches; do not loosen the controls to accept residency pollution.
+EnvFallback also counts GIF recording failures and frame splits in v3. Zero
+excludes those and synchronous env calls, not every wait elsewhere. Host `all`
+now includes the existing native frame-writer test (43 cases).
+
+`--partial-baked` runs six normal-capture TTL250 full-throttle passes with
+partial geometry reuse Off/On/Off then On/Off/On. Use the same analyzer flag.
+`--verify-partial` is a separate correctness build comparing actual ordinary
+packet bytes to cached bodies; require nonzero PARTIALCHECK and zero failures.
+Never price this per-package verifier. `verify-tyrax2-host.py --only partial-baked`
+tests its comparison oracle. Six oracle and six same-performance-ELF PS2/PCSX2
+passes completed; the oracle reported at least 131,072 checks with zero failures.
+The later combined geometry trial supersedes this experiment's default-off status.
+
+`--submit-fix` in the motion fixture/analyzer runs 18 full-throttle passes:
+fused snapshot/native emission, single immutable lookup, then both, each in
+opposing Off/On/Off and On/Off/On triplets. All counters stay on, clocks off,
+captures normal, TTL250. Require all endpoints/parked controls and successful
+`fusedSubmit` counts only in the appropriate arms. Do not mix scope/freeze modes.
+The generator applies archived candidate patches only to its private engine.
+`verify-tyrax2-host.py --only count --submission-candidate` tests temporary
+patched sources. PS2 completed only phases0-8 before a reload/SIF stall;
+`--completed-prefix=9` explicitly salvages these triplets, never the missing
+arms. Fused lost both orders; single lookup was mixed; neither ships.
+
+Full-throttle follow-up: `docs/tyrax2-full-throttle.md` keeps authored vehicles,
+real dt and chase camera. `--drive` uses scene reloads and spatial bins; never
+compare its runs as identical frame-indexed trajectories. The endpoint and
+lane/driver/speed checks must pass before interpreting performance.
+Scene reload does not clear all baked occupancy: the 180-loop pilot reproduced
+driving slowdown but contaminated return controls. Warm up for 1200 loops,
+longer than the tested 1000-frame lifetime, and compare parked cache states.
+Qualified PS2 drive controls average about 49 Hz counters-off, with 31-33 Hz
+in the central segment despite longer TTL. Capture-bearing loops are a lead,
+not an isolated capture price; entry periods describe the preceding loop.
+`--freeze-capture` fixes TTL at 250 and freezes only valid shared captures
+while driving in phases 1/4. Analyze with the matching flag; require actual
+freeze flags, positive blocked eligibility and zero candidate captures.
+`--packet-scopes` retains normal captures/TTL 250 and clocks Core plus its
+Partial dispatch subset, with original wait leaves unioned separately.
+Analyze with the matching flag. Clocks use Off/On/Off then On/Off/On; counters
+remain on only for the first triplet. Never add nested scope totals together
+or call elapsed-minus-known-waits pure EE instruction time. Pin wait sites and
+require balanced scopes and route-count agreement before interpreting results.
+Physical follow-up: Partial dispatch is about 4 ms averaged over the drive,
+4.7-5.3 ms in central bins, with no entered measured wait leaves inside Core.
+The 45-51 ms hitch near z=-53.38 is mostly outside Core (which stays near
+12 ms there). Do not conflate those two costs. The scope ledger's deterministic
+host test is `tyrax2-motion-run.py scope-selftest <fixture>`; it requires g++.
+`--packet-breakdown` adds exclusive Create/Classify/Fill/Packet/Submit/Payload
+buckets only inside Partial, with nested child time deducted from parents.
+Use the matching analyzer flag; require bucket sum <= Partial and expose the
+unassigned remainder. Coarse classification stays in Create, arena copies in
+Payload, not Submit. Reprice the more frequent clock observer in both orders.
+Qualified PS2 breakdown: Submit excluding copies ~1.15 ms plus Payload ~0.86 ms,
+versus Create+Classify ~0.72 ms, inside Partial ~4.3 ms. Observer activation
+adds ~0.19-0.25 ms to whole-drive means; no uniform per-bucket subtraction.
+First-16 REF memo/counting already ships. Next inspect conversion/ownership,
+not another proposal to add that memo or blindly borrow mutable references.
+
+Vehicle-free camera motion census: `docs/tyrax2-motion-census.md` describes
+the private generated fixture, six parked/sweep phases and count-only render
+hooks. Keep FrameProfile/HardwareTrace off, export outside sample windows,
+and distinguish view-dependent workload from temporal camera invalidation.
+Repeated sweeps use a degree per loop, not fixed angular speed per second.
+Cache-cause columns distinguish new entries and first-mismatch categories;
+expiry/eviction counts are window totals, not per-entry retirement history.
+Occupancy excludes graveyards and retained-command memory.
+The `--lifetime` fixture uses 250/1000/250-frame refresh policies, then repeats
+with counters disabled; analyze with `analyze-lifetime`. Each angular window
+starts after 1200 warmup loops. Budget and DMA retirement stay unchanged.
+Physical A/B/A removes the isolated rotation spike (192/0/192 misses), with
+about 0.31 ms mean savings even counters-off. This is not a production policy
+or evidence of stable 60 FPS in the original vehicle/night workload.
+
 Strip-packing evidence: `docs/tyrax2-strip-batch-2026-10-07/README.md` records
 existing model coverage and a private batch-run compactor. Preserve source-run
 order, package overlaps and the GS provoking vertex; copy position/color/ST
@@ -714,6 +2394,30 @@ machine** (the second without a project), host from A, join from B at
 prompt was declined.
 
 ## Layer 3 — full e2e: native build + PCSX2 boot
+
+### Keep automated emulator runs off the user's desktop
+
+Default to an invisible emulator session for automated checks. Open a visible
+window only when the user explicitly requests one or needs to assess the game
+visually. Agent-side screenshots and input checks do not require a visible window.
+
+Verified on this Windows host: run Linux PCSX2 inside WSL on a private Xvfb
+display, not WSLg. Start Xvfb on an unused display (the reflection trial used
+`Xvfb :97 -screen 0 1280x800x24`), set `DISPLAY=:97` and
+`QT_QPA_PLATFORM=xcb`, and unset `WAYLAND_DISPLAY` for PCSX2. Use a private
+`-datapath` profile and unique PINESlot, then `-batch -nogui -elf <absolute ELF>`
+with the ELF's bin directory as cwd. `-nogui` alone does not hide the game window:
+the private virtual display does. The trial also used
+`LIBGL_ALWAYS_SOFTWARE=1`; emulator speed is not physical PS2 performance.
+
+See `tools/tyrax2-motion-run.py`'s emulator mode for the verified launch and
+`docs/tyrax2-full-throttle-2026-10-07/reflection-freeze/emulator/launch.json`
+for its identity. Its display/profile paths are fixture-specific, not universal
+defaults: check availability before reuse. Record exact emulator/Xvfb PIDs,
+capture from that display or the game, and stop only owned processes after the
+test. Do not touch the user's emulator/profile. On Windows, start background
+WSL/helper processes with `Start-Process -WindowStyle Hidden`. If an equivalent
+invisible setup is unavailable, report that before opening a distracting window.
 
 For editor Play, select a scene other than the saved startup scene and launch
 from the toolbar or F5. Check the Runner log's `Play scene:` line and the
@@ -3393,14 +5097,12 @@ spikes against 0 in a paired emulator run.
 
 **TWO different console failures look alike - tell them apart first.**
 
-- **Empty ps2client log, not even `loadelf:`** - a RACE, not a wedge. ps2link
-  reboots the IOP on `reset` and is deaf until it is back; an `execee` sent
-  into that window is a lost UDP packet and ps2client then waits for ever.
-  This began on 2026-09-23 the moment a deploy script sent `execee` straight
-  after `reset` (before, the two were separate commands seconds apart). Kill
-  the client and send `execee` again WITHOUT another reset - it boots. The
-  deploy recipe: `reset`, wait ~8 s, `execee`, and on an empty log after ~20 s
-  kill and re-send the `execee`.
+- **Empty ps2client log, not even `loadelf:`** - historically an immediate
+  execee after reset raced IOP startup (2026-09-23). Silence alone does NOT
+  distinguish a lost command from a running game with missing tty output.
+  Follow the editor protocol at the start of this skill: 10-second settle and
+  keep a live client after the 15-second log timeout. The old automatic
+  kill/re-send recipe is superseded; it can remove a running game's assets.
 - **`freepad: DMA Busy ... ret = 0` repeating** - a real IOP wedge on the next
   boot, and only a power cycle clears it. That is the one below.
 

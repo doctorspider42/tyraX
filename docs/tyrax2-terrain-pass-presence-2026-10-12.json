@@ -1,0 +1,37 @@
+{
+  "valid": true,
+  "elfSha256": "ab1a91ea07e7e8649a9264a67620df1d79a8d1a208a707688d9f4c1a622dc69b",
+  "physicalLogSha256": "048a852d7a937bacb8d8674d13b03557881442f59375b7f862ccf891586d0b0e",
+  "sourceFilesVerified": 500,
+  "terrainMapOcclusionByScene": [
+    0,
+    0,
+    0
+  ],
+  "terrainMapEmissionByScene": [
+    0,
+    0,
+    0
+  ],
+  "terrainLayersByScene": [
+    0,
+    0,
+    1
+  ],
+  "observedCellPassCounts": [
+    [
+      20,
+      36
+    ],
+    [
+      25,
+      43
+    ]
+  ],
+  "scope": "Qualified day driving fixture, scenes0/1 have no same-geometry terrain companions.",
+  "finding": "Remaining terrain companions are separate lifted ground-shadow subsets; do not fuse as identical positions.",
+  "limits": [
+    "Not a measured fusion saving or scene60fps ceiling.",
+    "Does not reject future layer/AO maps, vehicle multipass, or all road offload."
+  ]
+}

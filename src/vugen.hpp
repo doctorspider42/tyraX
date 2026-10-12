@@ -630,6 +630,15 @@ struct Built {
 
 Built build(const Desc& d);
 
+/** Private C16 paint qualification, deliberately absent from allDescs() and
+ * --vu-emit. Produces separately named whole images for built-in Cull TCE,
+ * Clip TC and the Clip TCE reference only. OPTIONS.y == 2 overwrites the VU
+ * colour input using the accepted basis at 12/13 BEFORE clipping. The caller
+ * must supply many colours, unit normals, ordinary MVP and no lighting/script.
+ * Does not install an engine capability, select wrappers or change defaults.
+ * Check errors before consuming any output. */
+Built buildPaintExperiment(const Desc& d);
+
 // ---------------------------------------------------------------------------
 // VU0 kernels - the second skeleton
 // ---------------------------------------------------------------------------

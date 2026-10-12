@@ -125,6 +125,10 @@ class Vif1Queue {
 
   /** Blocks until the chain with this sequence number has been transferred. */
   static void waitFor(u32 sequence);
+  /** Read-only ownership predicate for an old native presentation job.
+   * Call from ISR or an interrupt-masked main transition. Does not flush the
+   * current prefix, advance the queue, or establish GS FINISH ownership. */
+  static bool canCopyCompletedNativeFrame(u32 sequence);
 
   /** Blocks until nothing is queued and VIF1 is idle. */
   static void drain();

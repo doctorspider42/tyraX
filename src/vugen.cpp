@@ -2110,12 +2110,72 @@ struct BufferHeader {
     Val scale{}, primTag{};
 };
 
+void emitPaintPrepass(Vu& b, Program& prog, IVal buffer) {
+    const IVal mode = b.inamed("paintMode"), two = b.inamed("paintTwo");
+    const IVal count = b.inamed("paintCount"), mask = b.inamed("paintMask");
+    const IVal normal = b.inamed("paintNormal"), color = b.inamed("paintColor");
+    const Val fwd = b.named("paintFwd"), half = b.named("paintHalf");
+    const Val n = b.named("paintN"), tmp = b.named("paintTmp");
+    const Val dot = b.named("paintD"), out = b.named("paintOut");
+    const Lbl loop = b.label("paintLoop"), done = b.label("paintDone");
+    ilwInto(prog, mode, b.izero(), kOptionsAddr, 1,
+            "Private paint prepass. Accepted basis in 12/13; ABI unchanged.");
+    b.iaddiuInto(two, b.izero(), 2);
+    b.branchIfNotEq(mode, two, done);
+    ilwInto(prog, count, buffer, 0, 3);
+    b.iaddiuInto(mask, b.izero(), kBufferCountMask);
+    b.iandInto(count, count, mask);
+    b.branchIfLez(count, done);
+    b.iaddiuInto(normal, buffer, kVertDataAddr);
+    b.iaddInto(normal, normal, count);
+    b.iaddInto(color, normal, count);
+    loadK(prog, fwd, kLightsDirsAddr);
+    loadK(prog, half, kLightsDirsAddr + 1);
+    // Keep C16's operation order and short register lifetimes for target VCL.
+    auto scalarI = [&](Op op, float value) {
+        b.loadI(value);
+        Instr in = floatOp(op, dot.reg, dot, Val{kI, kNoBc}, MX);
+        in.s2kind = Src::I;
+        prog.code.push_back(in);
+    };
+    b.bind(loop);
+    loadInto(prog, n, normal, 0);
+    b.mulInto(tmp, n, fwd, MXYZ);
+    b.addInto(dot, tmp, tmp.broadcast(1), MX);
+    b.addInto(dot, dot, tmp.broadcast(2), MX);
+    b.absInto(dot, dot, MX);
+    b.subInto(dot, b.zero(), dot, MX);
+    b.addInto(dot, dot, b.zero().broadcast(3), MX);
+    scalarI(Op::Mul, 0.70f);
+    scalarI(Op::Add, 0.30f);
+    scalarI(Op::Mul, 128.0f);
+    b.addInto(out, b.zero(), dot.broadcast(0), MXYZ);
+    b.mulInto(tmp, n, half, MXYZ);
+    b.addInto(dot, tmp, tmp.broadcast(1), MX);
+    b.addInto(dot, dot, tmp.broadcast(2), MX);
+    b.maximumInto(dot, dot, b.zero().broadcast(0), MX);
+    for (int i = 0; i < 3; ++i) b.mulInto(dot, dot, dot, MX);
+    scalarI(Op::Mul, 220.0f);
+    b.addInto(dot, dot, b.zero().broadcast(3), MX);
+    scalarI(Op::Mini, 255.0f);
+    b.subInto(out, b.zero(), b.zero().broadcast(3), MW);
+    b.addInto(out, out, dot.broadcast(0), MW);
+    b.sq(out, color, 0);
+    b.iaddiuInto(normal, normal, 1);
+    b.iaddiuInto(color, color, 1);
+    b.iaddiuInto(count, count, -1);
+    b.branchIfGtz(count, loop);
+    b.bind(done);
+}
+
 BufferHeader emitBufferHeader(Vu& b, Program& prog,
                               bool packedClipCount = false,
-                              bool packedStateFlag = false) {
+                              bool packedStateFlag = false,
+                              bool paintPrepass = false) {
     BufferHeader h;
     h.buffer = b.inamed("buffer");
     b.xtop(h.buffer);
+    if (paintPrepass) emitPaintPrepass(b, prog, h.buffer);
     h.scale = b.named("scale");
     loadInto(prog, h.scale, h.buffer, 0, MXYZ, "LoadTyraBufferTags");
     h.primTag = b.named("primTag");
@@ -2173,7 +2233,8 @@ void emitTagBlock(Vu& b, Program& prog, const Desc& d, const Constants& k,
     b.iaddiuInto(destAddress, destAddress, q);
 }
 
-void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
+void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
+                   bool paintPrepass = false) {
     Vu b(prog);
     const int stride = regsPerVertex(d);
     const int stq = 0, rgba = d.texture ? 1 : 0, xyz = d.texture ? 2 : 1;
@@ -2230,7 +2291,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         d.programEnum == "StaPipAsIsTextureDirLights" ||
         d.programEnum == "StaPipCullTextureColor" ||
         d.programEnum == "StaPipCullTextureDirLights";
-    const BufferHeader hdr = emitBufferHeader(b, prog, false, stateReuse);
+    const BufferHeader hdr = emitBufferHeader(b, prog, false, stateReuse, paintPrepass);
     const IVal buffer = hdr.buffer;
     const IVal vertexData = hdr.vertexData;
     const IVal vertexCount = hdr.vertexCount;
@@ -2671,7 +2732,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
  * `--vu-check` establishes by running both over randomised triangles and
  * diffing the GIF stream - so the transcription below is free to read the way
  * the builder reads best rather than line by line. */
-void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
+void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
+                   bool paintPrepass = false) {
     Vu b(prog);
     const bool sharedDir = d.sharedClipDir;
     const bool sharedEnv = d.sharedClipEnv;
@@ -2714,7 +2776,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
-    const BufferHeader hdr = emitBufferHeader(b, prog, true);
+    const BufferHeader hdr = emitBufferHeader(b, prog, true, false, paintPrepass);
     const IVal buffer = hdr.buffer;
     const IVal vertexData = hdr.vertexData;
     const IVal vertexCount = hdr.vertexCount;
@@ -3401,7 +3463,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
 
 std::string emitBodyText(const Program& p);
 
-std::string emitVclpp(const Desc& d, const Program& p) {
+std::string emitVclpp(const Desc& d, const Program& p, bool paintPrepass = false) {
     std::string out;
     auto line = [&](const std::string& s) {
         out += s;
@@ -3418,8 +3480,13 @@ std::string emitVclpp(const Desc& d, const Program& p) {
         line("; parameters are zero is rendered bit-identically to the engine's");
         line("; own program - that is the contract --vu-check enforces.");
     } else {
-        line("; Generated by TyraX (src/vugen.cpp). Do not edit - regenerate from");
-        line("; the C++ description with: tyrax-editor --vu-emit <dir>");
+        if (paintPrepass) {
+            line("; Generated by TyraX buildPaintExperiment (src/vugen.cpp).");
+            line("; Private whole image; NOT part of --vu-emit or engine defaults.");
+        } else {
+            line("; Generated by TyraX (src/vugen.cpp). Do not edit - regenerate from");
+            line("; the C++ description with: tyrax-editor --vu-emit <dir>");
+        }
         line(";");
         line("; " + d.title);
         if (d.clip) {
@@ -3619,7 +3686,7 @@ std::string emitEeSource(const Desc& d) {
 
 }  // namespace
 
-Built build(const Desc& d) {
+static Built buildImpl(const Desc& d, bool paintPrepass) {
     Built out;
     out.program.name = d.vclName;
     out.tagQuads = tagQuads(d);
@@ -3627,9 +3694,9 @@ Built build(const Desc& d) {
     out.attrStreams = attrStreams(d);
     StagePlan plan;
     if (d.clip)
-        buildClipBody(d, out.program, &plan);
+        buildClipBody(d, out.program, &plan, paintPrepass);
     else
-        buildAsIsBody(d, out.program, &plan);
+        buildAsIsBody(d, out.program, &plan, paintPrepass);
     out.errors = plan.errors;
     if (plan.scriptWroteQ)
         out.errors.push_back(
@@ -3653,10 +3720,35 @@ Built build(const Desc& d) {
             buildAsIsBody(bare, plain);
         out.stageInstrs = (int)out.program.code.size() - (int)plain.code.size();
     }
-    out.vclpp = emitVclpp(d, out.program);
+    out.vclpp = emitVclpp(d, out.program, paintPrepass);
     out.eeHeader = emitEeHeader(d);
     out.eeSource = emitEeSource(d);
     return out;
+}
+
+Built build(const Desc& d) { return buildImpl(d, false); }
+
+Built buildPaintExperiment(const Desc& source) {
+    const bool cull = source.cull && !source.clip && source.env;
+    const bool clip = source.clip && !source.cull &&
+                      (source.env || source.sharedClipEnv);
+    if ((!cull && !clip) || !source.texture || source.dirLights ||
+        source.sharedClipDir || source.custom || !source.stages.empty() ||
+        source.script || source.scriptPrepare) {
+        Built out;
+        out.errors.push_back("paint experiment requires a built-in Cull TCE, "
+                             "Clip TC or Clip TCE description without stages");
+        return out;
+    }
+    Desc d = source;
+    d.vclName += "Paint";
+    d.asmName += "_PAINT";
+    d.fileStem += "_paint";
+    d.className += "Paint";
+    d.title += " - private paint experiment";
+    if (!d.residentImageAsmName.empty()) d.residentImageAsmName += "_PAINT";
+    if (!d.codeOwner.empty()) d.codeOwner += "_paint";
+    return buildImpl(d, true);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,15 @@
+{
+  "pid": 3748,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-paint-qualification-20261009-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "996b459f73ca13173e741c373cef57b9fd459262e92dd38ab82b3cfb40b46162",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T11:36:31.8118262+02:00"
+}

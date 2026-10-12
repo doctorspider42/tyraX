@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "negativeControls": [
+    "missing completion",
+    "capture rejected",
+    "descriptor mismatch",
+    "unexpected frozen file IO",
+    "wrong sample count",
+    "wrong sample order",
+    "changed raster",
+    "wrong raw image stage",
+    "changed resident program",
+    "changed ELF",
+    "changed source",
+    "fatal allocation failure",
+    "undersized closure allocation",
+    "missing heap stage",
+    "join missing oracle",
+    "join wrong arm",
+    "join zero acceptance",
+    "join changed activation"
+  ],
+  "analyzerSha256": "7ba6b541a49ea3bca9247543d0379494b8587d4198bbbaf4d7dae9b4087c8967"
+}

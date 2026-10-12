@@ -1,0 +1,78 @@
+== Building ==
+[0/2] Re-checking globbed directories...
+-- GLOB mismatch!
+The following files were added:
+  +F:/Projects/tyra-editor/docs/tyrax2-road-free-hitch.md
+  +F:/Projects/tyra-editor/docs/tyrax2-road-free-reflections.md
+[1/2] Re-running CMake...
+-- Including Win32 support
+-- Configuring done (0.7s)
+-- Generating done (0.2s)
+-- Build files have been written to: F:/Projects/tyra-editor/build
+[0/4] Re-checking globbed directories...
+[1/68] Embedding docs/ pages
+[2/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/animedit.cpp.obj
+[3/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/batch_ui.cpp.obj
+[4/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/blobshadowbake.cpp.obj
+[5/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/aigen.cpp.obj
+[6/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/prefab_ui.cpp.obj
+[7/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/junction_ui.cpp.obj
+[8/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/particle_ui.cpp.obj
+[9/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/atlas_ui.cpp.obj
+[10/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/facts_ui.cpp.obj
+[11/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/aobake.cpp.obj
+[12/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/vu_ui.cpp.obj
+[13/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/gigpu.cpp.obj
+[14/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/blssscene.cpp.obj
+[15/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/credits_ui.cpp.obj
+[16/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/aichat.cpp.obj
+[17/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/livelogic.cpp.obj
+[18/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/placement.cpp.obj
+[19/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/flowgraph_ui.cpp.obj
+[20/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/chat_ui.cpp.obj
+[21/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/primmesh.cpp.obj
+[22/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/procui.cpp.obj
+[23/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/menulayout.cpp.obj
+[24/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/migrations.cpp.obj
+[25/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/cutscene_ui.cpp.obj
+[26/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/blss_window.cpp.obj
+[27/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/props_ui.cpp.obj
+[28/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/particletex.cpp.obj
+[29/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/assetbrowser.cpp.obj
+[30/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/menustyle_ui.cpp.obj
+[31/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/isoexport.cpp.obj
+[32/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/gibake.cpp.obj
+[33/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/navmesh.cpp.obj
+[34/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/prefab.cpp.obj
+[35/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/scrollsim.cpp.obj
+[36/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/devkit_ui.cpp.obj
+[37/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/mateditor_ui.cpp.obj
+[38/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/hud_ui.cpp.obj
+[39/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/decalproj.cpp.obj
+[40/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/litbake.cpp.obj
+[41/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/procrt.cpp.obj
+[42/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/staticbatch.cpp.obj
+[43/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/procbake.cpp.obj
+[44/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/reflscenery.cpp.obj
+[45/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/savebake.cpp.obj
+[46/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/update.cpp.obj
+[47/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/staticbatchdisk.cpp.obj
+[48/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/modelao.cpp.obj
+[49/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/procgen.cpp.obj
+[50/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/menubake.cpp.obj
+[51/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/droneui.cpp.obj
+[52/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/update_ui.cpp.obj
+[53/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/texatlas.cpp.obj
+[54/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/texbake.cpp.obj
+[55/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/main.cpp.obj
+[56/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/session.cpp.obj
+[57/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/shadowbake.cpp.obj
+[58/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/vehbake.cpp.obj
+[59/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/vehicle_ui.cpp.obj
+[60/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/runner.cpp.obj
+[61/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/viewport.cpp.obj
+[62/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/app.cpp.obj
+[63/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/project.cpp.obj
+[64/68] Building CXX object CMakeFiles/tyrax-editor.dir/src/templates.cpp.obj
+[65/68] Linking CXX executable tyrax-editor.exe
+OK: build\tyrax-editor.exe

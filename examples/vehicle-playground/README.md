@@ -1,5 +1,25 @@
 # Motor District
 
+Version 1.173.5 separates terrain residency/LOD focus from visual camera shake,
+avoiding repeated terrain builds while the car sits on a detail snap boundary.
+Roads, normal detail and live reflections remain enabled. Both-order physical
+day/night A/B qualifies the fix, not stable 60 fps. Rebuild with the updated
+editor; see [the qualification](../../docs/tyrax2-terrain-focus-2026-10-11/README.md).
+
+Generated paint code includes the default-OFF `TYRA_VU1_EXP_PAINT` experiment.
+Both engine and game must use the same flag. It retains accepted paint basis
+across VU/EE fallback and invalidates normal maps on content changes; this is
+not yet a hardware-qualified default. See [the paint investigation](../../docs/tyrax2-reflection-turn.md).
+
+Version 1.173.3 preloads qualifying ground-shadow sets during scene loading,
+with a 512 KiB accounted EE-memory cap. Rebuild from the updated editor to
+regenerate this runtime path; no authored scene or vehicle setting changes.
+See [the hitch investigation](../../docs/tyrax2-road-free-hitch.md).
+
+Version 1.173.2 enables [terrain strip refinement](../../docs/tyrax2-strip-subranges.md)
+for every generated terrain pass. Rebuild with the current in-tree engine;
+the example's authored scene and vehicle settings do not need changing.
+
 A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
 **Square** to get out and enter the nearby Pica Turbo or Strix V12. The first

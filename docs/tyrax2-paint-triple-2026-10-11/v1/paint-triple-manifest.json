@@ -1,0 +1,19 @@
+{
+  "experiment": "A40",
+  "parentElf": "6f6ea95f06d287baacba28d06b8ddc80ebf875b765b389076979205a067daae3",
+  "modes": [
+    0,
+    1,
+    0,
+    0,
+    1,
+    0
+  ],
+  "held": [
+    0,
+    1,
+    0
+  ],
+  "source": "F:\\Projects\\tyrax2-hybrid-triple-20261011-reverse-v1",
+  "scope": "Known A13 paint offload under Hybrid3/current native-strip ABI; no A39"
+}

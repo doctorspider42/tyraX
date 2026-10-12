@@ -1,0 +1,7 @@
+{
+  "pid": 41980,
+  "cwd": "F:/Projects/tyrax2-road-pair-omit-day-20261008-v1/physical/bin",
+  "startedUtc": "2026-10-08T20:50:15.5867849Z",
+  "elfSha256": "A52C6F3ED9A285BAE6B2865540F5A979AF875BF92A57D92BA0A917FABBF5853D",
+  "resetEvidence": "../../tyrax2-road-trace-day-20261008-v3/physical/cleanup-reset.json"
+}

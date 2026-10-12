@@ -1,0 +1,17 @@
+{
+  "stapip_clip_c_vu1_ring.vclpp": 346,
+  "stapip_clip_c_vu1_ring_fold.vclpp": 338,
+  "stapip_clip_c_vu1_ring_hybrid.vclpp": 400,
+  "stapip_clip_c_vu1_ring_hybrid_fold.vclpp": 392,
+  "stapip_clip_c_vu1_ring_strip.vclpp": 376,
+  "stapip_clip_c_vu1_ring_strip_fold.vclpp": 366,
+  "stapip_clip_tc_vu1_ring.vclpp": 378,
+  "stapip_clip_tc_vu1_ring_fold.vclpp": 370,
+  "stapip_clip_tc_vu1_ring_fold_paint.vclpp": 410,
+  "stapip_clip_tc_vu1_ring_hybrid.vclpp": 430,
+  "stapip_clip_tc_vu1_ring_hybrid_fold.vclpp": 420,
+  "stapip_clip_tc_vu1_ring_hybrid_fold_paint.vclpp": 464,
+  "stapip_clip_tc_vu1_ring_strip.vclpp": 404,
+  "stapip_clip_tc_vu1_ring_strip_fold.vclpp": 396,
+  "stapip_clip_tc_vu1_ring_strip_fold_paint.vclpp": 438
+}

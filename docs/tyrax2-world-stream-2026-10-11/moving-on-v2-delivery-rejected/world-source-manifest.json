@@ -1,0 +1,24 @@
+{
+  "baseElfSha256": "71cf0f87823a8f7795f5cdeff8e19e4f7b4b4059b11f97bbd3990d7aa0f41804",
+  "generatorSha256": "fb6b1a1f53b2bb2b8ada1fd7c92befed5e975fe7af6ab529df66a7f0080f56c7",
+  "headerSha256": "29861ada19213ba2b3f28a1a7adde7ec429161737d8780345e857cc6f9633c82",
+  "status": "UNQUALIFIED",
+  "limitBytes": 2097152,
+  "stages": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "limits": [
+    "Solo object and static-batch source boundaries only, not emitted VIF or GS texture bytes.",
+    "Cold diagnostic only; no moving candidate or physical price."
+  ],
+  "runtimeSwitch": true,
+  "fixedSceneStep": true
+}

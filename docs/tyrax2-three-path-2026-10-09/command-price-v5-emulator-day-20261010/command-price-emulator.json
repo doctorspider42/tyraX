@@ -1,0 +1,286 @@
+{
+  "valid": true,
+  "rasterEqual": true,
+  "presentationFence": true,
+  "legacySamplerSuspended": true,
+  "phase": 0,
+  "offset": 1380,
+  "pose": {
+    "z": -67.918732,
+    "speed": 9.761862,
+    "yaw": 0.0
+  },
+  "target": "emulator",
+  "elfSha256": "2c44d651446d6f6c4fc455b7d8058a322604f18d1689f9f409b594096d005f77",
+  "logSha256": "b751ec65de4ff57d47981df2b77a761c2a9234e8bda92a8a30f8c2fb858b105f",
+  "timesSha256": "b71c4b6887cb4470d4c9498fc646ad1781b7914a9b52523781d2401231db8db6",
+  "checks": [
+    [
+      0,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      2,
+      1,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      4,
+      2,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      6,
+      2,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      8,
+      1,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      102,
+      106,
+      1833792,
+      0,
+      0,
+      2,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "rawSha256": [
+        "8c18020d4cc12d39e9f980f509d7937c3aa6a42ca32644aa08869218ca08534e",
+        "60a178586e02270f9dc7ffcf8a315247819dd02dffdda1a389db0c7531f65fbf",
+        "8f5234c6c905a5244b605bdeba88b2cca28eb5e3691fa3780fea814aba81f767",
+        "532daef9ecae6fc12048acf47a7ed694ceeca281f79776f32beea84a03971e1c",
+        "779fc0dfd4aab23cae6cc3366d613236f520cf6b6570a63dacb4fc5f25ff1103",
+        "43d62d019d685069e50f3e39ca837e6701d6ae14d10cd5a8a76b786098233a3e",
+        "b33e2b423bac38c8a42121ec89adc5e857504536aa4b0af3c08ded87fbe07a7b",
+        "4545aaa8f49fae3d0f4e2d678d602947ae8805cf3a8b275ea167f8fffe32a122",
+        "b83648d3312a0b8cd9cfb7eaaa229629d8d87c82e74b15ec0a758f3fa2d5d6d9",
+        "b39f7f96082ea697cb5230255747fe67309144c0c29c3732b007af48515c538d"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "rawSha256": [
+        "bb9282991558a7a0d2f70da669dbfffca28d06551924160e26a3ff86c41ea123",
+        "b83b935bfc82e6cf3d018439b26b3f50a4a55eced4ba0ac8845394def8d7e91d",
+        "5c7cf24fcb6886b87e0080eda148afb723a08c23ca6063463280a6a7653fcbe4",
+        "e1a3596ba255733818f7c777cf0fae45e680929ac3ac367e2148455791ca2ef1",
+        "0db20d5010bc31c5ced7d27a4d14e3c9a345a3dcc0972896d5ae408bfa7b7d86",
+        "6ff6c6c57be06860e4f4d0a6b19d07d15730ee7a094f54daf51b94dbebae019e",
+        "103aafd82a7096ed83903c9d6315a5e2a8a55dea250e973739d4282cc447d773",
+        "dd00aa9d0a2daf78f16ee5cb11f5ca1189769307663a19dc905fec65333e421d",
+        "b806797497887393672d6145b7dd361a59374aeb07cdde97ed67650b178c1411",
+        "3ab6f1c7a2f9c78ca3a4ffa00b15f44b6737a42c2660b1994b3bf4f70584a00f"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "closure": {
+    "qwords": 2188,
+    "bytes": 1849312,
+    "vuCalls": 753,
+    "sha256": "50892610dd068e051f0c425a67d8894178fd7c77628868ad238bc4fc6b1157d7"
+  },
+  "scope": "Frozen Scene incl roads and live capture; pinned target/order; no update/HUD/postFX; not moving FPS or pure EE/VU/GS cost",
+  "diagnosticMemory": {
+    "closureAllocatedBytes": 1849344,
+    "heapRows": [
+      [
+        0,
+        22068156,
+        21966516,
+        101640
+      ],
+      [
+        1,
+        22068156,
+        20792820,
+        1275336
+      ],
+      [
+        2,
+        23346108,
+        23314052,
+        32056
+      ],
+      [
+        3,
+        23346108,
+        23260804,
+        85304
+      ],
+      [
+        4,
+        23346108,
+        23260804,
+        85304
+      ],
+      [
+        5,
+        22064060,
+        20793588,
+        1270472
+      ],
+      [
+        6,
+        22064060,
+        20793588,
+        1270472
+      ],
+      [
+        7,
+        22064060,
+        20793588,
+        1270472
+      ],
+      [
+        8,
+        23346108,
+        23314820,
+        31288
+      ],
+      [
+        9,
+        23346108,
+        23261572,
+        84536
+      ]
+    ],
+    "scope": "Allocator arena/used/free blocks, not total free EE RAM; off-clock stage checks"
+  }
+}

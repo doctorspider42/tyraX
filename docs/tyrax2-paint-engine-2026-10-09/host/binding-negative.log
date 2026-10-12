@@ -1,0 +1,5 @@
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-nm: /home/spider/.cache/tyrax/native/projects/ec1803020446a43811139adb/bin/vehicle-playground.elf: no symbols
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyra-editor/tools/tyrax2-motion-run.py", line 121, in <module>
+    assert len(re.findall(r'^.* '+re.escape(required_symbol)+r'$',symbols,re.M))==1,required_symbol
+AssertionError: definitelyMissingPaintSymbol

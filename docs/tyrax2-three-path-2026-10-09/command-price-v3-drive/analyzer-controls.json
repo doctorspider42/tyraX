@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "negativeControls": [
+    "missing completion",
+    "capture rejected",
+    "descriptor mismatch",
+    "unexpected frozen file IO",
+    "wrong sample count",
+    "wrong sample order",
+    "changed raster",
+    "wrong raw image stage",
+    "changed resident program",
+    "changed ELF",
+    "changed source"
+  ],
+  "analyzerSha256": "3c9ed6727bb7a9d1eaef0f48170118239cafc704d2ca6144c4657436eff7b6b6"
+}

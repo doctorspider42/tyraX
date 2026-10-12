@@ -1,0 +1,15 @@
+cull/stapip_cull_tce_vu1.vclpp
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=54000 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=0
+cull/stapip_cull_tce_envn_vu1.vclpp
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=54000 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=0
+clip/stapip_clip_tc_vu1.vclpp
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=109980 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=295
+clip/stapip_clip_tc_fold_vu1.vclpp
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=109980 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=295
+clip/stapip_clip_tce_vu1.vclpp
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=109980 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=295

@@ -1,0 +1,174 @@
+[
+  {
+    "path": "analyzer-selftest.json",
+    "sha256": "eabd5993ea1011d718cd63cca723954d9c4461f2338059824c04b6f9b11fc6fa"
+  },
+  {
+    "path": "emulator/analysis.json",
+    "sha256": "0cb5e4afcec97f742d07c244080c79e9142a496deaf6aa6e8a8997bed402005e"
+  },
+  {
+    "path": "emulator/build.log",
+    "sha256": "da5c422fbb08704acbaede1010f982050b25aea0042fd001a99dee8bcdb78c87"
+  },
+  {
+    "path": "emulator/drive-probe.csv",
+    "sha256": "c5a07daef7e4ef38741a59d5693db19bfd15236aa5386bb86692fdd4be8d9787"
+  },
+  {
+    "path": "emulator/drive.png",
+    "sha256": "bbbc1d8a6cf2246f9ada4a5fb1b7bb9147c5ce80c835f977d68aa30855893aa1"
+  },
+  {
+    "path": "emulator/emulator.log",
+    "sha256": "972142afb7f1cef49a946e116fb8109796f8350766f8486cf2284701288a733a"
+  },
+  {
+    "path": "emulator/generation.log",
+    "sha256": "7eca2bdbd9f46f2a42e351bc555f33e5559c72b5eb371abfed1d8b7a9ca09183"
+  },
+  {
+    "path": "emulator/launch.json",
+    "sha256": "abfbc10ceb989682944691887171e927f7605f0bb5cbde9cc6b94fea84206aa1"
+  },
+  {
+    "path": "emulator/native-binding.json",
+    "sha256": "0b3bee8c8db95bf5ce0b11eea90c18b87063ed46a033a4d8e94865a83bb1f90a"
+  },
+  {
+    "path": "emulator/route.png",
+    "sha256": "5581477f58cda88791607a86d424a8389f8764ef78b935d5286fe4bba398842e"
+  },
+  {
+    "path": "emulator/source-manifest.json",
+    "sha256": "4c6b85779f732ba9487947f5ad2e09b843472404eef75095a3d19d0fc0e0ab6a"
+  },
+  {
+    "path": "emulator/stdout.log",
+    "sha256": "e466f881c7c92a4ee78e9daab52ad298e282ea32eb25702726fc9e4f84614dd1"
+  },
+  {
+    "path": "emulator/xvfb.log",
+    "sha256": "b4c7eeeb685d357271d5d414216d2d02523a3720e8b721504d7b177ea6cc0713"
+  },
+  {
+    "path": "failed-build/build.log",
+    "sha256": "4ab51e7f7d020a9cfc1e5224631c55af2b7cf9b15fec3d514fc3b6ad0f5c81ce"
+  },
+  {
+    "path": "host-tests.log",
+    "sha256": "74b83b8efe0b8ac0945443e4c635bd36fbf01f2c5d88fe97c29f2f0f0eb455ec"
+  },
+  {
+    "path": "lifecycle-host.log",
+    "sha256": "c5e91384a5159b6f2356899de7faa7a6ad5d103a9f820d51c24d6215453ed258"
+  },
+  {
+    "path": "oracle/analysis.json",
+    "sha256": "8975b56ae1a2121c449023355d248964ee7ad32bc4d031ea517f89c0612e7e0f"
+  },
+  {
+    "path": "oracle/build.log",
+    "sha256": "954896e40259bafd53a537d5d070596503159278fa36fdad7fe8f683f5e9bc3c"
+  },
+  {
+    "path": "oracle/completed.png",
+    "sha256": "e82bb7d949558b933d53055d5a6b318c041fa7dc3e8d1eab520a9721fcca498e"
+  },
+  {
+    "path": "oracle/drive-probe.csv",
+    "sha256": "bca0cc792dfd7f2716f25e5a101b2664a676d30eca28ac503282d7c9155637d1"
+  },
+  {
+    "path": "oracle/emulator.log",
+    "sha256": "3b48340bf6bc2abf8c87d1d13bc1cfa25ca8f9af9c041719ee57c6c4764d7dab"
+  },
+  {
+    "path": "oracle/generation.log",
+    "sha256": "b831a92e571a30c4c3249e487626e758177e5bfc2d3a2e1e04a0022f3bfdaf5b"
+  },
+  {
+    "path": "oracle/launch.json",
+    "sha256": "d9396de33e37133f0b6e5949c82742e8cbc94db3ef15be76e838b1e1f459ae3f"
+  },
+  {
+    "path": "oracle/native-binding.json",
+    "sha256": "b349f881a0d992e2f6e3e585fe330a1110fafde6c59b392453ca7f9638528013"
+  },
+  {
+    "path": "oracle/source-manifest.json",
+    "sha256": "c529b6a379cf1a8ebb47fe72b181032b2e1701d44190510682431a97ac0c7fa7"
+  },
+  {
+    "path": "oracle/stdout.log",
+    "sha256": "3b12a208ca8fee2ba9663d244d6672d290288de2c338b49d505f1bff53934c1f"
+  },
+  {
+    "path": "oracle/xvfb.log",
+    "sha256": "b4c7eeeb685d357271d5d414216d2d02523a3720e8b721504d7b177ea6cc0713"
+  },
+  {
+    "path": "physical/analysis.json",
+    "sha256": "b17be21d9ca3b84aa2757ec31c103a14e4e184ec19420a94d3978984eade54da"
+  },
+  {
+    "path": "physical/drive-probe.csv",
+    "sha256": "09a0dca3ae262f898d99573c174adaab41b85bdca0852fe2a4239a1cb873b2a0"
+  },
+  {
+    "path": "physical/launch-inputs.json",
+    "sha256": "d0715b48f0d6d39e780cd710040bbdd11e146425aae112d6dc2280b448728ab3"
+  },
+  {
+    "path": "physical/launch.json",
+    "sha256": "e84fa630c4c485bb2fca0e55fd521ace24d82228df721e205102ba849350437a"
+  },
+  {
+    "path": "physical/ps2client.stderr.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "physical/ps2client.stdout.log",
+    "sha256": "89f80bd6561f16469dc27ed7df0aaad26d4849cc21f178a78f31bea9097bcac8"
+  },
+  {
+    "path": "README.md",
+    "sha256": "15e6cd5db6bd075cb5787460caf25cd293f3cee52c2131a7380209b011214cfe"
+  },
+  {
+    "path": "sources/stapip_core.cpp",
+    "sha256": "5238d7845f44e686c44c9f026036b2eafa702989e413dfc683cefc4a7ad22651"
+  },
+  {
+    "path": "sources/stapip_core.hpp",
+    "sha256": "79fe63804316a56f8debb0ac92ad7b940690c707073c279f658ec409bd1d30aa"
+  },
+  {
+    "path": "sources/stapip_qbuffer_renderer.cpp",
+    "sha256": "249ef3bd1c352499ef877941e714622e18cdfbca7bb46779bd2d5fee22c381b1"
+  },
+  {
+    "path": "sources/stapip_qbuffer_renderer.hpp",
+    "sha256": "a7109a0675844048c5cf9d3ca72875f68f2fdeb382e3188b1ae29e56db57593d"
+  },
+  {
+    "path": "sources/terrain_game.cpp",
+    "sha256": "f4f0faab26491eaf5f5a5075373203e19e097a941e294fb8d8f1064b002c70a1"
+  },
+  {
+    "path": "sources/tyrax2-drive-analyze.py",
+    "sha256": "5050edab38881437c5b317a384b810a20243d3fc345ec9bce8f4dd6da68b6956"
+  },
+  {
+    "path": "sources/tyrax2-drive-probe.hpp",
+    "sha256": "3ca705c3d9a4282e91d8aec8058ebc60ed94887df8f639c17e3ff2d3192d9138"
+  },
+  {
+    "path": "sources/tyrax2-motion-probe.py",
+    "sha256": "57153899092247d27f6673fb24f191ad85cf8999c1558cdcb855ecdaf0e8b36e"
+  },
+  {
+    "path": "sources/verify-stapip-cache-lifecycle.py",
+    "sha256": "260b8a01ebf6ce23c0cfc2bc5dd8dfdc798f2100eb5a2031abb56d4018c6179e"
+  }
+]

@@ -14,6 +14,7 @@
 #include <gs_gp.h>
 #include <math.h>
 #include <string.h>
+#include <new>
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
@@ -104,6 +105,27 @@ void StaPipCore::setPrim() {
   prim.mapping_type = PRIM_MAP_ST;
   prim.colorfix = PRIM_UNFIXED;
 }
+
+#if TYRA_STAPIP_PREPARED_STATIC
+bool StaPipCore::prepareStaticGeometry(StaPipBag* bag) {
+  if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||
+      !bag->count || !bag->color || !bag->color->many || bag->lighting ||
+      bag->billboard || (bag->texture &&
+      (!bag->texture->coordinates || bag->texture->coordinatesAreNormals)))
+    return false;
+  const prim_t savedPrim = prim;
+  const lod_t savedLod = lod;
+  const u32 size = getMaxVertCountByBag(bag);
+  setMaxVertCount(size);
+  prim.fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+      ? DRAW_ENABLE : DRAW_DISABLE;
+  qbufferRenderer.setInfo(bag->info);
+  const bool ready = qbufferRenderer.prepareStaticGeometry(bag, size, clipPackageSize());
+  prim = savedPrim;
+  lod = savedLod; // preserve the ordinary sendObjectData-before-setInfo contract
+  return ready;
+}
+#endif
 
 void StaPipCore::setLod() {
   lod.calculation = LOD_USE_K;
@@ -513,6 +535,14 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
     TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
     return;
   }
+
+#if TYRA_VU1_EXP_PAINT
+  if (bag->texture && bag->texture->paintVu && !supportsPaintVu(bag)) {
+    TYRA_ASSERT(false,
+                "VU paint is unavailable; materialize EE colours before fallback!");
+    return;  // NDEBUG must not submit stale colours or an incompatible ABI.
+  }
+#endif
 
   // Modified by TyraX: GS hardware fog - the PRIM FGE bit follows the
   // renderer-level fog state (see RendererCore::setFog), with a per-bag
@@ -1027,11 +1057,12 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
                                 (frustumCull &&
                                  frustumCheck == PARTIALLY_IN_FRUSTUM &&
                                  bag->info->fullClipChecks));
+  // TEX1 is serialized by sendObjectData; select this bag's filters first.
+  qbufferRenderer.setInfo(bag->info);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);
 
-  qbufferRenderer.setInfo(bag->info);
   TYRA_ATTRIB_ADD(prepObjectDataTicks, attribObjectDataStart);
 
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
@@ -1067,8 +1098,8 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
   // Order matters here and is not arbitrary: the baked cache is opened first
   // because if it can replay the bag with one tag there is no package left for
   // the retained cache to hold a block FOR, and `dsRetain` (0.69 ms of
-  // garage-day frame, measured) becomes pure waste. A partial bag reaches
-  // neither of these, exactly as before.
+  // garage-day frame, measured) becomes pure waste. Partial bags can prepare
+  // the same immutable bodies, but regenerate entry state for each live slice.
   const bool directRoute =
       checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo;
   // The bake lookup and the whole-bag replay are charged to `dsDirect`, the
@@ -1077,15 +1108,15 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
   // render-submission-attribution.md exists to have closed.
   TYRA_ATTRIB_MARK(attribReplayStart);
   bool replayedWhole = false;
-  if (directRoute) {
-    TYRA_ATTRIB_INC(dsDirectBags);
-    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount);
-    replayedWhole = bakeBag && qbufferRenderer.replayWholeBakedBag();
+  if (directRoute || TYRA_STAPIP_PARTIAL_BAKED) {
+    if (directRoute) { TYRA_ATTRIB_INC(dsDirectBags); }
+    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount, !directRoute);
+    replayedWhole = directRoute && bakeBag && qbufferRenderer.replayWholeBakedBag();
   }
   TYRA_ATTRIB_ADD(dsDirectTicks, attribReplayStart);
   TYRA_ATTRIB_MARK(attribRetainStart);
   const bool retainBag =
-      replayedWhole ? false
+      (replayedWhole || (!directRoute && bakeBag)) ? false
                     : qbufferRenderer.beginRetainedBag(bag, maxVertCount);
   TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
   retainCurrentBag = retainBag;
@@ -1260,6 +1291,7 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       // slices - the packager cuts at i * size - so package i's command block
       // is the same one the wholly-visible route would build for it.
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
+      buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
@@ -1295,8 +1327,9 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       buffer->fillByPointer(packages[i]);
       // Modified by TyraX: a strip RUN is a package, and the runs are baked -
       // so a stripped bag's retained blocks are exactly as stable as a list
-      // bag's. Only the expansion branch below is per-frame.
+      // bag's. The branch below may borrow a versioned expansion as well.
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
+      buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
     } else if (packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM) {
       // The package genuinely crosses a VU clip plane. `clip_*` and the EE
@@ -1311,11 +1344,62 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       if (packages[i].size < 3 || trisPerChunk == 0) continue;
       if (telemetryEnabled) ++telemetry.packagesStripExpanded;
       const u32 triangles = packages[i].size - 2;
+      const auto& pkg = packages[i];
+      if (pkg.bag->refineStrips && qbufferRenderer.isVU1ClippingEnabled() &&
+          !pkg.bag->billboard && !qbufferRenderer.hasProgramOverrides()) {
+        if (!stripSubranges)
+          stripSubranges.reset(new (std::nothrow) StaPipStripSubranges::Cache());
+        bool built = false;
+        const auto* entry = stripSubranges ? stripSubranges->acquire(
+            pkg.vertices, pkg.size, trisPerChunk, pkg.bag->bboxVersion,
+            pkg.bag->contentVersion ? *pkg.bag->contentVersion : 0, 0, built) : nullptr;
+        if (entry) {
+          StaPipStripSubranges::Route routes[32];
+          const u32 blocks = (triangles + trisPerChunk - 1) / trisPerChunk;
+          for (u32 b = 0; b < blocks; ++b) {
+            routes[b] = StaPipStripSubranges::classify(entry->boxes[b],
+                objectSpacePlanes, clipObjectSpacePlanes);
+#if TYRA_STAPIP_SUBRANGES_VERIFY
+            const u32 first = b * trisPerChunk;
+            TYRA_ASSERT(StaPipStripSubranges::verify(pkg.vertices, first,
+                std::min(trisPerChunk, triangles - first), entry->boxes[b],
+                routes[b], objectSpacePlanes, clipObjectSpacePlanes),
+                "Strip subrange witness failed");
+#endif
+          }
+          // Keep primitive order. Only contiguous safe list ranges can merge;
+          // true boundary ranges retain the original worst-case clip capacity.
+          for (u32 b = 0; b < blocks;) {
+            const auto route = routes[b];
+            const u32 first = b * trisPerChunk;
+            u32 n = std::min(trisPerChunk, triangles - first);
+            ++b;
+            if (route == StaPipStripSubranges::Outside) continue;
+            if (route == StaPipStripSubranges::Cull) {
+              while (b < blocks && routes[b] == route) {
+                const u32 next = std::min(trisPerChunk, triangles - b * trisPerChunk);
+                if ((n + next) * 3 > maxVertCount) break;
+                n += next;
+                ++b;
+              }
+            }
+            auto* buffer = qbufferRenderer.getBuffer();
+            if (!(TYRA_STAPIP_EXPANSION_CACHE &&
+                  qbufferRenderer.fillCachedStrip(buffer, pkg, first, n)))
+              buffer->fillByStripExpand(pkg, first, n);
+            if (route == StaPipStripSubranges::Cull) qbufferRenderer.cull(buffer);
+            else qbufferRenderer.clip(buffer);
+          }
+          continue;
+        }
+      }
       for (u32 t = 0; t < triangles; t += trisPerChunk) {
         const u32 remaining = triangles - t;
         const u32 n = remaining < trisPerChunk ? remaining : trisPerChunk;
         auto buffer = qbufferRenderer.getBuffer();
-        buffer->fillByStripExpand(packages[i], t, n);
+        if (!(TYRA_STAPIP_EXPANSION_CACHE &&
+              qbufferRenderer.fillCachedStrip(buffer, packages[i], t, n)))
+          buffer->fillByStripExpand(packages[i], t, n);
         qbufferRenderer.clip(buffer);
       }
     } else {

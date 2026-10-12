@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "checks": [
+    "disabled clocks",
+    "wait outside Core",
+    "nested wait union",
+    "nested scope containment",
+    "u32 wrap",
+    "unselected partial",
+    "recursive Core rejected",
+    "balanced depths"
+  ],
+  "headerSha256": "80e5dd9175b1bbf930efed9f82f30f8d7efdef2b7d4406ced18ddad54943f0a4"
+}

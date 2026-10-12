@@ -1149,6 +1149,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  float terrainFocusX = 0.0F, terrainFocusZ = 0.0F;
   // Camera up vector. World up unless a cutscene rolls the camera
   // (Dutch angle); CameraInfo3D takes it and both the view matrix and
   // the frustum planes honour it.
@@ -1223,6 +1224,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  std::vector<std::string> groundShadowPins;
+  void prepareGroundShadowTextures();
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
@@ -1401,6 +1404,11 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+#if TYRA_VU1_EXP_PAINT
+    const void* envPaintSource = nullptr;
+    u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
+    bool envPaintEeReady = false;
+#endif
     // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
     // paintMap[k] is vertex k's slot in paintNormals, built from the array
     // the env bag reads, and rebuilt whenever that array or its size changes.
@@ -3027,6 +3035,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  float terrainFocusX = 0.0F, terrainFocusZ = 0.0F;
   // Camera up vector. World up unless a cutscene rolls the camera
   // (Dutch angle); CameraInfo3D takes it and both the view matrix and
   // the frustum planes honour it.
@@ -3102,6 +3111,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  std::vector<std::string> groundShadowPins;
+  void prepareGroundShadowTextures();
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
@@ -3280,6 +3291,11 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+#if TYRA_VU1_EXP_PAINT
+    const void* envPaintSource = nullptr;
+    u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
+    bool envPaintEeReady = false;
+#endif
     // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
     // paintMap[k] is vertex k's slot in paintNormals, built from the array
     // the env bag reads, and rebuilt whenever that array or its size changes.
@@ -7286,6 +7302,18 @@ static std::string shadowDataHeader(const Project& p) {
             for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << chunksX[si];
             out << "};\n#define SCENE_GROUND SCENE_GROUND_TABLES[g_activeScene]\n"
                    "#define SCENE_GROUND_CHUNKS_X SCENE_GROUND_CHUNKS_XS[g_activeScene]\n";
+            // Indexed4 pixels, 16-entry RGBA palette and conservative per-map
+            // ownership/alignment allowance. Reject a whole scene over budget.
+            out << "static const unsigned SCENE_GROUND_PRELOAD_BYTES[] = {";
+            for (int si = 0; si < sceneCount; ++si) {
+                const auto& bake = gb[si];
+                const uint64_t bytes = chunksX[si]
+                    ? uint64_t(bake.ground.size()) *
+                          (uint64_t(bake.groundRes) * bake.groundRes / 2 + 64 + 1024)
+                    : 0;
+                out << (si ? ", " : "") << std::min<uint64_t>(bytes, 512 * 1024 + 1);
+            }
+            out << "};\n";
         }
     }
     return out.str();

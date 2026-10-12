@@ -1,0 +1,6 @@
+{
+  "passed": true,
+  "cases": 175200,
+  "loopSha256": "f213f9be18109be26f51449d2868077575b8f3ea31bb17f117147c109d42d311",
+  "scope": "actual loop, mocked acquisition/writers: all stream combinations, tails, selected/control, first-miss fallback; not raster"
+}

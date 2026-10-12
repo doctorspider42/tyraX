@@ -14,6 +14,987 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+Cold compact-input component is HOST ONLY:1120 optimized/sanitized cases,
+exact modeled VU memory per kick and ROW/MASK restore. Caller must prove actual
+incoming ROW/MASK/STMOD=0; no per-frame repacking. Constant-W masked V3_32 is
+lossless, variable/small streams fall back. Synthetic72-vertex body~18.83% smaller
+is NOT scene bandwidth/EE/FPS evidence. Actual SDK/native/target/net gates remain.
+Actual SDK-dump V2 now passes modeled decode for60 native-emitted bodies:
+54480->50280 words (~7.709%),75 compact/615 fallback; list counts<=18 all fall
+back. Observed MODE/MASK/ROW0 is not a queued producer-state proof. No compact
+body has executed on VIF yet, no moving traffic ratio or FPS/default claim.
+Input-native gate must address VU1 DATA0x1100c000, not VU0 DATA0x11004000.
+Drain queue before direct channel use and await DMA/FIFO/VPS/VEW, not DMA alone.
+Compare/save/restore all4096 words and incoming ROW/MASK/CYCLE; no shader kicks.
+Component success does not qualify moving ordering/leases/double-buffer/FPS.
+Input-native V1 ACTUAL emulator+PS2 component now PASS540 full-VU comparisons,
+150 compact/1230 fallback streams,two ROW/MASK states and restored memory/state.
+This proves masked compact input decode on PS2, NOT shader/double-buffer/world
+integration or FPS. Keep cold-only encoding and all normal lifetime/image gates.
+Private input-price integration normalizes ROW/MASK0 once in BOTH roles with
+STMOD0, compacts only cold-owned geometry, and mode invalidates cells. Preserve
+full SDK oracle via boundary-parsed lossless inverse including DIRECT payloads;
+do not disable oracle or repack per frame. Rebuild cost remains in PS2 net.
+Input-price V2 actual FULL emulator/PS2 correctness passes but net REJECTED:
+-0.087910/-0.118910ms both orders, actual ON58.21Hz/16 misses versus OFF~59.1Hz/
+7..9. Cold rebuild elapsed~0.58->1.42ms. Do not promote or tune post-SDK
+transcoding; smaller payload isn't faster. This is not a scene capacity proof.
+
+Terrain effective-neighbour LOD key source-bound host gate passes36.67M actual
+edge-lambda comparisons. Raw neighbour<=own changes do not affect stitching.
+NOT whole producer/shading/FPS proof: full rebuild also reads current light/
+probe/emitter inputs. Metadata-only skip must consume original budget/order
+and refresh ALL raw neighbour fields; never accelerate real LOD replacements.
+Effective-LOD V1 now passes full native/emulator/PS2 exact producer/render/
+lifetime gates. Actual93 rebuilds ->70+23 metadata skips, with88 stale budgets
+and five new residents preserved. Both-order+0.045194/+0.034259ms is minor;
+ON59.387Hz/5 misses matches settled OFF cadence. Genuine empty EE work, NOT the
+large remaining problem; close key fine tuning, keep private/no night/default.
+
+Native segment storage prototype is host-only: actual writer3371 optimized/
+sanitized cases including sole final FINISH, not native queue lifetime/FPS.
+Early flush needs disjoint writer windows; submit, recordBarrier and recordGif
+overflow resets must respect live windows. Prior presentation callback must
+restore logical GS recording context before remaining EE preparation. Preserve
+bank final ordered sequence/REF leases and drain-before-reuse fallback.
+Actual early-env-prefix V3 passes full emulator+PS2 correctness but REJECTED
+net-1.053506/-1.048074ms and actual50.53..50.69Hz/98..100 misses versus~59.1Hz.
+Do not promote or tune its split point. Source safety is not throughput gain.
+
+Terrain-normal V1 full emulator+PS2 exact gates pass, but both-order net is only
+0.050959/0.042518ms, ON59.387Hz/5 late intervals per537 gas rows, not60.
+Close normal fine tuning; no public default promotion from this result.
+
+Terrain normal input prototype only precomputes authored height gradients and
+normalization, not complete shade: preserve current probe/point/emissive terms
+and LOD edge shade interpolation. Normal values are copied, never DMA-referenced.
+Require scene generation/height source/dimension/spacing invalidation, native
+exact oracle and full same-ELF correctness/net before adoption; host isn't EE.
+
+Event PCM lifecycle V1 now passes actual PS2+emulator six play/feed/stop/resume
+rounds and real returned idle waiter1. Callback progress is NOT audible quality:
+legacy round1 low-ring warning exists, preserve it and keep public adoption open.
+This component suspends normal world init, so it supplies NO FPS evidence.
+
+Event audio V1 FULL emulator+PS2 idle correctness passes, net+0.572/+0.543ms,
+~59.2Hz/6..7 late intervals NOT60. Require actual PCM lifecycle/feed/wake and
+return-to-kernel-wait separately before public adoption; mock/idle gates aren't
+music quality. Benchmark game bin has ADPCM SFX, original WAVs in game/res/sfx;
+PCM fixture must explicitly stage a bound WAV, not feed ADPCM to AudioSong.
+
+Private event-audio prototype uses count0/max1 semaphore BEFORE worker;
+PCM play publishes state THEN signals, mode changes signal too. Early tokens
+persist, duplicates coalesce. Require real waiting AND kernel waiter1 ON,
+legacy polling OFF. Host256 optimized/sanitized actual-header/mock-kernel checks
+are not actual EE PCM/lifecycle/audio proof; no public default from empty test.
+
+Empty-worker0.5->16ms V2 FULL emulator+PS2 gate passes, net+0.573/+0.492ms,
+59.0619Hz but8 late intervals NOT60. This is qualified scheduling impact, not
+exclusive EE cycles. Keep private until event-driven idle wake replaces music-
+start latency trade and active PCM lifecycle/audio are separately qualified.
+
+Private audio-idle trial changes ONLY empty PCM polling0.5->16ms, leaves
+active streaming/ADPCM untouched. Possible song-start latency16ms is declared;
+no public/audio acceptance from vehicle-only tests. Use local const timespec,
+not new shared Threading::tv writes; worker epochs reject cross-arm samples.
+
+Hybrid V3 wheels full emulator+PS2 passes, net+0.512/+0.481ms,~57.8Hz NOT60;
+cross-ELF V2 comparison proves no extra delta. Stop wheel fine tuning. Audio
+empty worker still requests0.5ms sleeps/priority5 even with PCM work returning;
+this is a source scheduling lead, NOT measured cost. Preserve ADPCM/active
+streaming, consult existing sound RPC fixes, qualify a separate same-ELF trial.
+
+Private wheel --moving-only chooses backend by nonzero speed, not whether
+geometry is valid: zero-speed spin/suspension changes still run existing world
+batch logic. Mixed route must show parked batch retention AND new local draws;
+do not turn an offload experiment into hidden wheel omission.
+
+Wheel-local V2 actual FULL emulator+PS2 correctness passes; physical net
++0.543/+0.495ms,~57.6Hz NOT60. Four matrix draws for parked cars are a new
+cost against existing still-rig batching. Evaluate hybrid moving-only offload
+without omitting wheels or reviving removed trig/skip work. No night/default.
+
+Private moving-wheel local-mesh/live-matrix trial retains current still-rig/
+trig/strip fixes in OFF and original padding/rig/visibility/material. Four
+standard per-wheel draws versus old definition batch MUST be priced, not
+assumed free. Standard VU MVP arithmetic/per-wheel light bounds differ; exact
+image gate stays mandatory. Drain queue before owned local source release.
+
+Prepared road V9 actual full emulator+PS2 correctness/lifetime passes, but
+physical net only+0.132/+0.125ms;~56.5Hz NOT60. Preserve evidence/ordinary
+fallback and keep private. New partial routing+known whole replay is not the
+dominant missing EE work; do not chase its remaining pennies or claim ceiling.
+
+Road pressure replaces an attachment only AFTER actual partial flush and
+positive immutableSpanReady=false. Never use retired Owner metadata afterward;
+only old bank-held geometry may be compared to distinct fresh exact bytes.
+Check stale content rejection before replacement and new readiness afterward.
+This gate is outside price; terrain held readers are not a road substitute.
+
+Road early whole replay follow-up must check beginBakedBag/worldCullReady
+before any texture/head, endBakedBag on failed admission, preserve ordinary
+residency/repeat submission batching and O(1) replay. It combines known A35
+whole admission with new partial routing; do not call A35 a fresh discovery.
+ROADWHOLE must account for inside admissions; native/runtime/net still required.
+
+TTE packet2_chain_open_cnt leaves next at tag+8, NOT tag+16. Fill its two VIF
+slots before raw Qword payload copies (two NOPs for a flattened VIF prefix).
+packet2_add_data count is QWORDS, not bytes. First prepared V3 GPU trial traps
+on close_tag alignment due to missing slots; later freepad DMA Busy is secondary.
+
+Private road-prepared integration retains whole-inside ordinary O(1) replay;
+only partial stripped roads use early producer plan/owned SDK geometry. Keep
+original qbuffer half/full/end cadence and live ordinary material head. Collect
+pending owners from actual emitted references, NEVER by walking all old slots;
+clear metadata on slot acquire AND emission. Source/prim/depth/epoch/model keys
+must reject before texture/head. No runtime/FPS promotion from generated code.
+
+Private road-package SDK split owns only immutable geometry plus original
+standard heads/kicks. Preserve original mask0->63 fallback and reverse-six
+packing; clip/cull state flags have different meanings in that field. All64
+masks and both original SDK state modes must compare before queue integration.
+Owning a vector is not bank/GS texture lifetime or cache-publication proof.
+
+Private road-package-plan is cold metadata/range selection ONLY, no DMA lease
+or runtime caller. Preserve original merged bounds/coarse8/A30 ranges; skipped
+jobs must not change lastProgram. Actual emitter chooses BOTH emit-state and
+MSCAL/MSCNT from admitted predecessor. Do not bake all packages as always-start
+or assume six-bit mask0 means guard: exact near/far bits also matter. Host
+actual-packager comparison does not qualify SDK bytes, flush cadence or net FPS.
+
+Partial-package audit on accepted A30/direct+paint: active road native strips
+do NOT expand on EE; packager is grow-only and subpackage index vectors reused.
+A35 owns whole cull bounds/body only, partial falls back. New per-package owner
+must preserve coarse8/merged one-third bounds, exact outside/cull/guard/clip,
+run/parity, actual SDK program continuation/material/lifetime. Do not repeat
+C11/C18/A32/A34/A35 or rejected whole-road all-clip under a new label.
+
+Current PC refresh keeps original A37 callback argument PC, NOT callback CP0
+EPC, exact calibrated SDK, bounded768KiB store and ReleaseTimerAlarm before I/O.
+Direct+paint/Hybrid2 current baseline changes the profile; old A37 percentages
+are not current causal costs. IRQ mask/preemption and residency/cycles distinction
+still apply. Current V1 full emulator/PS2 gate PASS22599 physical rows/54 images,
+two-period agreement; Core/head/copy remain distributed at~4% each. Observer
+adds~0.115ms, NOT a fix/ceiling. Actual Core transform reuse and bbox COUNT
+variants already exist; do not reintroduce either as missing. Many debug lines
+unresolved; function mapping is not line/exclusive-cycle attribution.
+
+Private paint-cells combination uses original paint capability/accepted basis,
+normal source/count/stamp and EE fallback readiness. Built-in paint is not a raw
+program override; plain terrain Clip C/TC admission stays unchanged. Preserve
+direct terrain/ordinary roads/Hybrid2 BOTH roles; A40 triple gain does not prove
+this combination. V1 now PASS native502/full emulator+PS2 correctness, physical
+both-order net0.887/0.872ms,57.07..57.17Hz, NOT60. Keep private direct+paint
+baseline/ordinary roads/Hybrid2; no public/night/variable-dt claim or delta sum.
+
+Direct cold-cell helper initially host-qualified: transient source
+ranges can be borrowed synchronously while building FINAL OWNED bytes, never
+queued to DMA. Preserve strip overlap/parity, sixfold list capacity, actual SDK
+writer/MSCAL/MSCNT, publication/cache rules and old bank readers.840 range cases
+alone are not native SDK or PS2 evidence. Private V2 now PASS native501,
+emulator/PS2 actual120 complete-body oracles/54 exact images/3942 poses.
+Private direct integration reserves exact final Qwords, keeps materialized
+compiler untouched apart from name, and uses original material/SDK writers.
+Temporary opposite-body oracle owner must retire before return; never run that
+double compilation inside measured samples or queue borrowed producer arrays.
+Physical BOTH orders save0.465/0.399ms,~55.0..55.2Hz, NOT60; local compiler
+boundary~2.8->0.64ms is elapsed, not exclusive EE cycles. Keep correction private;
+ordinary roads, no public/night/variable-dt claim. Archive1274 exact replays.
+
+Private A44 road-cell extension keeps submitHeavy/dripHeavy order and producer
+coarse checks. Objects interleaved between road chunks overwrite absolute VU
+uniforms: restore live VP/clip/fog before each road, not once per road pass.
+Cell attachment must survive ProcChunk vector moves and be revoked before
+producer rewiring/scene free. Texture leases and old queued source leases are
+separate. V1 full emulator/PS2 correctness PASS, but physical NET FAIL both
+orders-2.94/-2.99ms,~53.5->42.5Hz. Keep ordinary roads: whole-chunk full clipping
+and per-road state/flush changed too; no pure EE attribution or scene ceiling.
+
+A44 complete-cell camera qualification must include actual Hybrid2 CT16
+display, not only CT32 drawing/env images. Quarter-turn V1 fails direction3;
+ordinary-only reproduces its transitions, so keep exact gates and separately
+qualify view settling. Additional32-frame warmup FAILS all3 phases; direction3
+candidate differs from BOTH matching controls. No further blind warmup or
+waived image gate. SDK standard writer sets prim.mapping from actual texture;
+missing caller assignment is not a proved cause. No new-body performance claim.
+Matched ordinary-only/32-settle V2 reproduces ALL108 complete candidate rasters
+with ZERO new submissions. Ordinary/test-state is sufficient for these observed
+differences, not universal candidate safety or diagnosed source cause. Keep
+strict held rejection; no moving lifetime or physical price established.
+Source audit must include static batches (models can bypass renderObjectBag).
+V2 raw31 records/404296 bytes per9 stages are arm-identical including stamps,
+but observer image gate FAILS105/108 (three2-byte main deltas). Not a qualified
+whole observer or actual VIF/GS texture-state capture. Preserve exact rejection.
+Same-ELF source-switch V4 also fails96/108 OFF/ON images; do not assign causality
+without matched scene state. General CP0 dt reaches vehicle physics through
+frameScale/50 too; scripted input is not a fixed timestep. V5 controls global
+simulation step privately in BOTH modes, retaining real timing/clock work.
+V5 same-ELF source observer PASS108 exact images/9 captures35 records, yet
+ordinary stationary gate still fails. Actual command V1 observer then PASS9
+owned prefixes/548 calls and108 parent images; middle semantic header72->36.
+Auto interleave1 keeps probing INSIDE held test; A18 already required order
+pinning. Separate held-only flag0/2 avoids FastJoin checkpoint's env invalidation.
+Do not label this new renderer corruption or a measured interleave speedup.
+
+Conditioned A44 terrain-cell V1 subsequently passes all3 held four-view gates:
+108 exact main/env/actual Hybrid2 display images, actual3/4/13/13 cells per
+direction and zero fallback. This bypasses generic Core/per-package EE routing
+without changing clipping or passes. It is NOT moving lifetime/pressure,
+physical pricing or60fps evidence; candidate remains private.
+
+Moving cell preparation must run outside recording: renderScene currently
+updates streaming after beginFrame and rebuild invalidates cell owners. Whole
+texture-set preparation performs real drain/release/reservation; never invoke
+it blindly at that dirty render point. Private moving diagnostic defers to
+next pre-record loop, reports cold work/dirty/fallback, and requires same-ELF
+delivery/image gates before performance pricing. Native500 binding is not GPU
+execution; forced order2/readbacks are not production FPS.
+
+A44 moving V1 rejects at display count: inherited A38 Engine::realLoop still
+toggles3/2/3 during trips, while held checkpoints alone force2. Never infer
+moving Hybrid2 from held display qualification. V2 explicitly pins actual2
+each phase and reader requires6 A44BUFFER witnesses. Preserve failed V1;
+engine change requires a new native binding, not same-ELF reuse of V1.
+
+Moving V2 actual same-ELF day36 rasters/1971 pose rows EXACT, but delivery
+REJECTS25 fallback each phase. Private whole-set preparer runs50 times for49
+dirty frames. Local producer replacement must keep material slots and retired
+bank readers; do not mistake this private amplification for measured production
+EE cost. GroundShadowPins already retain mask Texture objects; borrow existing
+texCache entries rather than acquire per frame. Native immutable registration
+adds metadata, not cache publication or GS texture lifetime proof.
+
+Private incremental producer V1 retains texture/program/fog/depth epochs,
+borrows existing mask texCache entries for initial reservation, and cold-
+compiles only the changed chunk through owned SDK packets. Whole texture-set
+release stays pre-record. immutableSpanReady=false before owner reset is an
+actual positive old-bank-reader witness; require it on ON, not just DMA busy.
+Native compilation alone does not qualify in-record replacement or net price.
+
+Incremental V1 actual moving gate PASS36 exact rasters/1971 poses, zero fallback,
+93 local replacements/21 held old readers each phase. Representative observed
+replacement only, not failure pressure/night/physical price. Production-role
+OFF must retain original A31 owners and skip unused cell compilation/reservation;
+qualify that pair before net pricing. Common-work control is boundary isolation.
+
+Price V1 retains ClipTrial observer every128 frames: reference packet creation/
+memcmp is diagnostic EE work and must not inflate ordinary-only cost. Price V2
+disables it in bound native header. Cross-phase vehicle equality does not imply
+camera equality (persistent shake clock); use same-pose endpoint role pairs and
+controlled shake phase, not image tolerance. LIVE reflection probeCapture stays.
+
+Clean A44 Price V2 REAL PS2 net qualifies both orders:1.170333/1.173160ms
+non-pacing saving,47.335..47.756 to52.423..53.115Hz, exact54 endpoint images/
+3942 matched poses/live reflections/roads/Auto/zero fallback. Not stable60 or
+exclusive EE cost: p95 work19.494..20.219ms,68/69/76 late intervals. Private
+producer still prepares A31 bodies then immediately retires them for cells;
+candidate-only removal is a distinct next test, ordinary control unchanged.
+Do not call physical archive1267 hashes/replays a default integration or ceiling.
+
+Skip-A31 private follow-up compares BOTH cell-active roles in same ELF, not
+ordinary versus new cell again. Mode0 retains discarded A31 producer work;
+mode1 skips ONLY with ready slots, unready ordinary/startup unchanged. Require
+positive eligible old calls/successes versus new0, original local compiler,
+leases/geometry and image gates. No assumed net price from source inspection.
+
+Skip-A31 actual PS2 PASS both orders0.209699/0.250058ms,53.557..53.826Hz,
+54 exact images/3942 poses/zero fallback. Small private cleanup, not60; no
+cross-ELF sum. Next cold compiler source includes Plan->SDK->body copies.
+setMaxVertCount only assigns; fillByPointer does not allocate four arrays.
+Do not repeat that false allocation lead or borrow mutable producer data.
+
+A44 terrain full-cell producer actually executes on GPU in private V2:3 same-
+pose day repetitions/18 exact main-env rasters/3 admitted cells per repetition.
+All25 cells/43 ordered passes compiled with full19-texture reservation; this
+does not execute all25 cells or prove display/moving/pressure/FPS. Preserve
+separate sun-shadow geometry, invalidate on producer rebuild, release slots
+with actual GS fence before scene texture free, retire old A31 terrain bodies.
+
+A44 complete-cell backend is private/no terrain caller yet. Optional first
+CLAMP prefix skip must retain subsequent FLUSHE before absolute VU state;
+interior immutable-span references retain containing owner bank readers.
+Preserve explicit per-pass TFX and texture-reader mutation fence; source leases
+are not GS texture leases. Native binding is not GPU execution or FPS proof.
+
+A44 world-cell texture addresses require core AND CLUT leases, bounded heap
+reservations and exclusion from BOTH victim tiers. align3D while frame recording
+only records a barrier, not actual GS completion; release outside recording after
+real Core/FINISH drain. New private reservation backend is not yet qualified as
+full-scene residency or a world-cell performance fix. See world-stream A44.
+
+A41 SDK baseline IMR7700/GS INTC OFF permits explicit reservation: mask VSINT
+before taking GS IRQ, use owned7f00 direct words, restore saved kernel mask.
+Admit only known7700/7f00, retain timer/GS enable gates. Startup fresh-VBlank
+warmup must write ONLY CSR8, not SDK CSR OR (would erase old native FINISH).
+V8 held40ms next-prefix qualification gets positive ISR; no physical price yet.
+Presentation changes require actual display pixels, not only CT32 draw/env.
+
+A41 IMR is WRITE-ONLY: direct read mirrors CSR, so NEVER use MMIO read/modify/
+write for reservation or masking. V5 identifies refusal551b6000 CSR mirror;
+V6 reads GsGetIMR on main, freezes owned whole mask for ISR stores, restores
+GsPutIMR on main. No kernel syscall inside copy ISR. Actual target activation
+and exclusive GS ownership still require qualification, not an emulator price.
+
+A41 queue V4 corrects V3: nativeInFlight is reset by NEXT beginRecordingFrame,
+so old presentation requires dedicated nativePresentationSequence. Publish after
+final flush; preserve across begin; revoke AFTER old Core callback BEFORE new
+enqueue.65536-state/240-admission component and source ordering gates pass.
+Do not confuse bank reuse/recording metadata with pending presentation identity.
+
+A41 full-game private fixture binds old native queue identity and immutable81qw
+copy to Core pending ownership; no source reuse before copy FINISH+GIF idle.
+Dual timers and one-shot GS IRQ are reserved/restored explicitly. FINISH IRQ may
+precede GIF idle: mask then poll, never spin in ISR. Experimental288-tick budget
+needs actual game blank-completion witnesses and raster gates; no default/FPS
+claim yet. Tools tyrax2-hybrid-copy-fixture.py/trial.hpp, adapter46-control update.
+
+A41 Vif1Queue::canCopyCompletedNativeFrame is read-only and requires serialized
+main/ISR use. Match nativeInFlight/last-started, empty ring, idle STR; unserviced
+running metadata is permitted, otherwise exact completed. submitted can already
+name the NEXT unsubmitted prefix: not old consumer identity. This predicate does
+not prove GS FINISH/Core ownership or foreign DMA exclusion. No runtime caller.
+
+A41 copied actual Hybrid emitter preflight: unchanged method bodies,79qw+2 SDK
+FINISH, full448x448 CT32->CT16/14 columns. PS2 median0.179562ms/max0.180206ms,
+120 inside-blank copies and full pixel gates pass. Isolated empty-consumer cost
+is NOT game/IRQ WCET or an EE speedup. Source/queue/timer owners and FINISH changes
+still need game qualification. See adapter copy-budget-v3.
+
+A41 isolated PS2 timer preflight confirms T0 START/T1 END opposite resets, free
+idle counters and restored state. Physical480p blank823..824ticks differs from
+emulator841..842; never transfer emulator budget. This does not reserve timers
+inside the game or qualify original448x448 copy+dispatch. See adapter preflight-v1.
+
+A41 dual-edge predicate is component-only: matching nonzero qualification epoch,
+stable modes, bounded field/active delta and strict remaining-copy budget are
+mandatory. Opposite edge ages avoid delayed-ISR phase inference; read crossings
+must fail closed. Synthetic280800-case tests do not qualify timer ownership,
+physical polarity/bounds or actual dispatch/copy WCET. No runtime binding yet.
+
+A41 physical-window preflight must not steal T2 (linked SDK timer) or T3 (alarm/
+Tyra clock). T0/T1 require actual kernel/module ownership and gate-edge/blank
+qualification; source absence is not reservation. Hardware counter age still
+needs wrap/epoch/mode validation and original-copy budget. No fixed NTSC duration
+or handler timestamp is a safe window proof. See adapter hardware-window audit.
+
+A41 copy adapter V5 exists only as a component:42 hardware-mock/644 actual packet
+validator cases pass, real EE MMIO/cache backend compiles. A delayed VBlank START
+handler and delayed END callback do not establish physical copy window. Require
+explicit hardware-grounded remaining-blank/event-age/budget proof; unbound callback
+fails closed. Bind actual old queue ownership, not raw DMA idle. Clear only OLD
+FINISH before GIF kick; consume NEW copy FINISH+idle before source release. Preserve
+previous interrupt state and never publish data in ISR. No Core/native/game/PS2
+integration yet. See docs/tyrax2-hybrid-copy-adapter-2026-10-11/README.md.
+
+A41 ownership model passes144 guards/161280 optimized+sanitized schedules and
+EE36/12-byte ABI compile, not actual target adapter. Main withdrawal must wait a
+fresh field, not steal the remainder of open blank; preserve completion evidence
+through blank end even after main source release. Volatile is NOT atomic exclusion
+or immutable-packet cache publication. Separate old FINISH consumption from copy
+FINISH ownership and retain source until actual copy completion. Zero/wrapped
+model IDs do not qualify Vif1Queue's zero sentinel. See protocol README.
+
+A41 linked SDK audit proves fresh VSINT wait, not an avoidable hardware deadline.
+GS CSR OR acknowledges other observed event bits too; preserve exclusive FINISH
+ownership. A latched VSINT is not current-blank status. EE already overlaps N+1
+recording with N execution. Proposed independent Hybrid2 copy must use immutable
+prebuilt packets and an explicit old-job/FINISH/GIF/atomic fallback protocol;
+never invoke renderer completion, allocation/cache construction or current-prefix
+flush from ISR. Qualify actual completion before VBlank end separately from drawing
+rasters. Source/model only so far: docs/tyrax2-vblank-sdk-2026-10-11/README.md.
+
+Hybrid3 is not an EE preparation fix: A38 gains presentation cadence without
+shorter mean non-pacing work. Hybrid2 fixed CT32 draw/CT16 display uses post-vsync
+copy; Hybrid3 copies into unscanned output then FINISH/ISR queues. Do not treat
+that A/B as pure buffer count. Burnout six-state/two-dump recheck confirms similar
+fixed CT32-to-CT16S architecture, but no EE wait timing. Ordinary CT32 double is
+only a format/VRAM-confounded diagnostic, not Burnout's observed solution.
+A40 known paint under Hybrid3 first order gains about1.1ms integrated work with
+36 exact rasters both targets,59.378/56.679Hz still not stable60. Reverse/image-cost/
+production qualification remain open. See docs/tyrax2-paint-triple-2026-10-11.md.
+
+A38 private Hybrid2/3/2 experiment must drain old pending job/queued display/
+PATH1/PATH3 before changing settings and rebuilding permanent buffers. A bare
+RendererSettings toggle is NOT a safe runtime API. Evict textures, re-place
+env/shadow/postFX/camera targets and refresh held shadow owners. Raw object-head
+hashes contain live TEX0 VRAM addresses: relocation changes them legitimately.
+Pin original head writer and compare semantic source/lengths/full main/env rasters,
+not A35's same-layout byte hash. Physical58.928/55.217Hz is first-order pacing
+gain, NOT less EE packet code or stable60; reverse before production promotion.
+Reverse now passes58.815..58.818 day/54.889..55.104 night, still10/10 and43/45
+late intervals. No production default. A39 source audit: ordinary waitFor always
+flushes the CURRENT native prefix. Early ready-present must preserve its reserved
+nativePendingSequence as well as frameRecording/protectRecording/HUD fence/bank/
+logical raster state. Require old DMA+exclusive FINISH and free Hybrid display
+slot; no forced wait or raced worker. Current callback assumes its flush caller
+has already cleared the prefix reservation. New runtime path NOT implemented.
+Private A39 V5 then implements that guard/poll and passes BOTH source/raster/
+lifecycle gates with actual PS2 early190/340/held31, but NET FAIL (day58.701,
+night54.013 versus higher BOTH controls). Keep private OFF/no reverse or cache/
+poll rescue; ordinary fences/production unchanged.621-file archive exact replay.
+This rejects that hook, not all EE work or a60 ceiling. Next A13 known VU paint
+combination under Hybrid3/current ABI needs fresh correctness/net/reverse gates.
+
+A35 private early-Core WorldFront tickets support stamped unlit multicolor
+terrain/proc/road triangle strips only. Skip generic capacity/bbox/packager
+interpretation, retain original live SDK heads, current culling/guard-band,
+texture/light/fog and existing transform reuse. Inside baked and partial owner
+bodies both dispatch; stale/unsupported fallback BEFORE texture/head emission.
+Common A31 world bodies BOTH moving arms isolate this boundary.1024 old+new
+owner cap and independent bounds are not total heap proof. Intrusive/backlinked
+registry releases only inactive transitions. V4 native/hidden correctness pass,
+physical preflight pending; no price/default/60fps claim. Full producer cost,
+stale state/source/program/pass and lifetime qualification still required.
+V4 physical then fails phase2 scene reload/freepad DMA Busy; no final gate/price.
+Last arena8449KiB free/no allocation error does not prove pad-only cause. Audit
+producer/body lifetime independently; no repeated network reset of failed PS2.
+A35 producer V4 bbox lookup is OUTSIDE bad_alloc handling: extracted code with
+injected cache failure terminates. V5 moves lookup/null guard inside try, native
+pending. This is not a proved pad-hang cause. Preserve actual cull immutable-
+span retire/bank-collection and partial raw-sequence-wait/lease contracts.
+V5 native binding and extracted producer host controls pass optimized/sanitized;
+36-file component archive replays unchanged. Full hidden target pending, no
+physical V5 launch or net price. Treat compiler/cache host shims as component
+evidence, not target packet compiler exception recovery proof.
+V5 full hidden preflight subsequently passes60 rasters/30 whole heads/47 controls.
+303 physical inputs staged only; no V5 physical/price. Keep private OFF.
+A35 V7 adds OFF-PRICE actual early-Core rejection tests of stale/unsupported
+tickets, requiring fresh producer facts/current packet qw unchanged and restore
+before normal positive dispatch. V6 accessor wrong local/member name fails
+native; V7 packets[context] pending. Does not alter hot submission policy.
+V7 native488 binding passes, hidden actual admission first two checkpoints44
+each pass; full pending. Static batch LIST producer and env-normal ST classes
+remain excluded; do not drop shape guards to claim complete scene coverage.
+V7 full hidden gates later pass60 rasters/30 heads/52 controls/264 actual stale
+rejections. No physical V7 price/default. Broader producer/class contracts may
+be audited, but do not tune strip hot policy while its hardware gate is missing.
+V7 later passes physical correctness but separate net first order FAILS:
+day0.008ms mixed-sign gain, night0.086ms regression/worse p95. Actual warm
+helper/wrapper/guard tests qualify candidate-only ticket cost/transition release.
+Keep OFF/no reverse or blind broader extension. This does not prove full-scene
+EE efficiency/ceiling; preserved preflight remains correctness-only.
+A36 current V7 ordinary-only capture later qualifies both targets, A35 OFF.
+Physical657 launches/one submission, eight main/env return rasters; roads
+46.48% of main descriptor source vectors, NOT EE time/emitted geometry.
+Cull_TC455 calls dominates transfer bytes. No per-command owner binding yet;
+retain unknowns and fences, audit road callers against existing road leads.
+602-file source/log/capture archive: docs/tyrax2-command-lineage-2026-10-11/current-v7-v1.
+Broader audit: A30 common BOTH trial arms bypasses EE strip expansion; list
+partial VU ranges already use pointers. Safe-list gather is A19/A22, not new.
+WorldPayload accepts native-strip2/3-stream ABI; LIST/env/lighting extension
+cannot just drop guards. Lists use actual header/count/3 and rounded cull
+capacity/6, not strip72. General frontend geometry ownership must separate
+producer/LOD immutable data from live moving model/view/state. Contract only.
+
+A34 head-hot is the independent semantic hot bypass, not A33 cold execution.
+Fixed facts cover full LOD/TEX1, TEST/DATE/GS method, ALPHA fixes and clip REF;
+live spot/fog/TEX0 must NOT come from already packed bytes. Keep unsupported
+fallback, original packet reset/FLUSHE/wrap and clip-block drain fences. The
+32768-word old+new budget is not total heap proof. Generic Core is still live.
+V2 emulator leaves75 baseline words: reject pricing, do not loosen release.
+V3 releases silhouette/wheel/portal owners and cold-baseline images; pending
+full qualification. Common A31 world bodies both hot arms isolate head price.
+V3 final night leaves13 words: reject again, no PS2 price. V4 replaces guessed
+producer release with actual-owner intrusive registry and attachment backlinks.
+Move must retarget, destructor unlink, copy reset; releaseAll runs only at
+inactive role transitions. Test populated move/self-move/complete release.
+Prior V3 host archive does not qualify the new registry; native gates pending.
+V4 native490 binding and bound128 registry/owner plus16384 facts controls pass
+optimized/sanitized. V4 emulator/PS2 unstarted; full acceptance remains required.
+V4 later passes both full targets but head-only price regresses0.510/0.671ms
+and p95. Keep private OFF; no head-key rescue loop. A35 continues A32's full
+prepared frontend contract BEFORE Core interpretation. Original head writer
+common, live outside/inside/partial/guard-band and state preserved, owned typed
+world tickets and stale/program/material/lifetime gates required. Not a body-
+only/vehicle-only replay or another bounds substitution; audit before coding.
+
+A33 private whole object-head Image owns the post-wrap fragment, not arbitrary
+DMA refs. Keep FLUSHE/wrap/context/objectDataPending and clip-block epoch/drain
+protocol; only explicitly certified current clip-block REF is admitted. Fixed
+TEX1 includes full LOD inputs, TEST date/z mode/GS method, ALPHA additive/sub FIX.
+MVP/spot/fog/RGBA and TEX0/current CLUT stay live. The cold demo uses original SDK
+output for some live values and a shape cache: NOT producer admission or hot
+offload. Native489 binding/closed emulator60 rasters/44 controls qualify execution
+only, not speed. See A33 dependencies in world-stream report before integrating.
+
+A31 producer ownership must not propagate through ordinary StaPipBag copies:
+portal caches assign bags. Use copy-reset attachment, retire old ownership and
+never share that prepared body through a copied bag. Host-v6 actual bank-table
+tests pass copy/assignment/self-assignment and13 stale-key controls. Reprepare
+at producer replacement/epoch transitions, not a whole-world per-frame scan.
+V8 later qualifies net physical price0.303/0.393ms, not60fps/default promotion.
+The moving-vehicle audit (A32 register) finds local geometry and direct baked
+replay already present. Paint evidence is A08/A11/A13/C16, not A19 list joining;
+A17 closes normal preparation. Next broader prepared frontend must own its
+bounds and preserve live view/light/fog/texture/state/barriers and net replacement
+cost. The broader API remains a source contract; private A32 first runtime stage
+now owns validation/capacity/bounds only, retaining live heads/dispatch. Native489
+binding and closed emulator six trips/60 rasters/47 controls pass. Its global
+8192-part budget includes old-plus-new replacement peak; tracked actual owner
+host64 budget/copy/move rounds pass. Hardware price/default promotion remain
+pending; combined A31+A32 comparison cannot isolate the frontend contribution.
+A32 V1 subsequently qualifies physical correctness but fails promotion: combined
+mean gain0.141/0.235ms, tails regress0.898/0.651ms,47.01/40.07Hz. Keep private;
+680-file archive reproduces both reports. Broader live-head frontend remains
+open, not another bounds-key variant and not a demonstrated PS2 ceiling.
+
+A31 world-stream audit/host source plan is tools/tyrax2-world-strip-plan.hpp,
+not a VIF compiler/runtime API. Explicit owner replacement and in-flight leases
+retain old source bytes; source pointer/bbox identity alone does not prove this.
+MVP, fogConstant, chosen light, TEX0/CLUT residency and barriers remain live.
+See docs/tyrax2-world-stream-2026-10-11.md before live-world integration;
+host360 partition/lifetime cases do not establish PS2 leases, rasters or speed.
+A31 actual SDK cold compiler now passes emulator/physical60 rasters/35 controls,
+not a live producer speedup. Existing Vif1Queue immutable bank leases and retire/
+collect protocol must be reused; cold view masks and MSCAL/MSCNT cannot be frozen
+as a live-owner contract.664-file archive replays both reports exactly.
+A31 selected-native all-plane cold route also qualifies emulator/PS2,60 rasters/
+39 controls;671-file archive replays exactly. Explicit compiled-owner host pool
+passes real bank-table replacement/retirement but is not runtime integration.
+Snapshot fallback may submit raw REF with sourceCopied=false, even in a recorded
+frame: preserve the actual sequence fence; bank leases alone do not protect it.
+Immediate submission precedes owner replacement/collection; retain live heads,
+primitive/depth/program admission and actual-map memory/source/raster gates.
+
+A30 coarse partial-strip preparation follows A29's bounded output contract,
+not disabling C11 under the old fan-out reservation. Before a runtime route
+change require pre-route source equality, exact candidate source delivery and
+independent residual clip equality; changed post-route counts are not permission
+to waive the whole input oracle. Macro rejection/order/masks/lifetime remain.
+See docs/tyrax2-coarse-strip-2026-10-11.md; private runtime, no hardware gain yet.
+A29 state-once V6 is physically incomplete twice in night candidate phase4;
+do not price/promote it from host/emulator success. A30 derives from qualified
+V3 repeated-state images, active in both arms; original clipping-mode drains
+at warm boundaries clear route-dependent cached command bodies. No hot clocks.
+A30 V1 is rejected for pricing: terrain_game.cpp's setter is in the EVERY-frame
+loop, so an unconditional false/true pair added drains per frame. Drain only
+when coarse mode changes there; cold arm/restore resets remain off-price.
+Fresh V2 and actual-snippet switching controls are required before qualification.
+A30 V2 then qualifies on emulator/PS2,60 exact rasters and source/residual gates;
+same-shader net gain0.738/0.744ms, only46.555/40.338Hz. Keep private; reverse
+order support does not invert coarse mode7 semantics.654-file archive replays
+both reports exactly; larger EE cause remains unresolved, not a60fps ceiling.
+
+A29 private output-ring/native-strip prototype passes actual-generator host
+oracles and VCL/DVP assembly, not runtime integration or hardware timing.
+Review A24/A25/C06 and A28's deferred ABI audit before reopening this route.
+Alternating ring reuse relies on the instruction AFTER the second XGKICK
+stalling for the first transfer; keep its upper instruction NOP and ring
+writes after the synchronization. Never equate interpreter RAM with async
+safety. Preserve normal VIF/PATH1 drains, zero-geometry GS state, package-local
+strip parity, all streams, masks, current folded-light/paint ABI and fallbacks.
+TC72 inputs + two72-qword rings + header consume362/460. Clip metadata1016
+must not overlap scratch or a concurrently used cull single-colour-copy tail.
+See docs/tyrax2-clip-ring-2026-10-11; no production/default promotion.
+A29 hybrid header word3 zero=list,2|parity=native, cleared in GS output.
+Folded lighting/compiled paint are retained; candidate images392/464 words.
+Runtime V1 linked main-set2034/2042 includes billboards, six emulator trips
+and60 cold images pass. Still preliminary, not physical FPS. The private
+fixture changes built-in image ranges only through the existing full clipping
+mode drain/cache invalidation at warm boundaries; overrides are rejected.
+Only adjacent true-clip subranges merge; cull and unrefined list fallback stay.
+Normal snapshot REF lifetime handling remains required. Finish V2 canonical
+input/native activation gates before PS2, rather than waiving old hash failures.
+V2 subsequently passes full emulator/PS2 correctness but saves only0.036/0.043ms
+and regresses night p95: not promoted. It excludes unrefined ordinary-road
+amplification. V3 --native-fallback borrows these original strips too, without
+changing package masks/order or lifetime; require distinct positive cold
+fallback admission, canonical input and exact raster gates before pricing.
+V3 then passes emulator/PS2 correctness and first-order pricing:0.649/0.667ms
+mean gains, only43.304/38.433Hz, no promotion. Future coarse native routing
+must compare pre-route source input, not waive changed post-route clip counts.
+The prototype repeats GS state per triangle; geometry-only later kicks require
+cumulative state correctness and preserved first state even for empty output.
+Host V10 state-once qualifies264528 triangles, five controls and291 empty-first
+cases. Selected C394/TC466 fit whole2038/2042 with billboards; V9 C396/TC470
+was2044 and is rejected before runtime. Keep existing uniform/wrap/texture
+mutation fences. Runtime --state-once requires --native-fallback; symbols have
+four declarations/uses per C/TC spelling. Native/runtime pricing still required.
+
+A27 discovers ordinary TYRA_LOG active in the bound A23..A26 derived fixture:
+disabled profiler clocks are NOT proof of disabled ordinary output. Audit the
+active non-NDEBUG branch, not the first macro definition. Gas-only log gating
+is private and must retain warnings/assertions and original renderer work.
+See docs/tyrax2-log-gate-2026-10-11/README.md. V2 completes emulator/PS2:
+exact images/inputs/SDK bytes, mean saving 1.060/1.163 ms day/night, NOT 60.
+Next larger source bug: visual camera shake crosses the 32-metre terrain LOD
+snap boundary at car x=0, causing 53..55 focus changes/trip vs six from car
+motion. Separate stable pre-shake terrain focus from visual shake; existing
+half-chunk snapping and view eviction hysteresis do not prevent this churn.
+A28 V1 now qualifies on emulator/physical PS2: mean savings 1.735/1.500 ms,
+exact held-focus images and 25-chunk neighbor contracts. Cadence43.04/37.36
+Hz is NOT 60 fps. V2 reverse also passes all physical contracts and timing
+gates, saving 1.799/1.603 ms. Production 1.173.5 enables stable focus in both
+camera templates. Native example, fresh codegen target syntax and host semantic
+tests pass. Next larger VU output/native-strip ABI audit is saved in A28;
+its ring safety, clipping equality and micro-memory fit remain unproven.
+
+A26 privately replaces the standard header's automatic UNPACK close with
+manual count 2: scale/count plus one GIFtag, for every standard program class.
+Keep padding/tag closure, packed masks/state bits, mapping and all DMA ownership.
+The cold oracle compares actual SDK auto/manual bytes and packet metadata.
+See docs/tyrax2-fixed-header-2026-10-11/README.md before repeating this lead.
+A26 now completes emulator/PS2: exact headers/state/input hashes/rasters, but
+mean savings -0.008/-0.050 ms day/night; first-order gate FAILS. Keep private,
+close this header micro-fix lead and audit larger active per-bag preparation.
+
+A25 retains byte-identical original StaPipCore/qbuffer preparation and changes
+only final clip-program selection to cull. Cold ordered input hashes and exact
+return-control rasters qualify the intervention. This remains destructive and
+couples emission/VU/GS/waits; never call it pure VU cycles. After this narrow
+check, prioritize EE work. See docs/tyrax2-clip-consumer-2026-10-11/README.md.
+A25 now completes emulator/PS2: day/night saved work -0.153/-0.101 ms,
+no cadence gain, exact held input hashes/return rasters. Consumer bypass is
+closed. Do not subtract the different A24/A25 ELFs to assign the old 3 ms to EE.
+
+A24 privately tests Clip grouping and destructive full clipping-route removal.
+Only refined, ordinary textured many-colour/unlit strips qualify for grouping;
+retain the 91-qword reserve, original outer packages, masks and primitive order.
+Local no-clip fullClipChecks bypass does not mutate shared info bags; it also
+skips clip-plane setup and requires zero clip submissions. Cull can discard
+crossing triangles and admit extra off-screen input: do not call this quality
+equivalent, pure EE cost or an exact speed ceiling. See the A24 report.
+A24 V2/V3 now complete: corrected ordinary/refined grouping activates and
+preserves exact rasters, but day -0.018/night +0.148 ms is mixed and small.
+Full NoClip saves 2.869/3.116 ms, not pure EE, still only 44.27/37.56 Hz.
+No production change; do not reopen cap/cache variants as the larger fix.
+
+A23 moving roads/live-reflections qualification passes behavior on emulator
+and PS2 but FAILS default promotion: reversed day spatial saving -0.049 ms,
+p95 +0.179 ms exceeds the 0.15 gate. Night saves 0.129..0.242 ms. Keep the
+adjacent-list bypass private; do not replace this decision with frozen A22.
+Next source lead is plane-aware clip output capacity: neighboring refined
+Clip ranges retain the sixfold cap even for a one-plane mask. Preserve outer
+packages, winding/order, current mask and queue lifetime. Zero mask means all
+six; legacy/custom programs keep old capacity. TC proof is not every-program
+proof or a measured gain. See the A19 report's A23 and clip-reserve sections.
+
+A22 privately removes adjacent-list gathers on ordinary producers, preserving
+grouping, active streams, masks and queue ownership. This is a concrete copy
+bypass, not another cache or timer partition. A19's oracle kept the copy and
+used owned descriptor arrays; it cannot price this change. Moving producer and
+non-recording lifetimes still require separate qualification before defaults.
+A22 physical night saves 0.276..0.287 ms (17 gathers / 17,040 bytes), with
+exact rasters and four repeat interventions. It is a small accepted gain,
+not the broad StaPip cause. Do not reopen it as unpriced; keep it private.
+
+A21 narrows A20 with a Geometry scope before StaPip's existing Dispatch marker
+and reclassifies deferred flushPendingPacket as Geometry. Setup remains bounds,
+matrices, texture/light/object uniforms and maintenance, with Queue excluded.
+Do not confuse dispatch (including cache decisions) with pure VIF emission.
+A21 physical night finds Setup 5.60..5.62 ms and Geometry 6.81..6.83 ms,
+Queue 4.04, residual 2.44, net observer ~0.80. Both StaPip regions matter.
+Do not claim improvement from different A20/A21 ELFs. Select a code-backed
+intervention next rather than another broad partition or closed memo trial.
+
+A20's private preparation split handles producer callbacks inside queue scopes
+as StaPip work, not queue work. Same-kind nesting elides clocks; category changes
+form exclusive elapsed buckets. Keep unclassified residual, preparation/finish
+boundary, raw finish pacing and observer controls. Do not label the scopes pure
+EE or import older moving-scene queue prices into this frozen workload.
+A20 physical night locates 12.88 ms in preparation StaPip, 4.01..4.02 in queue
+and 2.44 residual, with about 0.46 ms observer perturbation. Final queue 9.80 ms
+includes waits and must not be called EE construction. Next narrow StaPip's
+object/bounds/state versus package dispatch/fill/emission, not generic caching.
+
+A18 clean V4 physical day confirms the downstream preparation gap, but its
+night replay fails with bad_alloc before freepad DMA Busy; V3 had the same
+precursor. This is not proof of the original game's memory or FPS cause.
+Diagnostic V5 allocates the validated command closure's exact aligned size
+instead of a fixed 4 MiB. Never realloc/move an owned chain without relocating
+embedded DMA addresses. Keep ownership, target payload comparisons and the
+hard cap; allocator free-block counts do not describe all free EE RAM.
+V5 night now completes on PS2: ordinary 29.22..29.39 versus owned commands
+10.70..10.73 ms, exact main/env rasters. This net frozen contrast is not pure
+EE cost or live FPS. Next separate packet construction from ownership/enqueue;
+do not promote the diagnostic closure into a moving-frame cache.
+
+A19's private adjacent-list experiment preserves the existing 2/3-slice groups
+and masks, checks every active stream, and still runs the original gather as
+an oracle. It is not a physical speed result or a production lifetime proof;
+only owned frozen descriptor arrays are substituted. Native submission already
+reuses counted preflight metadata and references owned inline bytes: do not
+claim an unconditional extra sizing scan or second payload copy. See
+docs/tyrax2-list-join-2026-10-09/README.md before another copy-removal proposal.
+
+A16 moves per-bag setInfo before sendObjectData: TEX1 must encode the current
+bag's filter, not the previous one. Qualification is tracked in the investigation
+register; do not infer an FPS gain from this correctness fix. Reflection-target
+rejection must remain distinct from existing VU guard-band routing and DMA
+ownership. A14/A15 document the full preparation path and its dependencies.
+A16's private target gate passes paired emulator/PS2 raster tests but has no
+useful physical drive gain (-0.063/+0.024 ms savings day/night versus mean
+controls). Keep it OFF; fewer admitted bags alone do not justify promotion.
+The accepted filter fix is 1.173.4, not a demonstrated FPS optimization.
+
+A10 adds default-OFF `TYRA_VU1_EXP_PAINT`, conditional texture-bag fields,
+`StaPipCore::supportsPaintVu` and in-band accepted-basis uniforms. Rebuild BOTH
+engine and game with the same flag (conditional fields are an ABI contract).
+Query eligibility before preparing representation; it includes the env resident
+class, no overrides, ordinary MVP, HIGHLIGHT2 and valid many-colour/normal/texture
+streams without lighting/billboards. Invalid paint requests assert in debug and
+skip the draw under NDEBUG; this is not automatic EE fallback. All TC/TD/TCE
+wrappers select ONE shared clip image. `emit-paint-images.py ... --check` verifies
+derived raw/FOLD/ENVN images; never manually patch those four generated files.
+Generated-game lifecycle/night integration is A11 (default OFF). A13's first
+complete physical order saves about 1.0-1.2 ms during day/night driving, not
+the older prototype's roughly 2 ms or sustained 60 Hz. Reverse and remaining
+physical visual/default-off image-cost checks remain; see the physical A13
+checkpoint. GeoPart holds representation readiness separately from
+the accepted texture-bag basis and checks normal source/count/content stamps.
+Caller fallback materializes EE colours before submitting the ordinary draw.
+
+A09's generator owns a private `buildPaintExperiment` entry point, excluded
+from ordinary descriptions/CLI emission/defaults. Do not inject a disabled gate
+into the production shared TC image and call it zero cost: image size and
+ordinary bag branch costs change. Select separate whole images in C++ (vclpp
+has no #if), and keep TC/TD/TCE wrappers on the SAME Clip TC image. The current
+target experiment transplants the generated loop into existing FOLD/ENVN
+bodies, not replacement lighting/normalization algorithms. The A08 lifecycle
+and runtime eligibility gates still need integration before enabling paint.
+
+A07's isolated target-assembled C16 paint test passes 27 emulator GS readbacks,
+exact EE/VU and EE/EE RGBA across nine groups including near clipping. Not a
+game-lifecycle or physical raster qualification. A08 must handle unchanged-key
+EE/VU transitions: preserve the accepted basis separately from representation
+readiness, not by accepting the current camera basis to force refresh. Geometry,
+LOD and unsupported-program fallback need actual integration tests.
+A08 now passes host and three private emulator scene loads: 12,124 paint visits,
+62 held-basis EE refreshes, zero colour/basis errors, legacy clipping and a real
+built-in-image override fallback. Both authored tiers are exercised. Retain
+normal-content stamp checks in the distinct-normal table too, or a same-pointer
+edit can leave it stale. No intrusive-test timings or production defaults.
+
+A06 uses separate owned draw arrays (234 -> 72) with exact actual-stream
+matching, leaving road-contact data and original bounds intact. Six emulator
+phases pass, but physical A/B/A is interrupted by freepad DMA Busy during the
+third scene load. No physical price or default change. Nonlinear vertex light
+and fog are NOT covered by the XYZUV surface proof, and stationary pixels differ
+beyond the off/off control. Do not promote this geometric reduction as visually
+equivalent. Next offline work qualifies C16 paint output/fallback/lifecycle;
+its previous 1.9-2.1 ms physical benefit alone does not establish correctness.
+
+A05 road capture finds four piecewise-affine single-run chunks (diagnostic IDs
+24..27), physical 234 -> 66 vertices under a 1e-5 surface error bound. PCSX2
+instead yields 39: actual source floats differ. Require runtime input validation
+and full UV-domain oracle before a draw reduction; never copy emulator-only
+indices into a PS2 fix. Keep original road-contact/receiver arrays, chunk bounds
+and immutable BagArray lifetimes (submitHeavy can defer consumption). GS
+depth/raster agreement and performance remain unqualified; only 168/26,835
+vertices disappear. See A05/A06 in the investigation register.
+
+A04 precomputes the A03 boxes during sky geometry construction and also loses:
+PS2 turn work 15.298425 / 15.540215 / 15.345551 ms off/on/off, despite identical
+clip reduction. Cold equality, source/version/shape checks and complete target
+consumption pass. Do not infer an isolated scan price across the two ELFs.
+Close sky refinement for now. A05 investigates actual longitudinal road XYZUV
+redundancy; keep chunk/collision/receiver identities and prove surface/UV safety
+before changing draw geometry. No optimization is promoted from A03 or A04.
+
+A03 sky-only on-the-fly list bounds is NOT promoted (2026-10-09).
+Actual turn sky clips fall 16,734 -> 6,126, but PS2 work rises
+0.226-0.242 ms in same-ELF A/B/A. Host and cold target geometry checks pass;
+stationary sky pixels match, moving/depth equivalence remains open. Do not
+repeat this per-frame scan or sell clip-count reduction as frame-time gain.
+That next option was tested as A04 above: exact parent-relative slice bounds
+prepared with geometry, with version/lifetime/fallback qualification.
+The scan's individual cost is not isolated; see A03 in the scene work audit.
+
+A02b (2026-10-09) records nine PS2 StaPip frames / 892 actual clip inputs.
+Tight input bounds permit 534 geometric alternatives, 223 outside roads.
+Do not call that a speed gain: the road majority overlaps C18. The list path
+splits VU clip inputs near max/6 but classifies merged max/3 bounds; sky and
+shadow lists inherit excess vertices. Prioritize a bounded exact-list-slice
+experiment, initially sky, not another cache knob. Preserve all eight guard
+planes, companion-pass depth agreement, primitive order and worst-case VU
+capacity. Require oracle/raster checks and same-ELF A/B/A before promotion.
+Terrain base already refined has zero tight-box wins in this capture.
+See A02b in `docs/tyrax2-scene-work-audit.md` for raw inputs and limitations.
+
+A01's offline P06 ledger finds three direct-route `MissNew` road calls at
+1.47-2.06 ms with NO clip chunks; same-angle later cycles replay at 0.05-0.15
+ms. This is not a controlled bake cost. Audit first-preparation payload
+transcoding/allocation separately from steady clipping. Logical cull chunk
+counters include whole-bag replay: many VU chunks can be one EE REF, not many
+EE qbuffer allocations. See `docs/tyrax2-scene-work-audit.md` before interpreting
+the reconstructed counts or proposing another cache change.
+A02a confirms on PS2 that these calls spend 0.879-0.910 ms in stream
+bake/finalize and 0.378-0.434 ms in the bounds prefix, with no scratch growth.
+Finalize is allocation/copy/registration, not a pure memcpy timer. This is a
+cold-use mechanism, not the explanation for all warm-turn cost. The existing
+prepared-static API does not prepare bounds and its rejected batch-pinning
+trial does not establish later road consumption. No production change.
+
+Before Vehicle Playground/TyraX2 performance work, read and update
+`docs/tyrax2-performance-investigation.md`. It is the single decision register
+for this investigation: record the new question and why previous tests do not
+answer it before another experiment, then its actual result/status/evidence.
+Do not reopen a closed lead without a new mechanism or workload justification.
+
+P01 selected-road clocks now price the daylight turn at 2.873 ms Core,
+including 1.452 ms before dispatch. Package creation/classification total only
+0.033 ms; queue submission excluding copies is 0.621 ms, copies 0.055 ms.
+These are overlapping region/exclusive-bucket partitions, not additive costs.
+Observer overhead is 0.089-0.172 ms; common compiled overhead is unpriced.
+Prioritize per-bag state preparation (P02), not another road package splitter.
+Road-triggered queue work may contain mixed owners; no pure-EE claim or fix.
+
+P03 exact-key road clip-plane memo passes target bit comparisons but saves only
+0.023-0.035 ms; closed. P04 draw-only road grouping preserves original chunks
+and per-chunk acceptance, reducing repeated Core calls. Both PS2 orders show
+a mean gain, but maxima regress and the magnitude is order-sensitive. It is
+private, not a default fix; consult the register before another grouping/cache
+trial. P05 pairs confirm a 0.294-0.525 ms mean gain across both PS2 orders,
+but reverse maxima regress to 23.2 ms versus 21.0 ms. Do not enable either
+grouping policy or repeat arbitrary group-size tuning; tail and raster/lifetime
+qualification remain open.
+
+P06 original-road tracing finds about 0.00425 ms/frame in explicit non-pacing
+wait leaves, one native prefix flush and no capacity/fallback flushes. This
+does not rule out EE cache/memory stalls or establish pure EE time. Two
+66-vertex roads repeatedly dispatch 16 clipped chunks each, with expansions
+already cached. Partial baked replay covers cull slices, not these clips.
+Do not confuse cached vertex data with cached dispatch commands, or optional
+CSV columns with installed hooks (P06 V2 was rejected for that blind spot).
+
+P08's private per-chunk clip-TC command memo is rejected: actual target command
+checks pass, but PS2 becomes 0.45-0.51 ms slower. Do not promote it or start
+arbitrary cache-size tuning. PS2SDK leaves DMA tag PAD bits 16..25 untouched;
+replay must preserve the destination bits for exact writer-byte comparisons.
+The following P09 tests one expansion acquisition within a synchronous strip
+loop, not a new cache or any relaxed DMA lifetime. Consult its register result
+before generalizing beyond the two selected original road chunks.
+The user stopped P09 before completed pricing and redirected to A01 scene
+amplification. Prioritize owner/view/pass/route lineage and actual clip need,
+not another cache trial. Shared reflections already have a 20-unit ground
+radius and building proxies, but accepted terrain uses the ordinary
+multi-pass renderTerrain path. Count work before proposing lower-detail policy.
+
+Vehicle reflection turn attribution: normal 53.15-53.48 Hz versus frozen paint
+59.94 Hz on the road-free parked sweep. This includes mutable-stream/cache
+consequences, not pure EE arithmetic. The memcpy scatter candidate has no
+repeatable mean gain and stays private. A future VU paint path must retain
+the accepted per-part/LOD paint basis (hysteresis), distinct from capture
+sampling basis, and evaluate before clipping interpolation. See
+`docs/tyrax2-reflection-turn.md`. A private VU input-colour prepass now saves
+1.896-1.938 ms on PS2 (53.5 -> 59.86 Hz), retaining 568 accepted updates.
+It still uploads the old immutable colour stream, preserving packet sizes.
+Host full-shader GIF checks pass including clipping, but actual GS paired
+rasters, production vugen integration and legacy EE/custom-program fallback
+remain prerequisites for promotion. Do not enable its private mode globally.
+The full seven-road midnight sweep retains 1.85-1.90 ms savings but reaches
+only 31.92 Hz (EE controls 30.48): candidate mean/p95 work is 19.13/23.78 ms.
+Roads and night changed together; neither cost is isolated by that comparison.
+The subsequent same-source factorial separates those factors; road omission
+also shifts ride/camera height by .12 (documented, not pure drawing cost).
+Road-only `refineStrips` opt-in is a private follow-up: physical forward/reverse
+saves 0.258-0.388 ms but stays at 48.166 Hz. Separate range oracle passes both
+targets; do not promote without driving/night/lifecycle and raster coverage.
+The later road-submit omission keeps road contact geometry/receivers and
+same camera height, skipping only accepted road draws (including reflections).
+Day PS2 saves 2.943-2.963 ms, 48.166 -> 59.609 Hz: substantial rendering
+cost remains after cheap packing trials. This is destructive attribution,
+not an optimization or pure EE measurement. See the same report before
+repeating whole-road deletion or attributing the difference to physics.
+The day XYZF3 no-kick follow-up keeps VU programs/inputs and packet lengths
+but suppresses road primitive kicks. PS2 gains only +0.008/-0.053 ms, still
+about 48 Hz. Investigate upstream preparation/transfer/VU clipping next, not
+texture bandwidth first; this is not an EE-only attribution. Its private
+bag flag must enter BOTH retained and baked primitive keys to prevent stale
+GIF register lists. No production change; see the same report.
+Road VU/output bypass then holds no-kick on in all arms, selecting mode 3
+for state-only VU output in the candidate. Physical 15.428/15.403/15.363 ms
+still yields ~48 Hz: prioritize selected-road EE preparation and delivery,
+not another VU arithmetic optimization. Input DMA/VIF remains in the price.
+The private 1972/2042-word resident set and three source-level shader oracles
+pass, but no actual hardware instruction trace or production fix is claimed.
+
+Ground-shadow streaming can load PNGs INSIDE `renderScene`: `buildTerrainChunk`
+calls `acquireTexture`, despite that helper's outside-frame upload comment.
+Local physical scopes find 29.568 ms in two acquisitions at z=-53.593 on the
+road-free fixture. Do not blame VU dispatch or remove synchronization for this
+event. See `docs/tyrax2-road-free-hitch.md`; acquisition includes file/decode/
+initial-use costs and is not a pure network timer.
+The generated 1.173.3 runtime preloads whole sets up to a 512 KiB accounted
+EE budget during scene loading. Larger sets retain the old path. These are
+scene texture references, not VRAM pins; preserve independent chunk ownership.
+
+Terrain partial strips: `StaPipBag::refineStrips` defaults false; generated terrain opts in on all five bag construction paths (ground shadows remain triangle lists, so their path is unchanged). The Core-owned lazy ~198 KiB cache holds only local bounds (pointer/count/step/bbox/content version), never view decisions or DMA data. Owners must advance a version on position edits AND storage reuse. Keep identical package sizes and opt-in across coplanar strip passes. Only ordinary VU clipping is supported; billboard/program overrides and allocation failure fall back. See `docs/tyrax2-strip-subranges.md`; do not increase clip capacity to merge boundary chunks.
+
+Producer attribution must follow `submitHeavy`/`dripHeavy`: deferred roads and
+batches execute inside the object loop. Tagging only the surrounding loop
+mislabels their Core time. Preserve both producer and view on the queued item.
+Snapshot arena copies can mix multiple bags; leave them unassigned unless
+ownership is proven. Count actual `cull`/`clip` dispatch separately from created
+package descriptors, including whole-baked replay's closed-form dispatch count.
+See `docs/tyrax2-producer-attribution.md` for the private diagnostic protocol.
+Its twenty-phase PS2 run finds terrain at 3.496 ms Core elapsed in rotation,
+70% of clip chunks, averaging 11.46 input vertices/chunk. Expanded-strip vertex
+reuse is already 97.73%; more payload caching does not remove dispatches.
+Conservative partial-strip subrange classification is integrated for terrain
+in 1.173.2; see its dedicated qualification report. Scoped explicit waits are
+zero; do not infer zero frame waits.
+
+`renderStaticBatches` is not all static geometry. The October8 fixed-view private
+plan trial selects11/13/7 bags but only one partial bag (6/6/4 descriptors).
+Descriptor reuse is mixed; exact-view decision reuse saves only hundredths of
+a millisecond, with a mixed center result. Neither is promoted. Identify the
+actual expensive moving producer before another cache/cluster implementation;
+roads/terrain/solo objects and clip-chunk dispatch are not cleared by this test.
+See `docs/tyrax2-static-plan.md` for36-phase physical evidence and limitations.
+
+`TYRA_STAPIP_PREPARED_STATIC` is a default-off private trial. Outside frame
+recording, prepare static-batch ordinary bodies and strip arrays, retaining
+scene pins within the same 4 MiB budget. Release pins before scene reload;
+version mismatch still invalidates payloads and retired readers remain leased.
+PRIM/LOD state is restored, especially the previous-filter TEX1 contract.
+Six PS2 routes reject promotion: counters-off costs another0.055/0.035 ms,
+peak residency4,106,016 bytes versus about2.8 MB, no reduction in bake misses.
+Preparation28/28 costs28.59-31.32 ms. No production caller; see full-throttle
+report. Readiness does not count later pinned hits; this rejects the tested
+pinning policy, not every possible load-time cluster architecture.
+
+Since 1.173.1, TYRA_STAPIP_PARTIAL_BAKED and TYRA_STAPIP_EXPANSION_CACHE default
+on together. The six-pass PS2 contrast saves 0.514/0.536 ms with counters off,
+about 51% fewer snapshot bytes and 2,806,688-byte peak residency; stable 60
+remains open. Default-route emulator rotation and main/dense/procedural/main
+lifecycle checks pass both actual-writer oracles. See the full-throttle report.
+Historical private fixtures pin these copied defaults off before adding runtime
+gates; --production-defaults deliberately preserves the real route predicates.
+
+TYRA_STAPIP_EXPANSION_CACHE borrows
+versioned strip-to-list arrays from the existing 4 MiB baked budget/retirement
+leases, using tagged package sizes to separate them from VIF streams. Preserve
+triangle parity and the fresh clip mask. TYRA_ENVMAP_COALESCE_BARRIER omits only
+the recording-mode env align3D duplicated by recordGif; synchronous fences,
+TEXFLUSH and final completion remain. See the full-throttle report.
+The chunk-cache pilot exceeded the 512-span registry and contaminated return
+controls. Cache whole strip runs instead and reject failed registration; never
+publish a permanently copy-only entry. The corrected eight-pass PS2 trial saves
+0.481/0.463 ms (always-on observer), but barrier-only has no useful gain and
+remains off. The combined qualification above supersedes expansion's off status.
+
+Partial baked reuse: `TYRA_STAPIP_PARTIAL_BAKED` defaults on. It keeps
+classification and clipping, prebuilds original fixed slices with actual writers,
+and borrows geometry bodies from existing versioned/leased arenas. Regenerate
+the standard header and MSCAL/MSCNT for the current program: cached whole-block
+entry state is not valid for arbitrary partial subsets. The separate
+`TYRA_STAPIP_PARTIAL_BAKED_VERIFY` oracle compares actual-writer bytes per replay;
+its timings are never performance evidence. See `docs/tyrax2-full-throttle.md`.
+Six PS2 passes completed: counters-off savings 0.259/0.286 ms, snapshot bytes
+down about 31%, but no stable60. The later combined trial qualified promotion.
+
+Submission candidate: `docs/tyrax2-full-throttle.md` records fused snapshot
+fixup/native emission and single-lookup immutable borrowing. Preserve snapshot
+ownership, stable resolver/idempotent bank leases, writer rollback and fallback.
+The 18-pass `--submit-fix` trial prices each candidate and their combination;
+host byte equivalence is not physical acceptance. Both default changes were
+removed: fused loses in both measured orders; single lookup is mixed and its
+reverse/combined arms did not run after a phase9 reload stall. Candidate patches
+are private-fixture inputs only. Burnout debugger evidence
+shows reusable CALL/RET subchains and compact UNPACK formats, not an EE timing
+comparison. Do not mistake idle TADR or PINE MMIO zeroes for a frame chain.
+
 Ordinary timing trap: any nonzero `TYRA_FRAME_PROFILE`, including 2, enables
 the fairness `sync.align3D()` drain in RendererCore::endFrame. Level 2 drops
 the packet walker but still serializes completion; matching HUD SCENE does not
@@ -1392,6 +2373,15 @@ the prior mixColor, so generic restoration must respect assigned-field semantics
   commands. Any diagnostic startup capsule must use the approved payload,
   consume its actual FINISH, retain owned REF data and account for reset cost.
   An owned captured chain alone does not qualify standalone replay.
+- **Frozen replay must freeze the outer diagnostic lifecycle too.** A18's
+  game-loop early return did not stop Engine's inherited MotionProbe begin/end;
+  it resumed sampling, wrote its CSV and advanced phases during the frozen
+  experiment. V4 suspends both hooks, not just their flags on the first frame.
+  Its current capsule checks resident images and actual VIF prestate; DBF=0
+  needs two prepared draw-finish handshakes, DBF=1 one. Hybrid presentation
+  remains live GIF work after synchronizeFrame, so all priced routes also
+  fence presentation completion. Never convert serialized frozen totals into
+  live-game FPS or transplant old hardcoded microprogram addresses.
 - **A same-ELF observer switch is a net routing test, not a pure hook bill.**
   Reverse the arm order and retain rejected controls. The dispatch calibration
   first rejected camera drift with live physics, then reversed its work delta

@@ -24,6 +24,7 @@ StaPipBag::StaPipBag() {
   contentVersion = nullptr;  // Modified by TyraX: content stamp, opt-in
   packageSize = 0;  // Modified by TyraX: 0 = derive from the program class
   stripped = false;  // Modified by TyraX: triangle list unless told otherwise
+  refineStrips = false;  // Generated terrain opts in for all coplanar passes.
 }
 
 StaPipBag::~StaPipBag() {}

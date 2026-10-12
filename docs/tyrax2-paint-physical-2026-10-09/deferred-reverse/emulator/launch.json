@@ -1,0 +1,16 @@
+{
+  "pid": 361,
+  "xvfbPid": 350,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-paint-qualification-20261009-reverse-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-paint-qualification-20261009-reverse-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-paint-qualification-20261009-reverse-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "7704395cd5d451a9e436bbb69fd5f342c6d37dd6c37dc59839c80c85a18c6fb5"
+}

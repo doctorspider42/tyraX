@@ -227,6 +227,8 @@ FrameVifWriter nativeStorage[2] = {FrameVifWriter(nullptr, 0),
                                  FrameVifWriter(nullptr, 0)};
 FrameVifWriter* nativeWriter = nullptr;
 u32 nativePendingSequence = 0, nativeInFlight = 0, nativeBatches = 0;
+// Presentation outlives the next recording bank's transient nativeInFlight.
+volatile u32 nativePresentationSequence = 0;
 bool framePipelined = false, protectRecording = false;
 void (*beforeFrameSubmit)(void*) = nullptr;
 void* beforeFrameUser = nullptr;
@@ -486,6 +488,7 @@ void Vif1Queue::enqueue(const void* chain, u32 sequence) {
   // An oversized/unowned first operation has no prefix to flush. It still
   // must hand off the previous display target before starting direct DMA.
   if (frameRecording) completeBeforeSubmission();
+  nativePresentationSequence = 0;
 #endif
   const u32 addr = reinterpret_cast<u32>(chain);
   advanceIfIdle();  // also what starts the queue when the interrupt does not
@@ -511,6 +514,20 @@ void Vif1Queue::enqueue(const void* chain, u32 sequence) {
   }
 #if TYRA_VIF1_QUEUE_ISR
   EIntr();
+#endif
+}
+
+bool Vif1Queue::canCopyCompletedNativeFrame(u32 sequence) {
+#if TYRA_FRAME_PIPELINE_SUPPORT
+  if (!sequence || !framePipelined || nativePresentationSequence != sequence ||
+      head != tail || (*kChcr & kStr) || runningSequence != sequence)
+    return false;
+  // A non-ISR queue may still mark the now-idle old DMA as running. Its
+  // exact last-started identity is sufficient; do not advance it from ISR.
+  return running || completed == sequence;
+#else
+  (void)sequence;
+  return false;
 #endif
 }
 
@@ -633,6 +650,7 @@ void Vif1Queue::endRecordingFrame() {
   }
   frameRecording = false;
   flushRecording();
+  if (framePipelined) nativePresentationSequence = nativeInFlight;
   if (!framePipelined) {
     drain();
     volatile u32* const stat = reinterpret_cast<volatile u32*>(0x10003c00);

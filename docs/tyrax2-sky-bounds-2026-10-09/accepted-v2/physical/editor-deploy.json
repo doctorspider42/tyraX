@@ -1,0 +1,15 @@
+{
+  "pid": 31832,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-sky-bounds-20261009-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "43b51378e4f0cd77ca8d3fb65b5afd2d213aeffa69c03e6fc7cb94227bc864eb",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T00:58:24.5884733+02:00"
+}

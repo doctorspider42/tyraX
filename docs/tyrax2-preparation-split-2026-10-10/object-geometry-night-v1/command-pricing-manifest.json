@@ -1,0 +1,21 @@
+{
+  "stages": [
+    0,
+    0,
+    1,
+    0,
+    2,
+    0,
+    2,
+    0,
+    1,
+    0
+  ],
+  "length": 224,
+  "sampleRange": [
+    64,
+    192
+  ],
+  "scope": "Frozen Scene; fixed captured target; inclusive completion less pacing; helper cost retained; no update/HUD/postFX",
+  "config": "Optional three-path.cfg: phase(0 or3) offset(1200..1600)"
+}

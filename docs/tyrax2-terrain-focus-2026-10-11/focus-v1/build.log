@@ -1,0 +1,11 @@
+A28 V1 native build record (abridged tool transcript, not full compiler stdout).
+Command:
+tools/toolchain/native-build.ps1 -Project F:/Projects/tyrax2-terrain-focus-20261011-v1/game -Engine F:/Projects/tyrax2-terrain-focus-20261011-v1/tyra -Cache C:/Users/pawel/AppData/Local/tyra-editor/native-build -Toolchain C:/Users/pawel/AppData/Local/tyra-editor/toolchain
+Result: exit code 0.
+[editor] Using WSL filesystem build cache...
+[editor] Engine sources changed - rebuilding libtyra...
+[editor] Native build complete: /mnt/f/Projects/tyrax2-terrain-focus-20261011-v1/game/bin
+Verification:
+tyrax2-motion-run.py verify /mnt/f/Projects/tyrax2-terrain-focus-20261011-v1 --symbol TerrainFocus::x
+Result: exit code 0; source/mirror/ELF agreement: 478 files.
+ELF SHA256: d08255fa22677a6882e581744435aab82da0ccfa8d37794702f2db2a5acddb59

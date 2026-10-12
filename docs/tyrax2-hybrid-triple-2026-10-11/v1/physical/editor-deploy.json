@@ -1,0 +1,16 @@
+{
+  "pid": 15024,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-hybrid-triple-20261011-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "108375b73a831bb3a559ba997f3b4e7c0e4610ae89aa004f9018549f7dddf5cf",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-11T15:56:31.4334878+02:00"
+}

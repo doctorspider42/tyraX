@@ -21,6 +21,23 @@ Four modules in `src/`, host-only, no GL and no `project.hpp` (the
 tyrax-editor --vu-check
 ```
 
+## Private paint qualification
+
+`vugen::buildPaintExperiment` emits separately named Cull TCE, Clip TC and
+reference Clip TCE images for the C16 qualification work. It is deliberately
+absent from `allDescs`, `--vu-emit`, project settings and engine defaults.
+The loop replaces VU-local input colours before clipping when OPTIONS.y is 2,
+using the accepted basis at 12/13; input and output layouts stay unchanged.
+Ordinary output is checked byte-for-byte across all 45 emitted files.
+
+The engine exposes a default-OFF `TYRA_VU1_EXP_PAINT` capability and uniforms;
+this is not enabled in generated games. EE/VU representation readiness and
+normal-content invalidation still need the A08 integration; custom programs,
+lighting and legacy clipping require fallback. `vclpp` has no conditional
+preprocessor: select whole images in C++ wrappers, and keep TC/TD/TCE on one
+shared clip image. A disabled per-bag flag does not remove an added shader's
+size or branch overhead. See [reflection qualification](tyrax2-reflection-turn.md).
+
 ## Why this, and not "a compiler for VU"
 
 There is no C++ compiler that targets the VU, and there should not be one here.

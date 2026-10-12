@@ -1,0 +1,5 @@
+PASS ordinary descriptions=15
+PASS paint=stapip_cull_tce_vu1 modes=4 negative=specular-zero
+PASS paint=stapip_clip_tc_vu1 modes=4 negative=specular-zero
+PASS paint=stapip_clip_tce_vu1 modes=4 negative=specular-zero
+PASS compared draws=8400 unsupported=12 custom=3 negative=3

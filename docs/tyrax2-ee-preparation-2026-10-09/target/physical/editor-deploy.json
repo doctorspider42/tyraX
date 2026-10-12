@@ -1,0 +1,15 @@
+{
+  "pid": 20616,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-target-audit-20261009-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "406f6b5109136aaa3b3cff2d882b050a640c42294b57f0100e86bf422845076b",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T12:56:40.4958279+02:00"
+}

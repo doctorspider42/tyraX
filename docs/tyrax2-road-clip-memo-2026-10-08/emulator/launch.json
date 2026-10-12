@@ -1,0 +1,16 @@
+{
+  "pid": 31,
+  "xvfbPid": 20,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-road-clip-memo-day-20261008-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-road-clip-memo-day-20261008-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-road-clip-memo-day-20261008-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "64ddda9e424e7d60f2099f177e79f88ab12495ae66afd2a8e3329b06afcace99"
+}

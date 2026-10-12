@@ -1,0 +1,13 @@
+{
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "0ec57f6287c35374a10c3fcd16326bb00bd7485c160a98f20d8d69083b49c82c",
+  "startedUtc": "2026-10-07T22:14:00.8756194Z",
+  "pid": 8004,
+  "cwd": "F:/Projects/tyrax2-clip-followup-20261008-v3/physical/bin"
+}

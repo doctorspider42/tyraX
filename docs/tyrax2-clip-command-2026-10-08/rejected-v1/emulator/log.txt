@@ -1,0 +1,9 @@
+
+==============  TYRAX  =============
+| Assertion failed!
+|
+| Clip command memo changed packet bytes
+|
+| File : src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp:88
+====================================
+

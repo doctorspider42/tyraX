@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "negativeControls": [
+    "missing join stage",
+    "unexpected active control",
+    "impossible accepted count",
+    "missing checked bytes",
+    "missing completion",
+    "changed candidate raster",
+    "qualification manifest removed"
+  ]
+}

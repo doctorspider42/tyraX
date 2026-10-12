@@ -1,0 +1,16 @@
+{
+  "pid": 31,
+  "xvfbPid": 20,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-sky-bounds-20261009-v2/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-sky-bounds-20261009-v2/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-sky-bounds-20261009-v2/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "43b51378e4f0cd77ca8d3fb65b5afd2d213aeffa69c03e6fc7cb94227bc864eb"
+}

@@ -1,0 +1,3 @@
+PASS controls=240 bypass=120 corrupt-EOP-rejected=120 /mnt/f/Projects/tyrax2-road-vu-day-20261008-v1/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+PASS controls=240 bypass=120 corrupt-EOP-rejected=120 /mnt/f/Projects/tyrax2-road-vu-day-20261008-v1/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.vclpp
+PASS controls=240 bypass=120 corrupt-EOP-rejected=120 /mnt/f/Projects/tyrax2-road-vu-day-20261008-v1/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.vclpp

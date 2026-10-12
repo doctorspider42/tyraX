@@ -1,0 +1,65 @@
+{
+  "phase": 0,
+  "qualifiedObserver": false,
+  "comparisons": [
+    {
+      "arms": [
+        0,
+        1
+      ],
+      "exactStreamEqual": true,
+      "plainNopInsensitiveEqual": true,
+      "commandCounts": [
+        6168,
+        6168
+      ],
+      "streamBytes": [
+        1688760,
+        1688760
+      ],
+      "firstDifferentCommand": null,
+      "differentCommandRecords": 0
+    },
+    {
+      "arms": [
+        0,
+        2
+      ],
+      "exactStreamEqual": true,
+      "plainNopInsensitiveEqual": true,
+      "commandCounts": [
+        6168,
+        6168
+      ],
+      "streamBytes": [
+        1688760,
+        1688760
+      ],
+      "firstDifferentCommand": null,
+      "differentCommandRecords": 0
+    },
+    {
+      "arms": [
+        1,
+        2
+      ],
+      "exactStreamEqual": true,
+      "plainNopInsensitiveEqual": true,
+      "commandCounts": [
+        6168,
+        6168
+      ],
+      "streamBytes": [
+        1688760,
+        1688760
+      ],
+      "firstDifferentCommand": null,
+      "differentCommandRecords": 0
+    }
+  ],
+  "limits": [
+    "Partial cold analysis, not full observer/raster qualification.",
+    "Only zero command words are ignored; zero payload words remain data.",
+    "NOP-insensitive equality is not equal timing or initial VIF/VU/GS state."
+  ]
+}

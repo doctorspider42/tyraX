@@ -1,0 +1,419 @@
+[editor] Run on PS2: character-generator -> 192.168.100.150 ("F:\Projects\tyra-editor\tools\ps2client\bin\ps2client.exe" -h 192.168.100.150 execee host:character-generator.elf -ps2link)
+loadelf: fname host:character-generator.elf secname all
+öŸo³Input ELF format filename = host:character-generator.elf
+1 00100000 0032933c ...................................................
+Loaded, host:character-generator.elf
+start address 0x100e78
+gp address 00000000
+read/write allocate memory 4000
+LOG: IRX: Loading sio2man...
+LOG: IRX: Sio2man loaded!
+LOG: IRX: Loading padman...
+Pad Driver for OSD
+LOG: IRX: Padman loaded!
+LOG: IRX: Loading libsd...
+FREESD v1.01
+LOG: IRX: Libsd loaded!
+LOG: IRX: Loading ps2snd...
+debug_level = 1 (ps2snd 0.1
+LOG: IRX: ps2snd loaded!
+LOG: IRX: Loading audsrv...
+greetings from version 0.93 !
+audsrv_adpcm_init()
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x448 x2, z 512x448 at 458752, drawing into 0, showing 1
+open name rom0:ROMVER flag 1 data 41378
+open fd = 3
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Env map target disabled - no VRAM reserved
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+audsrv_adpcm_init()
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad state changed
+Curent pad(0,0) status: FINDPAD
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPipQBufferRenderer initialized
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+loadmodule: fname rom0:XMCMAN args 0 arg 
+loadmodule: id 38, ret 0
+loadmodule: fname rom0:XMCSERV args 0 arg 
+loadmodule: id 39, ret 0
+LOG: Save system: no memory card - using host files
+open name host:/save0.sav flag 1 data 41378
+open fd = -1
+open name host:/save1.sav flag 1 data 41378
+open fd = -1
+open name host:/save2.sav flag 1 data 41378
+open fd = -1
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-used.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-saved.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-loaded.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-error.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-busy.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-spinner.png flag 1 data 41378
+open fd = 3
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/menus/character.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/menu-dim.png flag 1 data 41378
+open fd = 3
+open name host:/hud/use.png flag 1 data 41378
+open fd = 3
+open name host:/hud/pickup.png flag 1 data 41378
+open fd = 3
+open name host:/hardware-trace.cfg flag 1 data 41378
+open fd = -1
+open name host:/launch.scene flag 1 data 41378
+open fd = 3
+remove file host:/launch.scene 
+mkdir name host:/launch.scene 
+mkdir wrong mode, using fallback value 493
+open name host:/hud/loading.png flag 1 data 41378
+open fd = 3
+LOG: SIF RPC guard: seen 266, guarded 0
+open name host:/models/characters/hero.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-newsboy.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-newsboy.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-fedora.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-fedora.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-santa.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-santa.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-glasses1.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-glasses1.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-roundglasses.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-roundglasses.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-shades.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-shades.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_skin.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_accessories.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-newsboy.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-fedora.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-santa.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-glasses1.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-roundglasses.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-shades.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_skin.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_accessories.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-newsboy.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-fedora.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-santa.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-glasses1.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-roundglasses.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-shades.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_skin.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_accessories.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-newsboy.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-fedora.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-head-santa.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-glasses1.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-roundglasses.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-face-shades.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_optd-hair-short2.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short1.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-short4.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-messy.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-afro.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/hero_opt-hair-long.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/clerk.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/clerk_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/clerk_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/clerk_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/clerk_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/dockhand.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/dockhand_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/dockhand_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/dockhand_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/dockhand_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/kid.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/kid_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/kid_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/kid_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/kid_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/punk.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/punk_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/punk_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/punk_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/punk_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/elder.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/elder_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/elder_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/elder_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/elder_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter.tskl flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.png flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.v1.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.v2.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.v3.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.v4.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.v4.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_skin.v5.pal flag 1 data 41378
+open fd = 3
+open name host:/models/characters/commuter_accessories.v5.pal flag 1 data 41378
+open fd = 3
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+==WARN: Frames count should be greater than 1 for DynamicMesh! Maybe you should use StaticMesh?
+LOG: Static batching: 0 objects in 0 batches
+LOG: Static batching: eligible 5, solo 5, base cell 48, widest cell 48
+LOG: Static batching: partial models kept solo 0
+LOG: TERRAINSTRIP scene 0 chunk 0,0 strips 0 vertices 1536 packages 21 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,0 strips 0 vertices 1536 packages 21 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 0,1 strips 0 vertices 1536 packages 21 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 1,1 strips 0 vertices 1536 packages 21 triangles 512
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: VU1 experiment (b): first folded light upload
+open name host:/fonts/atlas-default.png flag 1 data 41378
+open fd = 3
+LOG: SIF RPC guard: seen 6567, guarded 0
+LOG: SIF RPC guard: seen 6568, guarded 0
+LOG: SIF RPC guard: seen 6569, guarded 0
+LOG: SIF RPC guard: seen 6570, guarded 0
+[editor] ps2client exited - end of session.

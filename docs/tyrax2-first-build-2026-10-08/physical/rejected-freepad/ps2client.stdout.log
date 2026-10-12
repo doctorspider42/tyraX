@@ -1,0 +1,256 @@
+loadelf: fname host:vehicle-playground.elf secname all
+ ()ù6Input ELF format filename = host:vehicle-playground.elf
+1 00100000 00406dbc .................................................................
+Loaded, host:vehicle-playground.elf
+start address 0x100e78
+gp address 00000000
+Pad Driver for OSD
+FREESD v1.01
+debug_level = 1 (ps2snd 0.1
+greetings from version 0.93 !
+audsrv_adpcm_init()
+read/write allocate memory 4000
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+audsrv_adpcm_init()
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: FINDPAD
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+open name host:/road-frames.csv flag 602 data 41378
+open fd = 3
+open name host:/road-bags.csv flag 602 data 41378
+open fd = 4
+open name host:/drive-probe.csv flag 602 data 41378
+open fd = 5
+LOG: DRIVEINIT rowsBytes=460800 profile=0 hardwareTrace=0
+loadmodule: fname rom0:XMCMAN args 0 arg 
+loadmodule: id 38, ret 0
+loadmodule: fname rom0:XMCSERV args 0 arg 
+loadmodule: id 39, ret 0
+open name host:/save0.sav flag 1 data 41378
+open fd = -1
+open name host:/save1.sav flag 1 data 41378
+open fd = -1
+open name host:/save2.sav flag 1 data 41378
+open fd = -1
+open name host:/menus/save.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-used.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-saved.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-loaded.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-error.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-busy.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-spinner.png flag 1 data 41378
+open fd = 6
+open name host:/menus/save.png flag 1 data 41378
+open fd = 6
+open name host:/menus/district-pause.png flag 1 data 41378
+open fd = 6
+open name host:/menus/district-pause-values.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 6
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 6
+open name host:/hud/menu-dim.png flag 1 data 41378
+open fd = 6
+open name host:/hud/flare-corona.png flag 1 data 41378
+open fd = 6
+open name host:/hud/flashlight-gobo.png flag 1 data 41378
+open fd = 6
+open name host:/hud/flare-glow.png flag 1 data 41378
+open fd = 6
+open name host:/hud/sun-disc.png flag 1 data 41378
+open fd = 6
+open name host:/hud/moon-disc.png flag 1 data 41378
+open fd = 6
+open name host:/hud/use-text.png flag 1 data 41378
+open fd = 6
+open name host:/hud/pick-text.png flag 1 data 41378
+open fd = 6
+open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+open fd = 6
+open name host:/sfx/engine_high.adpcm flag 1 data 41378
+open fd = 6
+open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+open fd = 6
+open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+open fd = 6
+open name host:/launch.scene flag 1 data 41378
+open fd = -1
+open name host:/hud/loading.png flag 1 data 41378
+open fd = 6
+FRAMEARENA allocated=1 bytes=1048576
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 6
+open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+open fd = 6
+open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+open fd = 6
+open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+open fd = 6
+open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_0.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_0.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_1.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_2.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_1_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_2_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_4_3.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_4.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_0_4.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_4.png flag 1 data 41378
+open fd = 6
+open name host:/gshadow/s0_3_4.png flag 1 data 41378
+open fd = 6
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 6
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 6
+open name host:/materials/district-asphalt.mtl flag 1 data 41378
+open fd = 6
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 6
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 6
+open name host:/materials/district-sign.mtl flag 1 data 41378
+open fd = 6
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 6
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 6
+open name host:/materials/night-warm.mtl flag 1 data 41378
+open fd = 6
+open name host:/materials/night-cyan.mtl flag 1 data 41378
+open fd = 6
+open name host:/materials/night-pink.mtl flag 1 data 41378
+open fd = 6
+open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+open fd = 6
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 6
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 6
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142
+freepad: DMA Busy ID = 07040102 ret = 0
+freepad:         SB_STAT = 00f00142

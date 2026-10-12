@@ -63,6 +63,24 @@
 #define TYRA_STAPIP_BAKED_STREAM 1
 #endif
 
+// Modified by TyraX: reuse immutable geometry on partial visibility too.
+// Combined physical qualification: docs/tyrax2-full-throttle.md.
+#ifndef TYRA_STAPIP_PARTIAL_BAKED
+#define TYRA_STAPIP_PARTIAL_BAKED 1
+#endif
+#ifndef TYRA_STAPIP_PARTIAL_BAKED_VERIFY
+#define TYRA_STAPIP_PARTIAL_BAKED_VERIFY 0
+#endif
+#ifndef TYRA_STAPIP_EXPANSION_CACHE
+#define TYRA_STAPIP_EXPANSION_CACHE 1
+#endif
+#ifndef TYRA_STAPIP_EXPANSION_VERIFY
+#define TYRA_STAPIP_EXPANSION_VERIFY 0
+#endif
+#ifndef TYRA_STAPIP_PREPARED_STATIC
+#define TYRA_STAPIP_PREPARED_STATIC 0
+#endif
+
 // The periodic STAPIPBAKE / STAPIPQW readout. Same reasoning as the
 // STAPIPRET one below: a host: write inside a sampling window is noise with a
 // period, so it is opt-in even though it only prints COUNTS. Build both arms
@@ -308,6 +326,9 @@ class StaPipRetainedCommands {
  *   at frame end, after the pipeline's own flush.
  */
 struct StaPipBakedEntry {
+#if TYRA_STAPIP_PREPARED_STATIC
+  bool scenePinned = false;
+#endif
   // The key. Identical to the retained one plus the program's VU1 destination
   // address, because the baked block carries the MSCAL that names it.
   const void* vertices;
@@ -387,6 +408,11 @@ struct StaPipBakedEntry {
  * kilobytes, because every entry carries a copy of its bag's vertex payload. */
 class StaPipBakedStreams {
  public:
+#if TYRA_STAPIP_PREPARED_STATIC
+  void releaseScenePins() {
+    for (auto& entry : storage) entry->scenePinned = false;
+  }
+#endif
   /** The budget, in quadwords. 262 144 qw = 4 MB of EE RAM. The Motor
    * District garage's cull-routed working set alone is about 2.9 MB at
    * 3 696 bytes a package, so this is a real bound and it is meant to be read
@@ -652,6 +678,25 @@ class StaPipQBufferRenderer {
                            StaPipVU1Program* const* programs, u32 count);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
 
+  /** Paint eligibility, NOT a request to silently discard paint at draw time.
+   * Query before preparing the EE/VU representation. Rejected requests assert
+   * at submission (skip the draw under NDEBUG) rather than rendering stale
+   * EE colours. The caller owns correct fallback materialization. */
+  bool supportsPaintVu(const StaPipBag* bag) const {
+#if TYRA_VU1_EXP_PAINT
+    return vu1Clipping && !repository.hasAnyOverride() &&
+        (residentClasses & StaPipClassTextureEnv) != 0 &&
+        bag && bag->texture && bag->texture->texture &&
+        bag->texture->coordinates && bag->texture->coordinatesAreNormals &&
+        bag->texture->textureFunction == 3 && bag->color && bag->color->many &&
+        !bag->color->single && !bag->lighting && !bag->billboard &&
+        bag->info && bag->info->transformationType == TyraMVP;
+#else
+    (void)bag;
+    return false;
+#endif
+  }
+
   /** TyraX addition: the two quadwords a project's own microprogram reads
    * (docs/vu-authoring.md) - four numbers the game sets per mesh, and the
    * clock. They land at VU1_CUSTOM_PARAMS_ADDR / VU1_CUSTOM_TIME_ADDR, which
@@ -744,17 +789,28 @@ class StaPipQBufferRenderer {
   /**
    * Modified by TyraX: the BAKED VIF STREAM spike
    * (docs/baked-vif-stream.md). Opened by StaPipCore for the DIRECT,
-   * wholly-visible cull route ONLY - the one branch whose packages are a fixed
+   * wholly-visible cull route by default - the branch whose packages are a fixed
    * slice of the bag and whose MSCAL/MSCNT sequence is therefore a bake-time
    * fact (render() calls clearLastProgramName() per bag, so package 0 always
    * gets MSCAL and the rest always get MSCNT).
    *
    * Returns true when this bag's packages may carry a bake index. Everything
-   * else - partial bags, the clip route, copied/strip-expanded buffers,
+   * else - the clip route, copied/strip-expanded buffers,
    * billboards and any game-supplied program override - falls through to the
    * path it took before, unchanged.
+   * Experimental partial=true prebuilds fixed slices and replays only their
+   * geometry bodies, regenerating the header and program kick per buffer.
+   * TYRA_STAPIP_PARTIAL_BAKED can disable this route for comparison.
    */
-  bool beginBakedBag(StaPipBag* bag, const u32& packageSize);
+  bool beginBakedBag(StaPipBag* bag, const u32& packageSize,
+                     bool partial = false);
+#if TYRA_STAPIP_PREPARED_STATIC
+  bool prepareStaticGeometry(StaPipBag* bag, u32 packageSize, u32 clipSize);
+  void releasePreparedGeometry() { baked.releaseScenePins(); }
+#endif
+  // Experimental immutable strip expansion; shares baked budget and leases.
+  bool fillCachedStrip(StaPipQBuffer* buffer, const StaPipBagPackage& package,
+                       u32 firstTriangle, u32 triangleCount);
   /**
    * Modified by TyraX: replay a COMPLETE baked bag with ONE DMA REF tag,
    * bypassing the qbuffer ring entirely.
@@ -987,6 +1043,14 @@ class StaPipQBufferRenderer {
    * Mirrors retainedCurrent, and for the same reason: every buffer in a flush
    * belongs to one bag. */
   StaPipBakedEntry* bakedCurrent = nullptr;
+  bool bakedPartial = false;
+  packet2_t* partialBakePacket = nullptr;
+  bool preparePartialBakedBag(StaPipBag* bag, u32 packageSize);
+#if TYRA_STAPIP_PREPARED_STATIC
+  bool preparingStatic = false;
+#endif
+  bool replayPartialBakedBuffer(packet2_t* packet, StaPipQBuffer* buffer,
+                                 StaPipVU1Program* program, bool emitState);
 
   /** Transcode a finished DMA chain fragment of the current packet into a
    * pure VIFcode stream and append it to bakeScratch as package `index` of

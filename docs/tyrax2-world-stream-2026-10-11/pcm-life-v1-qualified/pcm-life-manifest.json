@@ -1,0 +1,18 @@
+{
+  "baseElfSha256": "97a2af0076bdacf5c2100384b65d3c1d79853f4f92ec22b8a4c9c37ed01eb05b",
+  "wavSha256": "a280f229a11165aba6e8ec8cfa70727249aa3e72e58ca1cf4a3aa8361fcf3cca",
+  "format": {
+    "rate": 22050,
+    "channels": 1,
+    "bits": 16,
+    "frames": 46596
+  },
+  "generatorSha256": "2cca2f92a9e6579d48205e9719e5feb67f72323ae46e13c7913f987c56506400",
+  "status": "UNQUALIFIED",
+  "componentOnly": true,
+  "limits": [
+    "No world/FPS/visual qualification; normal game init is intentionally suspended after component.",
+    "Actual feed callbacks, play/stop/resume and kernel waiter; audible quality still separate.",
+    "Restore bound PCM WAV into game/bin after native build if staging filters WAVs."
+  ]
+}

@@ -1,5 +1,33 @@
 # Not re-baking wheels that did not move
 
+Private performance follow-up (2026-10-12): `tools/tyrax2-wheel-vu-fixture.py`
+tests immutable local wheel meshes/live standard VU matrices against this
+existing EE batch, preserving all skip/trig/strip work below. Four per-wheel
+draws may outweigh the vertex work removed; no net result yet. It retains
+source padding/rig/LOD/material/visibility and drains before owned sources are
+released. VU MVP arithmetic and per-wheel light bounds can differ: full exact
+image/moving/lifetime qualification precedes physical pricing. This is NOT a
+production change or a claim that old Motor District timing applies now.
+Fresh V2 native503 and full emulator qualification pass54 exact images/3942
+poses; ON actually draws four local wheels/car.5397600 new-path input vertices
+per trip are not eliminated EE work (old still-rig skip remains). Physical net
+is unmeasured; no default change. Original rejected V1 was a helper type typo.
+V2 subsequently passes FULL real PS2 gate54 exact images/3942 poses, with net
+savings0.543/0.495ms in both orders.57.58..57.68Hz/21..22 late intervals is
+NOT stable60. This includes added parked-car heads; it is not isolated vertex
+arithmetic timing. Keep private pending night/variable-dt/public integration.
+Follow-up `--moving-only` retains zero-speed rigs in this existing CURRENT-
+state batch, using local VU meshes only for nonzero-speed cars. Zero speed
+does not mean unchanged suspension/spin: ordinary logic still decides rebakes.
+WHEELSTATIC requires positive retained batches; hybrid qualification pending.
+Hybrid V3 native503/FULL emulator qualification passes54 exact images/3942
+poses with positive1815 new VU car submissions AND2683 ordinary retained
+batches/trip. Source geometry/visible pixels preserved. Physical pricing open.
+V3 then passes FULL real PS2 gate54 images/3942 poses:537 VU car submissions
+plus3961 ordinary retained batches. Net+0.512/+0.481ms,57.68..57.79Hz/20..21
+late intervals is NOT60.1284-file physical archive replays both qualifiers.
+No additional saving over V2 is proved by cross-ELF comparison; keep private.
+
 `renderVehicleWheels` rebuilt every wheel vertex of every visible car in world
 space on the EE, every frame, and then told the renderer the vertex buffer had
 changed whether it had or not. The render-submission attribution priced that at

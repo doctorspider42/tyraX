@@ -1,0 +1,4 @@
+fpp target physics/header syntax: PAINT=0 passed
+fpp target physics/header syntax: PAINT=1 passed
+orbit target physics/header syntax: PAINT=0 passed
+orbit target physics/header syntax: PAINT=1 passed

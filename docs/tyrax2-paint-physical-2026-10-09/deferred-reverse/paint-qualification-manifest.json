@@ -1,0 +1,34 @@
+{
+  "experiment": "A13 lean same-ELF EE/VU paint; physical qualification pending",
+  "baseline": "F:\\Projects\\tyrax2-paint-drive-20261009-v2",
+  "baselineElf": "5d1fb516212f1dc46bd5e439827a5dc2f511ab606337766bcd71678977714d43",
+  "modes": [
+    6,
+    0,
+    6,
+    6,
+    0,
+    6
+  ],
+  "hardwareTrace": 0,
+  "frameProfile": 0,
+  "hours": [
+    12,
+    12,
+    12,
+    0,
+    0,
+    0
+  ],
+  "sampleStart": 1200,
+  "gasStart": 1320,
+  "maxRows": 1200,
+  "endZ": 108,
+  "productionPaintSha256": "82c5dc7f24bf6c24193daae7277b9b7b6a0f9d60a3be76ae710f99f7b7100793",
+  "limitations": [
+    "same compiled paint images in both controls; not flag-OFF whole-image price",
+    "light per-draw counters and deferred CSV remain; common observer cost unpriced",
+    "camera sweep during straight driving; not a standalone parked-turn benchmark",
+    "no physical target available; do not deploy or infer PS2 speed from emulator"
+  ]
+}

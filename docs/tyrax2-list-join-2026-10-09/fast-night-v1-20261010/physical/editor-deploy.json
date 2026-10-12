@@ -1,0 +1,16 @@
+{
+  "pid": 22152,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-list-join-fast-20261010-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "f953266749466db93ef72907e5e05118fa79d3100373006c8234606af93bcdd4",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-10T22:34:10.7121719+02:00"
+}

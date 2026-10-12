@@ -1,0 +1,16 @@
+{
+  "pid": 30276,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-clip-ring-20261011-runtime-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "2a1a2dc892e16f8263ab256052d43d38c2f6e978bb176b6d036a4619bf5a4cd9",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-11T02:23:05.8047041+02:00"
+}
