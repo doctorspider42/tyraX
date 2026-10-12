@@ -12,19 +12,8 @@ CACHE_ROOT=$3
 PS2DEV_ROOT=$4
 REBUILD=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
-
-# macOS: Homebrew's GNU make 4 and rsync 3 (prepare-host.sh checks both) must
-# win over the system's make 3.81 and openrsync, also when the editor was
-# started from Finder with a bare PATH. Everything below stays bash 3.2- and
-# BSD-userland-clean for the same host: no mapfile, no `sed -i`.
-MAKE=make
-if [ "$(uname -s)" = Darwin ]; then
-  for d in /opt/homebrew/bin /usr/local/bin; do
-    [ -d "$d" ] && PATH="$d:$PATH"
-  done
-  export PATH
-  MAKE=gmake
-fi
+# Runs on macOS too, with the system's own bash 3.2, make 3.81 and rsync
+# (openrsync since 15.4): no mapfile, no `sed -i`, nothing GNU-only.
 
 case "$CACHE_ROOT" in
   /*) ;;
@@ -174,7 +163,7 @@ fi
 # Always ask make: a failed compile can leave synced sources beside stale
 # objects, and a changed Makefile must invalidate the old compiler flags.
 # An unchanged engine is a cheap no-op now that its archive target is real.
-$MAKE -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
+make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Project-authored VU programs are host C++, just as in the Docker backend.
 if find "$PROJECT/src/vu" "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' \
@@ -199,7 +188,7 @@ echo "[editor] Compiling natively (PS2DEV + OpenVCL)..."
 for sym in "$PROJECT/bin/"*.elf.sym; do
   [ ! -e "$sym" ] || [ -w "$sym" ] || rm -f "$sym"
 done
-$MAKE -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
+make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
   ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base" \
   NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 

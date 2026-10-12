@@ -50,8 +50,8 @@ fi
 
 bash "$HERE/prepare-host.sh" --check
 
-# macOS: Homebrew's GNU make/rsync must win over the system's make 3.81 and
-# openrsync, also when the editor was started from Finder with a bare PATH.
+# macOS: Homebrew's cmake (to build OpenVCL) must be found also when the
+# editor was started from Finder with a bare PATH.
 if [ "$(uname -s)" = Darwin ]; then
   for d in /opt/homebrew/bin /usr/local/bin; do
     [ -d "$d" ] && PATH="$d:$PATH"

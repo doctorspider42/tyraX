@@ -99,16 +99,16 @@ missing.
 
 ![The editor running natively on macOS with the showcase example open](img/macos-editor.png)
 
-The same scripts run on macOS, with three host differences that
-`prepare-host.sh` checks and `./setup.sh --deps` (Homebrew, no root) installs:
+The same scripts run on macOS with the system's own make (3.81), rsync
+(openrsync since 15.4), curl and tar - the engine with every VU1 microprogram
+and the games build with them unchanged. What `prepare-host.sh` checks and
+`./setup.sh --deps` (Homebrew, no root) installs on top:
 
-- **GNU make 4** (`brew install make`, run as `gmake`): the system make is 3.81.
-- **rsync 3** (`brew install rsync`): the system `rsync` is openrsync, which
-  does not print the itemized change list the engine sync reads.
 - **`gmp`, `mpfr`, `libmpc`, `zstd`**: the macOS PS2DEV archive is not
   self-contained - its gcc and binutils load these from Homebrew's `opt/`
   prefix, and without them the EE compiler dies on its first file with
   `Library not loaded: libmpc.3.dylib`.
+- **cmake**, to build OpenVCL.
 
 The compiler for the host-side tools (OpenVCL, vclpp, bin2s, project VU
 programs) is the Xcode Command Line Tools' clang (`xcode-select --install`).

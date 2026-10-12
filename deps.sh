@@ -102,12 +102,11 @@ SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr
 # macOS: Homebrew, no root. The compiler is the Xcode Command Line Tools'
 # clang (`xcode-select --install`), which no package manager installs; GLFW
 # builds against Cocoa and the system OpenGL framework, so there are no X11
-# headers to list, and the file dialogs are osascript, so no zenity. make and
-# rsync are the GNU make 4 and rsync 3 the native game build needs (the
-# system ones are make 3.81 and openrsync), and gmp/mpfr/libmpc/zstd are the
-# libraries the macOS PS2DEV archive's gcc loads from Homebrew - the set
+# headers to list, and the file dialogs are osascript, so no zenity. The game
+# build uses the system's make, rsync, curl and tar; gmp/mpfr/libmpc/zstd are
+# the libraries the macOS PS2DEV archive's gcc loads from Homebrew - the set
 # tools/toolchain/prepare-host.sh checks for.
-SYSTEM_PACKAGES_brew="cmake ninja git ccache curl make rsync gmp mpfr libmpc zstd"
+SYSTEM_PACKAGES_brew="cmake ninja git ccache gmp mpfr libmpc zstd"
 SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache curl rsync tar"
 
 # Package manager for THIS machine -> "<manager>|<install command>|<packages>",

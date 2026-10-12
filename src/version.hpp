@@ -5521,7 +5521,7 @@
 // (forward-compatible GL core context); platform.cpp's POSIX half gained an
 // __APPLE__ branch (libproc, osascript dialogs/clipboard, open, system fonts).
 // Games build natively: tools/toolchain picks the PS2DEV macOS archive per
-// arch, and the scripts are bash-3.2/BSD clean with Homebrew gmake + rsync.
+// arch, and the scripts are bash-3.2/BSD clean (system make 3.81 + rsync).
 // 1.170.0: ONE model importer (docs/model-import.md, src/modelimport.cpp):
 // .obj/.glb/.fbx read the same way, previewed before writing, split into
 // separate models, pivot / real-world size / clean-up / reduction / texture

@@ -226,10 +226,9 @@ xcode-select --install               # clang, once
 ./build.sh --run
 ```
 
-`--deps` installs `cmake ninja git ccache curl` for the editor and, for the
-games, GNU `make` 4 and `rsync` 3 (the system's are make 3.81 and openrsync)
-plus `gmp mpfr libmpc zstd`, which the macOS PS2DEV compilers load from
-Homebrew. Games build natively with the same pinned PS2DEV + OpenVCL as on
+`--deps` installs `cmake ninja git ccache` for the editor and, for the games,
+`gmp mpfr libmpc zstd`, which the macOS PS2DEV compilers load from Homebrew
+(make, rsync, curl and tar are the system's own). Games build natively with the same pinned PS2DEV + OpenVCL as on
 Linux - [the native toolchain](docs/native-toolchain.md#macos).
 
 **There is no setup step to forget.** On a fresh clone (or a stale worktree)
