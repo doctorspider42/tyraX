@@ -11,10 +11,13 @@ it. Both are once. Later builds are the incremental `make` and take seconds.
 
 ## What the first build installs
 
-The editor runs `tools/toolchain/setup.sh` lazily. On Linux it runs directly; on
-Windows `setup.ps1` invokes the same script through WSL, so both platforms use
-the same Linux binaries and produce the same PS2 code. The only downloaded
-artifact is the official PS2DEV v2.0.0 release archive. Its SHA-256 is pinned and
+The editor runs `tools/toolchain/setup.sh` lazily. On Linux and macOS it runs
+directly; on Windows `setup.ps1` invokes the same script through WSL, so Windows
+and Linux use the same Linux binaries. macOS uses the same release's macOS
+build of the same toolchain (GCC 15.2, binutils, PS2SDK). The only downloaded
+artifact is the official PS2DEV v2.0.0 release archive for the host
+(`ps2dev-ubuntu-latest`, `ps2dev-macos-latest` on Apple silicon,
+`ps2dev-macos-15-intel` on Intel Macs). Its SHA-256 is pinned and
 verified before extraction. It contains GCC, binutils, PS2SDK and the console
 utilities that are impractical to bootstrap during every editor installation.
 
@@ -31,7 +34,9 @@ vendored source invalidates both the tool install and cached VU/engine objects.
 
 It lands in the editor's own configuration directory, under `toolchain/ps2dev`:
 `%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev` on Windows,
-`${XDG_CONFIG_HOME:-~/.config}/tyra-editor/toolchain/ps2dev` on Linux. **That
+`${XDG_CONFIG_HOME:-~/.config}/tyra-editor/toolchain/ps2dev` on Linux and
+macOS (deliberately not `~/Library/Application Support`: make and the PS2SDK
+makefiles do not survive a space in that path). **That
 is where a manual `setup.sh` run puts it too** — one copy, shared, because the
 install is ~940 MB and an OpenVCL build, and having the manual command and the
 editor disagree simply meant paying for both. Override it with `TYRAX_PS2DEV`
@@ -45,7 +50,9 @@ encoded but newer output is repaired instead of being accepted as fresh.
 ## Host prerequisites
 
 Linux needs `build-essential`, CMake, curl, tar and rsync. Windows needs WSL
-with a Debian/Ubuntu distribution and the same packages inside it.
+with a Debian/Ubuntu distribution and the same packages inside it. macOS needs
+the Xcode Command Line Tools and a few Homebrew packages - see
+[macOS](#macos).
 
 **On Linux you normally install none of this by hand.** `./setup.sh --deps` in
 the repository root installs the editor's own build dependencies *and* these,
@@ -87,6 +94,35 @@ For CI or a scripted build, `native-build.ps1 -PrepareHost` performs the same
 opt-in bootstrap before compiling. Without that switch it remains read-only with
 respect to the WSL distribution and prints the command above when a tool is
 missing.
+
+### macOS
+
+![The editor running natively on macOS with the showcase example open](img/macos-editor.png)
+
+The same scripts run on macOS, with three host differences that
+`prepare-host.sh` checks and `./setup.sh --deps` (Homebrew, no root) installs:
+
+- **GNU make 4** (`brew install make`, run as `gmake`): the system make is 3.81.
+- **rsync 3** (`brew install rsync`): the system `rsync` is openrsync, which
+  does not print the itemized change list the engine sync reads.
+- **`gmp`, `mpfr`, `libmpc`, `zstd`**: the macOS PS2DEV archive is not
+  self-contained - its gcc and binutils load these from Homebrew's `opt/`
+  prefix, and without them the EE compiler dies on its first file with
+  `Library not loaded: libmpc.3.dylib`.
+
+The compiler for the host-side tools (OpenVCL, vclpp, bin2s, project VU
+programs) is the Xcode Command Line Tools' clang (`xcode-select --install`).
+The scripts put `/opt/homebrew/bin` and `/usr/local/bin` first on `PATH`
+themselves, so an editor started from Finder finds the Homebrew tools too, and
+they stay compatible with the system's bash 3.2 and BSD userland.
+
+Measured once on an Apple silicon Mac: past the 235 MiB download, extracting
+and building OpenVCL (with its tests), vclpp, bin2s and audsrv takes about a
+minute; a first game build including the whole engine **43 seconds**; an
+unchanged rebuild under a second.
+
+The `ps2client` release for macOS (used by *Run on PS2*) is an x86_64 binary;
+on Apple silicon it runs under Rosetta 2.
 
 ## Docker fallback
 

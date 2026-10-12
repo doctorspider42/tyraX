@@ -9,6 +9,11 @@ Building from source is still first-class and unchanged — see the Quickstart i
 the [README](../README.md). The packages are for people who want to *use* the
 editor rather than work on it.
 
+**macOS has no package yet** — it is built from source (README Quickstart). A
+checkout never updates itself; the update check on a Mac looks for an asset
+ending in `-macos-arm64.tar.gz` / `-macos-x86_64.tar.gz`, which no release
+carries today, so it never offers the Linux tarball by mistake.
+
 ## What a release carries
 
 Every release on the

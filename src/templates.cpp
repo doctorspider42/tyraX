@@ -6161,6 +6161,12 @@ if [ -z "$PCSX2" ] && command -v flatpak >/dev/null 2>&1 &&
     PCSX2="flatpak run net.pcsx2.PCSX2"
 fi
 if [ -z "$PCSX2" ]; then
+    # macOS: the upstream app bundle.
+    for c in /Applications/PCSX2.app "$HOME"/Applications/PCSX2.app; do
+        [ -x "$c/Contents/MacOS/PCSX2" ] && PCSX2="$c/Contents/MacOS/PCSX2" && break
+    done
+fi
+if [ -z "$PCSX2" ]; then
     for c in "$HOME"/Applications/*.AppImage "$HOME"/Downloads/*.AppImage; do
         case "$(basename "$c")" in [Pp][Cc][Ss][Xx]2*) PCSX2="$c"; break;; esac
     done
@@ -6175,6 +6181,7 @@ ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 
 pkill -x pcsx2-qt >/dev/null 2>&1 || true
 pkill -x pcsx2 >/dev/null 2>&1 || true
+pkill -x PCSX2 >/dev/null 2>&1 || true
 exec $PCSX2 -elf "$PWD/$ELF"
 )SH";
 

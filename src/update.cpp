@@ -126,6 +126,15 @@ int compareVersions(const std::string& a, const std::string& b) {
 const char* platformAssetSuffix() {
 #ifdef _WIN32
     return ".exe";
+#elif defined(__APPLE__)
+    // No macOS release asset is published yet; this suffix is the name one
+    // will carry, so until then the check finds nothing to offer instead of
+    // offering the Linux tarball. A checkout is InstallKind::Source anyway.
+#if defined(__aarch64__) || defined(__arm64__)
+    return "-macos-arm64.tar.gz";
+#else
+    return "-macos-x86_64.tar.gz";
+#endif
 #else
     // The tarball, not the .deb or the .rpm: it is the one format an editor can
     // apply to itself without asking anybody for root (docs/updates.md), and a

@@ -13,6 +13,19 @@ PS2DEV_ROOT=$4
 REBUILD=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
 
+# macOS: Homebrew's GNU make 4 and rsync 3 (prepare-host.sh checks both) must
+# win over the system's make 3.81 and openrsync, also when the editor was
+# started from Finder with a bare PATH. Everything below stays bash 3.2- and
+# BSD-userland-clean for the same host: no mapfile, no `sed -i`.
+MAKE=make
+if [ "$(uname -s)" = Darwin ]; then
+  for d in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$d" ] && PATH="$d:$PATH"
+  done
+  export PATH
+  MAKE=gmake
+fi
+
 case "$CACHE_ROOT" in
   /*) ;;
   *) echo "[editor] native cache root must be absolute: $CACHE_ROOT" >&2; exit 2 ;;
@@ -142,7 +155,8 @@ mkdir -p "$CACHE_ROOT"
 rsync -rlci --delete --exclude=obj --exclude=bin \
   "$ENGINE_SOURCE/engine/" "$ENGINE/" > "$SYNC_LOG"
 # Empty output is normal; a failed source sync must still stop the build.
-sed -i '/^.d/d' "$SYNC_LOG"
+grep -v '^.d' "$SYNC_LOG" > "$SYNC_LOG.tmp" || true
+mv "$SYNC_LOG.tmp" "$SYNC_LOG"
 if ! cmp -s "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"; then
   cp "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"
 fi
@@ -160,15 +174,16 @@ fi
 # Always ask make: a failed compile can leave synced sources beside stale
 # objects, and a changed Makefile must invalidate the old compiler flags.
 # An unchanged engine is a cheap no-op now that its archive target is real.
-make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
+$MAKE -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Project-authored VU programs are host C++, just as in the Docker backend.
 if find "$PROJECT/src/vu" "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' \
      -print -quit 2>/dev/null | grep -q .; then
   echo "[editor] Building the project's VU sources..."
   VUGEN="$CACHE_ROOT/vugen"
-  mapfile -t VUSRC < <(find "$PROJECT/src/vu" "$PROJECT/src/vu0" \
-    -maxdepth 1 -name '*.cpp' -print 2>/dev/null | sort)
+  VUSRC=()
+  while IFS= read -r f; do VUSRC+=("$f"); done < <(find "$PROJECT/src/vu" \
+    "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' -print 2>/dev/null | sort)
   g++ -std=c++17 -O0 -w -I"$PROJECT/vugen" -o "$VUGEN" \
     "$PROJECT"/vugen/*.cpp "${VUSRC[@]}"
   mkdir -p "$PROJECT/src/gen" "$PROJECT/inc/scripts"
@@ -184,7 +199,7 @@ echo "[editor] Compiling natively (PS2DEV + OpenVCL)..."
 for sym in "$PROJECT/bin/"*.elf.sym; do
   [ ! -e "$sym" ] || [ -w "$sym" ] || rm -f "$sym"
 done
-make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
+$MAKE -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
   ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base" \
   NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 

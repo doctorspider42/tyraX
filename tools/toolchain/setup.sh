@@ -14,8 +14,27 @@ REPO=$(cd "$HERE/../.." && pwd)
 # into another 943 MB directory. setup.ps1 has always defaulted to the
 # editor's own path on Windows; this is that parity restored.
 ROOT=${1:-${TYRAX_PS2DEV:-"${XDG_CONFIG_HOME:-$HOME/.config}/tyra-editor/toolchain/ps2dev"}}
-PS2DEV_URL=https://github.com/ps2dev/ps2dev/releases/download/v2.0.0/ps2dev-ubuntu-latest.tar.gz
-PS2DEV_SHA256=c8e5dedccf62084d476894e88cd0451b57f1ed288e741eb3c1263010aaffc028
+# One pinned PS2DEV v2.0.0 archive per host: the upstream release builds the
+# same toolchain for Linux and macOS, so only the asset (and its hash) differ.
+# The Windows path never reaches this switch - it runs this script inside WSL.
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64)
+    PS2DEV_ASSET=ps2dev-ubuntu-latest.tar.gz
+    PS2DEV_HOST=ubuntu-x86_64
+    PS2DEV_SHA256=c8e5dedccf62084d476894e88cd0451b57f1ed288e741eb3c1263010aaffc028 ;;
+  Darwin-arm64)
+    PS2DEV_ASSET=ps2dev-macos-latest.tar.gz
+    PS2DEV_HOST=macos-arm64
+    PS2DEV_SHA256=6f6df659d2d49738f21f53a53c361a74182d0e4c2495e31e76972ff818bc21cb ;;
+  Darwin-x86_64)
+    PS2DEV_ASSET=ps2dev-macos-15-intel.tar.gz
+    PS2DEV_HOST=macos-x86_64
+    PS2DEV_SHA256=833d2dc1e3cbfa2091047e4539e1bd0bd2836668f886a1c8a75e6e09deb56bef ;;
+  *)
+    echo "[toolchain] no pinned PS2DEV build for $(uname -s) $(uname -m)" >&2
+    exit 1 ;;
+esac
+PS2DEV_URL=https://github.com/ps2dev/ps2dev/releases/download/v2.0.0/$PS2DEV_ASSET
 OPENVCL_COMMIT=89efa51e354abea6bb2b790848e78147b6a994a1
 VCLPP_COMMIT=00e44ecf78e34e16325b173ba39b5fdacdd01666
 VCL_FLAGS='--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --split-dead-float-ranges --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --sink-loads-best-of --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of'
@@ -31,17 +50,33 @@ fi
 
 bash "$HERE/prepare-host.sh" --check
 
+# macOS: Homebrew's GNU make/rsync must win over the system's make 3.81 and
+# openrsync, also when the editor was started from Finder with a bare PATH.
+if [ "$(uname -s)" = Darwin ]; then
+  for d in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$d" ] && PATH="$d:$PATH"
+  done
+  export PATH
+fi
+
+# coreutils' sha256sum on Linux, the BSD shasum on macOS - same output shape.
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+}
+
+# xargs runs a program, not a function, so tree_hash names the tool itself.
+if command -v sha256sum >/dev/null 2>&1; then SHA256=(sha256sum); else SHA256=(shasum -a 256); fi
 tree_hash() {
   # Hash relative names: identical sources in two worktrees are one toolchain.
   # Absolute names made switching checkouts reinstall OpenVCL and purge objects.
   (cd "$1" && find . -type f ! -name openvcl ! -path '*/build/*' -print0 \
-    | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
+    | sort -z | xargs -0 "${SHA256[@]}" | "${SHA256[@]}" | awk '{print $1}')
 }
 OPENVCL_TREE_SHA=$(tree_hash "$REPO/vendor/openvcl")
 VCLPP_TREE_SHA=$(tree_hash "$REPO/vendor/vclpp")
 BIN2S_TREE_SHA=$(tree_hash "$HERE/bin2s")
 AUDSRV_TREE_SHA=$(tree_hash "$REPO/vendor/tyra/audsrv/ee")
-SETUP_SHA=$(sha256sum "$HERE/setup.sh" | awk '{print $1}')
+SETUP_SHA=$(sha256 "$HERE/setup.sh" | awk '{print $1}')
 
 MARKER="$ROOT/.tyrax-toolchain"
 EXPECTED="setup-$SETUP_SHA ps2dev-v2.0.0-$PS2DEV_SHA256 openvcl-$OPENVCL_COMMIT-$OPENVCL_TREE_SHA vclpp-$VCLPP_COMMIT-$VCLPP_TREE_SHA bin2s-$BIN2S_TREE_SHA audsrv-$AUDSRV_TREE_SHA"
@@ -51,13 +86,13 @@ if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$EXPECTED" ]; then
 fi
 
 mkdir -p "$ROOT" "$ROOT/.sources"
-ARCHIVE="$ROOT/.sources/ps2dev-v2.0.0-ubuntu-x86_64.tar.gz"
-if [ ! -f "$ARCHIVE" ] || [ "$(sha256sum "$ARCHIVE" | awk '{print $1}')" != "$PS2DEV_SHA256" ]; then
+ARCHIVE="$ROOT/.sources/ps2dev-v2.0.0-$PS2DEV_HOST.tar.gz"
+if [ ! -f "$ARCHIVE" ] || [ "$(sha256 "$ARCHIVE" | awk '{print $1}')" != "$PS2DEV_SHA256" ]; then
   echo "[toolchain] downloading pinned PS2DEV v2.0.0 (254 MiB)..."
   rm -f "$ARCHIVE"
   curl --fail --location --retry 3 --output "$ARCHIVE" "$PS2DEV_URL"
 fi
-echo "$PS2DEV_SHA256  $ARCHIVE" | sha256sum -c -
+echo "$PS2DEV_SHA256  $ARCHIVE" | sha256 -c -
 
 BASE_MARKER="$ROOT/.ps2dev-base"
 BASE_EXPECTED="ps2dev-v2.0.0-$PS2DEV_SHA256"

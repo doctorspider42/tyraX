@@ -24,7 +24,8 @@ static std::string trim(const std::string& s) {
 
 // Where PCSX2 keeps its config is genuinely differently SHAPED per OS - a
 // Documents known folder on Windows (beware OneDrive redirection), XDG
-// config/data dirs plus a flatpak sandbox on Linux - so the search stays here
+// config/data dirs plus a flatpak sandbox on Linux, Application Support on
+// macOS - so the search stays here
 // rather than moving into platform.cpp, which knows nothing about PCSX2.
 fs::path findIni(const fs::path& exePath) {
     std::error_code ec;
@@ -42,6 +43,10 @@ fs::path findIni(const fs::path& exePath) {
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs)))
         candidates.push_back(fs::path(docs) / "PCSX2" / "inis" / "PCSX2.ini");
     CoTaskMemFree(docs);
+#elif defined(__APPLE__)
+    if (const fs::path home = platform::homeDir(); !home.empty())
+        candidates.push_back(home / "Library" / "Application Support" / "PCSX2" / "inis" /
+                             "PCSX2.ini");
 #else
     const fs::path home = platform::homeDir();
     if (const char* xdg = getenv("XDG_CONFIG_HOME"); xdg && *xdg)

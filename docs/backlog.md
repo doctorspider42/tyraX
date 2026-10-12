@@ -1781,6 +1781,28 @@ that copy-out step designed.
 carries it) — but the PS2 toolchain image would have to run under emulation on
 that host, so measure a game build there before promising anything.
 
+### macOS: what native support (1.171.0) left out
+
+The editor builds and runs from source on macOS, and games build natively with
+the macOS PS2DEV archive + in-tree OpenVCL (docs/native-toolchain.md#macos).
+Left for later, each testable on its own:
+
+- **A release package**: a `.app` bundle (Info.plist, icon, `Contents/Resources`
+  holding the repo-shaped tree the editor resolves from `<exe>/../`) in a
+  `-macos-<arch>.tar.gz` (or `.dmg`), a `build-macos` job in `release.yml`,
+  signing/notarization, and an `InstallKind` for it. `update::platformAssetSuffix`
+  already names the asset.
+- **PCSX2 end to end**: detection of `PCSX2.app` and its ini under
+  `~/Library/Application Support/PCSX2` is written but has not booted a game on
+  a Mac yet - nor has *Run on PS2* (`ps2client` for macOS is x86_64, Rosetta).
+- **The viewport at Retina density**: the 3D viewport's FBO is sized in
+  points, so it is drawn at half the pixel density of the UI around it.
+- **GPU GI** needs GL 4.3 compute; macOS stops at 4.1, so the CPU path is the
+  only one there - say so in the GI window instead of a shader error.
+- **Docker fallback on macOS** is untested (Docker Desktop's bind mounts and
+  `containerFileOwner`).
+- **Editor audio** (miniaudio over CoreAudio) has not been listened to.
+
 ### Make the packagers prove they shipped what git tracks
 
 1.55.3 fixed one tracked file going missing from every package — an exclusion

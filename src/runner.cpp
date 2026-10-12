@@ -429,7 +429,8 @@ int Runner::exec(const std::string& rawCmdline, const std::string& cwd) {
 // Where a PCSX2 install lives is the one thing that is genuinely differently
 // SHAPED per OS rather than just differently spelled, so it stays here instead
 // of moving into platform.cpp: Windows has two Program Files roots, Linux has
-// PATH plus flatpak plus a downloaded AppImage in the usual places.
+// PATH plus flatpak plus a downloaded AppImage in the usual places, macOS has
+// an app bundle.
 static std::string findPCSX2() {
     std::error_code ec;
 #ifdef _WIN32
@@ -441,6 +442,19 @@ static std::string findPCSX2() {
             fs::path p = dir / exe;
             if (fs::exists(p, ec)) return p.string();
         }
+#elif defined(__APPLE__)
+    // The upstream macOS build is an app bundle; Finder installs it in
+    // /Applications, a user without admin rights in ~/Applications.
+    std::vector<fs::path> roots{"/Applications"};
+    if (const fs::path home = platform::homeDir(); !home.empty())
+        roots.push_back(home / "Applications");
+    for (const fs::path& root : roots)
+        for (const char* app : {"PCSX2.app", "PCSX2-qt.app"}) {
+            const fs::path p = root / app / "Contents" / "MacOS" / "PCSX2";
+            if (fs::exists(p, ec)) return p.string();
+        }
+    for (const char* exe : {"pcsx2-qt", "pcsx2"})
+        if (platform::commandExists(exe)) return exe;
 #else
     // A packaged install (deb/rpm/AUR) puts one of these on PATH.
     for (const char* exe : {"pcsx2-qt", "pcsx2"})

@@ -5515,7 +5515,13 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 170
+#define TYRAX_VERSION_MINOR 171
+// 1.171.0: native macOS. The editor builds with Apple clang/libc++ (two
+// portability fixes in project.hpp, one in mateditor_ui.cpp) and runs on Cocoa
+// (forward-compatible GL core context); platform.cpp's POSIX half gained an
+// __APPLE__ branch (libproc, osascript dialogs/clipboard, open, system fonts).
+// Games build natively: tools/toolchain picks the PS2DEV macOS archive per
+// arch, and the scripts are bash-3.2/BSD clean with Homebrew gmake + rsync.
 // 1.170.0: ONE model importer (docs/model-import.md, src/modelimport.cpp):
 // .obj/.glb/.fbx read the same way, previewed before writing, split into
 // separate models, pivot / real-world size / clean-up / reduction / texture
@@ -5630,7 +5636,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.

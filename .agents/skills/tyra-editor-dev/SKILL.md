@@ -2,7 +2,7 @@
 name: tyra-editor-dev
 description: >
   Architecture map and change-making guide for the TyraX codebase — a C++20
-  ImGui/GLFW/OpenGL cross-platform (Windows + Linux) editor that authors 3D
+  ImGui/GLFW/OpenGL cross-platform (Windows + Linux + macOS) editor that authors 3D
   scenes and flow graphs, then
   generates complete Tyra PS2 game projects (native PS2DEV by default, run in PCSX2).
   Use this skill BEFORE making ANY change to editor code in src/ — new features,
@@ -20,7 +20,7 @@ This file holds the rules every change needs. The detail lives in `references/` 
 
 ## What this project is
 
-An editor for the [Tyra](https://github.com/h4570/tyra) PS2 engine (C++20, Dear ImGui docking + GLFW + OpenGL 3.3, Windows and Linux). It edits a **data model** (scenes, objects, terrain heightmaps, flow graphs, preferences) stored as a `<name>.tyra` manifest plus one `objects/<id>.json` per object, and on every build **generates a complete PS2 game project** (C++ sources, Makefile, docker-compose.yml). The game is compiled by native PS2DEV + vendored OpenVCL by default (Docker is a selectable fallback; image from `docker/Dockerfile` via `.github/workflows/toolchain-image.yml`, `${TYRAX_IMAGE:-h4570/tyra}`; read `docs/toolchain-image.md` first) and launched in PCSX2 or deployed to a real PS2 over ps2link.
+An editor for the [Tyra](https://github.com/h4570/tyra) PS2 engine (C++20, Dear ImGui docking + GLFW + OpenGL 3.3, Windows, Linux and macOS). It edits a **data model** (scenes, objects, terrain heightmaps, flow graphs, preferences) stored as a `<name>.tyra` manifest plus one `objects/<id>.json` per object, and on every build **generates a complete PS2 game project** (C++ sources, Makefile, docker-compose.yml). The game is compiled by native PS2DEV + vendored OpenVCL by default (Docker is a selectable fallback; image from `docker/Dockerfile` via `.github/workflows/toolchain-image.yml`, `${TYRAX_IMAGE:-h4570/tyra}`; read `docs/toolchain-image.md` first) and launched in PCSX2 or deployed to a real PS2 over ps2link.
 
 ```
 ImGui UI (app.cpp + *_ui.cpp) ──edits──> Project model (project.hpp)
@@ -86,7 +86,8 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 
 ### 5. Platform parity and paths
 
-- Files existing once per platform are edited as a PAIR in the same commit: `deps.ps1`/`deps.sh` (the ONLY dependency list), `setup.*`, `build.*` (`.cmd` files are thin wrappers - keep them so), `tools/toolchain/prepare-host.*`/`native-build.*`, the installer pair (same package CONTENT), `CMakeLists.txt` `if(WIN32)`/`else()`, `platform.cpp` `#ifdef _WIN32`/`#else`. OS differences live only in `platform.cpp`.
+- Files existing once per platform are edited as a PAIR in the same commit: `deps.ps1`/`deps.sh` (the ONLY dependency list), `setup.*`, `build.*` (`.cmd` files are thin wrappers - keep them so), `tools/toolchain/prepare-host.*`/`native-build.*`, the installer pair (same package CONTENT), `CMakeLists.txt` `if(WIN32)`/`else()`, `platform.cpp` `#ifdef _WIN32`/`#else`. OS differences live only in `platform.cpp`. macOS is the POSIX half: an `#elif defined(__APPLE__)` inside it where Linux reads `/proc` or shells out to freedesktop tools, `uname -s` = `Darwin` branches in the `.sh` files.
+- Code must build with BOTH GCC/libstdc++ and Apple clang/libc++: declare an `operator==` before a type that compares a `vector` of it, `static_cast<long long>` a file-time `count()` (`__int128` in libc++), and `sizeof` asserts over structs holding `std::string` carry both numbers.
 - Never join paths with `"\\"` or by hand: `Project::filePath(rel)` / `templates::nativePath(rel)`; normalize before a path leaves the process. Nested command-line arguments go through `platform::shellArg()`. Never kill processes by name - ownership from the command line (`processesNamed` + `killProcess`); `Process::kill()` kills the tree.
 - Every RGBA texture upload uses `glUploadTexRgba` (one-call `glTexImage2D` with data crashes the AMD driver).
 - A new source file must be added to `CMakeLists.txt` (no glob).
