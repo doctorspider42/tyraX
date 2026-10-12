@@ -117,7 +117,19 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     // pins
     std::vector<std::string> in, out;
     if (t.trigger) {
-        out.push_back("exec");
+        // A trigger may have several outputs (On Fact Changed: changed /
+        // became true / became false) - reachable only through "fpin", so
+        // they are named here like a flow node's.
+        const int eo = flowExecOutCount(t);
+        if (eo > 1) {
+            std::string s = "exec out pins";
+            for (int e = 0; e < eo; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecOutLabel(t, e);
+            out.push_back(s);
+        } else {
+            out.push_back("exec");
+        }
     } else if (!t.pure) {
         if (t.execInCount > 1) {
             // A merged node's branches are only reachable through a link's
@@ -169,7 +181,9 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.textIn) in.push_back("text (accepts several links)");
     if (t.textOut) out.push_back("text");
     if (t.numIn)
-        in.push_back(flowNumFolds(t)     ? "number (accepts several links)"
+        in.push_back(flowNumFolds(t)  ? "number (accepts several links)"
+                     : t.numInExtra ? "number (the value operated on; the "
+                                      "params stay as set)"
                      : t.numCount > 0 ? "number (overrides num[0])"
                                       : "number");
     if (t.numOut) out.push_back("number");

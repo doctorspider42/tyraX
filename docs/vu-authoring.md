@@ -8,7 +8,7 @@ as different distances from the metal:
 | | |
 |---|---|
 | **A script** — `src/vu/*.cpp` | You write C++. It runs on the HOST at build time and leaves behind a microprogram. Anything the framework can do, you can do. **This is the main road.** |
-| **A look** — the stage list in *Tools > VU Programs* | You tick classes and pick from a catalogue of stages. No code, no build container, and a live preview in the editor. The shortcut for the cases the catalogue already covers. |
+| **A look** — the stage list in *Tools > VU Programs* | You tick classes and pick from a catalogue of stages. No code, no game build, and a live preview in the editor. The shortcut for the cases the catalogue already covers. |
 
 Both produce the same thing - a program that REPLACES the engine's resident VU1
 program for a material class - so everything this page says about classes,
@@ -269,13 +269,13 @@ VS Code extension treats them as first-class files rather than as anonymous C++
 page that are NOT expressible in a header - a Q write, a fifth scratch
 register, a geometry slot without `movesGeometry()`, a displacement claiming a
 subset of the classes - are reported in the Problems panel as you type instead
-of by a container build or a console run. Type `vuprogram` for the skeleton.
+of by a game build or a console run. Type `vuprogram` for the skeleton.
 
 ## What the build actually does
 
 ```
 src/vu/*.cpp + src/vu0/*.cpp  +  vugen/*.cpp   your code and the framework
-        |  g++ (in the build container, installed once)
+        |  g++ (the build machine's own; inside the container with --docker)
         v
      a generator                     runs on the HOST, at build time
         |
@@ -287,10 +287,13 @@ src/gen/vu0_script*.vclpp + _kernel.cpp  + vu0_kernels.gen.hpp
      the ELF
 ```
 
-The container ships no host compiler (it is a ps2dev image), so the first build
-with a script or a kernel installs `g++` once - about a minute, stamped, and
-paid again only if the container is recreated. A mistake in your file is an
-ordinary C++ error with your own filename and line number.
+The default native build compiles it with the build machine's `g++`
+(`tools/toolchain/native-build.sh`; on Windows the one inside WSL, which
+`prepare-host` checks for). The Docker backend's image ships no host compiler (it
+is a ps2dev image), so there the first build with a script or a kernel installs
+`g++` once - about a minute, stamped, and paid again only if the container is
+recreated. Either way a mistake in your file is an ordinary C++ error with your
+own filename and line number.
 
 Neither directory reaches the PS2 compiler: `Makefile.base` excludes both from
 its `src/**.cpp` glob, because handing host C++ to `mips64r5900el-ps2-elf-g++`
@@ -645,8 +648,8 @@ and the body sees what they left in the element.
 
 ### Where the files land
 
-The build container compiles and runs `src/vu0/*.cpp` and leaves behind, per
-kernel:
+The game build compiles and runs `src/vu0/*.cpp` (natively, or in the container
+with `--docker`) and leaves behind, per kernel:
 
 ```
   src/gen/vu0_script<i>.vclpp              the VU0 microprogram
@@ -1219,8 +1222,8 @@ Written by the **EDITOR**, from the panel's looks and stage-composed kernel:
 | `src/gen/vu_programs.gen.cpp` | `install` / `activate` / `setTime` / `setParams` |
 | `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | the stage-composed VU0 kernel and its driver |
 
-Written by the **BUILD CONTAINER**, from your `src/vu/*.cpp` and `src/vu0/*.cpp`
-— the host has no compiler to run them with:
+Written by the **GAME BUILD'S GENERATOR STEP** (native or Docker), from your
+`src/vu/*.cpp` and `src/vu0/*.cpp` - not by the editor itself:
 
 | File | What it is |
 |---|---|
@@ -1413,12 +1416,12 @@ its microprogram rather than orphaning it. This is not tidiness:
 `Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
 assembled and **linked**, taking micro memory for a program nobody asked for.
 
-What the editor writes, the editor sweeps; what the **container** writes
+What the editor writes, the editor sweeps; what the **generator step** writes
 (`src/gen/vu_script*` and `src/gen/vu0_script*`) it sweeps itself, against a
-ledger of every file the last generator run produced. The host cannot do that
-job for it — it has no compiler, so it cannot know which files the current
-sources would produce — and a host sweep over container output would delete
-microprograms it could not put back.
+ledger of every file the last generator run produced. The editor cannot do that
+job for it - it never compiles your VU sources, so it cannot know which files
+they would produce - and an editor-side sweep would delete microprograms it
+could not put back.
 
 ## The other ceiling: VF registers
 

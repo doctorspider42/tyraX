@@ -34,14 +34,20 @@ import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[3]
-templates = (root / 'src/templates.cpp').read_text(encoding='utf-8', errors='replace')
+# The game templates moved out of templates.cpp into game_templates.inc (which
+# templates.cpp includes); read both so the lift works from either home.
+templates = ''.join(
+    (root / f).read_text(encoding='utf-8', errors='replace')
+    for f in ('src/game_templates.inc', 'src/templates.cpp')
+    if (root / f).exists())
 
 # --- lift the runtime half, verbatim ---------------------------------------
 START = 'void TerrainGame::buildStaticBatchList() {'
 try:
     start = templates.index(START)
 except ValueError:
-    sys.exit('FAIL: buildStaticBatchList not found in src/templates.cpp - '
+    sys.exit('FAIL: buildStaticBatchList not found in src/game_templates.inc '
+             'or src/templates.cpp - '
              'the oracle cannot lift what it cannot find (did the function '
              'get renamed?)')
 end = templates.index('\n}\n', start) + 3

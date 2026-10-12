@@ -8,10 +8,10 @@ description: TyraX flow graphs - the visual logic scripts attached to scene obje
 # Flow graphs
 
 A flow graph is a CryEngine-style visual script. **Every scene object owns its
-own graph** (stored inside its `objects/<id>.json` under `"flowGraph"`); at
-build time all graphs compile into `src/gen/flow_graph.gen.cpp` - one
-script class per graph. There is no interpreter on the PS2: graphs become
-plain C++.
+own graph** (in its `objects/<id>.json` under `"flowGraph"`); at build time all
+graphs compile into `src/gen/flow_graph.gen.cpp`, one script class per graph.
+There is no interpreter on the PS2 (except Live Logic's for quick iteration,
+see tyra-building): graphs become plain C++.
 
 ## Reading and writing graphs
 
@@ -23,250 +23,177 @@ Always go through the editor CLI (it validates node types and link rules):
 "{TYRAX_EXE}" --list-nodes  <projectDir>    # the full node catalog + schema
 ```
 
-`--list-nodes` prints the authoritative, per-project catalog (it includes the
-project's custom `.flownode` nodes and every parameter's meaning). Prefer it
-over guessing from this file.
+`--list-nodes` is the authoritative, per-project catalog (custom `.flownode`
+nodes included): every node's type id, category, pins and a gloss for EACH
+parameter (`num[0]=Radius (...)`, `str = ...`) and each labeled exec pin. Read
+the gloss of the parameter you are filling rather than inferring it from the
+node's description, and prefer the catalog over this file.
 
 ## Graph JSON
 
 ```json
 {
   "nodes": [
-    { "id": 1, "type": "OnButton", "pos": [40, 40], "str": "Cross",
-      "str2": "", "num": [0, 0, 0, 0] },
-    { "id": 2, "type": "ToggleObject", "pos": [320, 40], "str": "door" }
+    { "id": 1, "type": "OnButton", "pos": [40, 40], "str": "Cross" },
+    { "id": 2, "type": "SetObjectVisible", "pos": [320, 40], "str": "door" }
   ],
-  "links": [ { "from": 1, "to": 2, "kind": "exec" } ]
+  "links": [ { "from": 1, "to": 2, "kind": "exec", "pin": 2 } ]
 }
 ```
 
-- `id`: positive, unique per graph. `pos`: canvas pixels, lay out left→right.
-- `str` / `str2`: the node's string parameter(s) - object/track/value names,
-  button names, free text.
-- `num[4]`: numeric parameters, filled from slot 0 up.
-- **`--list-nodes` documents every one of them individually.** Each catalog
-  line names the node's params (`num[0]=Radius`, `str = ...`) with a
-  parenthesised gloss saying what that particular parameter does and what its
-  edge values mean, and names each exec pin of a merged node the same way. Read
-  the gloss for the parameter you are about to fill in rather than inferring it
-  from the node's description - the description says what the NODE does.
+- `id`: positive, unique per graph. `type`: the catalog's type id (`OnStart`,
+  `SetObjectVisible`, `NumAdd`...), not the display title. `pos`: canvas
+  pixels, laid out left to right.
+- `str` / `str2`: string parameter(s) - object/track/value names, button
+  names, free text. `num[4]`: numeric parameters, filled from slot 0 up. Omit
+  what is unused.
 - `kind`: `"exec"` (execution flow), `"object"` (object reference), `"pos"`
-  (XYZ), `"bool"` (per-frame condition), `"text"` (string value), `"number"`
-  (a computed float).
-- `pin`: on an exec link only - which labeled exec input of a merged node it
-  fires (e.g. Set Int has `0`=set, `1`=add). Omit for the first pin.
-  `--list-nodes` names the pins of every merged node.
-- `fpin`: on an exec link only - which labeled exec **output** of a
-  flow-control node it leaves (Branch `0`=true, `1`=false; Sequence `0..3`;
-  Switch Number `0..3` plus `4`=else). Omit for the node's first output.
-  `--list-nodes` names those too.
-- The editor's native storage uses bool flags (`"data"`, `"pos"`, `"bool"`,
+  (XYZ), `"bool"` (per-frame condition), `"text"` (string), `"number"` (a
+  computed float).
+- `pin` (exec links only): which labeled exec INPUT of a merged node fires -
+  above, Set Object Visible's `0`=show, `1`=hide, `2`=toggle; Set Int `0`=set,
+  `1`=add. Omit for the first pin.
+- `fpin` (exec links only): which labeled exec OUTPUT the link leaves - Branch
+  `0`=true, `1`=false; Sequence `0..3`; Switch Number `0..3` plus `4`=else; For
+  Loop `0`=body, `1`=done. Omit for the first output.
+- The project files store bool flags (`"data"` = object, `"pos"`, `"bool"`,
   `"text"`, `"number"`) instead of `"kind"`; `--apply-graph` accepts both.
 
 ## Semantics you must respect
 
-- **Triggers** (On Start, On Update, On Button, Near Object, In Area, On Used, Every N
-  Seconds, On Animation Finished, On Condition, On Menu Event) have an exec **output**;
-  most **actions** have only an exec **input** - to run several actions, wire
-  each of them from the trigger (they run in link order). The non-trigger exec
-  outputs are the "fires later" ones (Delay's after-timeout, Raycast's
-  after-cast) and the whole **Flow** category. **Pure** nodes
-  (logic gates, getters, converters) have no exec pins and evaluate every
-  frame on demand.
-- **Reach for the Flow category instead of improvising control flow.** These
-  are the nodes that decide which of their OWN outputs continues (`fpin`):
-  - **Branch (If)** - if/else on a bool, evaluated at the moment it runs.
-    Different from On Condition, which is a *trigger* on a rising edge.
-  - **Sequence** - four outputs fired in order, when the order matters.
-  - **Do Once** / **Do N Times** - make a repeating trigger (On Update, Near
-    Object) fire a one-shot; both have a `reset` pin.
-  - **Cooldown** - rate-limit a trigger. Swallowed execs are LOST, not queued
-    (that is Delay).
-  - **Gate** - an open/close valve; **Flip Flop** - alternate A/B.
-  - **Switch Number** - dispatch a state machine kept in an int variable.
-  - **Counter** - fire every N-th exec; its number output is the tally.
-  - **Timer** - a stopwatch whose number output is the elapsed seconds
-    (wire it through Number To Text for an on-screen clock); fires `finished`
-    at Duration.
-  - **Tween Value** - drive a number From→To over Seconds with an ease and
-    fire `finished`. Its number output animates ANY number input (bloom, music
-    volume, a save value, a position component), which is how a parameter is
-    animated without touching On Update.
-  - **For Loop** - `body` runs Times times with the index on the number output,
-    then `done`. Whole loop is one frame; capped at 64.
-- **The Math category is a full calculator, so do not fake arithmetic with
-  variables.** n-ary (fold over every wired link): Add, Subtract, Multiply,
-  Divide, Min, Max, Modulo, Power. Unary (one wired input): Absolute, Negate,
-  Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine (both in DEGREES),
+- **Triggers** (On Start, On Update, On Button, On Action, On Key, Near Object,
+  In Area, On Used, Every N Seconds, On Animation Finished, On Condition, On
+  Event, On Menu Event, On Fact Changed, ...) have an exec **output**; most
+  **actions** have only an exec **input** - to run several actions, wire each
+  from the trigger (they run in link order). The exceptions are the "fires
+  later" outputs (Delay's `after`, Raycast's `after`, Roll Random's `then`, Find
+  Nearest's `then`) and the **Flow** category. **Pure** nodes (gates, getters,
+  converters, math) have no exec pins and evaluate on demand every frame.
+- **Object targets** resolve: incoming object link -> `str` name -> **self**
+  (the graph's owner). Empty `str` = self.
+- **Wired values override params**: a position link into a node with X/Y/Z
+  params replaces them; a number link replaces `num[0]`. Exceptions: on Clamp /
+  Lerp / Remap / the number comparators the wired number is the SUBJECT and the
+  params stay config; n-ary math folds over all wired inputs (with one wired,
+  `num[0]` is the second operand).
+- **Logic gates** (AND/OR/NOT/NAND/XOR/XNOR) fold over all wired bool inputs;
+  bridge back to execution with **On Condition** (fires on the rising edge).
+- **Flow category - use it instead of improvising control flow** (each decides
+  which of its OWN outputs continues): **Branch (If)** (if/else evaluated when
+  it runs - unlike On Condition, a rising-edge trigger), **Sequence** (four
+  outputs in order), **Do Once** / **Do N Times** (one-shot a repeating trigger;
+  `reset` pin), **Cooldown** (rate-limit; swallowed execs are LOST, not
+  queued), **Gate** (enter/open/close), **Flip Flop** (A/B), **Random Branch**,
+  **Switch Number** (state machine on an int), **Counter** (every N-th exec;
+  number output = tally), **Timer** (stopwatch; number = elapsed seconds;
+  `finished` at Duration), **Tween Value** (From->To over Seconds with an ease,
+  `finished`; its number output animates ANY number input - bloom, volume, a
+  position component), **For Loop** (`body` N times with the index, then
+  `done`; whole loop in one frame, capped at 64). **Delay** (category Time)
+  fires `after` once the wait elapses; re-arming restarts it.
+- **Math** is a full calculator - do not fake arithmetic with variables. n-ary:
+  Add, Subtract, Multiply, Divide, Min, Max, Modulo, Power. Unary: Absolute,
+  Negate, Sign, Floor, Ceiling, Round, Square Root, Sine, Cosine (DEGREES),
   Clamp, Lerp, Remap Range. Comparators into the bool plane: Number At Least /
-  At Most / Equals (with a tolerance) / In Range. Clocks: **Scene Time**
-  (seconds since the scene loaded), **Frame Time** (last frame's duration) and
-  **Oscillate** (a sine wave on the scene clock - the node for a pulsing light,
-  one `sinf` instead of a per-frame graph). **Roll Random** is an ACTION, not a
-  pure node: it latches its roll and fires `then`, so two consumers see the
-  same number instead of two different ones.
-  On Clamp / Lerp / Remap / the comparators the wired number is the SUBJECT and
-  the num params stay separate config - unlike the usual "a wired number
-  replaces num[0]".
-- **The Facts category is the game's DECLARED state, and it is the one to reach
-  for over Variables.** A fact is picked from a catalog (Tools > World Facts)
-  and carries a type, a default and a lifetime - session, checkpoint, save game
-  or profile - so `Set Fact` on a save-lived fact IS the persistence, with no
-  Set Save Value beside it. **Set Fact** has `set` / `add` / `toggle` exec pins
-  (a counter is On Button -> add with Value 1 and needs no read), **Clear Fact**
-  restores the CATALOG's default rather than a retyped number, **Fact Is True /
-  Fact At Least / At Most / Is** are the pure comparisons, **Get Fact As Text**
-  prints a one-of-several fact by NAME, and **On Fact Changed** is the reactive
-  trigger, with THREE exec outputs - `changed` on any move, `became true` on
-  the 0 -> non-zero edge, `became false` on the way back - so "when X is
-  repaired" is one node and needs no Fact Is True + On Condition beside it
-  (a position fact only has `changed`). It fires whoever wrote the fact, a
-  graph or a rule, so it beats polling. **Query** evaluates a named condition authored once
-  in the Facts window; prefer it over restating the same ALL/ANY of comparisons
-  in five graphs. Never invent a fact name: a node whose fact is not in the
-  catalog compiles to nothing.
-- **The Vector category computes positions.** A position input takes exactly one
-  link, so these are all unary and COMPOSE by chaining: **Position** (a literal),
-  **Offset Position**, **Scale Position**, **Rotate Around Y**, **With X / With
-  Y / With Z** (replace one component, which is how a computed number becomes a
-  coordinate), **Snap To Terrain** (put a computed point ON the ground - the node
-  to place before Spawn Object), plus the readers **Get X / Get Y / Get Z**,
-  **Distance To Point** and **Terrain Height At**. **Roll Point In Area** is an
-  action like Roll Random: it latches a random point inside an Area object.
-  A ring of 8 objects is For Loop -> (index x 45) -> Rotate Around Y of a
-  Position -> Snap To Terrain -> Spawn Object.
-- **The player and an object's transform are readable, so do not guess.**
-  **Player Position** (player 1 or 2), **Player Look Direction** (a unit vector -
-  Scale Position + Offset Position from Player Position gives a point in front of
-  the player) and **Player Fall Speed**. On objects: **Get Object Scale**, **Get
-  Object Rotation** and **Get Velocity** all ride the POSITION plane as
-  3-vectors, so "turn this object to face 90 degrees" is Get Object Rotation ->
-  With Y -> Set Object Rotation (Set Object Rotation and Rotate Object By take a
-  position link too). **Distance To Object** with Player Position wired in is
-  "how far is the player" as a VALUE, which the Near Object trigger cannot give.
-  Writers: **Set Object Scale**, **Scale Object By**, **Look At** (yaw only
-  unless Tilt too is set), **Set Velocity** (units per SECOND - it REPLACES,
-  where Apply Impulse adds), **Stop Motion**, **Set Object Usable**.
-  **Is Object Active** is about being in the game at all (layer unloaded,
-  despawned); Is Visible is about being drawn.
-  **Find Nearest** is an action that latches the closest active object whose
-  name starts with a prefix, measured from a linked position - the runtime
-  counterpart of naming an object in a param.
-  **Set Player Input** (lock / unlock) takes the controls away for a dialogue or
-  a scripted moment; gravity and the camera keep running, and a scene load
-  always unlocks.
-- **The Camera category is the cinematic vocabulary, and it rides the same
-  ScriptContext fields the Cutscene Director does** - so a PLAYING cutscene
-  always wins (its player rewrites them every frame and clears them on release).
-  **Set Camera** takes the eye from a linked position and aims at the target
-  object; from On Start that is a fixed room camera, from On Update it tracks.
-  **Camera From Object** cuts to an object's position and its own +Z aim - place
-  and aim a Camera object in the viewport and that is the shot. **Release
-  Camera** hands it back. **Camera Shake** (amplitude + seconds, easing out)
-  applies to whatever camera is in force. **Set Screen Fade** and **Set
-  Letterbox Bars** take a 0..1 amount - wire a **Tween** into either for a real
-  fade or slide-in, and use the Tween's `finished` output to switch scenes at
-  full black. A letterbox is measured inside the picture the console outputs, so
-  on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
-  thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
-  free-flying camera move. **On Sequence Finished** fires when a cutscene stops
-  for ANY reason (ran out, Stop Sequence, player skipped - a skip is a stop, so
-  there is nothing extra to wire for one) - the way to chain
-  "play the cutscene, then carry on"; its bool output is "a cutscene is playing
-  right now", for gating gameplay logic out while one runs.
-  **Set Sound Volume** ducks all sound effects (music has its own node).
-  **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
-  takes over the screen and the pad - this graph included - until it ends or the
-  player skips it, then runs the ROLL's own finish action (resume / switch scene
-  / open menu / fire a flow event), so the graph usually needs nothing after it.
-  **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
-  roll stops for any reason.
-  **Set HUD Element Visible** shows, hides or toggles one named HUD image,
-  baked text or live bar through its configured transition. **Set HUD Bar**
-  writes a bar value (and its backing save value when it has one), while
-  **Play HUD Effect** adds a one-shot flash, bounce or shake without replacing
-  the element's looped animation. These target the element name configured in
-  Tools > UI Editor; see `docs/hud-animation.md`.
-- **Graphs talk to each other with EVENTS, not with polled variables.**
-  **Send Event** broadcasts a name (plus an optional number payload) to every
-  graph in the game; every **On Event** of that name fires on the NEXT frame,
-  uniformly, whichever object owns it - so the order graphs happen to run in
-  can never change the outcome. On Event's number output is the payload and its
-  bool output is "it arrived this frame". Use this whenever one object's logic
-  has to reach another's (a pickup telling the HUD, a switch telling three
-  doors, a boss telling the music) instead of a global bool polled from On
-  Update. Events exist by being named - use the SAME string on both nodes.
-  The one-frame latency is the price of the uniform ordering; for something that
-  must happen inside the same frame, wire the action directly.
-- **Text has real formatting, so do not build strings by hand.** **Number To
-  Text (formatted)** takes decimals and a zero-padded minimum width (a score
-  reads 00420); **Seconds To Clock** turns a Timer into "M:SS" or "M:SS.t";
-  **Join Text** concatenates every wired text with `str` between them; **Text
-  Equals** compares the wired text against `str` for the bool plane.
-- **Set Screen Effect** drives a custom `.screenfx` placement at runtime - the
-  `set` pin writes its four parameters (the effect's own, by name), `on`/`off`
-  switch it, and a wired number overrides the first parameter so a Tween can
-  ramp it. Only effects PLACED in the screen stack can be driven.
-  **Value At Most** completes Value At Least, and **Restart Scene** reloads the
-  current scene (flow variables and save values survive; they are game-global).
-- Object-parameter nodes resolve their target: incoming **object link** →
-  explicit `str` name → **self** (the graph's owner). Empty `str` = self.
-- Logic gates (AND/OR/NOT/...) fold over **all** wired bool inputs; bridge
-  back to execution with **On Condition** (fires on the rising edge).
-- A position link into a node with X/Y/Z params overrides those params; a
-  **number** link overrides the target's `num[0]` the same way. Number sources
-  are Number / Get Int / Get Save Value / Timer / Tween / Counter / For Loop /
-  Scene Time / Frame Time / Oscillate / Roll Random and the Vector getters;
-  Add/Subtract/Multiply/Divide/Min/Max/Modulo/Power fold over
-  **all** their wired number inputs (with one input wired, `num[0]` is the
-  second operand); Number At Least bridges to the bool plane and Number To Text
-  to the text plane.
-- To change a variable BY an amount, prefer Set Int's `"pin": 1` (add) with
-  `num[0]` as the delta over reading it back through Get Int + Add.
-- **Continuous MOTION does not belong under On Update.** The game re-bakes an
-  object's world-space geometry on the PS2 whenever a graph moves it, so
-  nudging a transform 50 times a second is the expensive way to do everything.
-  Use the nodes the game integrates itself: **Spin Object** (angular velocity
-  in degrees/second, `start`/`stop` pins - a permanently turning coin/fan is
-  just `On Start -> Spin Object`) and **Move Object To** (glides at a speed
-  until it arrives). **Rotate Object By** / **Set Object Position** are
-  one-shots: fire them from an event, not every frame. Reserve On Update for
-  logic that genuinely has to be re-evaluated per frame.
-- `Spawn Object`'s object output is the **clone**; `Raycast`'s outputs are
-  latched at cast time. Both may yield "no object" - downstream actions are
-  guarded automatically.
+  At Most / Equals (tolerance) / In Range. Clocks: Scene Time, Frame Time,
+  **Oscillate** (a sine on the scene clock - the pulsing-light node). **Roll
+  Random** is an ACTION: it latches its roll, so two consumers see one number.
+  Number sources also include Number, Get Int, Get Save Value, Get Fact, Timer,
+  Tween, Counter, For Loop and the Vector getters.
+- **Facts are the game's DECLARED state; prefer them over Variables.** A fact
+  comes from the catalog (Tools > World Facts) with a type, default and lifetime
+  (session, checkpoint, save game, profile) - `Set Fact` on a save-lived fact IS
+  the persistence. **Set Fact** pins `set`/`add`/`toggle`; **Clear Fact**
+  restores the catalog default; **Fact Is True / Fact At Least / At Most / Fact
+  Is** compare; **Get Fact As Text** prints a one-of-several fact by name; **On
+  Fact Changed** has three exec outputs - `changed`, `became true` (0 ->
+  non-zero), `became false` (a position fact only has `changed`) - and fires
+  whoever wrote the fact. **Query** evaluates a named condition authored once in
+  the Facts window. Never invent a fact name: an unknown fact compiles to
+  nothing.
+- Variables (Set Int/Bool/Position, Get ...) are game-global, created on first
+  use. To change one BY an amount use Set Int's `"pin": 1` (add) with `num[0]`
+  as the delta, not Get Int + Add.
+- **Vector** computes positions. A position input takes one link, so these are
+  unary and COMPOSE by chaining: Position (literal), Offset Position, Scale
+  Position, Rotate Around Y, With X/Y/Z (a computed number becomes a
+  coordinate), **Snap To Terrain** (put a point on the ground before Spawn
+  Object), readers Get X/Y/Z, Distance To Point, Terrain Height At; **Roll Point
+  In Area** latches a random point inside an Area. A ring of 8 is For Loop ->
+  (index x 45) -> Rotate Around Y of a Position -> Snap To Terrain -> Spawn
+  Object.
+- **Player and transforms are readable**: Player Position (player 1/2), Player
+  Look Direction (unit vector - Scale + Offset from Player Position gives a
+  point in front), Player Fall Speed; Get Object Scale / Rotation / Velocity
+  ride the POSITION plane as 3-vectors (rotate: Get Object Rotation -> With Y ->
+  Set Object Rotation). **Distance To Object** with Player Position wired is
+  "how far is the player" as a VALUE. Writers: Set Object Scale, Scale Object
+  By, **Look At** (yaw only unless Tilt), **Set Velocity** (units/second,
+  REPLACES; Apply Impulse adds), Stop Motion, Set Object Usable. **Is Object
+  Active** = in the game at all; Is Visible = drawn. **Find Nearest** latches the
+  closest active object whose name starts with a prefix. **Set Player Input**
+  lock/unlock takes the controls (gravity and camera keep running; a scene load
+  unlocks).
+- **Continuous MOTION does not belong under On Update** - the PS2 re-bakes a
+  moved object's world geometry, so per-frame nudging is expensive. Use **Spin
+  Object** (deg/s, `start`/`stop`; a turning coin is just On Start -> Spin
+  Object) and **Move Object To** (glides at a speed). Rotate Object By / Set
+  Object Position are one-shots for events.
+- **Spawn Object**'s object output is the **clone**; **Raycast** latches its
+  outputs at cast time. Both may yield "no object" - downstream actions are
+  guarded.
+- **Camera** nodes share the ScriptContext fields the Cutscene Director uses,
+  so a PLAYING cutscene always wins. **Set Camera** (eye from a linked
+  position, aimed at the target; from On Start a fixed camera, from On Update a
+  tracking one), **Camera From Object** (an object's position and +Z aim - place
+  a Camera object), **Release Camera**, **Camera Shake**, **Set Screen Fade** /
+  **Set Letterbox Bars** (0..1 - wire a Tween in, switch scene on its
+  `finished`; a letterbox is measured inside the output picture, so on a 16:9
+  project the 16:9 style covers nothing - correct), **Set Player Visible**.
+  **On Sequence Finished** fires when a cutscene stops for ANY reason (skip
+  included); its bool output = "a cutscene is playing".
+- **Play Credits** rolls a credits screen by name and owns screen and pad until
+  it ends, then runs the ROLL's own finish action; **Stop Credits**, **On
+  Credits Finished**.
+- **HUD**: **Set HUD Element Visible** (show/hide/toggle one named image, text
+  or bar through its transition), **Set HUD Bar** (also writes its backing save
+  value), **Play HUD Effect** (one-shot flash/bounce/shake). Names come from
+  Tools > UI Editor.
+- **Graphs talk with EVENTS, not polled variables.** **Send Event** broadcasts
+  a name (+ optional number); every **On Event** of that name fires on the NEXT
+  frame (number output = payload, bool = "arrived this frame"), so graph order
+  never changes the outcome. Use the SAME string on both. For same-frame needs,
+  wire the action directly.
+- **Text**: Number To Text (formatted: decimals, zero-padded width), Seconds To
+  Clock ("M:SS" / "M:SS.t"), Join Text (`str` between inputs), Text Equals
+  (bool).
+- **Set Screen Effect** drives a `.screenfx` PLACED in the screen stack (`set`
+  writes its four params, `on`/`off`; a wired number overrides the first).
+  **Restart Scene** reloads the scene (variables and save values survive).
+  **Set Sound Volume** ducks sound effects (music has its own node).
+- **Buttons: prefer On Action** (an Input Map action - follows presets and the
+  player's rebind) over On Button (raw pad button) and On Key (raw USB key) -
+  those are for fixed debug/cheat keys.
 - Names in `str` must match the project exactly - get them from
-  `"{TYRAX_EXE}" --dump <projectDir>` (objects, scenes, layers, music, sounds,
-  save values/texts, menus, texts, gradings, ambiences, sequences, input
-  actions/presets).
-- **Buttons: prefer On Action over On Button.** `On Action` names an *input
-  action* from the project's Input Map ("jump", "sprint", ...) and follows
-  whatever that action is bound to, including a binding preset switch and a
-  player's own in-game rebind. `On Button` is the raw pad button and `On Key`
-  the raw USB keyboard key - use those only when a fixed physical button is
-  really what is wanted (a debug/cheat key).
+  `"{TYRAX_EXE}" --dump <projectDir>`.
 
 ## AI generation
 
-The editor can generate — or edit — a graph from a natural-language request,
-either from the GUI (Flow Graph window → "Generate with AI...") or headlessly:
+The editor can generate or edit a graph from a natural-language request, from
+the GUI (Flow Graph window -> "Generate with AI...") or headlessly:
 
 ```
 "{TYRAX_EXE}" --ai-graph <projectDir> <objectName> "open the door when the player uses the lever" \
     [sceneName] [--backend claude|copilot|openai] [--model <m>] [--thinking]
 ```
 
-Backend/model defaults come from the editor's global preferences (Edit >
-Preferences > AI assistant). The reply is validated exactly like
-`--apply-graph`. An existing graph is included in the prompt automatically:
-the model decides from the request whether to change, extend or rebuild it
-and always returns the complete resulting graph.
-
-If you (the assistant) are asked to write game logic yourself, you do not need
-`--ai-graph` - author the JSON directly and use `--apply-graph`.
+Defaults come from the editor's Preferences (AI assistant). The reply is
+validated like `--apply-graph`; an existing graph goes into the prompt and the
+result is always the complete graph. If you are writing the logic yourself,
+author the JSON and use `--apply-graph` instead.
 
 ## Custom nodes
 
-Project-specific nodes live in `flow-nodes/*.flownode` (text manifests with a
-C++ body or a `call = fn` into `inc/scripts/flow_nodes.hpp`). They appear in
-the catalog as `custom:<file-stem>`. See the **tyra-scripting** skill.
+Project nodes live in `flow-nodes/*.flownode` (a manifest plus a C++ body or a
+`call = fn` into `inc/scripts/flow_nodes.hpp`) and appear in the catalog as
+`custom:<file-stem>`. See the **tyra-scripting** skill.
