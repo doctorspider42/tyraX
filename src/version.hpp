@@ -5515,7 +5515,13 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 171
+#define TYRAX_VERSION_MINOR 172
+// 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
+// TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
+// x86_64); platform::resourceBinDir maps shipped-file lookups onto
+// Contents/Resources; the app carries GNU make, gmp/mpfr/mpc/zstd, prebuilt
+// VU tools and machorelink (tools/toolchain/machorelink.c) so games build with
+// no Homebrew or Xcode; update::InstallKind::MacApp swaps the bundle.
 // 1.171.0: native macOS. The editor builds with Apple clang/libc++ (two
 // portability fixes in project.hpp, one in mateditor_ui.cpp) and runs on Cocoa
 // (forward-compatible GL core context); platform.cpp's POSIX half gained an

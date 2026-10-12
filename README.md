@@ -191,10 +191,12 @@ for me to create it without the AI. Please give it a chance :)
 [latest release](https://github.com/doctorspider42/tyraX/releases) — the
 `TyraX-Setup-<version>.exe` installer on Windows, or on Linux the
 `tyrax-<version>-linux-x86_64.tar.gz` (unpack anywhere, no root) or the `.deb` /
-`.rpm`. All of them bring the engine and the PS2 tools with them, and the editor
-tells you when a newer build is out — [Installing and updating](docs/updates.md).
-The installer and the tarball update themselves; a `.deb` or `.rpm` is your
-package manager's to update.
+`.rpm`, and on macOS the `tyrax-<version>-macos-<arch>.dmg` (drag TyraX into
+Applications - signed and notarized, and it builds games with no Homebrew or
+Xcode). All of them bring the engine and the PS2 tools with them, and the
+editor tells you when a newer build is out — [Installing and
+updating](docs/updates.md). The installer, the tarball and the Mac app update
+themselves; a `.deb` or `.rpm` is your package manager's to update.
 
 **Windows — build it**
 
@@ -218,7 +220,7 @@ itself on the first **Build & Run**. It knows apt, dnf, pacman and zypper; on
 anything else it prints the package list and stops. **No Docker anywhere in
 this path** — see [the native toolchain](docs/native-toolchain.md).
 
-**macOS** (Apple silicon or Intel; built from source - no release package yet)
+**macOS — build it** (Apple silicon or Intel)
 
 ```bash
 xcode-select --install               # clang, once
@@ -494,7 +496,7 @@ polling/report intervals, and a release build that provably carries none of it
 - The [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`,
   [interface themes](docs/editor-theme.md), and
   [format versioning and migrations](docs/format-versioning.md).
-- [Windows installer and Linux tarball/`.deb`/`.rpm`, released on every push](docs/updates.md),
+- [Windows installer, Linux tarball/`.deb`/`.rpm` and a notarized macOS `.dmg`, released on every push](docs/updates.md),
   with an update check the editor makes itself (and one checkbox turns off).
 
 ## Shortcuts

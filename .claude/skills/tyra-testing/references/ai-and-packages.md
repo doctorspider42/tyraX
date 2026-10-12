@@ -67,4 +67,10 @@ tar xzf /tmp/pkg/tyrax-<v>-linux-x86_64.tar.gz -C /tmp/pkg
 grep engine-src /tmp/pkg/t/docker-compose.yml   # must name the UNPACKED tree's vendor/tyra, not your checkout
 ```
   `--deb` needs `dpkg-deb` (`apt-get install dpkg-dev`), `--rpm` needs `rpmbuild` (`apt-get install rpm`). Inspect metadata/deps/files: `dpkg-deb -I`/`-c`, `rpm -qip`/`-qRp`/`-qlp` — a missing `zenity | kdialog` = an Open button that does nothing.
+- **macOS app** (`installer/build-macos.sh`; docs/updates.md#macos): mount the dmg (`hdiutil attach -nobrowse -readonly -mountpoint <dir>`), check `.DS_Store`/`.background.tiff`/`Applications` link, `codesign --verify --deep --strict` + `codesign -dvv` (Developer ID, `Runtime Version`, `Timestamp`), `ditto` the app out, then prove it needs nothing from the host - an ISOLATED config and a bare PATH:
+```bash
+env -i HOME=$HOME USER=$USER XDG_CONFIG_HOME=/tmp/cfg PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  /tmp/apps/TyraX.app/Contents/MacOS/tyrax-editor --build <copied project>
+```
+  The log must show `prerequisites are ready (bundled tools)`, `relinked N binaries`, `installing the bundled OpenVCL`, `gmake: Entering directory`. Pre-seed `/tmp/cfg/tyra-editor/toolchain/ps2dev/.sources/` with the PS2DEV archive to skip the 235 MiB download. Note the dev machine's toolchain flips between the app's and Homebrew's libraries (a reinstall, ~30 s) when the same config dir serves both. After notarizing: `spctl -a -vv -t install <dmg>` and `spctl -a -vv <app>` must say `Notarized Developer ID`.
 - **Self-update without a release**: put the harness binary at `<root>/bin/`, a `.tyrax-package` marker beside it, call `update::installKind`/`selfInstallBlocked` for `tarball` (empty = button appears), `deb`, `rpm`, no file (source checkout), `tarball` in a `chmod a-w` dir. Then build a throwaway "new release" tarball, `update::runInstaller` it: new files present, a file the release lacks SURVIVED (overlay is deliberate), binary relaunched.

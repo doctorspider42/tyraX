@@ -9562,11 +9562,11 @@ std::string App::installVsCodeExtension() {
     // silently ignored - which is why the earlier folder-copy install did
     // nothing and printed nothing. `code --install-extension <vsix>` registers
     // it properly.
-    const std::string exePath = platform::exePath();
-    if (exePath.empty()) return "Could not locate the editor executable";
+    const std::filesystem::path binDir = platform::resourceBinDir();
+    if (binDir.empty()) return "Could not locate the editor executable";
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
-        std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
+        binDir / ".." / "tools" / "vscode-tyrax", ec);
     // The NEWEST .vsix, not the first one the directory happens to hand back.
     // A leftover package is the documented trap here and it has already been
     // paid for once: the committed 0.2.0 predated the whole VU1 language

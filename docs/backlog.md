@@ -1781,20 +1781,25 @@ that copy-out step designed.
 carries it) — but the PS2 toolchain image would have to run under emulation on
 that host, so measure a game build there before promising anything.
 
-### macOS: what native support (1.171.0) left out
+### macOS: what native support (1.171.0) and the app (1.172.0) left out
 
-The editor builds and runs from source on macOS, and games build natively with
-the macOS PS2DEV archive + in-tree OpenVCL (docs/native-toolchain.md#macos).
-Left for later, each testable on its own:
+The editor builds and runs on macOS, games build natively with the macOS
+PS2DEV archive + in-tree OpenVCL (docs/native-toolchain.md#macos), a game
+boots in PCSX2.app, and the release carries a notarized .dmg
+(docs/updates.md#macos). Left for later, each testable on its own:
 
-- **A release package**: a `.app` bundle (Info.plist, icon, `Contents/Resources`
-  holding the repo-shaped tree the editor resolves from `<exe>/../`) in a
-  `-macos-<arch>.tar.gz` (or `.dmg`), a `build-macos` job in `release.yml`,
-  signing/notarization, and an `InstallKind` for it. `update::platformAssetSuffix`
-  already names the asset.
-- **PCSX2 end to end**: detection of `PCSX2.app` and its ini under
-  `~/Library/Application Support/PCSX2` is written but has not booted a game on
-  a Mac yet - nor has *Run on PS2* (`ps2client` for macOS is x86_64, Rosetta).
+- **The first CI run of `build-macos`**: written and run locally end to end
+  (sign, dmg, isolated install + game build), never on a GitHub runner -
+  especially the Intel one (`macos-15-intel`, the Intel PS2DEV archive and
+  `/usr/local/opt` relink paths are untested), and notarization through the
+  API key rather than a keychain profile.
+- **The self-update swap** (`update::runInstaller`, macOS branch) has not run
+  against a real release yet: needs two published versions.
+- **Opening a `.tyra` from Finder**: no `CFBundleDocumentTypes` - GLFW does not
+  hand the app an "open file" Apple Event, so a double-clicked project would
+  start an empty editor. Needs an NSApplicationDelegate hook first.
+- *Run on PS2* on a Mac (`ps2client` for macOS is x86_64 - Rosetta) is
+  untested.
 - **The viewport at Retina density**: the 3D viewport's FBO is sized in
   points, so it is drawn at half the pixel density of the UI around it.
 - **GPU GI** needs GL 4.3 compute; macOS stops at 4.1, so the CPU path is the

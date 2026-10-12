@@ -35,7 +35,12 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | [OpenVCL](https://github.com/ps2dev/openvcl) | TyraX fork snapshot `89efa51e`, based on upstream `a5867c3` | AFL-2.0 | **Yes** — `vendor/openvcl`, modified sources tracked |
 | [vclpp](https://github.com/glampert/vclpp) | `00e44ecf` | MIT | **Yes** — `vendor/vclpp`, sources tracked |
 | PS2SDK `bin2s` | `8f397576` | AFL-2.0 | **Yes** — `tools/toolchain/bin2s`, source tracked |
-| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux release, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
+| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux/macOS releases, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
+| [GNU make](https://www.gnu.org/software/make/) | 4.4.1 | GPL-3.0-or-later | **macOS app only** — binary + its source tarball, see below |
+| [GMP](https://gmplib.org/) | 6.3.0 | LGPL-3.0-or-later **or** GPL-2.0-or-later | **macOS app only** — library + source, see below |
+| [MPFR](https://www.mpfr.org/) | 4.2.2 | LGPL-3.0-or-later | **macOS app only** — library + source |
+| [MPC](https://www.multiprecision.org/mpc/) | 1.4.1 | LGPL-3.0-or-later | **macOS app only** — library + source |
+| [zstd](https://github.com/facebook/zstd) | 1.5.7 | BSD-3-Clause **or** GPL-2.0 | **macOS app only** — library + source |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
@@ -336,13 +341,32 @@ SOFTWARE.
 built from source with one local patch
 ([`tools/ps2client/nodelay.patch`](tools/ps2client/nodelay.patch)). Upstream
 declares no license file, so it is redistributed here in the spirit of the
-ps2dev homebrew SDK with full credit to its authors. The Linux binary is not
-redistributed at all — `setup.sh` downloads it unmodified from an upstream
-release. ps2link is likewise not redistributed: `tools/ps2link/` holds only a
+ps2dev homebrew SDK with full credit to its authors. The Linux and macOS
+binaries are not in this repository — `setup.sh` downloads them unmodified from
+an upstream release; the macOS app (built from such a checkout) carries that
+download, re-signed with the app's own signature. ps2link is likewise not redistributed: `tools/ps2link/` holds only a
 patch, and its build clones ps2link from upstream itself.
 
 If the ps2dev project ever states an explicit license, this entry should be
 replaced with it.
+
+## The macOS app's host tools — GNU make, GMP, MPFR, MPC, zstd
+
+`TyraX.app` (installer/build-macos.sh) carries, in
+`Contents/Resources/tools/macos/`, what the macOS build of the PS2DEV toolchain
+needs from the host and a Mac without Homebrew or Xcode does not have: **GNU
+make 4.4.1** (GPL-3.0-or-later) and the shared libraries **GMP 6.3.0**
+(LGPL-3.0-or-later or GPL-2.0-or-later; TyraX makes no election), **MPFR
+4.2.2** and **MPC 1.4.1** (LGPL-3.0-or-later) and **zstd 1.5.7** (BSD-3-Clause
+or GPL-2.0; TyraX makes no election). All five are built unmodified by
+`installer/macos/build-host-tools.sh` from the upstream release tarballs it
+pins by SHA-256, and **those exact tarballs ship beside the binaries** in
+`tools/macos/src/` - the Corresponding Source the GPL and LGPL ask for, with
+each project's own licence texts inside. The libraries stay separate shared
+objects, which is what lets a recipient replace them (LGPL §4): the toolchain
+setup copies whatever is in `tools/macos/lib` and relinks the PS2DEV
+compilers onto it. Nothing in the TyraX editor itself links against any of
+them.
 
 ## PS2SDK `audsrv` — GNU Library General Public License v2
 

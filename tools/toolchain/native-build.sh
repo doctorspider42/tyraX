@@ -12,8 +12,15 @@ CACHE_ROOT=$3
 PS2DEV_ROOT=$4
 REBUILD=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
-# Runs on macOS too, with the system's own bash 3.2, make 3.81 and rsync
-# (openrsync since 15.4): no mapfile, no `sed -i`, nothing GNU-only.
+# Runs on macOS too, with the system's own bash 3.2 and rsync (openrsync since
+# 15.4): no mapfile, no `sed -i`, nothing GNU-only. `make` there is the Xcode
+# Command Line Tools' 3.81, or in a TyraX.app the bundled GNU make
+# (tools/macos/bin/gmake) - /usr/bin/make is only an xcode-select shim, so an
+# app user without the Command Line Tools would otherwise get an install prompt.
+MAKE_TOOL=make
+if [ -x "$HERE/../macos/bin/gmake" ]; then
+  MAKE_TOOL="$HERE/../macos/bin/gmake"
+fi
 
 case "$CACHE_ROOT" in
   /*) ;;
@@ -163,12 +170,19 @@ fi
 # Always ask make: a failed compile can leave synced sources beside stale
 # objects, and a changed Makefile must invalidate the old compiler flags.
 # An unchanged engine is a cheap no-op now that its archive target is real.
-make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
+"$MAKE_TOOL" -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Project-authored VU programs are host C++, just as in the Docker backend.
 if find "$PROJECT/src/vu" "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' \
      -print -quit 2>/dev/null | grep -q .; then
   echo "[editor] Building the project's VU sources..."
+  # They are host C++ (vugen), compiled by this machine's own compiler.
+  if [ "$(uname -s)" = Darwin ] && ! xcode-select -p >/dev/null 2>&1; then
+    echo "[editor] This project has its own VU programs (src/vu*/), which are compiled" >&2
+    echo "[editor] on this Mac: install the Xcode Command Line Tools once with" >&2
+    echo "[editor]   xcode-select --install" >&2
+    exit 1
+  fi
   VUGEN="$CACHE_ROOT/vugen"
   VUSRC=()
   while IFS= read -r f; do VUSRC+=("$f"); done < <(find "$PROJECT/src/vu" \
@@ -188,7 +202,7 @@ echo "[editor] Compiling natively (PS2DEV + OpenVCL)..."
 for sym in "$PROJECT/bin/"*.elf.sym; do
   [ ! -e "$sym" ] || [ -w "$sym" ] || rm -f "$sym"
 done
-make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
+"$MAKE_TOOL" -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
   ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base" \
   NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 

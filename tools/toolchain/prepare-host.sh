@@ -15,7 +15,26 @@ esac
 # PS2DEV archive is NOT self-contained: its gcc/binutils load gmp, mpfr,
 # libmpc and zstd from Homebrew's opt/ prefix (otool -L), and without them the
 # EE compiler dies on its first file with "Library not loaded: libmpc.3.dylib".
+#
+# A TyraX.app carries all of that in tools/macos (GNU make - /usr/bin/make is
+# an xcode-select shim - the four libraries, prebuilt OpenVCL/vclpp/bin2s and
+# machorelink; installer/macos/build-host-tools.sh), so an installed editor
+# needs only real system tools: no Homebrew, no Command Line Tools.
 if [ "$(uname -s)" = Darwin ]; then
+  bundle="$(cd "$(dirname "$0")/.." && pwd)/macos"
+  if [ -x "$bundle/bin/gmake" ] && [ -x "$bundle/bin/machorelink" ] \
+     && [ -x "$bundle/bin/openvcl" ] && [ -f "$bundle/lib/libmpc.3.dylib" ]; then
+    missing=()
+    for tool in curl tar shasum rsync codesign; do
+      command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+      echo "[toolchain] macOS host prerequisites are ready (bundled tools)."
+      exit 0
+    fi
+    echo "[toolchain] missing system tools: ${missing[*]} - this macOS install is damaged." >&2
+    exit 1
+  fi
   for d in /opt/homebrew/bin /usr/local/bin; do
     [ -d "$d" ] && PATH="$d:$PATH"
   done

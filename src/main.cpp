@@ -3154,11 +3154,9 @@ static int dumpVuCapFromCli(int argc, char** argv) {
 static std::string vuEngineDir(const char* override) {
     namespace fs = std::filesystem;
     if (override && *override) return override;
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
+    if (const fs::path binDir = platform::resourceBinDir(); !binDir.empty()) {
         std::error_code ec;
-        const fs::path candidate =
-            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+        const fs::path candidate = binDir / ".." / "vendor" / "tyra" / "engine";
         if (fs::exists(candidate / "Makefile", ec))
             return fs::weakly_canonical(candidate, ec).string();
     }
@@ -3205,7 +3203,7 @@ static VuProvenance vuProvenance(const std::string& engine) {
     if (exe.empty()) return pv;
     const auto exeTime = fs::last_write_time(fs::path(exe), ec);
     if (ec) return pv;
-    const fs::path src = fs::path(exe).parent_path() / ".." / "src";
+    const fs::path src = platform::resourceBinDir() / ".." / "src";
     for (const char* name : {"vugen.cpp", "vugen.hpp", "vusim.cpp", "vuir.cpp",
                              "vuasm.cpp", "main.cpp"}) {
         std::error_code fec;

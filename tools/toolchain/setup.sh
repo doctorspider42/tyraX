@@ -94,12 +94,77 @@ if [ ! -f "$ARCHIVE" ] || [ "$(sha256 "$ARCHIVE" | awk '{print $1}')" != "$PS2DE
 fi
 echo "$PS2DEV_SHA256  $ARCHIVE" | sha256 -c -
 
+# macOS: the PS2DEV archive's gcc/binutils load gmp, mpfr, mpc and zstd from
+# Homebrew's opt/ prefix. They are relinked onto copies the install owns - the
+# ones a TyraX.app carries in tools/macos/lib (built for the app's minimum
+# macOS by installer/macos/build-host-tools.sh), else Homebrew's in a checkout
+# - so a Homebrew upgrade (libmpc.3 -> .4) cannot break a working toolchain,
+# and an installed TyraX needs no Homebrew at all. machorelink rewrites the
+# references to @loader_path/<lib> in place; install_name_tool would need the
+# Xcode Command Line Tools, which an app user may not have.
+MAC_BUNDLE="$REPO/tools/macos"
+MAC_LIBS=(libgmp.10.dylib libmpfr.6.dylib libmpc.3.dylib libzstd.1.dylib)
+MAC_LIB_SRC=
+HOSTLIBS_ID=
+if [ "$(uname -s)" = Darwin ]; then
+  if [ -f "$MAC_BUNDLE/lib/libmpc.3.dylib" ]; then
+    MAC_LIB_SRC="$MAC_BUNDLE/lib"
+  else
+    brew_prefix=$(brew --prefix 2>/dev/null || true)
+    MAC_LIB_SRC="$brew_prefix/opt"
+  fi
+  mac_lib() {  # mac_lib <name> -> the source file of one of MAC_LIBS
+    if [ "$MAC_LIB_SRC" = "$MAC_BUNDLE/lib" ]; then echo "$MAC_LIB_SRC/$1"; return; fi
+    case "$1" in
+      libgmp*) echo "$MAC_LIB_SRC/gmp/lib/$1" ;;
+      libmpfr*) echo "$MAC_LIB_SRC/mpfr/lib/$1" ;;
+      libmpc*) echo "$MAC_LIB_SRC/libmpc/lib/$1" ;;
+      libzstd*) echo "$MAC_LIB_SRC/zstd/lib/$1" ;;
+    esac
+  }
+  HOSTLIBS_ID=$(for l in "${MAC_LIBS[@]}"; do sha256 "$(mac_lib "$l")"; done \
+                | awk '{print $1}' | sha256 | awk '{print $1}')
+  HOSTLIBS_ID=" hostlibs-$HOSTLIBS_ID-$(sha256 "$HERE/machorelink.c" | awk '{print $1}')"
+fi
+
+relink_macos_toolchain() {
+  local relink="$MAC_BUNDLE/bin/machorelink" libdir="$ROOT/lib/tyrax-host" l f
+  if [ ! -x "$relink" ]; then
+    relink="$ROOT/.sources/machorelink"
+    cc -O2 "$HERE/machorelink.c" -o "$relink"
+  fi
+  local args=()
+  for l in "${MAC_LIBS[@]}"; do args+=(-l "$l"); done
+  mkdir -p "$libdir"
+  for l in "${MAC_LIBS[@]}"; do
+    install -m 0644 "$(mac_lib "$l")" "$libdir/$l"
+  done
+  # Homebrew's copies name themselves and each other by absolute opt/ paths.
+  "$relink" "${args[@]}" "$libdir"/*.dylib | while IFS= read -r f; do
+    codesign -f -s - "$f" 2>/dev/null
+  done
+  echo "[toolchain] relinking PS2DEV onto its own gmp/mpfr/mpc/zstd..."
+  find "$ROOT" \( -path "$ROOT/.sources" -o -path "$libdir" \) -prune -o -type f \
+       \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0 \
+    | xargs -0 "$relink" "${args[@]}" > "$ROOT/.sources/relinked.txt"
+  # Each listed binary finds the four by @loader_path: hard links, so the
+  # copies cost no space and stay one file. The list holds every NAME that
+  # references them (machorelink.c: the archive's hard-linked twins must each
+  # be re-signed, or the one codesign did not rewrite dies with "Killed: 9").
+  while IFS= read -r f; do
+    for l in "${MAC_LIBS[@]}"; do ln -f "$libdir/$l" "$(dirname "$f")/$l"; done
+    codesign -f -s - "$f" 2>/dev/null
+  done < "$ROOT/.sources/relinked.txt"
+  echo "[toolchain] relinked $(wc -l < "$ROOT/.sources/relinked.txt" | tr -d ' ') binaries."
+}
+
 BASE_MARKER="$ROOT/.ps2dev-base"
-BASE_EXPECTED="ps2dev-v2.0.0-$PS2DEV_SHA256"
+BASE_EXPECTED="ps2dev-v2.0.0-$PS2DEV_SHA256$HOSTLIBS_ID"
 if [ ! -f "$BASE_MARKER" ] || [ "$(cat "$BASE_MARKER")" != "$BASE_EXPECTED" ]; then
   echo "[toolchain] installing PS2DEV..."
   find "$ROOT" -mindepth 1 -maxdepth 1 ! -name .sources -exec rm -rf -- {} +
   tar -xzf "$ARCHIVE" --strip-components=1 -C "$ROOT"
+  [ -z "$HOSTLIBS_ID" ] || relink_macos_toolchain
   printf '%s\n' "$BASE_EXPECTED" > "$BASE_MARKER"
 else
   echo "[toolchain] PS2DEV base is already installed."
@@ -109,20 +174,31 @@ export PS2DEV="$ROOT"
 export PS2SDK="$ROOT/ps2sdk"
 export PATH="$ROOT/bin:$ROOT/ee/bin:$ROOT/iop/bin:$ROOT/dvp/bin:$ROOT/ps2sdk/bin:$PATH"
 
-echo "[toolchain] building the in-tree OpenVCL fork..."
-BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/tyrax-toolchain.XXXXXXXX")
-trap 'rm -rf -- "$BUILD_TMP"' EXIT
-OV_BUILD="$BUILD_TMP/openvcl"
-cmake -S "$REPO/vendor/openvcl" -B "$OV_BUILD" -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=ON
-cmake --build "$OV_BUILD" -j"$(getconf _NPROCESSORS_ONLN)"
-ctest --test-dir "$OV_BUILD" --output-on-failure
-install -m 0755 "$OV_BUILD/openvcl" "$ROOT/bin/openvcl"
+if [ -x "$MAC_BUNDLE/bin/openvcl" ] && [ -x "$MAC_BUNDLE/bin/vclpp" ] \
+   && [ -x "$MAC_BUNDLE/bin/bin2s" ]; then
+  # A TyraX.app: installer/macos/build-host-tools.sh built these from the very
+  # vendor/openvcl, vendor/vclpp and bin2s trees the app carries (and ran the
+  # OpenVCL suite), so no cmake or compiler is needed on this Mac.
+  echo "[toolchain] installing the bundled OpenVCL, vclpp and bin2s..."
+  install -m 0755 "$MAC_BUNDLE/bin/openvcl" "$ROOT/bin/openvcl"
+  install -m 0755 "$MAC_BUNDLE/bin/vclpp" "$ROOT/bin/vclpp"
+  install -m 0755 "$MAC_BUNDLE/bin/bin2s" "$ROOT/ps2sdk/bin/bin2s"
+else
+  echo "[toolchain] building the in-tree OpenVCL fork..."
+  BUILD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/tyrax-toolchain.XXXXXXXX")
+  trap 'rm -rf -- "$BUILD_TMP"' EXIT
+  OV_BUILD="$BUILD_TMP/openvcl"
+  cmake -S "$REPO/vendor/openvcl" -B "$OV_BUILD" -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=ON
+  cmake --build "$OV_BUILD" -j"$(getconf _NPROCESSORS_ONLN)"
+  ctest --test-dir "$OV_BUILD" --output-on-failure
+  install -m 0755 "$OV_BUILD/openvcl" "$ROOT/bin/openvcl"
 
-echo "[toolchain] building vclpp and bin2s from in-tree sources..."
-g++ -std=c++14 -O2 -Wall -Wextra -pedantic \
-  "$REPO/vendor/vclpp/vclpp_main.cpp" -o "$ROOT/bin/vclpp"
-gcc -O2 "$HERE/bin2s/bin2s.c" -o "$ROOT/ps2sdk/bin/bin2s"
+  echo "[toolchain] building vclpp and bin2s from in-tree sources..."
+  g++ -std=c++14 -O2 -Wall -Wextra -pedantic \
+    "$REPO/vendor/vclpp/vclpp_main.cpp" -o "$ROOT/bin/vclpp"
+  gcc -O2 "$HERE/bin2s/bin2s.c" -o "$ROOT/ps2sdk/bin/bin2s"
+fi
 
 cat > "$ROOT/bin/vcl" <<EOF
 #!/usr/bin/env bash

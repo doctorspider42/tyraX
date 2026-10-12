@@ -127,13 +127,13 @@ const char* platformAssetSuffix() {
 #ifdef _WIN32
     return ".exe";
 #elif defined(__APPLE__)
-    // No macOS release asset is published yet; this suffix is the name one
-    // will carry, so until then the check finds nothing to offer instead of
-    // offering the Linux tarball. A checkout is InstallKind::Source anyway.
+    // The disk image installer/build-macos.sh makes per architecture; the
+    // updater mounts it and swaps the bundle (runInstaller). An Intel build
+    // must never pick up the arm64 image, hence the architecture in the name.
 #if defined(__aarch64__) || defined(__arm64__)
-    return "-macos-arm64.tar.gz";
+    return "-macos-arm64.dmg";
 #else
-    return "-macos-x86_64.tar.gz";
+    return "-macos-x86_64.dmg";
 #endif
 #else
     // The tarball, not the .deb or the .rpm: it is the one format an editor can
@@ -269,12 +269,13 @@ void cancel() {
 }
 
 fs::path installRoot() {
-    const std::string exe = platform::exePath();
-    if (exe.empty()) return {};
-    // <root>/bin/tyrax-editor. exePath() resolves /proc/self/exe through
-    // canonical(), so a /usr/bin symlink into /opt lands on the real tree.
+    const fs::path binDir = platform::resourceBinDir();
+    if (binDir.empty()) return {};
+    // <root>/bin/tyrax-editor (TyraX.app/Contents/Resources on macOS).
+    // exePath() resolves /proc/self/exe through canonical(), so a /usr/bin
+    // symlink into /opt lands on the real tree.
     std::error_code ec;
-    const fs::path root = fs::path(exe).parent_path().parent_path();
+    const fs::path root = binDir.parent_path();
     const fs::path canon = fs::weakly_canonical(root, ec);
     return ec ? root : canon;
 }
@@ -291,6 +292,7 @@ InstallKind installKind() {
     if (word == "tarball") return InstallKind::Tarball;
     if (word == "deb") return InstallKind::Deb;
     if (word == "rpm") return InstallKind::Rpm;
+    if (word == "macapp") return InstallKind::MacApp;
     return InstallKind::Source;
 #endif
 }
@@ -313,6 +315,30 @@ std::string selfInstallBlocked() {
             return "This TyraX runs from a source checkout, which the editor will "
                    "not overwrite. Update it with 'git pull' and ./build.sh "
                    "(./build.ps1 on Windows).";
+        case InstallKind::MacApp: {
+            // installRoot() is TyraX.app/Contents/Resources; the update
+            // replaces the whole bundle, so what must be writable is the
+            // folder the bundle sits in. A bundle run straight off the .dmg,
+            // or from Downloads under App Translocation (a read-only random
+            // mount), would "update" a copy that vanishes on quit.
+            const fs::path app = installRoot().parent_path().parent_path();
+            const std::string a = app.string();
+            if (a.rfind("/Volumes/", 0) == 0 || a.find("/AppTranslocation/") != std::string::npos)
+                return "TyraX is running from the disk image or a quarantined "
+                       "folder. Drag TyraX into Applications, start it from "
+                       "there, and update again.";
+            const fs::path probe = app.parent_path() / ".tyrax-write-probe";
+            std::error_code ec;
+            {
+                std::ofstream f(probe);
+                if (!f)
+                    return "TyraX cannot write to " + app.parent_path().string() +
+                           ", so it cannot replace itself. Download the new .dmg "
+                           "and drag TyraX into Applications again.";
+            }
+            fs::remove(probe, ec);
+            return {};
+        }
         case InstallKind::Tarball:
             break;
     }
@@ -348,6 +374,57 @@ bool runInstaller(const fs::path& file, std::string& error) {
                             " /SILENT /SUPPRESSMSGBOXES /NORESTART /RELAUNCH=1";
     if (!platform::Process::startDetached(cmd)) {
         error = "could not start the installer";
+        return false;
+    }
+    return true;
+#elif defined(__APPLE__)
+    // The .dmg's TyraX.app REPLACES the running bundle as a whole: a signed
+    // bundle is sealed, and overlaying files the way the Linux tarball does
+    // would leave a bundle whose signature no longer matches (Gatekeeper then
+    // refuses to start it). The editor exits right after this returns; the
+    // detached script waits for that, swaps the bundles, and reopens TyraX.
+    const fs::path app = installRoot().parent_path().parent_path();
+    if (app.empty() || app.extension() != ".app") {
+        error = "could not work out where TyraX.app is installed";
+        return false;
+    }
+    const fs::path script = file.parent_path() / "tyrax-update.sh";
+    {
+        std::ofstream f(script);
+        if (!f) {
+            error = "could not write the update script to " + script.string();
+            return false;
+        }
+        const std::string appArg = platform::shellArg(app.string());
+        const std::string newArg = platform::shellArg(app.string() + ".new");
+        const std::string oldArg = platform::shellArg(app.string() + ".old");
+        f << "#!/bin/sh\n"
+             "# Written by TyraX (update::runInstaller). Safe to delete.\n"
+             "# Waits for the editor to exit, replaces TyraX.app with the one in\n"
+             "# the downloaded disk image and starts it again.\n"
+             "pid=" << platform::processId() << "\n"
+             "i=0\n"
+             "while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 600 ]; do\n"
+             "    sleep 0.2\n"
+             "    i=$((i + 1))\n"
+             "done\n"
+             "mnt=$(mktemp -d) || exit 1\n"
+             "hdiutil attach -nobrowse -readonly -noautoopen -mountpoint \"$mnt\" "
+          << platform::shellArg(file.string()) << " >/dev/null || exit 1\n"
+             "rm -rf " << newArg << " " << oldArg << "\n"
+             // ditto keeps the bundle's extended attributes and signature.
+             "ditto \"$mnt/TyraX.app\" " << newArg << " || { hdiutil detach \"$mnt\" -quiet; exit 1; }\n"
+             "hdiutil detach \"$mnt\" -quiet\n"
+             // Two renames, so a failure half way leaves a startable TyraX.
+             "mv " << appArg << " " << oldArg << " && mv " << newArg << " " << appArg
+          << " || { mv " << oldArg << " " << appArg << "; exit 1; }\n"
+             "rm -rf " << oldArg << " " << platform::shellArg(file.string()) << "\n"
+             "exec open " << appArg << "\n";
+    }
+    std::error_code ec;
+    fs::permissions(script, fs::perms::owner_all, ec);
+    if (!platform::Process::startDetached("/bin/sh " + platform::shellArg(script.string()))) {
+        error = "could not start the update script";
         return false;
     }
     return true;

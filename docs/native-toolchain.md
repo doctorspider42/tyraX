@@ -124,6 +124,42 @@ unchanged rebuild under a second.
 The `ps2client` release for macOS (used by *Run on PS2*) is an x86_64 binary;
 on Apple silicon it runs under Rosetta 2.
 
+**The installed TyraX.app needs none of the above.** `/usr/bin/make`,
+`otool` and `install_name_tool` are not tools on a Mac without the Command Line
+Tools - they are the same xcode-select stub as `git` and `clang`, which only
+offers to install them - and Homebrew cannot be assumed. So the app carries
+`tools/macos/` (built by `installer/macos/build-host-tools.sh` for macOS 15,
+the PS2DEV archive's own minimum, from pinned upstream sources that ship
+beside the binaries):
+
+- `bin/gmake` - GNU make 4.4.1; `native-build.sh` runs it in place of `make`;
+- `lib/` - gmp, mpfr, mpc and zstd under the sonames PS2DEV links
+  (`libmpc.3` is MPC **1.4**: PS2DEV's gcc asks for compatibility version 8,
+  which 1.3.1 does not provide);
+- `bin/openvcl`, `vclpp`, `bin2s` - prebuilt from the same trees the app
+  ships, with the OpenVCL suite run at packaging time, so no cmake or compiler
+  is needed;
+- `bin/machorelink` - `tools/toolchain/machorelink.c`.
+
+`setup.sh` then relinks the downloaded compilers - in a checkout too, from
+Homebrew's copies, which makes the toolchain immune to a later Homebrew
+upgrade: the four libraries are copied into `<toolchain>/lib/tyrax-host`,
+`machorelink` rewrites every `/opt/homebrew/opt/...` (Intel:
+`/usr/local/opt/...`) reference to `@loader_path/<lib>` in place (always
+shorter, so nothing moves), the libraries are hard-linked beside each such
+binary, and each is re-signed ad hoc with `codesign` (a real system tool).
+**The archive ships hard-linked twins** (`ee/bin/<triple>-as` and
+`ee/<triple>/bin/as` are one file): `codesign` rewrites a binary as a new file,
+which separates the twins and left the second name with patched bytes and a
+dead signature - the kernel killed it on exec (`Killed: 9`). So `machorelink`
+lists every name that references the libraries, rewritten or already
+rewritten, and each is signed. The relink is part of the base install
+(`.ps2dev-base` carries the libraries' and machorelink's hash).
+
+The only thing still compiled on the user's Mac is a project's own VU programs
+(`src/vu*/`, host C++): without the Command Line Tools the build stops and
+says `xcode-select --install`.
+
 ## Docker fallback
 
 The editor resolves the project directory to an absolute native path before it

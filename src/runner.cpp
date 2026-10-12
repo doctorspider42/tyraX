@@ -448,11 +448,21 @@ static std::string findPCSX2() {
     std::vector<fs::path> roots{"/Applications"};
     if (const fs::path home = platform::homeDir(); !home.empty())
         roots.push_back(home / "Applications");
-    for (const fs::path& root : roots)
-        for (const char* app : {"PCSX2.app", "PCSX2-qt.app"}) {
-            const fs::path p = root / app / "Contents" / "MacOS" / "PCSX2";
+    // The download is named after its version (PCSX2-v2.8.2.app) until
+    // somebody renames it, so any PCSX2*.app counts - the plain name first.
+    for (const fs::path& root : roots) {
+        std::vector<fs::path> apps{root / "PCSX2.app"};
+        for (const auto& e : fs::directory_iterator(root, ec)) {
+            const std::string name = e.path().filename().string();
+            if (name.rfind("PCSX2", 0) == 0 && e.path().extension() == ".app" &&
+                name != "PCSX2.app")
+                apps.push_back(e.path());
+        }
+        for (const fs::path& app : apps) {
+            const fs::path p = app / "Contents" / "MacOS" / "PCSX2";
             if (fs::exists(p, ec)) return p.string();
         }
+    }
     for (const char* exe : {"pcsx2-qt", "pcsx2"})
         if (platform::commandExists(exe)) return exe;
 #else
@@ -696,9 +706,8 @@ bool Runner::launchPCSX2(const Project& p) {
 // in build/, so probe upward from it for the tools folder. Returns "" when the
 // tool is nowhere to be found.
 static std::string findTool(const std::string& relUnderTools) {
-    const std::string exe = platform::exePath();
-    if (exe.empty()) return "";
-    fs::path dir = fs::path(exe).parent_path();
+    fs::path dir = platform::resourceBinDir();
+    if (dir.empty()) return "";
     for (int up = 0; up < 3; up++) {
         fs::path candidate = dir / "tools" / relUnderTools;
         std::error_code ec;
@@ -1282,9 +1291,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
             const std::string script = findTool("toolchain/native-build.sh");
 #endif
             fs::path engineSource;
-            const std::string exe = platform::exePath();
-            if (!exe.empty()) {
-                fs::path dir = fs::path(exe).parent_path();
+            if (fs::path dir = platform::resourceBinDir(); !dir.empty()) {
                 for (int up = 0; up < 3 && engineSource.empty(); ++up) {
                     std::error_code ec;
                     fs::path candidate = dir / "vendor" / "tyra";

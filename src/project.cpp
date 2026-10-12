@@ -8729,9 +8729,8 @@ static const char* const kVuFrameworkFiles[] = {
  * working directory (a run from the repo root). */
 static fs::path editorSourceDir() {
     std::error_code ec;
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
-        const fs::path c = fs::path(exe).parent_path() / ".." / "src";
+    if (const fs::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        const fs::path c = binDir / ".." / "src";
         if (fs::exists(c / "vushader.hpp", ec)) return fs::weakly_canonical(c, ec);
     }
     if (fs::exists(fs::path("src") / "vushader.hpp", ec)) return fs::path("src");

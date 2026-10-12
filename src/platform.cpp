@@ -84,6 +84,26 @@ const struct IgnoreSigPipe {
     IgnoreSigPipe() { ::signal(SIGPIPE, SIG_IGN); }
 } g_ignoreSigPipe;
 
+#ifdef __APPLE__
+// An app started from Finder or the Dock inherits launchd's PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin), not the login shell's, so `code`, `docker`
+// and a Homebrew PCSX2 - all in /usr/local/bin or /opt/homebrew/bin - would
+// be "not installed" in TyraX.app while working from a terminal. Append (never
+// prepend: what the user's PATH names first still wins) the two prefixes.
+const struct AppendUserBinDirs {
+    AppendUserBinDirs() {
+        const char* cur = getenv("PATH");
+        std::string path = cur && *cur ? cur : "/usr/bin:/bin:/usr/sbin:/sbin";
+        for (const char* dir : {"/usr/local/bin", "/opt/homebrew/bin"}) {
+            const std::string padded = ":" + path + ":";
+            if (padded.find(std::string(":") + dir + ":") == std::string::npos)
+                path += std::string(":") + dir;
+        }
+        ::setenv("PATH", path.c_str(), 1);
+    }
+} g_appendUserBinDirs;
+#endif
+
 // Single-quote for /bin/sh: wrap in '...' and escape embedded quotes the only
 // way sh allows ('\'' closes, escapes, reopens).
 std::string shQuote(const std::string& s) {
@@ -162,6 +182,21 @@ std::string exePath() {
     if (!ec) return p.string();
     return "";
 #endif
+}
+
+fs::path resourceBinDir() {
+    const std::string exe = exePath();
+    if (exe.empty()) return {};
+    const fs::path dir = fs::path(exe).parent_path();
+#ifdef __APPLE__
+    // <name>.app/Contents/MacOS/<exe>: answer <name>.app/Contents/Resources/bin.
+    const fs::path contents = dir.parent_path();
+    std::error_code ec;
+    if (dir.filename() == "MacOS" && contents.filename() == "Contents" &&
+        fs::is_directory(contents / "Resources", ec))
+        return contents / "Resources" / "bin";
+#endif
+    return dir;
 }
 
 fs::path configDir() {
