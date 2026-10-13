@@ -638,7 +638,10 @@ void StaPipBakedStreams::onFrameEnd() {
   }
   if (expired) {
     for (auto& item : storage)
-      if (item->framesLeftToDestroy <= 0) retire(*item);
+      if (item->framesLeftToDestroy <= 0) {
+        retire(*item);
+        noteDestroyed(item.get());  // Modified by TyraX: stamps
+      }
     const auto newEnd =
         std::remove_if(storage.begin(), storage.end(),
                        [](const std::unique_ptr<StaPipBakedEntry>& item) {
@@ -658,6 +661,7 @@ void StaPipBakedStreams::onFrameEnd() {
 }
 
 void StaPipBakedStreams::clear() {
+  ++eraseGen;  // Modified by TyraX: stamps
   for (auto& item : storage) retire(*item);
   storage.clear();
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
@@ -683,6 +687,7 @@ bool StaPipBakedStreams::evictFor(u32 wanted) {
       }
     }
     if (victim < 0) return false;
+    noteDestroyed(storage[victim].get());  // Modified by TyraX: stamps
     retire(*storage[victim]);
 #if TYRA_STAPIP_BAKED_SAMPLE_VERIFY
     // Modified by TyraX: eviction runs mid-frame, so drop the sampled arm's
@@ -809,6 +814,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
         reason = MissProgram;
       countMiss(reason);
       noteLoud(reason, key.count, key.packages);
+      item.serial = ++serialNext;  // Modified by TyraX: stamps - arena moves
       retire(item);
       if (item.packages != key.packages) {
         item.offsets =
@@ -868,6 +874,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
   entry->sizes = std::unique_ptr<u16[]>(new u16[key.packages]);
   entry->framesLeftToDestroy = kLifetimeFrames;
   entry->nextInBucket = indexBuckets[bucket];
+  entry->serial = ++serialNext;  // Modified by TyraX: stamps
 
   storage.push_back(std::move(entry));
   indexBuckets[bucket] = static_cast<int>(storage.size() - 1);
@@ -1210,6 +1217,16 @@ void StaPipQBufferRenderer::sendObjectData(
   // for the end of the microprogram; the halves the GIF may still be reading
   // are not touched by this chain, so no PATH1 drain is needed here.
   emitQword(objectDataPacket, flusheHeader());  // Modified by TyraX: fast path
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: stamp capture starts at this bag's FLUSHE; every
+  // block below that a stamp cannot re-create clears stampOk.
+  stampHead = objectDataPacket->next - 1;
+  stampOk = stampArmed && kInlineUniforms;
+  stampHasTex0 = 0;
+  stampFogEligible = 0;
+  stampWrapBlock = 0;
+  stampSingleAt = 0;
+#endif
 
   // Modified by TyraX: the bag's texture wrap, in the chain (setBagWrap).
   // FLUSH rather than the FLUSHE above: the previous bag's last XGKICK may
@@ -1219,6 +1236,16 @@ void StaPipQBufferRenderer::sendObjectData(
     const texwrap_t& inForce =
         packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
     if (!RendererCoreGS::wrapEquals(*bagWrap, inForce)) {
+#if TYRA_STAPIP_STAMP
+      // State-dependent: a stamp keeps it only in its deterministic form,
+      // the first non-REPEAT bag after REPEAT was in force.
+      if (RendererCoreGS::wrapEquals(inForce, RendererCoreGS::repeatWrap())) {
+        stampWrapBlock = 1;
+        stampWrap = *bagWrap;
+      } else {
+        stampOk = false;
+      }
+#endif
       packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
       packet2_vif_flush(objectDataPacket, 0);
       packet2_vif_open_direct(objectDataPacket, 0);
@@ -1238,6 +1265,9 @@ void StaPipQBufferRenderer::sendObjectData(
     bagWrap = nullptr;
   }
   if (submissionBatchCandidate || kInlineUniforms) {
+#if TYRA_STAPIP_STAMP
+    stampMvpAt = static_cast<u16>(objectDataPacket->next - stampHead);
+#endif
     emitUnpack(objectDataPacket, VU1_MVP_MATRIX_ADDR, mvp->data, 4);
   } else {
     packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
@@ -1251,6 +1281,9 @@ void StaPipQBufferRenderer::sendObjectData(
   // matrix upload. A project override of a lit program keeps the unfolded
   // pair: its generator still does the multiply on VU1.
   bool foldLights = false;
+#if TYRA_STAPIP_STAMP
+  if (bag->lighting) stampOk = false;  // light uniforms are live state
+#endif
 #if TYRA_VU1_EXP_EE_LIGHT_FOLD
   foldLights = bag->lighting != nullptr && !litProgramOverridden();
 #endif
@@ -1332,7 +1365,17 @@ void StaPipQBufferRenderer::sendObjectData(
 
     // Modified by TyraX: the VU1 colour programs never read an inactive
     // spot's three quads. An override may, so preserve the upload for one.
+#if TYRA_STAPIP_STAMP
+    // The spot quads are re-derived per replay; record where they sit and
+    // whether the block exists at all (its presence is part of the layout).
+    stampSpotActive = spotActive ? 1 : 0;
+    stampSpotAt = 0;
+    if (repository.hasAnyOverride()) stampOk = false;
+#endif
     if (meshSpot.enabled || repository.hasAnyOverride()) {
+#if TYRA_STAPIP_STAMP
+      stampSpotAt = static_cast<u16>(objectDataPacket->next - stampHead);
+#endif
       alignas(16) const float s[12] = {
           meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
           meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
@@ -1348,6 +1391,9 @@ void StaPipQBufferRenderer::sendObjectData(
     // (docs/vu-authoring.md). Inside the `if (!bag->lighting)` on purpose -
     // they occupy the directional-lights COLOUR block, which a lit bag needs.
     if (vuCustomEnabled) {
+#if TYRA_STAPIP_STAMP
+      stampOk = false;
+#endif
       {
         alignas(16) const float c[8] = {vuParams[0], vuParams[1], vuParams[2],
                                         vuParams[3], vuTime[0],   vuTime[1],
@@ -1364,6 +1410,9 @@ void StaPipQBufferRenderer::sendObjectData(
   const bool mayClip = bagMayClip;
   bagMayClip = true;
   if (vu1Clipping && mayClip) {
+#if TYRA_STAPIP_STAMP
+    stampOk = false;  // only partial bags clip; stamps are whole bags
+#endif
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
     // the same for every mesh in the run - their only inputs are the
@@ -1405,9 +1454,15 @@ void StaPipQBufferRenderer::sendObjectData(
   if (singleColorEnabled) {  // Color is placed in 4th slot of
                             // VU1_LIGHTS_MATRIX_ADDR
     if (submissionBatchCandidate || kInlineUniforms) {
+#if TYRA_STAPIP_STAMP
+      stampSingleAt = static_cast<u16>(objectDataPacket->next - stampHead);
+#endif
       emitUnpack(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
                  bag->color->single->rgba, 1);
     } else {
+#if TYRA_STAPIP_STAMP
+      stampOk = false;
+#endif
       Packet2TyraUtils::addUnpackData(objectDataPacket, VU1_SINGLE_COLOR_ADDR,
                                       bag->color->single->rgba, 1, false);
     }
@@ -1467,6 +1522,15 @@ void StaPipQBufferRenderer::sendObjectData(
       // multiplies instead of eight matrix transforms (the transforms cost
       // the EE more than VU1 saved in a spot-lit night scene).
       bool fogConstant = fogOffForBag;
+#if TYRA_STAPIP_STAMP
+      // The fog words are re-derived per stamp replay from the live MVP and
+      // fog parameters; record only the bag-static half of the predicate.
+      stampFogEligible = !fogOffForBag && fogBox != nullptr && !spotActive &&
+                         bag->lighting == nullptr && bag->texture != nullptr &&
+                         !bag->texture->coordinatesAreNormals &&
+                         bag->billboard == nullptr;
+      stampFogOff = fogOffForBag ? 1 : 0;
+#endif
       if (!fogConstant && fogBox != nullptr && fogScale < 0.0F && !spotActive &&
           bag->lighting == nullptr && bag->texture != nullptr &&
           !bag->texture->coordinatesAreNormals && bag->billboard == nullptr) {
@@ -1555,6 +1619,11 @@ void StaPipQBufferRenderer::sendObjectData(
                             cl->start, cl->load_method);
       q.dw[1] = GS_REG_TEX0;
     }
+#if TYRA_STAPIP_STAMP
+    stampOptAt = static_cast<u16>(objectDataPacket->next - stampHead);
+    stampHasTex0 = texBuffers != nullptr ? 1 : 0;
+    stampTex0At = static_cast<u16>(stampOptAt + optQw);  // TEX0 is last
+#endif
     emitUnpack(objectDataPacket, VU1_OPTIONS_ADDR, opt, optQw);
   }
 
@@ -1564,6 +1633,9 @@ void StaPipQBufferRenderer::sendObjectData(
   // this basis and re-rendering the same bag draws the same centers for
   // another view (e.g. a portal's virtual camera).
   if (bag->billboard != nullptr) {
+#if TYRA_STAPIP_STAMP
+    stampOk = false;
+#endif
     {
       alignas(16) const float bb[8] = {
           bag->billboard->right.x, bag->billboard->right.y,
@@ -1579,6 +1651,9 @@ void StaPipQBufferRenderer::sendObjectData(
   // evaluate both scaled dot products in one VU1 accumulator chain. Reuses
   // the lights-matrix area; env bags never carry lighting.
   if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
+#if TYRA_STAPIP_STAMP
+    stampOk = false;  // camera-dependent basis
+#endif
     const Vec4& r = bag->texture->envRight;
     const Vec4& u = bag->texture->envUp;
     {
@@ -2604,6 +2679,12 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
   packet2_chain_ref(currentPacket, entry->arena, entry->arenaQw, 0, 0, 0);
   packet2_vif_nop(currentPacket, 0);
   packet2_vif_nop(currentPacket, 0);
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: the head + this REF are now contiguous in the packet,
+  // before any flush can send them - the one moment a stamp can be copied.
+  if (stampArmed && stampOk) captureStamp();
+  stampArmed = false;
+#endif
 
   // The arena's own tail already kicked the microprogram for every package in
   // it, so the name bookkeeping has to agree or the next buffer would emit a
@@ -2730,6 +2811,382 @@ void StaPipQBufferRenderer::endBakedBag() {
   }
   bakeScratch.clear();
 }
+
+#if TYRA_STAPIP_STAMP
+// Modified by TyraX: bag stamps (docs/stapip-stamps.md).
+//
+// The PS2 way to submit a static, wholly visible world bag is to append the
+// chain it produced last frame, not to re-derive it: the ordinary path spends
+// ~10 000 EE instructions and ~600 cache misses a bag rebuilding a head that
+// differs from last frame's in at most the MVP, the fog words and TEX0. A
+// stamp keeps those bytes, the facts they were derived from, and re-emits
+// them; anything it cannot prove unchanged sends the bag down the ordinary
+// path, which re-captures.
+
+StaPipQBufferRenderer::StampEntry* StaPipQBufferRenderer::findStamp(
+    const StaPipBag* bag, bool create) {
+  if (stamps == nullptr) {
+    if (!create) return nullptr;
+    stamps = new StampEntry[kStampSlots];
+  }
+  u32 h = reinterpret_cast<u32>(bag) * 0x9E3779B1U;
+  h = (h ^ (h >> 15)) & (kStampSlots - 1);
+  StampEntry* oldest = nullptr;
+  for (u32 probe = 0; probe < 8; ++probe) {
+    StampEntry& s = stamps[(h + probe) & (kStampSlots - 1)];
+    if (s.bag == bag) return &s;
+    if (!create) continue;
+    if (s.bag == nullptr) return &s;
+    if (oldest == nullptr || s.frame < oldest->frame) oldest = &s;
+  }
+  return oldest;  // create: recycle the stalest of the eight probes
+}
+
+// Drop every stamp whose baked entry was destroyed since the last sweep, before
+// anything can read through its raw entry pointer. Rare: entries die only on
+// expiry (unused for kLifetimeFrames), eviction and clear().
+void StaPipQBufferRenderer::sweepStamps() {
+  const u32 gen = baked.eraseGeneration();
+  if (gen != stampTableGen) {
+    for (u32 i = 0; i < kStampSlots; ++i) stamps[i].bag = nullptr;
+    stampTableGen = gen;
+    baked.clearDestroyed();
+    return;
+  }
+  const u32 n = baked.destroyedPending();
+  if (n == 0) return;
+  for (u32 i = 0; i < kStampSlots; ++i) {
+    StampEntry& s = stamps[i];
+    if (s.bag == nullptr) continue;
+    for (u32 k = 0; k < n; ++k)
+      if (s.entry == baked.destroyedAt(k)) {
+        s.bag = nullptr;
+        break;
+      }
+  }
+  baked.clearDestroyed();
+}
+
+u32 StaPipQBufferRenderer::stampPrimKey(const StaPipBag* bag) const {
+  const u32 mapping =
+      (bag->texture != nullptr && bag->texture->texture != nullptr) ? 1u : 0u;
+  return static_cast<u32>(prim->type) |
+         (static_cast<u32>(prim->shading) << 4) | (mapping << 6) |
+         (static_cast<u32>(prim->fogging) << 7) |
+         (static_cast<u32>(prim->blending) << 8) |
+         (static_cast<u32>(prim->antialiasing) << 9) |
+         (static_cast<u32>(prim->mapping_type) << 10) |
+         (static_cast<u32>(prim->colorfix) << 11);
+}
+
+// World AABB of the transformed object-space box: a superset of the oriented
+// box, so "world AABB wholly inside" implies the exact test StaPipCore makes.
+void StaPipQBufferRenderer::stampWorldBox(StampEntry& s) {
+  const float* m = s.model.data;
+  float mn[3] = {1e30F, 1e30F, 1e30F}, mx[3] = {-1e30F, -1e30F, -1e30F};
+  for (int c = 0; c < 8; ++c) {
+    const float x = (c & 1) ? s.hi.x : s.lo.x;
+    const float y = (c & 2) ? s.hi.y : s.lo.y;
+    const float z = (c & 4) ? s.hi.z : s.lo.z;
+    const float w[3] = {m[0] * x + m[4] * y + m[8] * z + m[12],
+                        m[1] * x + m[5] * y + m[9] * z + m[13],
+                        m[2] * x + m[6] * y + m[10] * z + m[14]};
+    for (int k = 0; k < 3; ++k) {
+      if (w[k] < mn[k]) mn[k] = w[k];
+      if (w[k] > mx[k]) mx[k] = w[k];
+    }
+  }
+  s.wlo = Vec4(mn[0], mn[1], mn[2], 1.0F);
+  s.whi = Vec4(mx[0], mx[1], mx[2], 1.0F);
+}
+
+static inline u32 stampContent(const StaPipBag* bag) {
+  return stampOf(bag->contentVersion) * 0x9E3779B1U +
+         stampOf(bag->color->contentVersion) * 0x85EBCA6BU +
+         stampOf(bag->texture != nullptr ? bag->texture->contentVersion
+                                         : nullptr) *
+             0xC2B2AE35U;
+}
+
+void StaPipQBufferRenderer::armStampCapture(StaPipBag* bag, const Vec4& lo,
+                                            const Vec4& hi, bool batchSized) {
+  stampArmed = stampEnabled;
+  stampBag = bag;
+  stampBatchSized = batchSized;
+  stampLo = lo;
+  stampHi = hi;
+}
+
+void StaPipQBufferRenderer::captureStamp() {
+  StaPipBakedEntry* entry = bakedCurrent;
+  StaPipBag* bag = stampBag;
+  if (entry == nullptr || bag == nullptr || stampHead == nullptr) return;
+  const u32 qw = static_cast<u32>(packets[context]->next - stampHead);
+  if (qw == 0 || qw > kStampMaxQw || stampMvpAt == 0 || stampOptAt == 0 ||
+      (stampSpotActive && stampSpotAt == 0))
+    return;
+  StampEntry* s = findStamp(bag, true);
+  if (s == nullptr) return;
+  s->bag = bag;
+  s->lo = stampLo;
+  s->hi = stampHi;
+  s->model = *bag->info->model;
+  s->modelPtr = bag->info->model;
+  stampWorldBox(*s);
+  s->vertices = bag->vertices;
+  s->texture = bag->texture != nullptr ? bag->texture->texture : nullptr;
+  s->info = bag->info;
+  memcpy(s->infoBytes, bag->info, sizeof(StaPipInfoBag));
+  s->colorSingle = bag->color->single;
+  s->sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
+  s->colors = bag->color->many;
+  s->stripped = bag->stripped ? 1 : 0;
+  s->entry = entry;
+  s->arena = entry->arena;
+  s->count = static_cast<u32>(bag->count);
+  s->bboxVersion = bag->bboxVersion;
+  s->contentStamp = stampContent(bag);
+  s->eraseGen = baked.eraseGeneration();
+  s->serial = entry->serial;
+  const float depthScale = RendererCoreDepth::scale;
+  memcpy(&s->depthScaleBits, &depthScale, sizeof(u32));
+  s->residentClasses = residentClasses;
+  s->primKey = stampPrimKey(bag);
+  s->qw = static_cast<u16>(qw);
+  s->mvpAt = stampMvpAt;
+  s->optAt = stampOptAt;
+  s->tex0At = stampTex0At;
+  s->hasTex0 = stampHasTex0;
+  s->fogEligible = stampFogEligible;
+  s->spotActive = stampSpotActive;
+  s->fogOff = stampFogOff;
+  s->wrapBlock = stampWrapBlock;
+  s->wrap = stampWrap;
+  s->singleAt = stampSingleAt;
+  s->batchSized = stampBatchSized ? 1 : 0;
+  s->spotAt = stampSpotAt;
+  s->program = static_cast<const StaPipVU1Program*>(entry->program)->getName();
+  for (u32 i = 0; i < qw; ++i) s->bytes[i] = stampHead[i];
+  s->frame = stampHits + stampCaptures;
+  ++stampCaptures;
+}
+
+bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
+                                     const Plane* planes,
+                                     const Plane* guardBandPlanes,
+                                     bool dynamicLightReceive,
+                                     const RendererCoreSpotLight* noSpot) {
+#if TYRA_STAPIP_STAMP_DIAG
+  static u32 why[12];
+  static u32 tries = 0;
+  if (stampEnabled && ++tries % 4000 == 0) {
+    printf("STAMPMISS noScope=%u none=%u producer=%u renderer=%u prim=%u "
+           "view=%u tex=%u spot=%u wrap=%u\n",
+           why[0], why[1], why[2], why[3], why[4], why[5], why[6], why[7],
+           why[8]);
+    fflush(stdout);
+  }
+#define STAMP_REJECT(n) do { ++why[n]; return false; } while (0)
+#else
+#define STAMP_REJECT(n) return false
+#endif
+  if (!stampEnabled || stamps == nullptr) return false;
+  sweepStamps();
+  StampEntry* s = findStamp(bag, false);
+  if (s == nullptr) STAMP_REJECT(1);
+  // Producer-owned facts: the same bag, the same streams, the same versions.
+  if (s->vertices != bag->vertices || s->count != static_cast<u32>(bag->count) ||
+      s->bboxVersion != bag->bboxVersion || s->info != bag->info ||
+      s->modelPtr != bag->info->model || bag->billboard != nullptr ||
+      bag->lighting != nullptr ||
+      (bag->color->single != nullptr) != (s->singleAt != 0) ||
+      s->texture != (bag->texture != nullptr ? bag->texture->texture : nullptr) ||
+      s->contentStamp != stampContent(bag) ||
+      s->sts != (bag->texture != nullptr ? bag->texture->coordinates : nullptr) ||
+      s->colors != bag->color->many || s->stripped != (bag->stripped ? 1 : 0) ||
+      memcmp(s->infoBytes, bag->info, sizeof(StaPipInfoBag)) != 0)
+    STAMP_REJECT(2);
+  // A moved model is not a different submission: MVP, fog, light and spot
+  // are re-derived from the live matrix below; only the world box used for
+  // visibility has to follow it.
+  if (memcmp(&s->model, bag->info->model, sizeof(M4x4)) != 0) {
+    s->model = *bag->info->model;
+    stampWorldBox(*s);
+  }
+  // Renderer-owned facts. eraseGeneration guards the raw entry pointer (an
+  // entry was destroyed somewhere); serial/arena say THIS entry was rebuilt.
+  float depthScale = RendererCoreDepth::scale;
+  u32 depthBits;
+  memcpy(&depthBits, &depthScale, sizeof(u32));
+  if (depthBits != s->depthScaleBits || residentClasses != s->residentClasses ||
+      repository.hasAnyOverride() || vuCustomEnabled ||
+      s->entry->serial != s->serial ||
+      s->entry->arena != s->arena || !s->entry->complete)
+    STAMP_REJECT(3);
+  // Same prim state as the capture (the baked arena's GIF tags encode it).
+  prim->fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                      ? DRAW_ENABLE
+                      : DRAW_DISABLE;
+  if ((prim->fogging != DRAW_ENABLE ? 1 : 0) != s->fogOff) STAMP_REJECT(4);
+  setInfo(bag->info);
+  if (stampPrimKey(bag) != s->primKey) STAMP_REJECT(4);
+  // Visibility: the stamp only ever stands for the wholly-inside route - the
+  // view frustum, or (StaPipCore's guard-band rule) a box that straddles only
+  // the screen edge but lies inside all eight VU1 clip planes.
+  {
+    const CoreBBoxFrustum f = CoreBBox::frustumCheckAABB(planes, s->wlo, s->whi);
+    if (f == OUTSIDE_FRUSTUM) STAMP_REJECT(5);
+    if (f != IN_FRUSTUM &&
+        (guardBandPlanes == nullptr ||
+         CoreBBox::activePlaneMaskAABB(guardBandPlanes, s->wlo, s->whi, 8) != 0))
+      STAMP_REJECT(5);
+  }
+  // Texture: resident (a stamp never triggers an upload), and the bag's
+  // wanted wrap chosen exactly as StaPipCore chooses it.
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  if (tex != nullptr && !rendererCore->texture.isResident(tex)) STAMP_REJECT(6);
+  const texwrap_t& wanted =
+      (tex != nullptr && tex->getWrapSettings()->horizontal != WRAP_REPEAT)
+          ? *tex->getWrapSettings()
+          : RendererCoreGS::repeatWrap();
+  if (s->wrapBlock ? !RendererCoreGS::wrapEquals(wanted, s->wrap)
+                   : !RendererCoreGS::wrapEquals(wanted,
+                                                 RendererCoreGS::repeatWrap()))
+    STAMP_REJECT(6);
+  // The dynamic light: the same pick StaPipCore makes (world sphere of the
+  // box - identity model) and the same zero-influence test sendObjectData
+  // makes. The spot block's PRESENCE is layout, so it must match the capture;
+  // its numbers are rewritten below from the live light.
+  const RendererCoreSpotLight* light = nullptr;
+  if (dynamicLightReceive && bag->info->dynLightPick) {
+    const M4x4& m = s->model;
+    const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
+                   0.5F * (s->lo.z + s->hi.z), 1.0F);
+    const Vec4 worldCenter = m * mid;
+    const float scale = Math::sqrtNonNegative(
+        m.data[0] * m.data[0] + m.data[1] * m.data[1] + m.data[2] * m.data[2]);
+    const float ex = s->hi.x - s->lo.x, ey = s->hi.y - s->lo.y,
+                ez = s->hi.z - s->lo.z;
+    light = rendererCore->pickDynLight(
+        worldCenter,
+        0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
+        bag->info->dynLightSkipSlot);
+  }
+  if (!dynamicLightReceive || !bag->info->spotLit) light = noSpot;
+  auto meshSpot =
+      buildSpotForBag(light ? *light : rendererCore->spot, bag->info->model);
+  if (meshSpot.enabled && stapipSpotHasNoInfluence(meshSpot, s->lo, s->hi))
+    meshSpot.enabled = false;
+  if ((meshSpot.enabled ? 1 : 0) != s->spotActive) STAMP_REJECT(7);
+
+  // Batch membership exactly as StaPipCore decides it for this bag. This is
+  // also the ordinary path's first mutation (it may flush the pending packet),
+  // so a rejection below still leaves the ordinary path a valid start.
+  setSubmissionBatchCandidate(s->batchSized != 0, tex != nullptr);
+  // The wrap write is state-dependent: both captured forms assume REPEAT in
+  // force, the state the wrap block (or its absence) was recorded under.
+  {
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(RendererCoreGS::repeatWrap(), inForce))
+      STAMP_REJECT(8);
+  }
+#undef STAMP_REJECT
+
+  // ---- committed: from here on this IS the bag's submission ----
+  clipper.setSpot(meshSpot);
+  ensureProgramSet(false);
+  texbuffer_t* tb = nullptr;
+  if (tex != nullptr) {
+    auto temp = rendererCore->texture.useTexture(tex);
+    rendererCore->texture.updateClutBuffer(temp.clut);
+    temp.core->info.function = bag->texture->textureFunction;
+    tb = temp.core;
+  }
+  auto* packet = packets[context];
+  if (!objectDataPending) {
+    packet2_reset(packet, false);
+    packetWrapSet = false;
+  }
+  qword_t* dst = packet->next;
+  for (u32 i = 0; i < s->qw; ++i) dst[i] = s->bytes[i];
+  // MVP: identity model was proven above by the matrix compare at capture.
+  const M4x4 mvp = viewProj * s->model;
+  memcpy(&dst[s->mvpAt + 1], mvp.data, sizeof(mvp.data));
+  // Fog words (options qword 0), re-derived exactly as sendObjectData does.
+  {
+    qword_t& q = dst[s->optAt + 1];
+    float fogScale = rendererCore->fog.scale;
+    float fogOffset = rendererCore->fog.offset;
+    bool fogConstant = s->fogOff != 0;  // as sendObjectData: fog off => 255
+    if (!fogConstant && s->fogEligible && fogScale < 0.0F) {
+      const Vec4& lo = s->lo;
+      const Vec4& hi = s->hi;
+      const float* m = mvp.data;
+      const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
+      const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
+      const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
+      const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
+                         fabsf(m[3]) * hx + fabsf(m[7]) * hy +
+                         fabsf(m[11]) * hz;
+      fogConstant = maxW * fogScale + fogOffset >= 255.0F;
+    }
+    if (fogConstant) {
+      fogScale = 0.0F;
+      fogOffset = 255.0F;
+    } else {
+      u32 bits;
+      memcpy(&bits, &fogScale, 4);
+      if ((bits & 0xFFFFU) == 0U && bits != 0U) {
+        bits |= 1U;
+        memcpy(&fogScale, &bits, 4);
+      }
+    }
+    memcpy(&q.sw[2], &fogScale, 4);
+    memcpy(&q.sw[3], &fogOffset, 4);
+  }
+  if (s->hasTex0 && tb != nullptr) {
+    const clutbuffer_t* cl = &rendererCore->texture.clut;
+    dst[s->tex0At].dw[0] = GS_SET_TEX0(
+        tb->address >> 6, tb->width >> 6, tb->psm, tb->info.width,
+        tb->info.height, tb->info.components, tb->info.function,
+        cl->address >> 6, cl->psm, cl->storage_mode, cl->start,
+        cl->load_method);
+  }
+  if (s->spotActive) {
+    alignas(16) const float sp[12] = {
+        meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+        meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+        meshSpot.direction.z, meshSpot.cosCut2,     meshSpot.color[0],
+        meshSpot.color[1],    meshSpot.color[2],    meshSpot.invSoft};
+    memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
+  }
+  if (s->singleAt != 0)
+    memcpy(&dst[s->singleAt + 1], bag->color->single->rgba, 16);
+  packet->next = dst + s->qw;
+  if (s->wrapBlock) {  // the re-emitted CLAMP write is now the packet's state
+    packetWrap = wanted;
+    packetWrapSet = true;
+  }
+
+  // The same bookkeeping replayWholeBakedBag does after its REF.
+  s->entry->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
+  s->frame = stampHits + stampCaptures;  // recency for slot recycling
+  lastProgramName = s->program;
+  baked.countHit();
+  objectDataPending = true;
+  ++submissionBatchBags;
+  // A stamp is ~20 qwords, not the worst-case 196 the 4-bag cap was sized
+  // for: keep packing stamps until the packet itself is nearly full.
+  // A later ordinary bag still reserves its own worst case before appending
+  // (setSubmissionBatchCandidate), so only the next stamp needs room here.
+  if (!submissionBatchCandidate ||
+      packet2_get_qw_count(packet) + kStampMaxQw > packetSize)
+    flushPendingPacket();
+  ++stampHits;
+  return true;
+}
+#endif  // TYRA_STAPIP_STAMP
 
 u32 StaPipQBufferRenderer::takeBakedHits() { return baked.takeHits(); }
 u32 StaPipQBufferRenderer::takeBakedBuilds() { return baked.takeBuilds(); }

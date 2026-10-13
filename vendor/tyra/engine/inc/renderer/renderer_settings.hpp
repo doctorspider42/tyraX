@@ -90,6 +90,8 @@ struct RendererOptions {
    * when the game says so.
    */
   bool envMap = true;
+  /** Modified by TyraX: see EngineOptions::envMapDoubleBuffered. */
+  bool envMapDoubleBuffered = false;
 
   /** Reserve the camera-feed target (another 128 KB) - texture feeds. */
   bool camFeed = true;

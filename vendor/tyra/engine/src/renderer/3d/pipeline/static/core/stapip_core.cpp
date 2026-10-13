@@ -81,6 +81,15 @@ static const RendererCoreSpotLight kNoSpotLight = [] {
   return l;
 }();
 
+#if TYRA_STAPIP_STAMP
+// Modified by TyraX: identity-model test (stamp diagnostics).
+[[maybe_unused]] static bool isIdentity(const M4x4& m) {
+  for (int i = 0; i < 16; ++i)
+    if (m.data[i] != ((i % 5) == 0 ? 1.0F : 0.0F)) return false;
+  return true;
+}
+#endif
+
 StaPipCore::StaPipCore() {
   maxVertCount = 0;
   setPrim();
@@ -334,6 +343,12 @@ StaPipTelemetry StaPipCore::takeTelemetry() {
 }
 
 void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
+  computeClipPlanesInto(mvp, clipObjectSpacePlanes);
+}
+
+// Modified by TyraX: the same eight planes into any destination (stamps keep
+// a world-space copy per view - docs/stapip-stamps.md).
+void StaPipCore::computeClipPlanesInto(const M4x4& mvp, Plane* dst) {
   const float nearZ = rendererCore->getSettings().getNear() -
                       (-PlanesClipAlgorithm::clipMargin);
   const float farZ = -rendererCore->getSettings().getFar();
@@ -359,7 +374,7 @@ void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
   const float* m = mvp.data;
   for (u8 i = 0; i < 8; ++i) {
     const float* p = planes[i];
-    Plane& out = clipObjectSpacePlanes[i];
+    Plane& out = dst[i];
     out.normal.x = p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + p[3] * m[3];
     out.normal.y = p[0] * m[4] + p[1] * m[5] + p[2] * m[6] + p[3] * m[7];
     out.normal.z = p[0] * m[8] + p[1] * m[9] + p[2] * m[10] + p[3] * m[11];
@@ -535,6 +550,35 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
     TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
     return;
   }
+
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: a valid stamp IS this bag's submission - see
+  // StaPipQBufferRenderer::tryStamp (docs/stapip-stamps.md).
+  if (qbufferRenderer.isStampEnabled() &&
+      bag->info->transformationType == TyraMVP && !telemetryEnabled &&
+      !rendererCore->blss.wantsProxies()) {
+    const M4x4& vp = rendererCore->renderer3D.getViewProj();
+    if (!stampClipValid ||
+        memcmp(stampClipViewProj.data, vp.data, sizeof(vp.data)) != 0) {
+      computeClipPlanesInto(vp, stampClipPlanes);
+      stampClipViewProj = vp;
+      stampClipValid = true;
+    }
+    const bool guardBand =
+#if TYRA_STAPIP_GUARD_BAND_BAGS
+        qbufferRenderer.isVU1ClippingEnabled() && bag->info->fullClipChecks;
+#else
+        false;
+#endif
+    if (qbufferRenderer.tryStamp(
+            bag, vp, rendererCore->renderer3D.frustumPlanes.getAll(),
+            guardBand ? stampClipPlanes : nullptr,
+            bag->info->dynamicLightReceive &&
+                reception != StaPipLightReception::Suppress,
+            &kNoSpotLight))
+      return;
+  }
+#endif
 
 #if TYRA_VU1_EXP_PAINT
   if (bag->texture && bag->texture->paintVu && !supportsPaintVu(bag)) {
@@ -1059,6 +1103,29 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
                                  bag->info->fullClipChecks));
   // TEX1 is serialized by sendObjectData; select this bag's filters first.
   qbufferRenderer.setInfo(bag->info);
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: arm a stamp capture for a bag the whole-baked route is
+  // about to replay, when every input the stamp cannot re-derive is fixed.
+  if (qbufferRenderer.isStampEnabled() && frustumCull &&
+      frustumCheck == IN_FRUSTUM && bbox != nullptr && !blssOn &&
+      !telemetryEnabled &&
+      bag->billboard == nullptr && bag->lighting == nullptr &&
+      bag->info->transformationType == TyraMVP &&
+      !qbufferRenderer.hasProgramOverrides()) {
+    // Batch membership is recorded, not required: a replayed stamp is ~20
+    // qwords whatever the bag's size, and joins a batch exactly when this
+    // ordinary submission did (size cap and REPEAT; residency is re-checked).
+    const bool repeat =
+        !hasTexture ||
+        (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
+         bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT);
+    qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
+                                    (*bbox->getMainBBox())[7],
+                                    bag->count <= maxVertCount * 15 && repeat);
+  } else {
+    qbufferRenderer.disarmStampCapture();
+  }
+#endif
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);
@@ -1247,6 +1314,9 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
 
   TYRA_ATTRIB_MARK(attribFlushStart);
   qbufferRenderer.flushBuffers();
+#if TYRA_STAPIP_STAMP
+  qbufferRenderer.disarmStampCapture();
+#endif
   TYRA_ATTRIB_ADD(dsFlushTicks, attribFlushStart);
   qbufferRenderer.endRetainedBag();  // Modified by TyraX
   if (bakeBag) qbufferRenderer.endBakedBag();  // Modified by TyraX

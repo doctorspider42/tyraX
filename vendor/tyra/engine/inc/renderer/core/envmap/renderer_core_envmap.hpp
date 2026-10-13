@@ -84,6 +84,19 @@ class RendererCoreEnvMap {
    */
   void begin(const Color& clearColor);
 
+  /**
+   * Modified by TyraX: amortised capture (docs/stapip-stamps.md, "Reflection
+   * probe"). With setDoubleBuffered(true) before init(), a second 128x128
+   * colour target exists. begin(color, clear, true) renders into the BACK
+   * target, optionally without clearing (a capture split over two frames);
+   * swap() then makes the finished back target the one materials sample.
+   * The single env z-buffer is shared and kept between the two halves.
+   */
+  void begin(const Color& clearColor, bool clear, bool intoBack);
+  void swap();
+  void setDoubleBuffered(const bool& on) { doubleBuffered = on; }
+  bool isDoubleBuffered() const { return allocated && backAddress != 0; }
+
   /** Drains the env pass and restores the frame drawing environment. */
   void end();
 
@@ -96,6 +109,8 @@ class RendererCoreEnvMap {
   bool allocated = false; // ...and has init() actually reserved it
   u32 vramAddress = 0;
   u32 zVramAddress = 0;  // dedicated env z-buffer (128x128, 32-bit)
+  bool doubleBuffered = false;  // Modified by TyraX: see begin(.., intoBack)
+  u32 backAddress = 0;          // the target being captured; 0 = none
   texbuffer_t texBuffer;
   Texture* texture = nullptr;
   packet2_t* beginPacket = nullptr;

@@ -63,6 +63,19 @@
 #define TYRA_STAPIP_BAKED_STREAM 1
 #endif
 
+// Modified by TyraX: bag stamps (docs/stapip-stamps.md). A wholly visible,
+// baked, unlit world-space bag remembers the exact uniform head + REF bytes
+// its last ordinary submission produced; later frames re-emit them with the
+// live MVP/fog/TEX0 patched in, skipping the generic per-bag frontend. Any
+// dependency mismatch falls back to the ordinary path. Runtime opt-in.
+#ifndef TYRA_STAPIP_STAMP
+#define TYRA_STAPIP_STAMP 1
+#endif
+// Rejection-reason counters printed every 4000 attempts (diagnostic only).
+#ifndef TYRA_STAPIP_STAMP_DIAG
+#define TYRA_STAPIP_STAMP_DIAG 0
+#endif
+
 // Modified by TyraX: reuse immutable geometry on partial visibility too.
 // Combined physical qualification: docs/tyrax2-full-throttle.md.
 #ifndef TYRA_STAPIP_PARTIAL_BAKED
@@ -380,6 +393,9 @@ struct StaPipBakedEntry {
    * while `churning` it is not baked at all, and `seen*` / `settled` watch
    * for the payload to stop moving. */
   u32 lastRebuildFrame = 0;
+  /** Modified by TyraX: changes whenever this entry's arena is rebuilt, so a
+   * stamp can tell its REF target moved without a global invalidation. */
+  u32 serial = 0;
   u32 seenBBoxVersion = 0;
   u32 seenContentVersion = 0;
   u8 churning = 0;
@@ -436,6 +452,18 @@ class StaPipBakedStreams {
   static const u32 kChurnGapFrames = 2;
   static const u32 kSettleFrames = 3;
   u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
+  /** Modified by TyraX: bumped by clear(), when every entry goes at once. */
+  u32 eraseGeneration() const { return eraseGen; }
+  /** Modified by TyraX: entries destroyed since the last take - stamps
+   * holding one of these raw pointers must be dropped before any read. A
+   * log overflow is reported as "everything" (eraseGen bump). */
+  void noteDestroyed(const StaPipBakedEntry* e) {
+    if (destroyedCount < kDestroyedLog) destroyedLog[destroyedCount++] = e;
+    else ++eraseGen;
+  }
+  u32 destroyedPending() const { return destroyedCount; }
+  const StaPipBakedEntry* destroyedAt(u32 i) const { return destroyedLog[i]; }
+  void clearDestroyed() { destroyedCount = 0; }
 
   StaPipBakedStreams();
   ~StaPipBakedStreams();
@@ -564,6 +592,11 @@ class StaPipBakedStreams {
   u32 hits = 0, builds = 0;
   u32 frameNow = 1;
   u32 churnSkips = 0;
+  u32 eraseGen = 1;  // Modified by TyraX: see eraseGeneration()
+  static const u32 kDestroyedLog = 64;
+  const StaPipBakedEntry* destroyedLog[kDestroyedLog] = {};
+  u32 destroyedCount = 0;
+  u32 serialNext = 0;  // Modified by TyraX: StaPipBakedEntry::serial
   int evictionsThisFrame = 0;
   u32 misses[MissReasonCount] = {0};
   u32 loudCount = 0, loudPackages = 0, loudReason = MissReasonCount;
@@ -762,6 +795,23 @@ class StaPipQBufferRenderer {
   }
   void setSubmissionBatchCandidate(const bool& candidate,
                                    const bool& textured = false);
+
+#if TYRA_STAPIP_STAMP
+  /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). Off by default. */
+  void setStampEnabled(bool on) { stampEnabled = on; }
+  bool isStampEnabled() const { return stampEnabled; }
+  /** Arm a capture for the bag about to go through sendObjectData + whole
+   * baked replay. `lo`/`hi` are its world-space box (identity model). */
+  void armStampCapture(StaPipBag* bag, const Vec4& lo, const Vec4& hi,
+                       bool batchSized);
+  void disarmStampCapture() { stampArmed = false; }
+  /** Re-emit a valid stamp for `bag`; false = take the ordinary path. */
+  bool tryStamp(StaPipBag* bag, const M4x4& viewProj, const Plane* planes,
+                const Plane* guardBandPlanes, bool dynamicLightReceive,
+                const RendererCoreSpotLight* noSpot);
+  u32 takeStampHits() { const u32 v = stampHits; stampHits = 0; return v; }
+  u32 takeStampCaptures() { const u32 v = stampCaptures; stampCaptures = 0; return v; }
+#endif
 
   void clearLastProgramName();
 
@@ -1043,6 +1093,60 @@ class StaPipQBufferRenderer {
    * Mirrors retainedCurrent, and for the same reason: every buffer in a flush
    * belongs to one bag. */
   StaPipBakedEntry* bakedCurrent = nullptr;
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: bag stamps (docs/stapip-stamps.md).
+  static const u32 kStampMaxQw = 24;
+  static const u32 kStampSlots = 512;
+  struct StampEntry {
+    alignas(16) Vec4 lo, hi;     // object-space main box
+    alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
+    alignas(16) M4x4 model;
+    qword_t bytes[kStampMaxQw];
+    // The info bag feeds TEST/ALPHA/TEX1/fog/prim words of the head; scripts
+    // (star twinkle, the probe's AllPass sky) change it in place.
+    alignas(16) u8 infoBytes[sizeof(StaPipInfoBag)];
+    const StaPipBag* bag = nullptr;
+    const Vec4* vertices = nullptr;
+    const void* texture = nullptr;
+    const void* info = nullptr;
+    const M4x4* modelPtr = nullptr;
+    const void* colorSingle = nullptr;
+    const void* sts = nullptr;     // stream pointers the baked key holds
+    const void* colors = nullptr;
+    u8 stripped = 0;
+    StaPipBakedEntry* entry = nullptr;
+    const qword_t* arena = nullptr;
+    u32 count = 0, bboxVersion = 0, contentStamp = 0, eraseGen = 0;
+    u32 depthScaleBits = 0, residentClasses = 0, primKey = 0, singleRgba = 0;
+    u32 frame = 0, serial = 0;
+    u16 qw = 0, mvpAt = 0, optAt = 0, tex0At = 0, spotAt = 0;
+    u8 fogEligible = 0, hasTex0 = 0, spotActive = 0, batchSized = 0, fogOff = 0;
+    u8 wrapBlock = 0;
+    u16 singleAt = 0;
+    texwrap_t wrap = {};
+    StaPipProgramName program = StaPipUndefinedProgram;
+  };
+  StampEntry* stamps = nullptr;
+  bool stampEnabled = false;
+  bool stampArmed = false;   // a capture is wanted for the current bag
+  bool stampOk = false;      // sendObjectData emitted only stampable blocks
+  StaPipBag* stampBag = nullptr;
+  bool stampBatchSized = false;
+  Vec4 stampLo, stampHi;
+  qword_t* stampHead = nullptr;
+  u16 stampMvpAt = 0, stampOptAt = 0, stampTex0At = 0, stampSpotAt = 0;
+  u8 stampFogEligible = 0, stampHasTex0 = 0, stampSpotActive = 0, stampFogOff = 0;
+  u8 stampWrapBlock = 0;
+  u16 stampSingleAt = 0;
+  texwrap_t stampWrap = {};
+  u32 stampHits = 0, stampCaptures = 0;
+  StampEntry* findStamp(const StaPipBag* bag, bool create);
+  u32 stampPrimKey(const StaPipBag* bag) const;
+  static void stampWorldBox(StampEntry& s);
+  void sweepStamps();
+  u32 stampTableGen = 0;
+  void captureStamp();
+#endif
   bool bakedPartial = false;
   packet2_t* partialBakePacket = nullptr;
   bool preparePartialBakedBag(StaPipBag* bag, u32 packageSize);

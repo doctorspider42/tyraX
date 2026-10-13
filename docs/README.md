@@ -550,6 +550,8 @@ Developer design docs (internals, not user guides):
   wheel batch keeps the vertices of a rig whose inputs did not change and stops
   bumping `bboxVersion` when its buffer is byte-identical, plus the fixture
   hazard that makes a parked benchmark flatter any skip-when-unchanged change.
+  Since 2026-10-13 each batch owns its bag (stamps), and a MOVING car's wheels
+  ride a matrix over an immutable local array (-0.8 ms on the PS2 night drive).
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [Emulator captures](emulator-captures.md) — unattended PCSX2 savestates and
@@ -859,6 +861,8 @@ The [sky retint change](tyrax2-sky-retint.md) retains geometry during RGB-only u
 The [fixed-hour clock](tyrax2-paused-clock.md) separates paused time from effect evaluation and real physics dt; the physical pause contrast saves 0.114/0.161 ms, while Motor District selects its mood once per scene/mood change.
 
 The [night-shift follow-ups](tyrax2-night-shift.md) complete exact cycle reuse, five-way object-data attribution and whole local-light result reuse in both physical orders. The memo gains are small, observer tax is measured, the inactive-output oracle failure is rejected, and no additional production candidate or 60 FPS claim is accepted.
+
+The [night EE investigation](tyrax2-night-ee-2026-10-12.md) finds the PC-ism on the physical PS2 night drive: every bag re-ran a ~10k-instruction generic frontend that reproduced last frame's bytes. [Bag stamps](stapip-stamps.md) replay those bytes with the live values patched in (parked night 18.3 -> 13.5 ms, 60 fps); with an idle audio thread and the two-frame reflection capture the heaviest driving window drops from ~120 to 11-14 late frames out of 150.
 
 The [Claude proposal trials](tyrax2-claude-trials.md) price original validation at 0.171/0.189 ms and owned TEX1 preparation at 0.117/0.162 ms in both physical orders, find no active adjacent companion reuse in the stationary hardware census, and record hardware-counter overflow/ownership/operation-mode gates. A separate immutable hardware follow-up preserves resumed runs and a reflection-safe batching design. No new production optimization or full-night 60 FPS claim is accepted.
 

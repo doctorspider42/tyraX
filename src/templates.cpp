@@ -647,6 +647,10 @@ int main(int argc, char** argv) {
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
   options.envMapTarget = {{ENV_MAP_TARGET}};
+  // A second 64 KB env target: the shared reflection probe is captured over
+  // two frames into it and swapped in, so no frame pays the whole capture
+  // (docs/reflective-materials.md, "Amortised capture").
+  options.envMapDoubleBuffered = {{ENV_MAP_TARGET}};
   options.camFeedTarget = {{CAM_FEED_TARGET}};
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
@@ -1142,6 +1146,9 @@ class TerrainGame : public Tyra::Game {
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updateCameraOrbit();
 
@@ -3028,6 +3035,9 @@ class TerrainGame : public Tyra::Game {
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updatePlayer();
 
@@ -12326,11 +12336,48 @@ static std::string vehicleMembers(const Project& p) {
     // Largest source-vertex distance from the baked hub. Scanned once after
     // load and invalidated with the scene/model lifetime below.
     float localRadius = -1.0F;
+    // The batch's OWN bag. A bag pointer shared by every batch made StaPip's
+    // per-bag stamp (docs/stapip-stamps.md) overwrite itself once per batch, so
+    // three resting batches paid the full frontend every frame instead of a
+    // replay (440 -> 231 us per frame on a PS2, night district).
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<WheelBatch> wheelBatches_;
-  std::unique_ptr<Tyra::StaPipBag> wheelBag_;
-  std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
-  std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
+  // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). A car whose rig moved keeps
+  // its wheels out of the batch: each wheel is the model's immutable LOCAL
+  // array plus one matrix, transformed by VU1, so the EE neither re-bakes
+  // ~750 vertices per wheel nor packs them into a fresh VIF stream.
+  struct WheelGeo {
+    const void* src = nullptr;  // the source array (part verts or strip)
+    u32 nv = 0;                 // padded block length (see the strip rule)
+    // ONE bboxVersion for the array, shared by every wheel drawing it: the
+    // baked stream is keyed by (vertices, version), so per-wheel versions over
+    // one array would evict each other every draw.
+    u32 stamp = 0;
+    std::vector<Tyra::Vec4> v, st;
+    std::vector<Tyra::Color> c;
+  };
+  struct WheelLive {
+    Tyra::StaPipBag bag;
+    Tyra::StaPipInfoBag info;
+    Tyra::StaPipColorBag color;
+    Tyra::StaPipTextureBag tex;
+    Tyra::M4x4 mat;
+  };
+  struct WheelRig {
+    float sig[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    float wy[4] = {0, 0, 0, 0};
+    const void* geo = nullptr;
+    int hold = 0;  // frames left on the matrix path after the rig last moved
+    int valid = 0;
+    WheelLive wheel[4];
+  };
+  // unique_ptr so growth never moves an array or bag a queued draw references.
+  std::vector<std::unique_ptr<WheelGeo>> wheelGeos_;
+  std::vector<std::unique_ptr<WheelRig>> wheelRigs_;
+  WheelGeo& wheelGeoFor(const std::vector<float>& geo, u32 real, u32 nv);
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   // Fixed 1/50 s sub-steps around updateVehicles (1.135.6): a 25 fps frame
@@ -14468,6 +14515,8 @@ void TerrainGame::setupVehicles(int scene) {
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();
+  wheelGeos_.clear();
+  wheelRigs_.clear();
   // Damage never survives a scene change: the undamaged poses belong to the
   // geometry the unload just freed.
   vehDamageGeo_.clear();
@@ -17607,21 +17656,50 @@ static u32 g_whBatches = 0;
 static u32 g_whVerifyCars = 0, g_whVerifyFailWheels = 0;
 #endif
 
+// The immutable local copy of one wheel array for the matrix path: positions
+// with w = 1, STs, and the flat modulate-identity colour, padded to the batch's
+// block length exactly like the batch pads a run tail. Built once per array
+// and scene; every wheel drawn from the array shares it and its bboxVersion.
+TerrainGame::WheelGeo& TerrainGame::wheelGeoFor(const std::vector<float>& geo,
+                                                u32 real, u32 nv) {
+  for (auto& g : wheelGeos_)
+    if (g->src == (const void*)geo.data() && g->nv == nv) return *g;
+  wheelGeos_.push_back(std::make_unique<WheelGeo>());
+  WheelGeo& g = *wheelGeos_.back();
+  g.src = geo.data();
+  g.nv = nv;
+  g.stamp = ++g_bboxStamp;
+  g.v.resize(nv);
+  g.st.resize(nv);
+  g.c.assign(nv, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+  for (u32 i = 0; i < nv; ++i) {
+    const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
+    g.v[i] = Tyra::Vec4(q[0], q[1], q[2], 1.0F);
+    g.st[i] = Tyra::Vec4(q[6], q[7], 1.0F, 0.0F);
+  }
+  return g;
+}
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
-  // The bag POINTER may still be shared: both caches downstream are keyed by
-  // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
-  // command key's `vertices`), never by the bag, and every batch owns its own
-  // vertex vector.
+  // Each batch also owns its bag (see WheelBatch::bag): the bbox and baked
+  // caches are keyed by the vertex buffer, but the stamp cache is keyed by the
+  // BAG, and one shared pointer made every batch evict the previous one's stamp.
   const int receiverClasses = ANY_PLAYER_ONLY_DYNAMIC_LIGHTS &&
       PLAYER_ONLY_DYNAMIC_LIGHTS ? 2 : 1;
   // Allocate every class before any submit: growth must not move stamp/
   // content owners while an earlier wheel batch is still referenced by DMA.
   const size_t batchCount = (size_t)VEHICLE_DEF_COUNT * receiverClasses;
   if (wheelBatches_.size() < batchCount) wheelBatches_.resize(batchCount);
+  // Same rule for the moving-wheel rigs: one per vehicle, allocated up front.
+  if (wheelRigs_.size() < (size_t)vehicleCount_) {
+    wheelRigs_.reserve((size_t)vehicleCount_);
+    while (wheelRigs_.size() < (size_t)vehicleCount_)
+      wheelRigs_.push_back(std::make_unique<WheelRig>());
+  }
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
   for (int receiverClass = 0; receiverClass < receiverClasses; ++receiverClass) {
   const int batchIndex = drawDef * receiverClasses + receiverClass;
@@ -17768,6 +17846,126 @@ void TerrainGame::renderVehicleWheels() {
     }
     srcRun = run;
     const u32 vpc = nv * 4;
+    // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). The batch below is the
+    // right shape for cars at rest - one bag, replayed or stamped for free -
+    // and the wrong one for a car in motion: its spin changes every frame, so
+    // the EE re-derived ~3000 world vertices AND packed them into a fresh VIF
+    // stream every frame (1.05 ms on a PS2 for the driven car, night drive).
+    // A moving rig instead draws each wheel as the model's immutable local
+    // array plus one matrix: VU1 does the transform, and StaPip replays the
+    // array's baked stream with only the MVP patched (0.28 ms for the same
+    // car). A rig stays on this path for kWheelLiveHold frames after it last
+    // moved, so a car easing to a stop does not reshuffle the batch slots of
+    // every other car each time it twitches.
+    {
+      constexpr int kWheelLiveHold = 30;
+      WheelRig& rg = *wheelRigs_[(size_t)vi];
+      const float rsig[9] = {v.pos[0], v.pos[1], v.pos[2],
+                             v.pitch + v.leanPitch, v.yaw,
+                             v.roll + v.leanRoll, v.steerAngle, v.wheelSpin,
+                             SC};
+      bool moved = !rg.valid || rg.geo != (const void*)geo.data();
+      for (int k = 0; k < 9 && !moved; ++k) moved = rg.sig[k] != rsig[k];
+      for (int w = 0; w < 4 && !moved; ++w) moved = rg.wy[w] != v.wheelY[w];
+      if (moved) {
+        rg.hold = kWheelLiveHold;
+        for (int k = 0; k < 9; ++k) rg.sig[k] = rsig[k];
+        for (int w = 0; w < 4; ++w) rg.wy[w] = v.wheelY[w];
+        rg.geo = geo.data();
+        rg.valid = 1;
+      } else if (rg.hold > 0) {
+        --rg.hold;
+      }
+      if (rg.hold > 0) {
+        WheelGeo& G = wheelGeoFor(geo, real, nv);
+        // The rig arithmetic of the bake below, ending in a matrix instead of
+        // in vertices: columns = the composed spin/steer/attitude basis, the
+        // translation = the hub after the suspension clamp.
+        const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+        const float lx[4] = {-hx, hx, -hx, hx};
+        const float lz[4] = {hz, hz, -hz, -hz};
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        const V3 up = rotatedBy({0.0F, 1.0F, 0.0F}, br);
+        const float sp = v.wheelSpin * kDeg;
+        const float cp = cosf(sp), spn = sinf(sp);
+        static int liveContactTick = 0;
+        const bool logContact =
+            vi == vehicleDriver_ && (++liveContactTick % 50) == 0;
+        int gap[4] = {0, 0, 0, 0}, lift[4] = {0, 0, 0, 0};
+        for (int w = 0; w < 4; ++w) {
+          const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+          const float cs = cosf(st), ss = sinf(st);
+          const V3 mx3 = rotatedBy({cs * SC, 0.0F, -ss * SC}, br);
+          const V3 my3 = rotatedBy({spn * ss * SC, cp * SC, spn * cs * SC}, br);
+          const V3 mz3 = rotatedBy({cp * ss * SC, -spn * SC, cp * cs * SC}, br);
+          const V3 hard = rotatedBy({lx[w], 0.0F, lz[w]}, br);
+          const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+          float travel = up.y > 0.2F ? (targetY - (v.pos[1] + hard.y)) / up.y : 0.0F;
+          const float tlo = -s.suspensionTravel * SC * 0.45F;
+          const float hiTravel = s.suspensionTravel * SC * 0.10F;
+          const float hiRadius = s.wheelRadius * SC * 0.06F;
+          const float thi = hiTravel < hiRadius ? hiTravel : hiRadius;
+          if (travel < tlo) travel = tlo;
+          if (travel > thi) travel = thi;
+          WheelLive& W = rg.wheel[w];
+          float* m = W.mat.data;
+          m[0] = mx3.x; m[1] = mx3.y; m[2] = mx3.z; m[3] = 0.0F;
+          m[4] = my3.x; m[5] = my3.y; m[6] = my3.z; m[7] = 0.0F;
+          m[8] = mz3.x; m[9] = mz3.y; m[10] = mz3.z; m[11] = 0.0F;
+          m[12] = v.pos[0] + hard.x + up.x * travel;
+          m[13] = v.pos[1] + hard.y + up.y * travel;
+          m[14] = v.pos[2] + hard.z + up.z * travel;
+          m[15] = 1.0F;
+          W.info = *batchInfoBag;
+          W.info.model = &W.mat;
+          W.bag.info = &W.info;
+          W.bag.vertices = G.v.data();
+          W.bag.count = G.nv;
+          W.color.many = G.c.data();
+          W.bag.color = &W.color;
+          W.bag.lighting = nullptr;
+          W.bag.stripped = run != 0;
+          W.bag.packageSize = run;
+          W.bag.bboxVersion = G.stamp;
+          if (part.texture) {
+            W.tex.texture = const_cast<Tyra::Texture*>(part.texture);
+            W.tex.coordinates = G.st.data();
+            W.bag.texture = &W.tex;
+          } else {
+            W.bag.texture = nullptr;
+          }
+          stapip.core.render(&W.bag, receiverClasses == 2 && receiverClass == 0 ?
+              Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+          // VEHCONTACT for the driven car, which now lives on this path while
+          // it moves: the same numbers as the batch path's, with the drawn
+          // vertices reconstructed from the matrix on the logging frame only.
+          if (logContact) {
+            float lo = 1e30F, sx = 0.0F, sz = 0.0F;
+            for (u32 i = 0; i < real; ++i) {
+              const Tyra::Vec4& q = G.v[i];
+              const float wx = m[0] * q.x + m[4] * q.y + m[8] * q.z + m[12];
+              const float wyv = m[1] * q.x + m[5] * q.y + m[9] * q.z + m[13];
+              const float wz = m[2] * q.x + m[6] * q.y + m[10] * q.z + m[14];
+              if (wyv < lo) lo = wyv;
+              sx += wx;
+              sz += wz;
+            }
+            const float cx = sx / (float)real, cz = sz / (float)real;
+            const float surf = groundSurfaceAt(cx, cz);
+            gap[w] = (int)((lo - surf) * 1000.0F);
+            lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
+          }
+        }
+        if (logContact)
+          TYRA_LOG("VEHCONTACT car ", vi, " def ", v.def, " driven",
+                   " gap1000 ", gap[0], " ", gap[1], " ", gap[2], " ", gap[3],
+                   " roadlift1000 ", lift[0], " ", lift[1], " ", lift[2], " ", lift[3]);
+        v.contactLogged = 0;
+        continue;  // out of the batch: resting cars keep their one bag
+      }
+    }
     // Every car in this batch reads the same definition, so this can only
     // fire on the frame the wheel model itself changed, at slot 0.
     if (batch.vertsPerCar != vpc) {
@@ -18046,22 +18244,22 @@ void TerrainGame::renderVehicleWheels() {
   if (batch.cols.size() != total)
     batch.cols.resize(total, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
   batch.staticCars = cars;
-  if (!wheelBag_) {
-    wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
-    wheelBag_ = std::make_unique<Tyra::StaPipBag>();
-    wheelBag_->color = wheelColorBag_.get();
-    wheelBag_->lighting = nullptr;
+  if (!batch.bag) {
+    batch.colorBag = std::make_unique<Tyra::StaPipColorBag>();
+    batch.bag = std::make_unique<Tyra::StaPipBag>();
+    batch.bag->color = batch.colorBag.get();
+    batch.bag->lighting = nullptr;
   }
-  wheelBag_->info = batchInfoBag.get();
-  batch.cols.bind(wheelColorBag_);
-  batch.verts.bind(wheelBag_);
-  wheelBag_->count = static_cast<u32>(batch.verts.size());
+  batch.bag->info = batchInfoBag.get();
+  batch.cols.bind(batch.colorBag);
+  batch.verts.bind(batch.bag);
+  batch.bag->count = static_cast<u32>(batch.verts.size());
   // The runs ARE the packages. Every per-wheel block is a whole number of
   // runs, so pinning the package size to the run means no package boundary can
   // fall inside a run or across two wheels. 0 asks for the derived size, which
   // is what a triangle-list batch wants.
-  wheelBag_->stripped = srcRun != 0;
-  wheelBag_->packageSize = srcRun;
+  batch.bag->stripped = srcRun != 0;
+  batch.bag->packageSize = srcRun;
   // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
   // numbers than it did"; bumping it unconditionally made that a lie on every
   // frame a car did not move, and it cost twice - the package-bbox cache
@@ -18085,19 +18283,19 @@ void TerrainGame::renderVehicleWheels() {
     ++g_whStampBumps;
 #endif
   }
-  wheelBag_->bboxVersion = batch.stamp;
+  batch.bag->bboxVersion = batch.stamp;
 #if TYRA_WHEEL_REBUILD_REPORT
   ++g_whBatches;
 #endif
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
-    if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
-    wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    batch.sts.bind(wheelTexBag_);
-    wheelBag_->texture = wheelTexBag_.get();
+    if (!batch.texBag) batch.texBag = std::make_unique<Tyra::StaPipTextureBag>();
+    batch.texBag->texture = const_cast<Tyra::Texture*>(src->texture);
+    batch.sts.bind(batch.texBag);
+    batch.bag->texture = batch.texBag.get();
   } else {
-    wheelBag_->texture = nullptr;
+    batch.bag->texture = nullptr;
   }
-  stapip.core.render(wheelBag_.get(), receiverClasses == 2 && receiverClass == 0 ?
+  stapip.core.render(batch.bag.get(), receiverClasses == 2 && receiverClass == 0 ?
       Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
   }
   }
@@ -19103,9 +19301,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    projectNeedsCamFeed(p) ? "true" : "false");
     s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
                    st.tripleBuffering ? "true" : "false");
-    s = replaceAll(s, "{{FRAME_PIPELINE_SETUP}}", st.framePipeline ?
+    s = replaceAll(s, "{{FRAME_PIPELINE_SETUP}}",
+                   std::string(st.framePipeline ?
                    "  engine->renderer.core.setFramePipeline(true);\n" :
-                   "  engine->renderer.core.setFramePipeline(false);\n");
+                   "  engine->renderer.core.setFramePipeline(false);\n") +
+                   // Bag stamps (docs/stapip-stamps.md): a static, wholly
+                   // visible draw re-emits last frame's prepared head instead
+                   // of re-deriving it - the per-draw EE frontend.
+                   "  stapip.core.setStampEnabled(true);\n");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
@@ -19179,8 +19382,24 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
     s = replaceAll(s, "{{REFL_SCENERY_KEY}}", reflSceneryKey(p));
-    s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}", reflSceneryCapture(p));
-    s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}", reflGroundCapture(p));
+    // The shared probe may be captured over two frames (envFirst / envLast,
+    // docs/reflective-materials.md "Amortised capture"): sky and terrain in
+    // the first half, roads, objects and scenery in the second. A single
+    // target runs both halves in one frame, exactly as before.
+    {
+        const std::string scenery = reflSceneryCapture(p);
+        s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}",
+                       scenery.empty() ? scenery
+                                       : "    if (envLast) {\n" + scenery + "    }\n");
+        s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}",
+                       p.settings.reflectionGroundProxy
+                           ? "    if (envFirst) {\n" + reflGroundCapture(p) + "    }\n"
+                           : std::string(
+                                 "    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;\n"
+                                 "    if (envFirst) renderTerrain();\n"
+                                 "    if (envLast) renderRoadChunks();\n"
+                                 "    g_groundDrawRadius = 0.0F;\n"));
+    }
     // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic
     // distance for cars nobody drives - vehicleLodTier), and its far tier
     // may hide the glass part.

@@ -41,6 +41,9 @@ class TerrainGame : public Tyra::Game {
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updatePlayer();
 
@@ -1269,11 +1272,48 @@ class TerrainGame : public Tyra::Game {
     // Largest source-vertex distance from the baked hub. Scanned once after
     // load and invalidated with the scene/model lifetime below.
     float localRadius = -1.0F;
+    // The batch's OWN bag. A bag pointer shared by every batch made StaPip's
+    // per-bag stamp (docs/stapip-stamps.md) overwrite itself once per batch, so
+    // three resting batches paid the full frontend every frame instead of a
+    // replay (440 -> 231 us per frame on a PS2, night district).
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<WheelBatch> wheelBatches_;
-  std::unique_ptr<Tyra::StaPipBag> wheelBag_;
-  std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
-  std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
+  // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). A car whose rig moved keeps
+  // its wheels out of the batch: each wheel is the model's immutable LOCAL
+  // array plus one matrix, transformed by VU1, so the EE neither re-bakes
+  // ~750 vertices per wheel nor packs them into a fresh VIF stream.
+  struct WheelGeo {
+    const void* src = nullptr;  // the source array (part verts or strip)
+    u32 nv = 0;                 // padded block length (see the strip rule)
+    // ONE bboxVersion for the array, shared by every wheel drawing it: the
+    // baked stream is keyed by (vertices, version), so per-wheel versions over
+    // one array would evict each other every draw.
+    u32 stamp = 0;
+    std::vector<Tyra::Vec4> v, st;
+    std::vector<Tyra::Color> c;
+  };
+  struct WheelLive {
+    Tyra::StaPipBag bag;
+    Tyra::StaPipInfoBag info;
+    Tyra::StaPipColorBag color;
+    Tyra::StaPipTextureBag tex;
+    Tyra::M4x4 mat;
+  };
+  struct WheelRig {
+    float sig[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    float wy[4] = {0, 0, 0, 0};
+    const void* geo = nullptr;
+    int hold = 0;  // frames left on the matrix path after the rig last moved
+    int valid = 0;
+    WheelLive wheel[4];
+  };
+  // unique_ptr so growth never moves an array or bag a queued draw references.
+  std::vector<std::unique_ptr<WheelGeo>> wheelGeos_;
+  std::vector<std::unique_ptr<WheelRig>> wheelRigs_;
+  WheelGeo& wheelGeoFor(const std::vector<float>& geo, u32 real, u32 nv);
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   // Fixed 1/50 s sub-steps around updateVehicles (1.135.6): a 25 fps frame

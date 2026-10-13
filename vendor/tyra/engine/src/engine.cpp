@@ -92,6 +92,7 @@ void Engine::initAll(const EngineOptions& options) {
   rendererOptions.colorDepth = options.colorDepth;
   rendererOptions.dither = options.dither;
   rendererOptions.envMap = options.envMapTarget;
+  rendererOptions.envMapDoubleBuffered = options.envMapDoubleBuffered;
   rendererOptions.camFeed = options.camFeedTarget;
   rendererOptions.tripleBuffering = options.tripleBuffering;
   renderer.init(rendererOptions);

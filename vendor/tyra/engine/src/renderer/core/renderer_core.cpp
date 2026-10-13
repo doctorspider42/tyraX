@@ -76,6 +76,7 @@ void RendererCore::init(const RendererOptions& options) {
   // target and its z are 128 KB of a ~1.08 MB texture heap, and they used
   // to be reserved whether or not anything ever sampled them.
   envMap.setEnabled(options.envMap);
+  envMap.setDoubleBuffered(options.envMapDoubleBuffered);  // Modified by TyraX
   envMap.init(&settings, &gs, &sync, &path1);
   // Projected shadows: wiring only - VRAM is allocated lazily when the game
   // calls shadowMap.allocate() (init() also re-places the buffers after a

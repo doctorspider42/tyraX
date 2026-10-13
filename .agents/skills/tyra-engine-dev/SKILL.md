@@ -4223,6 +4223,23 @@ pass over one vertex array thrashes the single entry the cache holds per
 (array, package size). Keep this counter when you touch the key; it is how the
 next round avoids pricing a cache that is not working.
 
+### Bag stamps (TYRA_STAPIP_STAMP, 2026-10-13)
+
+A static, wholly visible, baked bag can skip the whole `StaPipCore::render`
+frontend: `StaPipQBufferRenderer::tryStamp` re-emits the head + REF bytes its
+last ordinary submission produced and patches only MVP, fog, TEX0, spot and the
+single colour (docs/stapip-stamps.md). On the night drive this was the lever
+(18.3 -> 13.5 ms parked): the generic path cost ~10k instructions and ~640 cache
+misses per bag. Traps: any block `sendObjectData` emits that the replay cannot
+patch MUST clear `stampOk`; info fields mutated IN PLACE (star twinkle, probe
+z-test) are why the info bag is byte-compared; and destroying a baked entry
+must go through `noteDestroyed` or a stamp replays a freed arena.
+
+Also from that night: `Audio::work` sleeps `idleSleepMs` (16) when no song plays
+instead of polling every 0.5 ms at priority 5, and `RendererCoreEnvMap` can hold
+a second (back) colour target for the two-frame reflection capture
+(`begin(.., clear, intoBack)` / `swap()`, `EngineOptions::envMapDoubleBuffered`).
+
 ### Triangle strips for static geometry (1.95.0)
 
 `StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole

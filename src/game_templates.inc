@@ -23352,29 +23352,69 @@ void TerrainGame::renderScene() {
                    drift <= REFLECTION_REUSE_BUDGET;
     }
   }
-  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
-      !splitPassActive) {
+  // Terrain streaming: one update per FRAME (the split's second pass reuses
+  // it) with player 2's avatar as a second focus while active - each player
+  // keeps the terrain around them resident even when the pair walks apart.
+  // It runs BEFORE the reflection capture so the capture knows whether this
+  // frame already paid for a chunk build (terrainBuiltThisFrame).
+  if (!splitSecondPass) {
+    terrainBuiltThisFrame = 0;
+    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    updateTerrainChunks(terrainFocusX, terrainFocusZ,
+                        p2Focus ? players[1].x : 0.0F,
+                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
+  }
+  // Amortised capture (docs/reflective-materials.md): with a second env
+  // target the capture is split over two frames into the BACK target - sky and
+  // terrain, then roads, objects and scenery from the same pose - and swapped
+  // in when complete. The image refreshes as often as before, but no frame
+  // pays the whole capture, and a frame that just built a terrain chunk lets
+  // its half wait a frame so the two costs never stack. One target: both
+  // halves run in this frame, exactly the old capture.
+  static int envPhase = 0;
+  static Vec4 envPhaseEye;
+  static V3 envPhaseDir = {0.0F, 0.0F, 1.0F};
+  static float envPhaseNearest = 1.0F;
+  static unsigned int envPhaseColorKey = 0u, envPhaseContentKey = 0u;
+  const bool envSplit = engine->renderer.core.envMap.isDoubleBuffered();
+  const bool envWanted = !ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 &&
+      skyDome.bag && (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
+      !splitPassActive;
+  if (envSplit ? !terrainBuiltThisFrame && !splitPassActive &&
+                     (envPhase == 1 || (envPhase == 0 && envWanted))
+               : envWanted) {
     const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
-    const Vec4 probeEye = cameraPosition;
-    const V3 probeDir = lvl;
+    const bool envFirst = !envSplit || envPhase == 0;
+    const bool envLast = !envSplit || envPhase == 1;
+    if (envFirst) {
+      envPhaseEye = cameraPosition;
+      envPhaseDir = lvl;
+      envPhaseNearest = envNearest;
+      envPhaseColorKey = envColorKey;
+      envPhaseContentKey = envContentKey;
+    }
+    const Vec4 probeEye = envPhaseEye;
+    const V3 probeDir = envPhaseDir;
 
-    skyMat.identity();
-    skyMat.data[12] = probeEye.x;
-    skyMat.data[13] = probeEye.y;
-    skyMat.data[14] = probeEye.z;
     Vec4 envLook(probeEye.x + probeDir.x, probeEye.y + probeDir.y,
                  probeEye.z + probeDir.z, 1.0F);
     core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
-                            scriptCtx.skyColor.b, 128.0F));
+                            scriptCtx.skyColor.b, 128.0F),
+                      envFirst, envSplit);
     core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
-    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
-    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    renderWorldBag(skyDome.bag.get());
-    renderSkyBodies(probeEye, envLook);
-    skyDome.infoBag->zTestType = prevZTest;
+    if (envFirst) {
+      skyMat.identity();
+      skyMat.data[12] = probeEye.x;
+      skyMat.data[13] = probeEye.y;
+      skyMat.data[14] = probeEye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      renderWorldBag(skyDome.bag.get());
+      renderSkyBodies(probeEye, envLook);
+      skyDome.infoBag->zTestType = prevZTest;
+    }
     // The world under the car matters more to paint than another distant prop.
     // Draw only resident terrain and reserved road chunks here: no new
     // geometry, pair search, or unrelated procedural/prefab bags - and, with
@@ -23385,7 +23425,7 @@ void TerrainGame::renderScene() {
 {{REFL_GROUND_CAPTURE}}    // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
-    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+    for (int ri = 0; envLast && ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
       // Skip the object the PROBE stands at: it would swamp the whole
@@ -23415,20 +23455,23 @@ void TerrainGame::renderScene() {
     }
 {{REFL_SCENERY_CAPTURE}}    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
+    envPhase = envSplit && envFirst ? 1 : 0;
+    if (envLast) {
+    if (envSplit) core.envMap.swap();  // the finished back target goes live
     // Store the basis that produced this exact texture, after end() has
     // completed the target update. The target's camera is level by design.
-    sharedEnvRight = {-lvl.z, 0.0F, lvl.x};
+    sharedEnvRight = {-probeDir.z, 0.0F, probeDir.x};
     sharedEnvBasisValid = true;
     // ...and, with it, everything the reuse gate above compares against. The
     // basis is what the SAMPLER needs; these are what the next frame needs to
     // decide whether this image is still the right one.
-    sharedEnvFwd = lvl;
+    sharedEnvFwd = probeDir;
     sharedEnvEyeX = probeEye.x;
     sharedEnvEyeY = probeEye.y;
     sharedEnvEyeZ = probeEye.z;
-    sharedEnvNearest = envNearest;
-    sharedEnvColorKey = envColorKey;
-    sharedEnvContentKey = envContentKey;
+    sharedEnvNearest = envPhaseNearest;
+    sharedEnvColorKey = envPhaseColorKey;
+    sharedEnvContentKey = envPhaseContentKey;
     if (daynight::active(currentScene)) {
       for (int k = 0; k < 3; ++k) {
         sharedEnvSun[k] = daynight::g_sun[k];
@@ -23438,6 +23481,7 @@ void TerrainGame::renderScene() {
       sharedEnvMoonRad = daynight::g_moonRad;
       sharedEnvMoonRoll = daynight::g_moonRoll;
     }
+    }  // envLast
     // Deliberately a standalone phase: it is the shared target render, not
     // the later per-object sampling passes nested inside Objects.
     costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
@@ -23481,15 +23525,7 @@ void TerrainGame::renderScene() {
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
-  // One streaming update per FRAME (the split's second pass reuses it) with
-  // player 2's avatar as a second focus while active - each player keeps the
-  // terrain around them resident even when the pair walks apart.
-  if (!splitSecondPass) {
-    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
-    updateTerrainChunks(terrainFocusX, terrainFocusZ,
-                        p2Focus ? players[1].x : 0.0F,
-                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
-  }
+  // (Streaming runs before the reflection capture - see there.)
   renderTerrain();
   costEnd("Terrain",-1,costTerrainStart);
   { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
@@ -26811,6 +26847,7 @@ int TerrainGame::terrainLodStep(int cx, int cz) const {
 // streamed in later is pixel-identical to one built at scene load.
 void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   TerrainChunk& ch = terrainChunks[slot];
+  ++terrainBuiltThisFrame;
   if (ch.cx >= 0)  // recycling: unmap the chunk this slot held
     terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
   ch.cx = cx;

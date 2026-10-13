@@ -150,16 +150,56 @@ is on, so the front two share one basis and the rear two (steer pinned at zero)
 share another. Two are built instead of four, lazily, so a car needing one
 corner re-baked builds one.
 
-### Why the bag pointer may still be shared
+### The bag pointer is per batch (2026-10-13)
 
-`wheelBag_` is one `StaPipBag` reused across every definition in the loop, which
-looks unsafe the moment the version stamp stops changing on every submit. It is
-not: **neither downstream cache is keyed by the bag.** `StapipBagBBoxesCacher`'s
-`id` is `reinterpret_cast<u32>(bag->vertices)`, and the retained-command key is
-`{vertices, sts, colors, normals, program, count, ...}` with no bag pointer in
-it. Every `WheelBatch` owns its own vertex vector, so the definitions are
-already distinct keys. What the old unconditional bump was really buying was
-that the caches never hit at all, which is not safety.
+`wheelBag_` used to be one `StaPipBag` reused across every definition in the
+loop. That was safe for the bbox and retained/baked caches, which are keyed by
+the vertex buffer and not by the bag. **The stamp cache ([bag
+stamps](stapip-stamps.md)) IS keyed by the bag**, though. With one shared
+pointer, each batch overwrote the previous batch's stamp, so three resting
+batches paid the full StaPip frontend every frame instead of a stamp. Each
+`WheelBatch` now owns its `bag`, `colorBag` and `texBag`. On a PS2 (night
+district, parked, instrumented build) the wheels went from 440 to 231 µs per
+frame.
+
+## Moving wheels ride a matrix (2026-10-13)
+
+Everything above makes a car at REST free. A car in motion was the opposite
+case: its spin changes every frame, so the EE re-derived ~3000 world vertices
+per car (`W.rebake`, 0.28 ms) and StaPip packed the changed array into a fresh
+VIF stream on the direct route (`W.submit`, 0.74 ms). That came to about
+1.05 ms per frame for the driven car on a PS2 night drive.
+
+A rig that moved now leaves the batch. Each of its four wheels is drawn as:
+
+- `WheelGeo`: the model's immutable LOCAL array (positions with w = 1, STs,
+  modulate-identity colours), padded to the batch's block length exactly like a
+  run tail;
+- one matrix per wheel (`WheelRig::wheel[w].mat`), holding the same
+  spin/steer/attitude basis and suspension-clamped hub that the bake computes;
+- its own bag, with a copy of the batch info pointing `model` at that matrix.
+
+VU1 does the transform. StaPip replays the array's baked stream, and the stamp
+patches only the MVP. The same drive measured 337/277/272 µs for the wheels,
+against 1130/1047/1040 µs. The heaviest window went from 50 to 19 late frames.
+
+Two rules make it work:
+
+- **One `bboxVersion` per ARRAY, not per wheel.** The baked stream is keyed by
+  `(vertices, bboxVersion)`. The first rig prototype gave each wheel its own
+  version over the shared array, so the four wheels evicted each other's entry
+  on every draw. The baked cache's churn damping then sent them all down the
+  direct route, and the prototype measured "about zero". `wheelGeoFor` hands
+  out one stamp per array.
+- **Hysteresis (`kWheelLiveHold`, 30 frames).** A rig stays on the matrix path
+  for 30 frames after it last moved. A car settling to a stop therefore does
+  not hand its batch slot back and forth, which would re-bake every other car
+  in that batch each time.
+
+`VEHCONTACT` keeps logging for the driven car on this path. On the logging
+frame only, the drawn vertices are reconstructed from the matrix.
+`TYRA_WHEEL_REBUILD_VERIFY` checks only the batch path, which still holds
+every car at rest.
 
 ### What the change does NOT alter
 

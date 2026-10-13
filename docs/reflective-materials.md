@@ -162,6 +162,20 @@ colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
   that basis invalid and forces the next non-split classic view to capture,
   regardless of the cadence phase. Since 1.106.0 the cadence is a CEILING
   rather than a schedule: see "The reuse budget" below.
+- **Amortised capture.** Generated games reserve a second 64 KB env colour
+  target (`EngineOptions::envMapDoubleBuffered`, on whenever the env target
+  is). A capture is then split over two frames, both from the pose recorded
+  in the first: frame 1 clears the BACK target and draws the sky, sky bodies
+  and terrain; frame 2 draws roads, reflected objects and static scenery
+  into it and swaps it live (`RendererCoreEnvMap::begin(.., clear, intoBack)`
+  / `swap()`). The basis and the reuse-gate keys are stored only on the
+  swap, so the sampler never sees a half-drawn image or a basis that does not
+  match it. A frame that just built a terrain chunk skips its half (terrain
+  streaming now runs before the capture and counts its builds in
+  `terrainBuiltThisFrame`), and so does a split-screen half. On a PS2 this
+  removed the worst-frame stacking of capture + chunk build in the night
+  drive: 11–14 late frames instead of ~19 in the heaviest window
+  ([night EE investigation](tyrax2-night-ee-2026-10-12.md)).
 - Terrain uses the chunks already resident around the main camera. Road capture
   filters the shared procedural list to owner `-3`, so it draws asphalt and
   automatic junctions without also paying for prefabs or procedural volumes.

@@ -37,6 +37,12 @@ class StaPipCore {
    */
   void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
   void endSubmissionBatch() { qbufferRenderer.endSubmissionBatch(); }
+#if TYRA_STAPIP_STAMP
+  /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). */
+  void setStampEnabled(bool on) { qbufferRenderer.setStampEnabled(on); }
+  u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
+  u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
+#endif
   StaPipCore();
   ~StaPipCore();
 
@@ -204,6 +210,13 @@ class StaPipCore {
   // the guard band's near/far constants.
   Plane clipObjectSpacePlanes[8];
   void computeClipObjectSpacePlanes(const M4x4& mvp);
+  void computeClipPlanesInto(const M4x4& mvp, Plane* dst);
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: world-space clip planes for stamps, keyed by the VP.
+  M4x4 stampClipViewProj;
+  Plane stampClipPlanes[8];
+  bool stampClipValid = false;
+#endif
   // Modified by TyraX: a package that leaves the VIEW frustum but stays inside
   // the guard band needs no clipping at all - the GS scissor crops it. See
   // the comment on the definition.
