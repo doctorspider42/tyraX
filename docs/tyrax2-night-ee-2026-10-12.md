@@ -208,3 +208,71 @@ toward 30 fps. Lean, same-ELF A/Bs on a physical PS2, measured on the heaviest
 - **What `submit` copies:** at this spot, 85 snapshots a frame copy 53 KB of
   chain and 93 KB of mutable REF data. The D-misses from that are ~0.7–1 ms;
   the rest of `submit` is per-packet tag walking.
+
+### State after the night of 2026-10-13/14
+
+Lean, heaviest 150-frame drive window at the heavy spot:
+
+| | Work | p50 | p95 | Late |
+| --- | --- | --- | --- | --- |
+| Start of the night | 17.3 ms | | | 86 |
+| Now | 14.3 ms | 13.8 ms | 17.0–17.2 ms | 11–12 |
+
+Parked: 13.2 ms, 0 late. Day and night now cost about the same. The mean
+fits 60 fps comfortably; the late frames are spikes.
+
+What the spikes are made of (instrumented, slow vs fast frames): a probe
+phase, about +1.2 ms before the three-phase split; a terrain chunk build, about
++0.8 ms; and simply more geometry on screen (partial routes +1.5 ms, submit
++0.9 ms, objects +0.9 ms).
+
+Measured and kept:
+
+- the sun-shadow night gate;
+- slice clipping;
+- the three-phase probe.
+
+Measured and dropped:
+
+- **The probe ground stand-in** (`reflectionGroundProxy`). It made driving
+  worse (p95 21.4 ms): its grid rebuilds every time the eye crosses a cell.
+- **The sky dome in the main view.** Removing it saves ~0.5 ms parked and
+  takes the heaviest window from 15 to 10 late frames. It was not replaced
+  yet (see below).
+
+Next leads, roughly by expected value:
+
+1. **Terrain stream budget 1 instead of 2.** Built and unmeasured: the rig's
+   `--budgetab` arm, `C:\tx\vpnQ2`. A chunk build is the second spike source.
+2. **A sky card instead of the dome.** An untextured dome is a pure function
+   of elevation, so a small grid just inside the far plane with per-vertex
+   colours from the view ray's elevation draws the same gradient. Every
+   vertex is in view, so there is no clip route and the bag takes a stamp.
+   Needs the projection (fov, aspect, roll; the probe uses 110 degrees and a
+   square target). Worth ~0.5 ms in the main view plus the probe's sky phase.
+3. **Lamp coronas as VU1 billboards.** They are camera-facing quads rebuilt
+   on the EE every moving frame, so the batch never replays. The engine
+   already has VU1 billboard programs (particles, PR #118). The pull toward
+   the camera that keeps the glow off the pole needs a VU-side equivalent, or
+   a fixed small offset.
+4. **The car headlight pool on the car's matrix**, like the wheels: today the
+   patch is rebuilt in world space whenever the car moves.
+5. **Zero-copy submission.** StaPip builds a packet in its own buffer and
+   `submit` copies it, plus every mutable REF target, into the frame arena,
+   then walks the tags three times. A per-frame data bank for the copy pool
+   (REFs borrowed instead of copied) is the contained first step (~0.4 ms).
+   Writing packets straight into the arena needs a second arena, because a
+   packet is reserved for its worst case while the pool allocates.
+6. **A VU1 strip clip program.** Strip partial packages are still expanded
+   into lists on the EE and classified per block. A clip program that reads
+   strips and streams its output with mid-program XGKICKs would turn a
+   partial bag into one baked REF.
+
+Rig notes for whoever picks this up:
+
+- `cld_probe.hpp` holds 96 scope names (it was 48, and later names were
+  silently dropped).
+- The `.tyra` copied from the repo carries `"buildProfile": "debug"`. Set it
+  to release before `--refresh-gen` in a rig copy, or the game polls
+  host:livepad.bin every frame.
+- Never reuse an arm name: a stale run log fools the monitor.
