@@ -24148,6 +24148,9 @@ void TerrainGame::renderScene() {
   // now in the frame, so they go after all the opaque geometry and before
   // everything that composites on top of it. One submit per merged group; no
   // per-caster work of any kind (docs/shadows.md).
+  // Baked from the SUN, so - like the ground maps in renderTerrain - only
+  // while the sun is up when the day cycle runs.
+  if (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F)
   { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow_decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
@@ -27967,8 +27970,15 @@ void TerrainGame::renderTerrain() {
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
     if (ch.aoBag && ch.aoBag->count > 0) renderWorldBag(ch.aoBag.get());
-    // The sun's shadow darkens the sunlit ground, not the lamps' light.
-    if (ch.gsBag && ch.gsBag->count > 0) renderWorldBag(ch.gsBag.get());
+    // The sun's shadow darkens the sunlit ground, not the lamps' light - and
+    // only while there IS a sun: with the day cycle running and the sun below
+    // the horizon (the moon owns the light, daynight::tick's handover) the
+    // baked map would darken the night ground by a sun that is not up. A full
+    // extra pass per shaded chunk, ~1.7 ms of EE on a PS2 night drive
+    // (docs/shadows.md, "Ground shadow maps").
+    if (ch.gsBag && ch.gsBag->count > 0 &&
+        (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F))
+      renderWorldBag(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
       renderWorldBag(ch.emisBag.get());
   }

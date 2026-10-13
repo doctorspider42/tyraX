@@ -169,3 +169,42 @@ The wheels' ~1 ms is explained and fixed (2026-10-13), see
 - Resting batches now own their bag, so they take a stamp (440 -> 231 µs).
 
 Visual equivalence of the stamps on a TV is still owed.
+
+## The heavy spot (2026-10-13/14)
+
+The user parked the Ravager at (-119.3, 0.3, 0.3), where night driving fell
+toward 30 fps. Lean, same-ELF A/Bs on a physical PS2, measured on the heaviest
+150-frame drive window:
+
+- **The waits were vsync, not the GPU.** An EE-side sampler of `VPU_STAT` and
+  `GIF_STAT` during the frame-completion waits found the GPU already idle. The
+  6–9 ms in `flushRecording` was the frame missing its vblank, so the frame is
+  EE-bound here as well.
+- **Ablations (EE work, heaviest window, base 17.3–17.5 ms):**
+
+  | Removed | Saving |
+  | --- | --- |
+  | ground shadow maps | −1.7 ms |
+  | beams + glows | −1.4 ms |
+  | probe | −1.1 ms |
+  | pools | −0.8 ms |
+  | particles/smoke | ~0 |
+  | lamp cones | ~0 |
+  | terrain splat layers | ~0 |
+
+  Day was −2.7 ms.
+- **The PC habit found:** the baked SUN shadows (ground maps and decals) were
+  drawn at night with the sun below the horizon. They are now gated
+  ([shadows.md](shadows.md)). Result:
+
+  | | Heaviest window | Parked |
+  | --- | --- | --- |
+  | Before | 17.32 ms, 86/150 late | 14.6 ms |
+  | After | 14.43 ms, 14/150 late | 13.3 ms |
+
+- **Slice clipping** ([vu1-clipping.md](vu1-clipping.md)) saves only ~0.2 ms
+  lean, though the instrumented build had priced it at ~1.8 ms. COP0 scopes in
+  hot per-call code inflate badly, so only lean A/Bs decide.
+- **What `submit` copies:** at this spot, 85 snapshots a frame copy 53 KB of
+  chain and 93 KB of mutable REF data. The D-misses from that are ~0.7–1 ms;
+  the rest of `submit` is per-packet tag walking.

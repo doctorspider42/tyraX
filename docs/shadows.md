@@ -494,7 +494,12 @@ something.
 - **Follow the clock.** The bake is at one hour, the same
   `ambience::bakedHour` the GI bake uses ([day-night-cycle.md](day-night-cycle.md)).
   With the day/night cycle running, the sun sweeps and a baked shadow does not.
-  Use the projected silhouette there.
+  Use the projected silhouette there. While the cycle runs and the sun is
+  below the horizon (the moon owns the light), the game draws neither the
+  baked decals nor the ground maps below: a night ground darkened by a sun
+  that is not up is wrong, and on a PS2 night drive the ground maps alone
+  were ~1.7 ms of EE time a frame (2026-10-13). Without the cycle they always
+  draw, as before.
 - **Double up with a lightmap.** Where a scene has a fresh GI bake, the sun's
   shadow is already in the terrain map and in every untextured primitive's
   atlas region. The projection **skips those receivers** — automatically, in
