@@ -538,6 +538,31 @@ paths ran. The (a) images, macros and wrapper switches were removed. The
 (b)/(c) switches remain for regression A/B builds; their defaults are enabled.
 The project format remains 80.
 
+## Slice clipping (2026-10-13)
+
+A frustum-crossing package of a LIST bag used to be re-cut on the EE every
+frame. `packager.create` built clip-sized subpackages and walked their
+vertices for a bbox each. `renderSubpkgs` then copied the inside ones together
+into the qbuffer copy pool for the cull program, and only the crossing ones
+went to the clip program.
+
+With VU1 clipping on (`StaPipCore::setSliceClip`, default true), the
+package now goes to the clip program in `clipPackageSize` slices taken **by
+pointer** from the bag's own arrays (`renderClipSlices`). The package's plane
+mask travels with every slice, because it is a superset of each slice's. A
+small crossing bag (under two packages) goes whole with all six planes. The VU1
+program already judges every triangle inside, outside or cut, so nothing is
+lost. Slices the old route would have culled or skipped now cost VU1 a clip
+judgement per triangle. VU1 waits on the EE in the scenes this was measured in.
+
+Stripped bags keep their route (`renderStrippedPkgs`): the clip programs take
+triangle lists, so a strip still has to be expanded.
+
+Measured on a PS2 (Motor District night, heavy spot, lean build, same ELF
+A/B), this saves only ~0.2 ms of EE work per frame. The instrumented build had
+priced the subpackage work at ~1.8 ms, but per-call COP0 scopes inflate exactly
+this kind of short, frequent work. Trust lean A/Bs only.
+
 ## See also
 
 - [profiling.md](profiling.md) — the frame-timing rig, the measurement protocol

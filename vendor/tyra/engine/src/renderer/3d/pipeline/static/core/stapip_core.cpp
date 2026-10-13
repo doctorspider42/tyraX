@@ -1301,6 +1301,13 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
       TYRA_ATTRIB_MARK(attribRenderPkgsStart);
       renderPkgs(packages, doClip, packagesCount);
       TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderPkgsStart);
+    } else if (sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
+               !bag->billboard && !qbufferRenderer.hasProgramOverrides()) {
+      // Modified by TyraX: slice clipping for a small crossing bag - the
+      // whole bag in clip-sized slices, all six planes (no package mask).
+      TYRA_ATTRIB_MARK(attribRenderSubStart);
+      renderClipSlices(bag, 0, bag->count, 0x3F);
+      TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderSubStart);
     } else {
       TYRA_ATTRIB_MARK(attribCreateStart);
       auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
@@ -1363,6 +1370,16 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
       buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
+    } else if (doSubpkgs && sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
+               !packages[i].bag->billboard &&
+               !qbufferRenderer.hasProgramOverrides()) {
+      // Modified by TyraX: slice clipping (setSliceClip). The package's own
+      // plane mask is a superset of every slice's, so it travels with each.
+      recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
+      renderClipSlices(packages[i].bag,
+                       static_cast<u32>(packages[i].vertices -
+                                        packages[i].bag->vertices),
+                       packages[i].size, packages[i].clipPlaneMask);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
       auto packages1By3 =
@@ -1475,6 +1492,25 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
     } else {
       recordPackage(packages[i], OUTSIDE_FRUSTUM);
     }
+  }
+}
+
+void StaPipCore::renderClipSlices(StaPipBag* bag, u32 offset, u32 count,
+                                  u8 planeMask) {
+  // No per-slice classification and no copy: the slices are contiguous ranges
+  // of the bag's own arrays, and the VU1 clip program does the per-triangle
+  // inside / outside / cut work the EE used to prepare for it. Slices that the
+  // old route would have culled (inside) or skipped (outside) cost VU1 a clip
+  // judgement per triangle instead - VU1 waits on the EE in these scenes.
+  const u32 step = clipPackageSize();
+  if (step < 3) return;
+  for (u32 at = 0; at < count; at += step) {
+    const u32 n = count - at < step ? count - at : step;
+    if (n < 3) break;
+    auto* buffer = qbufferRenderer.getBuffer();
+    buffer->fillByPointer(bag, offset + at, n);
+    buffer->clipPlaneMask = planeMask;
+    qbufferRenderer.clip(buffer);
   }
 }
 

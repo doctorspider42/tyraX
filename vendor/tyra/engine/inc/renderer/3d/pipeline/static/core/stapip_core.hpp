@@ -43,6 +43,14 @@ class StaPipCore {
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
 #endif
+  /** Modified by TyraX: slice clipping (docs/vu1-clipping.md, "Slice clipping"). With VU1
+   * clipping on, a frustum-crossing package of a list bag is cut into
+   * clipPackageSize slices BY POINTER and each slice goes to the VU1 clip
+   * program, which decides inside / outside / cut per triangle. The old
+   * route re-classified every slice on the EE (a bbox walk over its
+   * vertices) and COPIED the inside ones together into the copy pool, every
+   * frame. Default on; false restores it for an A/B. */
+  void setSliceClip(bool on) { sliceClip = on; }
   StaPipCore();
   ~StaPipCore();
 
@@ -243,6 +251,10 @@ class StaPipCore {
   void renderStrippedPkgs(StaPipBagPackage* packages, const bool& doClip,
                           u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
+  // Slice clipping (setSliceClip): [offset, offset + count) of the bag to the
+  // VU1 clip program by pointer, in clipPackageSize slices.
+  void renderClipSlices(StaPipBag* bag, u32 offset, u32 count, u8 planeMask);
+  bool sliceClip = true;
 };
 
 }  // namespace Tyra
