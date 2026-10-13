@@ -164,11 +164,15 @@ colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
   rather than a schedule: see "The reuse budget" below.
 - **Amortised capture.** Generated games reserve a second 64 KB env colour
   target (`EngineOptions::envMapDoubleBuffered`, on whenever the env target
-  is). A capture is then split over two frames, both from the pose recorded
-  in the first: frame 1 clears the BACK target and draws the sky, sky bodies
-  and terrain; frame 2 draws roads, reflected objects and static scenery
-  into it and swaps it live (`RendererCoreEnvMap::begin(.., clear, intoBack)`
-  / `swap()`). The basis and the reuse-gate keys are stored only on the
+  is). A capture is then split over three frames (`kEnvPhases`), all from
+  the pose recorded in the first. Frame 1 clears the BACK target and draws
+  the sky and sky bodies. Frame 2 draws the terrain. Frame 3 draws roads,
+  reflected objects and static scenery, then swaps the target live
+  (`RendererCoreEnvMap::begin(.., clear, intoBack)` / `swap()`). Three
+  phases rather than two because, on a PS2 at the heavy night spot, the sky
+  and the terrain each cost ~1.6 ms of one capture and the rest ~1.7 ms. With
+  two phases the first one (sky + terrain, ~3.3 ms) was the frame that went
+  late. The basis and the reuse-gate keys are stored only on the
   swap, so the sampler never sees a half-drawn image or a basis that does not
   match it. A frame that just built a terrain chunk skips its half (terrain
   streaming now runs before the capture and counts its builds in

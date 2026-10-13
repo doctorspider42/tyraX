@@ -19382,22 +19382,22 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
     s = replaceAll(s, "{{REFL_SCENERY_KEY}}", reflSceneryKey(p));
-    // The shared probe may be captured over two frames (envFirst / envLast,
-    // docs/reflective-materials.md "Amortised capture"): sky and terrain in
-    // the first half, roads, objects and scenery in the second. A single
-    // target runs both halves in one frame, exactly as before.
+    // The shared probe may be captured over three frames (envDoSky /
+    // envDoTerrain / envDoRest, docs/reflective-materials.md "Amortised
+    // capture"): the ground in the terrain phase, roads and scenery in the
+    // last. A single target runs every phase in one frame, exactly as before.
     {
         const std::string scenery = reflSceneryCapture(p);
         s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}",
                        scenery.empty() ? scenery
-                                       : "    if (envLast) {\n" + scenery + "    }\n");
+                                       : "    if (envDoRest) {\n" + scenery + "    }\n");
         s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}",
                        p.settings.reflectionGroundProxy
-                           ? "    if (envFirst) {\n" + reflGroundCapture(p) + "    }\n"
+                           ? "    if (envDoTerrain) {\n" + reflGroundCapture(p) + "    }\n"
                            : std::string(
                                  "    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;\n"
-                                 "    if (envFirst) renderTerrain();\n"
-                                 "    if (envLast) renderRoadChunks();\n"
+                                 "    if (envDoTerrain) renderTerrain();\n"
+                                 "    if (envDoRest) renderRoadChunks();\n"
                                  "    g_groundDrawRadius = 0.0F;\n"));
     }
     // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic

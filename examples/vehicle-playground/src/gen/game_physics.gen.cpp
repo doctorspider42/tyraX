@@ -1423,12 +1423,14 @@ void TerrainGame::renderScene() {
                         p2Focus ? players[1].z : 0.0F, p2Focus, 2);
   }
   // Amortised capture (docs/reflective-materials.md): with a second env
-  // target the capture is split over two frames into the BACK target - sky and
-  // terrain, then roads, objects and scenery from the same pose - and swapped
-  // in when complete. The image refreshes as often as before, but no frame
-  // pays the whole capture, and a frame that just built a terrain chunk lets
-  // its half wait a frame so the two costs never stack. One target: both
-  // halves run in this frame, exactly the old capture.
+  // target the capture is split over THREE frames into the BACK target - the
+  // sky, then the terrain, then roads, objects and scenery, all from the pose
+  // the first phase recorded - and swapped in when complete. No frame pays
+  // more than a third of the capture (measured on a PS2, the sky and the
+  // terrain were each ~1.6 ms of one capture and the rest ~1.7), and a frame
+  // that just built a terrain chunk lets its phase wait a frame so the two
+  // costs never stack. One target: every phase runs in this frame, exactly
+  // the old capture.
   static int envPhase = 0;
   static Vec4 envPhaseEye;
   static V3 envPhaseDir = {0.0F, 0.0F, 1.0F};
@@ -1438,13 +1440,18 @@ void TerrainGame::renderScene() {
   const bool envWanted = !ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 &&
       skyDome.bag && (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
       !splitPassActive;
+  constexpr int kEnvPhases = 3;
   if (envSplit ? !terrainBuiltThisFrame && !splitPassActive &&
-                     (envPhase == 1 || (envPhase == 0 && envWanted))
+                     (envPhase != 0 || envWanted)
                : envWanted) {
     const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
     const bool envFirst = !envSplit || envPhase == 0;
-    const bool envLast = !envSplit || envPhase == 1;
+    const bool envLast = !envSplit || envPhase == kEnvPhases - 1;
+    // What this phase draws: everything with one target, else one share.
+    const bool envDoSky = !envSplit || envPhase == 0;
+    const bool envDoTerrain = !envSplit || envPhase == 1;
+    const bool envDoRest = envLast;  // roads, reflected objects, scenery
     if (envFirst) {
       envPhaseEye = cameraPosition;
       envPhaseDir = lvl;
@@ -1462,7 +1469,7 @@ void TerrainGame::renderScene() {
                       envFirst, envSplit);
     core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
-    if (envFirst) {
+    if (envDoSky) {
       skyMat.identity();
       skyMat.data[12] = probeEye.x;
       skyMat.data[13] = probeEye.y;
@@ -1481,13 +1488,13 @@ void TerrainGame::renderScene() {
     // turned (a turn captures every second frame), and a chunk 100 units away
     // is a few pixels at the horizon of this 128-pixel target.
     g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
-    if (envFirst) renderTerrain();
-    if (envLast) renderRoadChunks();
+    if (envDoTerrain) renderTerrain();
+    if (envDoRest) renderRoadChunks();
     g_groundDrawRadius = 0.0F;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
-    for (int ri = 0; envLast && ri < (int)runtimeObjects.size(); ++ri) {
+    for (int ri = 0; envDoRest && ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
       // Skip the object the PROBE stands at: it would swamp the whole
@@ -1517,7 +1524,7 @@ void TerrainGame::renderScene() {
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
-    envPhase = envSplit && envFirst ? 1 : 0;
+    envPhase = envSplit && !envLast ? envPhase + 1 : 0;
     if (envLast) {
     if (envSplit) core.envMap.swap();  // the finished back target goes live
     // Store the basis that produced this exact texture, after end() has
