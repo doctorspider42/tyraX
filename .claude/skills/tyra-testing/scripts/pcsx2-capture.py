@@ -220,7 +220,7 @@ FOLDER_KEYS = {'Bios': 'bios', 'Snapshots': 'snaps', 'SaveStates': 'sstates',
                'Videos': 'videos', 'Covers': 'covers'}
 
 
-def prepare_datapath(dp, user_ini, slot, gs_renderer='13'):
+def prepare_datapath(dp, user_ini, slot):
     """PCSX2 given -datapath DIR reads DIR/PCSX2/inis/PCSX2.ini and
     DIR/PCSX2/bios - not DIR/inis. A missing ini pops the setup wizard on the
     user's screen, so it is always written before launch."""
@@ -242,47 +242,20 @@ def prepare_datapath(dp, user_ini, slot, gs_renderer='13'):
         (root / sub).mkdir(exist_ok=True)
         text = ini_set(text, 'Folders', key, str(root / sub))
     for sec, key, val in (('EmuCore', 'EnablePINE', 'true'), ('EmuCore', 'PINESlot', str(slot)),
-                          ('EmuCore', 'HostFs', 'true'), ('EmuCore', 'EnableMTVU', 'false'),
+                          ('EmuCore', 'HostFs', 'true'),
                           ('Hotkeys', 'GSDumpSingleFrame', 'Keyboard/F12'),
                           ('UI', 'SetupWizardIncomplete', 'false'),
-                          # Software GS (13) in the GS section, not EmuCore: the
-                          # user's ini here had Vulkan (14) and its swap-chain
-                          # creation failed on every GPU slot. Software has no
-# Vulkan API dependency, so the game always renders.
-                           # 13 = Software GS. A caller that never needs pixels
-                           # (a headless logic run) may pass 11 = Null GS, whose
-                           # Draw() is an empty body - same guest-visible GS
-                           # traffic, none of the CPU rasterization.
-                           ('EmuCore/GS', 'Renderer', str(gs_renderer)),
-                           # A headless run must NEVER pause when it loses focus:
-                           # the user clicking another window silently freezes the
-                           # VM mid-gym (QtHost.cpp onApplicationStateChanged) and
-                           # every timing turns to noise. The user ini has it on.
-                           ('UI', 'PauseOnFocusLoss', 'false'),
-                           # GS VSync syncs PRESENTATION to the host monitor's
-                           # refresh - a ~60Hz wall-clock throttle the guest
-                           # cannot outrun, and one -unlimited does NOT disable
-                           # (that only lifts the frame limiter). A headless run
-                           # wants the guest to go as fast as the host can
-                           # emulate; its own clock stays cycle-driven, so guest
-                           # time is unaffected. The user ini has it on.
-                           ('EmuCore/GS', 'VsyncEnable', 'false'),
-                           # SDL's controller DB costs ~300 ms of the ~3 s to
-                           # the first guest line: SDLInputSource::Initialize
-                           # Subsystem calls SDL_GetGamepadMappings() and logs
-                           # "885 gamepad mappings are loaded" (emulog
-                           # 0,04 -> 0,33). A gym presses no pad button.
-                           ('InputSources', 'SDL', 'false'),
-                           # -logfile forces LOGLEVEL_DEBUG onto the FILE sink
-                           # (QtHost.cpp:2269 -> VMManager.cpp:473) and
-                           # Console.cpp:334 fflushes every line, so the
-                           # un-guarded microVU trace lines become thousands of
-                           # synchronous writes for a log nothing reads. The
-                           # verdict comes from the GUEST's log.txt.
-                           ('Logging', 'EnableVerbose', 'false')):
+                          # An unattended run must NEVER pause when it loses
+                          # focus: the user clicking another window silently
+                          # freezes the VM (QtHost.cpp
+                          # onApplicationStateChanged) and every timing turns to
+                          # noise. The user ini has it on. Renderer, MTVU, VSync
+                          # and SDL are deliberately left as the user set them:
+                          # this script must not change emulation behaviour.
+                          ('UI', 'PauseOnFocusLoss', 'false')):
         text = ini_set(text, sec, key, val)
     # Deleted, not blanked - see ini_del. Each is startup work the run does not
-    # need, measured on a 31 s gym run whose first guest line arrives 3.3 s in.
+    # need, measured on a 31 s run whose first guest line arrives 3.3 s in.
     for sec, key, why in (
             # Recursively walks the USER'S real ROM folder - "Scanning D:\PSX
             # ROMs (recursively)", GameList.cpp:689, ~190 ms - and those paths
@@ -368,9 +341,11 @@ def post_key_to_process(pid, vk):
     return len(wins)
 
 
-def wait_for(pred, timeout, step=0.5):
+def wait_for(pred, timeout, step=0.5, tick=None):
     end = time.time() + timeout
     while time.time() < end:
+        if tick is not None:
+            tick()
         r = pred()
         if r:
             return r
@@ -392,28 +367,6 @@ def stable_new_file(folder, pattern, since, timeout):
     return wait_for(probe, timeout)
 
 
-def results_dir(a, kind):
-    """Where RESULTS land: the project, not the temp app folder.
-
-    The emulator instance (datapath), the staged ELF and the savestate spool
-    are SCRATCH and stay under %TEMP%\\tyra-editor-test\\ - they are large,
-    disposable, and nothing ever reads them twice. The artefacts a human
-    actually wants afterwards (report.txt, gym savestates, GS dumps) are
-    RESULTS, so they default to ./test-results/<kind>-<timestamp>/ relative
-    to the directory you ran the command from. Run it from the project root
-    and the evidence lands inside that project, where it can be inspected,
-    diffed or attached to a commit message.
-
-    --out overrides it. The resolved absolute path is always printed, so the
-    output location is never a guess.
-    """
-    stamp = time.strftime('%Y%m%d-%H%M%S')
-    out = pathlib.Path(a.out) if a.out else pathlib.Path.cwd() / 'test-results' / ('%s-%s' % (kind, stamp))
-    out.mkdir(parents=True, exist_ok=True)
-    print('results: %s' % out.resolve())
-    return out
-
-
 def cmd_run(a):
     exe = find_pcsx2(a.pcsx2)
     assert_datapath_support(exe)
@@ -421,7 +374,7 @@ def cmd_run(a):
     work.mkdir(parents=True, exist_ok=True)
     root = prepare_datapath(work, find_user_ini(exe), a.slot)
     elf = stage_elf(a.elf, work, a.stage)
-    out = results_dir(a, 'run')
+    out = pathlib.Path(a.out) if a.out else work / time.strftime('out-%Y%m%d-%H%M%S')
     out.mkdir(parents=True, exist_ok=True)
     log = work / 'emulog.txt'
     snaps, sstates = root / 'snaps', root / 'sstates'
@@ -431,20 +384,35 @@ def cmd_run(a):
     print('launch:', ' '.join('"%s"' % x if ' ' in x else x for x in args))
     proc = subprocess.Popen(args)
     print('PID', proc.pid, '(the only process this script will stop)')
+    # `-nogui` only hides PCSX2's main window: the GS display surface is its own
+    # top-level window, so an unattended run would still throw a game window on
+    # the screen. Hide it (see hide_windows_hook) unless --show-window asks to
+    # watch. Called repeatedly - the display window appears a moment after the
+    # process starts.
+    hide = None if a.show_window else hide_windows_hook(proc.pid)
+    if hide is not None:
+        hide()
     try:
-        pine = wait_for(lambda: _try_pine(a.slot), 60, 1.0)
+        pine = wait_for(lambda: _try_pine(a.slot), 60, 1.0, tick=hide)
         if not pine:
             sys.exit('pcsx2-capture: PINE slot %d never answered - see %s' % (a.slot, log))
         print('PINE:', pine.text(PINE_VERSION), '|', pine.text(PINE_TITLE), '|', pine.status())
         if a.wait_log:
             rx = re.compile(a.wait_log)
-            if not wait_for(lambda: log.exists() and rx.search(log.read_text(errors='replace')), a.boot_wait):
+            if not wait_for(lambda: log.exists() and rx.search(log.read_text(errors='replace')),
+                            a.boot_wait, tick=hide):
                 print('warning: %r not in the log after %ss, capturing anyway' % (a.wait_log, a.boot_wait))
         else:
-            time.sleep(a.boot_wait)
+            deadline = time.time() + a.boot_wait
+            while time.time() < deadline:
+                if hide is not None:
+                    hide()
+                time.sleep(min(0.5, max(0.0, deadline - time.time())))
 
         captured = []
         for i in range(a.states):
+            if hide is not None:
+                hide()
             slot = 1 + i % 10
             asked = time.time()
             pine.save_state(slot)
@@ -476,6 +444,9 @@ def cmd_run(a):
         else:
             proc.kill(); proc.wait(10)
             print('stopped PID', proc.pid)
+        if hide is not None and hide.state['hidden']:
+            print('hid %d PCSX2 window(s) - unattended run (--show-window to watch)'
+                  % hide.state['hidden'])
 
     report = io.StringIO()
     for f in captured:
@@ -875,22 +846,14 @@ def analyse_state(path, span):
             int(qwc[i]) for i, dp in rec if dp == 0 and ids[i] == 1).most_common(8))
 
 
-# The ONE line a harness waits for: the adapter's final verdict, after the
-# level gyms. Anchored on purpose - the sim runner also reports an intermediate
-# "[GYM] SIMGYM 3/3 ...", and a plain "SUMMARY" substring made the harness
-# declare the run green at the halfway point and kill the emulator.
-GYM_FINAL_RE = re.compile(r'^LOG: \[GYM\] SUMMARY (\d+)/(\d+) passed \((\d+) failed, (\d+) skipped\)\s*$', re.M)
-
-
 def hide_windows_hook(pid):
     """Return a callable that hides every VISIBLE top-level window owned by
     `pid` (Windows only; a no-op elsewhere).
 
-    A gym run is unattended, and PCSX2's `-nogui` only hides its *main* window:
-    the GS display surface is its own top-level window, so a 42-gym suite throws
-    42 game windows over whatever the developer is doing, and the next one pops
-    while they are still reading the verdict. There is no CLI flag for it, so
-    the windows are hidden at the OS level.
+    A capture run is unattended, and PCSX2's `-nogui` only hides its *main*
+    window: the GS display surface is its own top-level window, so every run
+    throws a game window over whatever the developer is doing. There is no CLI
+    flag for it, so the windows are hidden at the OS level.
 
     Called repeatedly rather than once: the display window is created a moment
     after the process starts, and a GS restart can build a new one. Hiding does
@@ -931,152 +894,6 @@ def hide_windows_hook(pid):
     return hook
 
 
-def cmd_gym(a):
-    """Unattended gym run (.plan/14-testing-gym.md in the game project): boots
-    the game with a gym.run marker, waits for the [GYM] SUMMARY verdict in the
-    game's OWN log (next to the staged ELF - not PCSX2's emulog), snapshots a
-    savestate on every FAIL line, and EXITS NON-ZERO when any gym failed."""
-    exe = find_pcsx2(a.pcsx2)
-    assert_datapath_support(exe)
-    # --tier picks WHICH gyms (it becomes the gym.run marker). --profile picks
-    # HOW they run. They are orthogonal: a level gym can run Null+unlimited for
-    # iteration and Software+limited for the one real-renderer validation pass.
-    # An explicit --gs-renderer/--unlimited still overrides the profile.
-    tier = getattr(a, 'tier', 'all')
-    gs_default, unlimited_default = {
-        # Software GS, unthrottled - THE full-speed suite, and a REAL renderer:
-        # it rasterizes every primitive, so a frame capture works and a GS bug
-        # cannot hide behind a Null device. Measured faster than Null GS here
-        # (20.4 s vs 22.1 s for all 42) because Null still pays the GS thread and
-        # the present path. Guest time stays cycle-driven, so -unlimited costs
-        # nothing in timing fidelity (Counters.cpp), and VsyncEnable=false in the
-        # staged ini is what stops the host refresh from pacing it.
-        'fast': ('13', True),
-        # Software GS, frame-limited: true real-time pacing. For anything that
-        # measures wall-clock seconds, and for a capture you want in real time.
-        'render': ('13', False),
-        # Null GS, unthrottled - GSRendererNull::Draw() is an empty body, so
-        # there is no rasterization at all. The fastest way to check logic, and
-        # the only profile that CANNOT prove anything about pixels (GetOutput
-        # returns nullptr, so no --capture-frame).
-        'null': ('11', True),
-    }.get(getattr(a, 'profile', 'fast'), ('13', True))
-    gs_renderer = gs_default if a.gs_renderer is None else a.gs_renderer
-    unlimited = unlimited_default if a.unlimited is None else a.unlimited
-    work = pathlib.Path(os.environ.get('TEMP', '/tmp')) / 'tyra-editor-test' / ('pcsx2-capture-%d' % a.slot)
-    work.mkdir(parents=True, exist_ok=True)
-    root = prepare_datapath(work, find_user_ini(exe), a.slot, gs_renderer)
-    elf = stage_elf(a.elf, work, True)  # always staged: isolates the game log
-    out = results_dir(a, 'gym')
-    out.mkdir(parents=True, exist_ok=True)
-    # The marker the game reads at boot, written next to the STAGED elf.
-    marker = pathlib.Path(elf).parent / 'gym.run'
-    marker.write_text(a.only or ('' if tier == 'all' else tier), encoding='ascii')
-    # PCSX2's own log. Left at its default location - <datapath>/PCSX2/logs/
-    # emulog.txt at LOGLEVEL_INFO (VMManager.cpp:529) - instead of passed with
-    # -logfile, which forces LOGLEVEL_DEBUG onto the file sink
-    # (QtHost.cpp:2269 -> VMManager.cpp:473) where Console.cpp:334 fflushes
-    # every line. The un-guarded microVU trace lines are then written for every
-    # VU stall in the run, synchronously, for a log no gym verdict depends on.
-    # Pass --emulog to get the DEBUG-level file back when diagnosing a boot.
-    emulog = pathlib.Path(a.emulog) if a.emulog else (root / 'logs' / 'emulog.txt')
-    game_log = pathlib.Path(elf).parent / 'log.txt'
-    sstates = root / 'sstates'
-    sstates.mkdir(exist_ok=True)
-
-    args = [exe, '-batch', '-nogui', '-datapath', str(work)]
-    if a.emulog:
-        args[3:3] = ['-logfile', str(emulog)]
-    args += ['-elf', str(elf)]
-    if unlimited:
-        # Drops PCSX2's frame limiter (pcsx2/VMManager.cpp Throttle()). The
-        # guest's clock IS the EE cycle counter and vsync is cycle-driven
-        # (Counters.cpp), so guest time stays a self-consistent 60 Hz timeline -
-        # it just elapses faster than wall time. Safe for runs asserting on
-        # simulated state; NOT for anything measuring wall-clock seconds.
-        args.insert(3, '-unlimited')
-    print('launch:', ' '.join('"%s"' % x if ' ' in x else x for x in args))
-    proc = subprocess.Popen(args)
-    print('PID', proc.pid, '(the only process this script will stop)')
-    # Unattended by definition: hide the GS display window (see hide_windows_hook).
-    hide = None if a.show_window else hide_windows_hook(proc.pid)
-    if hide is not None:
-        hide()
-    verdict, seen_fail, pine = None, set(), None
-    try:
-        deadline = time.time() + a.timeout
-        buf = ''     # everything the guest has written so far
-        pos = [0]    # byte offset of what has already been read
-        scanned = 0  # lines of buf already checked for FAIL
-
-        def read_new():
-            """Whatever the guest appended since the last poll. Only the tail is
-            read: the log reaches ~110 KB written line by line, and re-reading
-            and re-regexing all of it on every tick is the harness's own tax."""
-            try:
-                with open(game_log, 'r', errors='replace') as fh:
-                    fh.seek(0, os.SEEK_END)
-                    if fh.tell() < pos[0]:      # truncated or recreated
-                        pos[0] = 0
-                    fh.seek(pos[0])
-                    data = fh.read()
-                    pos[0] = fh.tell()
-                return data
-            except OSError:
-                return ''
-
-        while True:
-            if hide is not None:
-                hide()  # cheap; catches the display window on the frame it appears
-            buf += read_new()
-            if GYM_FINAL_RE.search(buf):
-                verdict = buf
-                break
-            lines = buf.splitlines()
-            for line in lines[scanned:]:
-                if '[GYM] FAIL' in line and line not in seen_fail:
-                    seen_fail.add(line)
-                    print('GYM FAIL:', line)
-                    if pine is None:
-                        pine = wait_for(lambda: _try_pine(a.slot), 10, 1.0)
-                    if pine:
-                        pine.save_state(1)
-                        f = stable_new_file(sstates, '*.01.p2s', time.time() - 5, 30)
-                        if f:
-                            dst = out / ('gym-fail-%02d.p2s' % len(seen_fail))
-                            shutil.copy2(f, dst)
-                            print('fail savestate ->', dst.name)
-            scanned = len(lines)
-            if proc.poll() is not None:
-                # The guest writes SUMMARY and calls ExitThread() back to back,
-                # so a tick that sees the process gone would otherwise report
-                # "no SUMMARY" on a log that already contains one.
-                buf += read_new()
-                if GYM_FINAL_RE.search(buf):
-                    verdict = buf
-                break
-            if time.time() >= deadline:
-                break
-            # 20 ms, not the old 1.0 s: the verdict lands within a frame or two
-            # of being written, and a one-second poll put up to a second of pure
-            # waiting on the end of every single run.
-            time.sleep(0.02)
-        if verdict is None:
-            sys.exit('pcsx2-capture: no [GYM] SUMMARY within %ss - see %s' % (a.timeout, game_log))
-        (out / 'report.txt').write_text(verdict, encoding='utf-8')
-        print(verdict.strip().splitlines()[-1])
-        m = GYM_FINAL_RE.search(verdict)
-        if m and int(m.group(3)) > 0:            sys.exit('pcsx2-capture: gym run FAILED (%s)' % m.group(0))
-        if not m:
-            sys.exit('pcsx2-capture: unparsable SUMMARY line')
-        print('GYM: all green')
-    finally:
-        proc.kill(); proc.wait(10)
-        marker.unlink(missing_ok=True)
-        if hide is not None and hide.state['hidden']:
-            print('hid %d PCSX2 window(s) - unattended run (--show-window to watch)'
-                  % hide.state['hidden'])
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
@@ -1093,33 +910,11 @@ def main():
     r.add_argument('--out', help='output directory (default under the run directory)')
     r.add_argument('--keep', action='store_true', help='leave the emulator running')
     r.add_argument('--stage', action='store_true', help='always copy the ELF directory to a private short path')
-    y = sub.add_parser('gym', help='unattended gym run; exits non-zero on failures')
-    y.add_argument('elf')
-    y.add_argument('--only', default='', help='comma-separated gym names to run (default all)')
-    y.add_argument('--timeout', type=int, default=300, help='seconds to wait for [GYM] SUMMARY (default 300)')
-    y.add_argument('--slot', type=int, default=28190, help='PINE slot/port; one per parallel run')
-    y.add_argument('--pcsx2', help='path to pcsx2-qt')
-    y.add_argument('--out', help='output directory (default under the run directory)')
-    y.add_argument('--emulog', help='pass -logfile PATH to force PCSX2 to write its own log '
-                                   'there at DEBUG level; by default it is left at '
-                                   '<datapath>/PCSX2/logs/emulog.txt at INFO level, which is '
-                                   'much cheaper (every DEBUG line is fflushed)')
-    y.add_argument('--tier', choices=['all', 'sim', 'level'], default='all',
-                   help="which gyms run: written into gym.run as the literal marker")
-    y.add_argument('--profile', choices=['fast', 'render', 'null'], default='fast',
-                   help="emulator profile: fast = Software GS + no frame limiter (the default - "
-                        "a real renderer at full speed); render = Software GS, real-time paced; "
-                        "null = Null GS, no rasterization (fastest logic-only, no pixels)")
-    y.add_argument('--gs-renderer', default=None,
-                   help='GS renderer id: 13 Software (default), 11 Null - no rasterization, for headless logic runs')
-    y.add_argument('--unlimited', default=None, nargs='?', const=True,
-                   help='drop the emulator frame limiter; guest time stays 60Hz-consistent but elapses faster than wall time')
-    y.add_argument('--show-window', action='store_true',
+    r.add_argument('--show-window', action='store_true',
                    help="leave the emulator's GS display window VISIBLE. Default: hide it. "
                         "-nogui only hides PCSX2's main window; the display surface is its own "
-                        "top-level window, so an unattended suite would throw one game window "
-                        "per gym over the developer's screen. Hiding does not stop rendering "
-                        "or --capture-frame.")
+                        "top-level window, so a run would throw a game window over the "
+                        "developer's screen. Hiding does not stop rendering or --capture-frame.")
     g = sub.add_parser('gs', help='summarise a GS dump')
     g.add_argument('dump')
     g.add_argument('--passes', action='store_true', help='print the pass timeline of one vsync')
@@ -1130,8 +925,6 @@ def main():
     a = ap.parse_args()
     if a.cmd == 'run':
         cmd_run(a)
-    elif a.cmd == 'gym':
-        cmd_gym(a)
     elif a.cmd == 'gs':
         analyse_gs(a.dump, a.passes, a.frame)
     else:
