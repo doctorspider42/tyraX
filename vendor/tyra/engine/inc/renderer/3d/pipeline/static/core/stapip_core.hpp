@@ -36,10 +36,33 @@ class StaPipCore {
    * immutable until the renderer's next VIF1 synchronization.
    */
   void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
-  void endSubmissionBatch() { qbufferRenderer.endSubmissionBatch(); }
+  void endSubmissionBatch() {
+    flushDeferred();
+    qbufferRenderer.endSubmissionBatch();
+  }
+  /** Modified by TyraX: stamp deferral (docs/stapip-stamps.md, "Stamps in
+   * runs"). Inside a submission batch, a bag that has a stamp is queued and
+   * the queue is replayed in one tight run - at the batch's end, before any
+   * bag that takes the ordinary path, when the view changes or the queue is
+   * full - so the stamp path's code and data stay in cache instead of being
+   * evicted by the game code between two bags. StaPip's own draw order is
+   * unchanged. Default on; false submits every bag at its call. */
+  void setStampDeferral(bool on) {
+    flushDeferred();
+    stampDeferral = on;
+  }
+  /** Replays the queued stamps now. Cheap when the queue is empty. */
+  void flushDeferred() {
+#if TYRA_STAPIP_STAMP
+    if (deferredCount != 0) flushDeferredRun();
+#endif
+  }
 #if TYRA_STAPIP_STAMP
   /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). */
-  void setStampEnabled(bool on) { qbufferRenderer.setStampEnabled(on); }
+  void setStampEnabled(bool on) {
+    flushDeferred();
+    qbufferRenderer.setStampEnabled(on);
+  }
   void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
@@ -123,12 +146,14 @@ class StaPipCore {
    * engine.renderer.renderer3D.staticPipeline.core.setProgramOverride(...). */
   void setProgramOverride(const StaPipProgramName& name,
                           StaPipVU1Program* program) {
+    flushDeferred();
     qbufferRenderer.setProgramOverride(name, program);
   }
   /** TyraX addition: swap a whole set at once - one pipeline drain and one
    * upload instead of one per class. A null entry restores the built-in. */
   void setProgramOverrides(const StaPipProgramName* names,
                            StaPipVU1Program* const* programs, u32 count) {
+    flushDeferred();
     qbufferRenderer.setProgramOverrides(names, programs, count);
   }
 
@@ -138,10 +163,12 @@ class StaPipCore {
    * flashlight, not a field on the bag - and only reaches VU1 for a bag with
    * no lighting, because the two quadwords live in the lights-colour block. */
   void setVuCustomEnabled(const bool& enabled) {
+    flushDeferred();
     qbufferRenderer.setVuCustomEnabled(enabled);
   }
   void setVuParams(const float& x, const float& y, const float& z,
                    const float& w) {
+    flushDeferred();
     qbufferRenderer.setVuParams(x, y, z, w);
   }
   void setVuTime(const float& seconds) { qbufferRenderer.setVuTime(seconds); }
@@ -185,6 +212,19 @@ class StaPipCore {
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
  private:
+  // Modified by TyraX: the stamp deferral queue (setStampDeferral).
+  struct DeferredBag {
+    StaPipBag* bag;
+    StaPipLightReception reception;
+  };
+  static const u32 kDeferredMax = 48;
+  DeferredBag deferred[kDeferredMax];
+  u32 deferredCount = 0;
+  bool stampDeferral = true;
+  bool flushingDeferred = false;
+  M4x4 deferredViewProj;
+  void flushDeferredRun();
+  void renderNow(StaPipBag* bag, StaPipLightReception reception);
   std::unique_ptr<StaPipStripSubranges::Cache> stripSubranges;
   void setPrim();
   void setLod();

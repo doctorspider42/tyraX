@@ -250,6 +250,45 @@ The drain is not cheap. An A/B arm that released bags on their first draw
 spiked exactly where new roads came into view (25 late frames instead of 6),
 so release must never sit on a per-frame path.
 
+## Stamps in runs (2026-10-14, 1.174.1)
+
+**Where a stamp's time goes.** PMU counters on a physical PS2 (heavy night
+spot, 107 hits a frame) put one hit at ~28 us: about 58 I-cache and 104 D-cache
+line misses, i.e. ~87% of it waiting for memory. The instructions are few. The
+game runs more than 10 us of its own code between any two bags - every hit was
+"cold" - so the stamp path is evicted from both caches before each one. The
+segments, D-misses per hit: copy of the head 26, light pick 15, batch decision
+16 and flush 11 (both mostly the packet send they occasionally trigger), find
+9, producer facts 9.
+
+**What changed:**
+
+- **Deferral** (`StaPipCore::setStampDeferral`, default on). Inside a
+  submission batch, a bag that has a stamp is queued instead of replayed. The
+  queue is replayed in one run, prefetching the next bag's stamp, bag, info and
+  matrix while one replays. It is flushed before any bag that takes the
+  ordinary path, when the view-projection changes, when the same bag comes
+  again, at the batch's end, on a program override or VU parameter change,
+  on telemetry and at frame end. StaPip's own draw order is unchanged, and the
+  batch already sent StaPip's packets after other pipelines' work. Textures need
+  no hook: a queued stamp checks residency when it replays and takes the
+  ordinary path if its texture was evicted meanwhile.
+- **Packed keys.** The probe reads a 2 KB array of bag pointers instead of
+  ~700-byte entries, one line per probe. The entry keeps its scalar facts
+  first and the copied head last.
+
+Measured on a physical PS2, same ELF, night, heavy spot:
+
+| Window | Deferral off | Deferral on |
+| --- | ---: | ---: |
+| Heaviest drive | 12.68-12.70 ms | 12.38-12.44 ms |
+| Lighter drive | 10.39 ms | 10.19-10.26 ms |
+| Parked | 12.48 ms | 12.38-12.43 ms |
+
+Less than the miss counts promised: the runs are short, because ordinary bags
+and other passes interleave with the stamps. The VRAM grab is the same within
+the noise between two cycles of one arm.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.

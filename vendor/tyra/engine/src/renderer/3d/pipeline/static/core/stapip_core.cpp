@@ -147,6 +147,7 @@ void StaPipCore::setLod() {
 }
 
 void StaPipCore::onFrameEnd() {
+  flushDeferred();  // Modified by TyraX: nothing queued crosses a frame
 // Modified by TyraX: OPT-IN, not `!defined(NDEBUG)`. No game build defines
 // NDEBUG - release only drops -g and KEEPSYM (docs/devkit.md) - so this
 // printed in a RELEASE game, once every 300 frames, which lands inside the
@@ -306,6 +307,7 @@ void StaPipCore::setVU1Clipping(const bool& enabled) {
 }
 
 void StaPipCore::setTelemetryEnabled(const bool& enabled) {
+  flushDeferred();
   telemetryEnabled = enabled;
   telemetry = StaPipTelemetry{};
   packager.setCapturePlaneMasks(
@@ -542,7 +544,53 @@ void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
   }
 }
 
+// Modified by TyraX: stamp deferral (setStampDeferral, docs/stapip-stamps.md,
+// "Stamps in runs"). Measured on a PS2, a stamp hit cost ~28 us, of which ~87%
+// was cache misses - 58 I-cache and 104 D-cache lines per hit - because the
+// game runs >10 us of its own code between any two bags and evicts the stamp
+// path every time. A queued run replays them back to back.
 void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
+#if TYRA_STAPIP_STAMP
+  if (!flushingDeferred) {
+    if (stampDeferral && bag->count > 0 &&
+        qbufferRenderer.isSubmissionBatchOpen() &&
+        qbufferRenderer.isStampEnabled() &&
+        bag->info->transformationType == TyraMVP && !telemetryEnabled &&
+        !rendererCore->blss.wantsProxies() && qbufferRenderer.hasStamp(bag)) {
+      const M4x4& vp = rendererCore->renderer3D.getViewProj();
+      bool flush = deferredCount != 0 &&
+                   memcmp(deferredViewProj.data, vp.data, sizeof(vp.data)) != 0;
+      // A bag queued twice would be validated twice against its LAST state.
+      for (u32 i = 0; !flush && i < deferredCount; ++i)
+        flush = deferred[i].bag == bag;
+      if (flush) flushDeferredRun();
+      if (deferredCount == 0) deferredViewProj = vp;
+      deferred[deferredCount++] = {bag, reception};
+      if (deferredCount == kDeferredMax) flushDeferredRun();
+      return;
+    }
+    if (deferredCount != 0) flushDeferredRun();
+  }
+#endif
+  renderNow(bag, reception);
+}
+
+void StaPipCore::flushDeferredRun() {
+#if TYRA_STAPIP_STAMP
+  if (flushingDeferred) return;
+  flushingDeferred = true;
+  const u32 n = deferredCount;
+  deferredCount = 0;
+  for (u32 i = 0; i < n; ++i) {
+    // Start the next bag's lines on their way while this one is replayed.
+    if (i + 1 < n) qbufferRenderer.prefetchStamp(deferred[i + 1].bag);
+    renderNow(deferred[i].bag, deferred[i].reception);
+  }
+  flushingDeferred = false;
+#endif
+}
+
+void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   HardwareTrace::Scope traceBag("Static_bag");
   TYRA_ATTRIB_MARK(attribRenderStart);
   TYRA_ATTRIB_INC(renderCalls);

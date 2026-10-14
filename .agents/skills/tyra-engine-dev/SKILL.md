@@ -2603,6 +2603,13 @@ the prior mixColor, so generic restoration must respect assigned-field semantics
   landed on 459 of 460 quadwords. Runnable per class, and the check to re-run
   after touching any of it:
   `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
+- **Inside a submission batch, `StaPipCore::render` may not draw the bag at
+  the call** (1.174.1, docs/stapip-stamps.md, "Stamps in runs"): a bag with a
+  stamp is queued and replayed later in a run. A bag mutated and rendered again
+  in the same batch flushes the queue first, as do the view changing, an
+  ordinary-path bag, program overrides, VU params and the batch end - but a
+  NEW renderer-state setter that a stamp or the ordinary path reads must call
+  `flushDeferred()` too, or queued bags replay against the new state.
 - **Since 1.174.0 the VU1 clip programs STREAM their output and take a whole
   package, list or strip** (docs/vu1-clipping.md, "A whole package, streamed").
   Two chunks of `1 + 30 * regs` quadwords sit behind the input; a fan that

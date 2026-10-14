@@ -799,6 +799,12 @@ class StaPipQBufferRenderer {
 #if TYRA_STAPIP_STAMP
   /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). Off by default. */
   void setStampEnabled(bool on) { stampEnabled = on; }
+  /** Modified by TyraX: does this bag hold a stamp right now? A cheap probe
+   * of the packed keys - the stamp may still be refused when it is replayed. */
+  bool hasStamp(const StaPipBag* bag) const;
+  /** Modified by TyraX: start the cache lines the bag's stamp hit will read
+   * (StaPipCore's deferred run prefetches the next bag while one replays). */
+  void prefetchStamp(const StaPipBag* bag) const;
   /** Modified by TyraX: a stamp joins the open submission batch whatever
    * its bag's size (docs/stapip-stamps.md, "Batching"). false restores the
    * old rule (only bags under the ordinary size cap) for an A/B. */
@@ -1101,14 +1107,10 @@ class StaPipQBufferRenderer {
   // Modified by TyraX: bag stamps (docs/stapip-stamps.md).
   static const u32 kStampMaxQw = 24;
   static const u32 kStampSlots = 512;
+  // Modified by TyraX: laid out in the order a hit reads it - the scalar
+  // facts, the boxes and matrix, the info copy, then the head it copies - so
+  // the lines a hit touches are contiguous and prefetchStamp can start them.
   struct StampEntry {
-    alignas(16) Vec4 lo, hi;     // object-space main box
-    alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
-    alignas(16) M4x4 model;
-    qword_t bytes[kStampMaxQw];
-    // The info bag feeds TEST/ALPHA/TEX1/fog/prim words of the head; scripts
-    // (star twinkle, the probe's AllPass sky) change it in place.
-    alignas(16) u8 infoBytes[sizeof(StaPipInfoBag)];
     const StaPipBag* bag = nullptr;
     const Vec4* vertices = nullptr;
     const void* texture = nullptr;
@@ -1129,8 +1131,20 @@ class StaPipQBufferRenderer {
     u16 singleAt = 0;
     texwrap_t wrap = {};
     StaPipProgramName program = StaPipUndefinedProgram;
+    alignas(16) Vec4 lo, hi;     // object-space main box
+    alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
+    alignas(16) M4x4 model;
+    // The info bag feeds TEST/ALPHA/TEX1/fog/prim words of the head; scripts
+    // (star twinkle, the probe's AllPass sky) change it in place.
+    alignas(16) u8 infoBytes[sizeof(StaPipInfoBag)];
+    qword_t bytes[kStampMaxQw];
   };
   StampEntry* stamps = nullptr;
+  // Modified by TyraX: the probe keys (and baked entries) of `stamps`, packed.
+  // A StampEntry is ~700 bytes, so probing the table itself touched one cache
+  // line per probe; 512 keys are 2 KB and a probe run is one or two lines.
+  const StaPipBag** stampKeys = nullptr;
+  const StaPipBakedEntry** stampBakedOf = nullptr;
   bool stampEnabled = false;
   bool stampBatchAnySize = true;
   bool stampArmed = false;   // a capture is wanted for the current bag
@@ -1146,6 +1160,7 @@ class StaPipQBufferRenderer {
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
   StampEntry* findStamp(const StaPipBag* bag, bool create);
+  int stampSlot(const StaPipBag* bag) const;
   u32 stampPrimKey(const StaPipBag* bag) const;
   static void stampWorldBox(StampEntry& s);
   void sweepStamps();

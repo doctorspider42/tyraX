@@ -2838,18 +2838,61 @@ StaPipQBufferRenderer::StampEntry* StaPipQBufferRenderer::findStamp(
   if (stamps == nullptr) {
     if (!create) return nullptr;
     stamps = new StampEntry[kStampSlots];
+    stampKeys = new const StaPipBag*[kStampSlots]();
+    stampBakedOf = new const StaPipBakedEntry*[kStampSlots]();
   }
   u32 h = reinterpret_cast<u32>(bag) * 0x9E3779B1U;
   h = (h ^ (h >> 15)) & (kStampSlots - 1);
+  // Modified by TyraX: probe the packed keys, touch one entry.
+  for (u32 probe = 0; probe < 8; ++probe) {
+    const u32 at = (h + probe) & (kStampSlots - 1);
+    if (stampKeys[at] == bag) return &stamps[at];
+  }
+  if (!create) return nullptr;
   StampEntry* oldest = nullptr;
   for (u32 probe = 0; probe < 8; ++probe) {
-    StampEntry& s = stamps[(h + probe) & (kStampSlots - 1)];
-    if (s.bag == bag) return &s;
-    if (!create) continue;
-    if (s.bag == nullptr) return &s;
+    const u32 at = (h + probe) & (kStampSlots - 1);
+    StampEntry& s = stamps[at];
+    if (stampKeys[at] == nullptr) return &s;
     if (oldest == nullptr || s.frame < oldest->frame) oldest = &s;
   }
   return oldest;  // create: recycle the stalest of the eight probes
+}
+
+int StaPipQBufferRenderer::stampSlot(const StaPipBag* bag) const {
+  if (stampKeys == nullptr) return -1;
+  u32 h = reinterpret_cast<u32>(bag) * 0x9E3779B1U;
+  h = (h ^ (h >> 15)) & (kStampSlots - 1);
+  for (u32 probe = 0; probe < 8; ++probe) {
+    const u32 at = (h + probe) & (kStampSlots - 1);
+    if (stampKeys[at] == bag) return static_cast<int>(at);
+  }
+  return -1;
+}
+
+bool StaPipQBufferRenderer::hasStamp(const StaPipBag* bag) const {
+  return stampEnabled && stampSlot(bag) >= 0;
+}
+
+namespace {
+inline void prefetchLine(const void* p) {
+#ifdef _EE
+  asm volatile("pref 0, 0(%0)" : : "r"(p));
+#else
+  (void)p;
+#endif
+}
+}  // namespace
+
+void StaPipQBufferRenderer::prefetchStamp(const StaPipBag* bag) const {
+  const int at = stampSlot(bag);
+  if (at < 0) return;
+  const u8* e = reinterpret_cast<const u8*>(&stamps[at]);
+  // Facts, boxes, matrix and the info copy: the first ~6 lines of the entry.
+  for (u32 off = 0; off < 384; off += 64) prefetchLine(e + off);
+  prefetchLine(bag);
+  prefetchLine(bag->info);
+  prefetchLine(bag->info->model);
 }
 
 // Drop every stamp whose baked entry was destroyed since the last sweep, before
@@ -2858,7 +2901,10 @@ StaPipQBufferRenderer::StampEntry* StaPipQBufferRenderer::findStamp(
 void StaPipQBufferRenderer::sweepStamps() {
   const u32 gen = baked.eraseGeneration();
   if (gen != stampTableGen) {
-    for (u32 i = 0; i < kStampSlots; ++i) stamps[i].bag = nullptr;
+    for (u32 i = 0; i < kStampSlots; ++i) {
+      stamps[i].bag = nullptr;
+      stampKeys[i] = nullptr;
+    }
     stampTableGen = gen;
     baked.clearDestroyed();
     return;
@@ -2866,11 +2912,11 @@ void StaPipQBufferRenderer::sweepStamps() {
   const u32 n = baked.destroyedPending();
   if (n == 0) return;
   for (u32 i = 0; i < kStampSlots; ++i) {
-    StampEntry& s = stamps[i];
-    if (s.bag == nullptr) continue;
+    if (stampKeys[i] == nullptr) continue;
     for (u32 k = 0; k < n; ++k)
-      if (s.entry == baked.destroyedAt(k)) {
-        s.bag = nullptr;
+      if (stampBakedOf[i] == baked.destroyedAt(k)) {
+        stamps[i].bag = nullptr;
+        stampKeys[i] = nullptr;
         break;
       }
   }
@@ -2938,6 +2984,8 @@ void StaPipQBufferRenderer::captureStamp() {
   StampEntry* s = findStamp(bag, true);
   if (s == nullptr) return;
   s->bag = bag;
+  stampKeys[s - stamps] = bag;
+  stampBakedOf[s - stamps] = entry;
   s->lo = stampLo;
   s->hi = stampHi;
   s->model = *bag->info->model;

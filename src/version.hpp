@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.174.1: stamp hits inside a submission batch are queued and replayed in
+// runs with prefetch (StaPipCore::setStampDeferral); packed stamp keys.
 // 1.174.0: VU1 clip programs stream their output (mid-program XGKICKs) and read
 // strips, so a frustum-crossing package is clipped whole and by pointer.
 // 1.173.5: terrain residency/LOD follows the camera target before visual shake.
@@ -5661,7 +5663,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
