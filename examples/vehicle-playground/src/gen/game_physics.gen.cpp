@@ -1441,9 +1441,35 @@ void TerrainGame::renderScene() {
       skyDome.bag && (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
       !splitPassActive;
   constexpr int kEnvPhases = 3;
-  if (envSplit ? !terrainBuiltThisFrame && !splitPassActive &&
+  // Background work runs in the frames that have room for it. The EE time the
+  // PREVIOUS frame spent (loop period minus the renderer's present stalls) is
+  // the cheap predictor: heavy views come in runs, so a frame after a heavy
+  // one is likely heavy too. Such a frame lets its probe phase wait - at most
+  // kEnvMaxDefer frames in a row, so the image keeps refreshing - and a 128-px
+  // reflection a frame or two older is invisible. On a PS2 the late frames of
+  // the heavy night spot came in a run of ~15 at one place on the road, and a
+  // probe phase (~1.1-1.7 ms) in that run was what pushed frames past the
+  // field (docs/reflective-materials.md, "Amortised capture").
+  static u32 envBudgetTicks = 0, envBudgetStall = 0, envDeferred = 0;
+  static float envLastWorkMs = 0.0F;
+  {
+    const u32 now = ilObservationTicks();
+    const u32 stall = engine->renderer.core.getStallTotal();
+    if (envBudgetTicks != 0) {
+      const u32 period = now - envBudgetTicks, stalled = stall - envBudgetStall;
+      envLastWorkMs = period > stalled ? (float)(period - stalled) / 294912.0F : 0.0F;
+    }
+    envBudgetTicks = now;
+    envBudgetStall = stall;
+  }
+  constexpr float kEnvHeavyMs = 14.0F;
+  constexpr u32 kEnvMaxDefer = 4;
+  const bool envDefer = envSplit && envLastWorkMs > kEnvHeavyMs &&
+                        envDeferred < kEnvMaxDefer;
+  if (envSplit ? !terrainBuiltThisFrame && !splitPassActive && !envDefer &&
                      (envPhase != 0 || envWanted)
                : envWanted) {
+    envDeferred = 0;
     const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
     const bool envFirst = !envSplit || envPhase == 0;
@@ -1554,6 +1580,8 @@ void TerrainGame::renderScene() {
     // Deliberately a standalone phase: it is the shared target render, not
     // the later per-object sampling passes nested inside Objects.
     costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
+  } else if (envDefer && (envPhase != 0 || envWanted)) {
+    ++envDeferred;  // a phase that waited for a lighter frame
   }
 
   // Camera texture feed: its own VRAM target, so order only matters

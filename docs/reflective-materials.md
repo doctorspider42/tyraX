@@ -180,6 +180,12 @@ colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
   removed the worst-frame stacking of capture + chunk build in the night
   drive: 11–14 late frames instead of ~19 in the heaviest window
   ([night EE investigation](tyrax2-night-ee-2026-10-12.md)).
+  A phase also waits when the PREVIOUS frame's EE work (loop period minus
+  the present stalls) exceeded 14 ms, at most four frames in a row
+  (`kEnvHeavyMs` / `kEnvMaxDefer`). Heavy views come in runs, so the frame
+  after a heavy one is the wrong place for background work, and a 128-px
+  reflection a frame or two older is invisible. On the PS2 heavy night spot
+  this took the heaviest window from 11 to 6–7 late frames out of 150.
 - Terrain uses the chunks already resident around the main camera. Road capture
   filters the shared procedural list to owner `-3`, so it draws asphalt and
   automatic junctions without also paying for prefabs or procedural volumes.
