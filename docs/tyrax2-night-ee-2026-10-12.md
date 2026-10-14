@@ -411,7 +411,7 @@ Rig notes for whoever picks this up:
 
 ### State on 2026-10-15 (1.174.0-1.174.2)
 
-Lean, physical PS2, night, same-ELF A/Bs (rig `C:	xig`, base `vpnR5`):
+Lean, physical PS2, night, same-ELF A/Bs (rig `C:\tx\rig`, base `vpnR5`):
 
 | Route | Before | Now | Late |
 | --- | --- | --- | --- |
