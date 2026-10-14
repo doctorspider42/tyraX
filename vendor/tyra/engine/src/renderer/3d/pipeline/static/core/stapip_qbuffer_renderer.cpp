@@ -1411,7 +1411,13 @@ void StaPipQBufferRenderer::sendObjectData(
   bagMayClip = true;
   if (vu1Clipping && mayClip) {
 #if TYRA_STAPIP_STAMP
-    stampOk = false;  // only partial bags clip; stamps are whole bags
+    // Modified by TyraX: a crossing bag's head stamp keeps the clip block in
+    // its one-REF form (the shared VIF copy, constant for the run); any other
+    // form - the first, inline build - is not replayable.
+    if (stampPartial && clipBlockVifQw != 0)
+      stampClipQw = clipBlockVifQw;
+    else
+      stampOk = false;
 #endif
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
@@ -2758,7 +2764,7 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: the head + this REF are now contiguous in the packet,
   // before any flush can send them - the one moment a stamp can be copied.
-  if (stampArmed && stampOk) captureStamp();
+  if (stampArmed && stampOk && !stampPartial) captureStamp();
   stampArmed = false;
 #endif
 
@@ -3031,8 +3037,11 @@ static inline u32 stampContent(const StaPipBag* bag) {
 }
 
 void StaPipQBufferRenderer::armStampCapture(StaPipBag* bag, const Vec4& lo,
-                                            const Vec4& hi, bool batchSized) {
-  stampArmed = stampEnabled;
+                                            const Vec4& hi, bool batchSized,
+                                            bool partial) {
+  stampArmed = stampEnabled && (!partial || headStampEnabled);
+  stampPartial = partial;
+  stampClipQw = 0;
   stampBag = bag;
   stampBatchSized = batchSized;
   stampLo = lo;
@@ -3323,6 +3332,243 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   return true;
 }
 #endif  // TYRA_STAPIP_STAMP
+
+// Modified by TyraX: crossing-bag head stamps (docs/stapip-stamps.md,
+// "Crossing bags"). Keyed by the bag pointer with its low bit set, so a bag
+// that is sometimes wholly inside and sometimes crossing keeps both stamps.
+namespace {
+inline const StaPipBag* headKey(const StaPipBag* bag) {
+  return reinterpret_cast<const StaPipBag*>(reinterpret_cast<u32>(bag) | 1u);
+}
+}  // namespace
+
+void StaPipQBufferRenderer::captureHeadStamp() {
+  if (!stampPartial) return;  // a whole-bag arm captures at its replay
+  const bool armed = stampArmed && stampOk;
+  stampArmed = false;
+  stampPartial = false;
+  StaPipBag* bag = stampBag;
+  if (!armed || bag == nullptr || stampHead == nullptr || stampClipQw == 0)
+    return;
+  const u32 qw = static_cast<u32>(packets[context]->next - stampHead);
+  if (qw == 0 || qw > kStampMaxQw || stampMvpAt == 0 || stampOptAt == 0 ||
+      (stampSpotActive && stampSpotAt == 0))
+    return;
+  StampEntry* s = findStamp(headKey(bag), true);
+  if (s == nullptr) return;
+  s->bag = headKey(bag);
+  stampKeys[s - stamps] = headKey(bag);
+  stampBakedOf[s - stamps] = nullptr;
+  s->lo = stampLo;
+  s->hi = stampHi;
+  s->model = *bag->info->model;
+  s->modelPtr = bag->info->model;
+  stampWorldBox(*s);
+  s->vertices = bag->vertices;
+  s->texture = bag->texture != nullptr ? bag->texture->texture : nullptr;
+  s->info = bag->info;
+  memcpy(s->infoBytes, bag->info, sizeof(StaPipInfoBag));
+  s->colorSingle = bag->color->single;
+  s->sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
+  s->colors = bag->color->many;
+  s->stripped = bag->stripped ? 1 : 0;
+  s->entry = nullptr;
+  s->arena = nullptr;
+  s->count = static_cast<u32>(bag->count);
+  s->bboxVersion = bag->bboxVersion;
+  s->contentStamp = stampContent(bag);
+  s->eraseGen = baked.eraseGeneration();
+  s->serial = 0;
+  const float depthScale = RendererCoreDepth::scale;
+  memcpy(&s->depthScaleBits, &depthScale, sizeof(u32));
+  s->residentClasses = residentClasses;
+  s->primKey = stampPrimKey(bag);
+  s->qw = static_cast<u16>(qw);
+  s->mvpAt = stampMvpAt;
+  s->optAt = stampOptAt;
+  s->tex0At = stampTex0At;
+  s->hasTex0 = stampHasTex0;
+  s->fogEligible = stampFogEligible;
+  s->spotActive = stampSpotActive;
+  s->fogOff = stampFogOff;
+  s->wrapBlock = stampWrapBlock;
+  s->wrap = stampWrap;
+  s->singleAt = stampSingleAt;
+  s->batchSized = 0;
+  s->spotAt = stampSpotAt;
+  s->program = StaPipUndefinedProgram;
+  s->partial = 1;
+  s->clipQw = stampClipQw;
+  for (u32 i = 0; i < qw; ++i) s->bytes[i] = stampHead[i];
+  s->frame = stampHits + stampCaptures;
+  ++stampCaptures;
+}
+
+bool StaPipQBufferRenderer::tryHeadStamp(StaPipBag* bag, const M4x4& viewProj,
+                                         bool dynamicLightReceive,
+                                         const RendererCoreSpotLight* noSpot,
+                                         bool batchOk) {
+  if (!stampEnabled || !headStampEnabled || stamps == nullptr) return false;
+  sweepStamps();
+  StampEntry* s = findStamp(headKey(bag), false);
+  if (s == nullptr || !s->partial) return false;
+  // Producer facts, exactly as tryStamp.
+  if (s->vertices != bag->vertices || s->count != static_cast<u32>(bag->count) ||
+      s->bboxVersion != bag->bboxVersion || s->info != bag->info ||
+      s->modelPtr != bag->info->model || bag->billboard != nullptr ||
+      bag->lighting != nullptr ||
+      (bag->color->single != nullptr) != (s->singleAt != 0) ||
+      s->texture != (bag->texture != nullptr ? bag->texture->texture : nullptr) ||
+      s->contentStamp != stampContent(bag) ||
+      s->sts != (bag->texture != nullptr ? bag->texture->coordinates : nullptr) ||
+      s->colors != bag->color->many || s->stripped != (bag->stripped ? 1 : 0) ||
+      memcmp(s->infoBytes, bag->info, sizeof(StaPipInfoBag)) != 0)
+    return false;
+  if (memcmp(&s->model, bag->info->model, sizeof(M4x4)) != 0) {
+    s->model = *bag->info->model;
+    stampWorldBox(*s);
+  }
+  // Renderer facts. No baked entry: the head REFs nothing but the shared
+  // clip-constant copy, whose length must still be the captured one.
+  float depthScale = RendererCoreDepth::scale;
+  u32 depthBits;
+  memcpy(&depthBits, &depthScale, sizeof(u32));
+  if (depthBits != s->depthScaleBits || residentClasses != s->residentClasses ||
+      repository.hasAnyOverride() || vuCustomEnabled || !vu1Clipping ||
+      clipBlockVifQw == 0 || clipBlockVifQw != s->clipQw)
+    return false;
+  prim->fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                      ? DRAW_ENABLE
+                      : DRAW_DISABLE;
+  if ((prim->fogging != DRAW_ENABLE ? 1 : 0) != s->fogOff) return false;
+  setInfo(bag->info);
+  if (stampPrimKey(bag) != s->primKey) return false;
+  // Visibility is the caller's: it classified the bag as crossing.
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  if (tex != nullptr && !rendererCore->texture.isResident(tex)) return false;
+  const texwrap_t& wanted =
+      (tex != nullptr && tex->getWrapSettings()->horizontal != WRAP_REPEAT)
+          ? *tex->getWrapSettings()
+          : RendererCoreGS::repeatWrap();
+  if (s->wrapBlock ? !RendererCoreGS::wrapEquals(wanted, s->wrap)
+                   : !RendererCoreGS::wrapEquals(wanted,
+                                                 RendererCoreGS::repeatWrap()))
+    return false;
+  const RendererCoreSpotLight* light = nullptr;
+  if (dynamicLightReceive && bag->info->dynLightPick) {
+    const M4x4& m = s->model;
+    const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
+                   0.5F * (s->lo.z + s->hi.z), 1.0F);
+    const Vec4 worldCenter = m * mid;
+    const float scale = Math::sqrtNonNegative(
+        m.data[0] * m.data[0] + m.data[1] * m.data[1] + m.data[2] * m.data[2]);
+    const float ex = s->hi.x - s->lo.x, ey = s->hi.y - s->lo.y,
+                ez = s->hi.z - s->lo.z;
+    light = rendererCore->pickDynLight(
+        worldCenter,
+        0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
+        bag->info->dynLightSkipSlot);
+  }
+  if (!dynamicLightReceive || !bag->info->spotLit) light = noSpot;
+  auto meshSpot =
+      buildSpotForBag(light ? *light : rendererCore->spot, bag->info->model);
+  if (meshSpot.enabled && stapipSpotHasNoInfluence(meshSpot, s->lo, s->hi))
+    meshSpot.enabled = false;
+  if ((meshSpot.enabled ? 1 : 0) != s->spotActive) return false;
+  {
+    const bool repeatNow =
+        tex == nullptr ||
+        (tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+         tex->getWrapSettings()->vertical == WRAP_REPEAT);
+    setSubmissionBatchCandidate(batchOk && repeatNow, tex != nullptr);
+  }
+  {
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(RendererCoreGS::repeatWrap(), inForce))
+      return false;
+  }
+
+  // ---- committed: the head is this bag's uniforms; packages follow ----
+  clipper.setSpot(meshSpot);
+  ensureProgramSet(false);
+  texbuffer_t* tb = nullptr;
+  if (tex != nullptr) {
+    auto temp = rendererCore->texture.useTexture(tex);
+    rendererCore->texture.updateClutBuffer(temp.clut);
+    temp.core->info.function = bag->texture->textureFunction;
+    tb = temp.core;
+  }
+  auto* packet = packets[context];
+  if (!objectDataPending) {
+    packet2_reset(packet, false);
+    packetWrapSet = false;
+  }
+  qword_t* dst = packet->next;
+  for (u32 i = 0; i < s->qw; ++i) dst[i] = s->bytes[i];
+  const M4x4 mvp = viewProj * s->model;
+  memcpy(&dst[s->mvpAt + 1], mvp.data, sizeof(mvp.data));
+  {
+    qword_t& q = dst[s->optAt + 1];
+    float fogScale = rendererCore->fog.scale;
+    float fogOffset = rendererCore->fog.offset;
+    bool fogConstant = s->fogOff != 0;
+    if (!fogConstant && s->fogEligible && fogScale < 0.0F) {
+      const Vec4& lo = s->lo;
+      const Vec4& hi = s->hi;
+      const float* m = mvp.data;
+      const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
+      const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
+      const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
+      const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
+                         fabsf(m[3]) * hx + fabsf(m[7]) * hy +
+                         fabsf(m[11]) * hz;
+      fogConstant = maxW * fogScale + fogOffset >= 255.0F;
+    }
+    if (fogConstant) {
+      fogScale = 0.0F;
+      fogOffset = 255.0F;
+    } else {
+      u32 bits;
+      memcpy(&bits, &fogScale, 4);
+      if ((bits & 0xFFFFU) == 0U && bits != 0U) {
+        bits |= 1U;
+        memcpy(&fogScale, &bits, 4);
+      }
+    }
+    memcpy(&q.sw[2], &fogScale, 4);
+    memcpy(&q.sw[3], &fogOffset, 4);
+  }
+  if (s->hasTex0 && tb != nullptr) {
+    const clutbuffer_t* cl = &rendererCore->texture.clut;
+    dst[s->tex0At].dw[0] = GS_SET_TEX0(
+        tb->address >> 6, tb->width >> 6, tb->psm, tb->info.width,
+        tb->info.height, tb->info.components, tb->info.function,
+        cl->address >> 6, cl->psm, cl->storage_mode, cl->start,
+        cl->load_method);
+  }
+  if (s->spotActive) {
+    alignas(16) const float sp[12] = {
+        meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+        meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+        meshSpot.direction.z, meshSpot.cosCut2,     meshSpot.color[0],
+        meshSpot.color[1],    meshSpot.color[2],    meshSpot.invSoft};
+    memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
+  }
+  if (s->singleAt != 0)
+    memcpy(&dst[s->singleAt + 1], bag->color->single->rgba, 16);
+  packet->next = dst + s->qw;
+  if (s->wrapBlock) {
+    packetWrap = wanted;
+    packetWrapSet = true;
+  }
+  s->frame = stampHits + stampCaptures;
+  // Nothing was kicked: the first package must name its program and state.
+  clearLastProgramName();
+  objectDataPending = true;
+  ++stampHits;
+  return true;
+}
 
 u32 StaPipQBufferRenderer::takeBakedHits() { return baked.takeHits(); }
 u32 StaPipQBufferRenderer::takeBakedBuilds() { return baked.takeBuilds(); }

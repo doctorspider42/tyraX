@@ -121,15 +121,18 @@ per-object runtime path. Each material part joins the batch for its actual
 loaded texture and coarse world cell; atlas-backed materials therefore merge
 even when their source material names differ. Singleton groups are discarded,
 and a model whose horizontal footprint exceeds half a cell stays solo. A
-multi-material model joins the batched path only when **every** one of its
-parts has a surviving group; if even one material part would be a singleton,
-the complete model stays on the solo path. This all-or-nothing rule matters
-because the normal render loop skips batched objects as a whole: accepting a
-roof batch while rejecting the wall batch would otherwise leave a visibly
-hollow building. The pruning runs to a fixed point, since falling one model
-back to solo can turn another model's group into a singleton. Runtime mutation
-demotes every part of that object from its batches before drawing it through
-the normal path.
+multi-material model whose parts did not ALL find a group is **partly
+batched** (1.175.0): the parts with a partner draw from their batches, the
+object itself stays on the solo path for every pass (its solo geometry is
+built on first use), and the main view's object loop skips exactly the parts a
+batch already drew (`objectPartBatched`, one bit per part). Until 1.174 such a
+model fell back to solo whole, because the loop skipped a batched object as
+one - accepting a roof batch while rejecting the wall batch left a visibly
+hollow building. A model with more than 32 parts keeps that all-or-nothing
+rule, pruned to a fixed point as before. Runtime mutation demotes every part
+of the object from its batches before drawing it through the normal path; for
+a partly batched object `rebuildObjectGeometry` raises `partialDemote`, so the
+demotion happens whichever pass rebuilds it first.
 
 An object that requests the matrix fast path is never admitted to a static
 batch, even if stale authored data still marks it `batchStatic`. Vehicles,

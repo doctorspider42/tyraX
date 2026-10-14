@@ -860,6 +860,29 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   }
   TYRA_ATTRIB_ADD(prepPackagerTicks, attribPackagerStart);
 
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: the crossing bag's HEAD from a stamp (docs/stapip-
+  // stamps.md, "Crossing bags"): texture, light, batch decision and the whole
+  // uniform block are what the previous frame produced, re-validated and
+  // patched like a whole-bag stamp. The packages below are still routed per
+  // frame. Everything up to sendObjectData is skipped when it replays.
+  bool headStamped = false;
+  if (frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
+      bag->info->fullClipChecks && wholeClip() &&
+      qbufferRenderer.isStampEnabled() && qbufferRenderer.isHeadStampEnabled() &&
+      bag->info->transformationType == TyraMVP && !telemetryEnabled &&
+      !rendererCore->blss.wantsProxies() && bag->billboard == nullptr &&
+      bag->lighting == nullptr && !qbufferRenderer.hasProgramOverrides()) {
+    const bool batchOk =
+        qbufferRenderer.isSubmissionBatchOpen() && partialBatch;
+    headStamped = qbufferRenderer.tryHeadStamp(
+        bag, currentViewProj,
+        bag->info->dynamicLightReceive &&
+            reception != StaPipLightReception::Suppress,
+        &kNoSpotLight, batchOk);
+  }
+  if (!headStamped) {
+#endif
   TYRA_ATTRIB_MARK(attribTextureStart);
   const bool directBag =
       (frustumCull && frustumCheck == IN_FRUSTUM) ||
@@ -1179,11 +1202,25 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
                                     (*bbox->getMainBBox())[7],
                                     bag->count <= maxVertCount * 15 && repeat);
+  } else if (qbufferRenderer.isStampEnabled() && frustumCull &&
+             frustumCheck == PARTIALLY_IN_FRUSTUM &&
+             bag->info->fullClipChecks && wholeClip() && bbox != nullptr &&
+             !blssOn && !telemetryEnabled && bag->billboard == nullptr &&
+             bag->lighting == nullptr &&
+             bag->info->transformationType == TyraMVP &&
+             !qbufferRenderer.hasProgramOverrides()) {
+    // Modified by TyraX: a crossing bag's head (captureHeadStamp below).
+    qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
+                                    (*bbox->getMainBBox())[7], false, true);
   } else {
     qbufferRenderer.disarmStampCapture();
   }
 #endif
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
+#if TYRA_STAPIP_STAMP
+  qbufferRenderer.captureHeadStamp();
+  }  // !headStamped
+#endif
 
   qbufferRenderer.setClipperMVP(&mvp);
 

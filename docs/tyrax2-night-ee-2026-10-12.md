@@ -449,3 +449,20 @@ The largest remaining item is the stamp count itself: 107 stamps x ~28 us =
 in its group", 46 "a part is alone" (a multi-part model batches all or
 nothing), 37 reflected windows, 29 too big for their cell, 16 physics bodies.
 Fewer, bigger draws - per-part batching first - is the PS2 way to cut it.
+
+Later that night (1.175.0, verified in PCSX2, PS2 timing owed - the console
+wedged on deploy):
+
+- **Partly batched models.** A multi-part model now batches the parts that have
+  partners instead of none. At the heavy spot that is only 136 -> 134 bags
+  parked (stamps 118.7 -> 114.7, two more strip bags): few such models are in
+  that view. Frame grab equal within noise.
+- **Head stamps for crossing bags** ([stapip-stamps.md](stapip-stamps.md),
+  "Crossing bags"). Expected ~0.3-0.4 ms; unmeasured.
+- **Not built:** the sky card (the dome is ~0.2 ms after streamed clipping and a
+  card would rebuild colours and STs on the EE every frame, so about the same);
+  packets in the frame arena (at most ~0.2 ms, and a DMA mistake there wedges a
+  console nobody can power-cycle overnight).
+
+The rig arm for the owed measurement is `--partheadab` on base `C:\tx\vpnB1`
+(arm 1 = partial batching off, arm 2 = head stamps off).

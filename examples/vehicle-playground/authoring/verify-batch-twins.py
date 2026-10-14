@@ -34,7 +34,10 @@ import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[3]
-templates = (root / 'src/templates.cpp').read_text(encoding='utf-8', errors='replace')
+# The generated game's code moved from templates.cpp into game_templates.inc
+# (which templates.cpp embeds); search both.
+templates = ((root / 'src/templates.cpp').read_text(encoding='utf-8', errors='replace') +
+             '\n' + (root / 'src/game_templates.inc').read_text(encoding='utf-8', errors='replace'))
 
 # --- lift the runtime half, verbatim ---------------------------------------
 START = 'void TerrainGame::buildStaticBatchList() {'
@@ -135,6 +138,8 @@ static std::vector<DynLightRt> g_dynLights;
 struct TerrainGame {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;
+  std::vector<unsigned int> objectPartBatched;
+  std::vector<unsigned char> partialDemote;
   std::vector<RuntimeObjectStub> runtimeObjects;
   std::vector<GameModel> gameModels;
   std::vector<GameMaterial> gameMaterials;

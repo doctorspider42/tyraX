@@ -19023,6 +19023,13 @@ u32 TerrainGame::minPackageSize() {
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
+  // Modified by TyraX: a MUTATED partly batched object leaves its batches
+  // whole (renderStaticBatches drops the members); a first-use bake does not.
+  if (o.dirty && index < (int)objectPartBatched.size() &&
+      objectPartBatched[index] != 0) {
+    objectPartBatched[index] = 0;
+    partialDemote[index] = 1;
+  }
   o.dirty = false;
   g.coarseBoxValid = false;
   g.reflectionProxy.reset();
@@ -20127,14 +20134,22 @@ void TerrainGame::buildStaticBatchList() {
       addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
     }
   }
-  // A model is skipped by the solo path as ONE object, so batching it is also
-  // all-or-nothing. Material parts group independently and some of their groups
-  // can be singletons; keeping only the groups that survived would draw a roof
-  // or windows from a batch, skip the whole solo model, and leave its walls
-  // missing. Prune incomplete objects, then repeat because that removal can
-  // turn another object's group into a singleton. The fixed point contains
-  // only objects whose every part has exactly one surviving batch member.
+  // Modified by TyraX (1.175.0): a model may be PARTLY batched. Its parts
+  // group independently by material, and some of those groups are singletons
+  // (a trunk that shares its bark with no neighbour, under leaves that do).
+  // Until 1.174 the whole model then drew solo, because the solo path skipped
+  // a model as one object and a batched roof over a solo-skipped model lost
+  // its walls. Now the object stays SOLO for every pass (objectBatchOf -1, its
+  // own geometry built on first use) and objectPartBatched says which parts the
+  // batches already draw - the main view skips exactly those. A model with
+  // more parts than the mask holds keeps the old all-or-nothing rule.
   int partialFallback = 0;
+  auto expectedParts = [&](int i) -> unsigned int {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (d.type != 5) return 1u;
+    if (d.model < 0 || d.model >= (int)gameModels.size()) return 0u;
+    return (unsigned int)gameModels[d.model].parts.size();
+  };
   for (;;) {
     for (size_t b = 0; b < staticBatches.size();) {
       if (staticBatches[b].members.size() < 2)
@@ -20151,13 +20166,9 @@ void TerrainGame::buildStaticBatchList() {
     bool anyIncomplete = false;
     for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
       if (memberCount[i] == 0) continue;
-      const SceneObjectData& d = SCENE_OBJECTS[i];
-      unsigned int expected = 1;
-      if (d.type == 5) {
-        if (d.model < 0 || d.model >= (int)gameModels.size()) expected = 0;
-        else expected = (unsigned int)gameModels[d.model].parts.size();
-      }
+      const unsigned int expected = expectedParts(i);
       if (memberCount[i] == expected) continue;
+      if (SCENE_OBJECTS[i].type == 5 && expected <= 32u) continue;  // partly
       incomplete[i] = 1;
       anyIncomplete = true;
       ++partialFallback;
@@ -20172,9 +20183,24 @@ void TerrainGame::buildStaticBatchList() {
           ++k;
       }
   }
+  objectPartBatched.assign(SCENE_OBJECT_COUNT, 0u);
+  partialDemote.assign(SCENE_OBJECT_COUNT, 0);
+  {
+    std::vector<unsigned short> memberCount(SCENE_OBJECT_COUNT, 0);
+    for (const StaticBatch& b : staticBatches)
+      for (const StaticBatchMember& m : b.members)
+        if (m.object >= 0 && m.object < SCENE_OBJECT_COUNT)
+          ++memberCount[m.object];
+    for (const StaticBatch& b : staticBatches)
+      for (const StaticBatchMember& m : b.members)
+        if (m.object >= 0 && m.object < SCENE_OBJECT_COUNT && m.part >= 0 &&
+            m.part < 32 && memberCount[m.object] != expectedParts(m.object))
+          objectPartBatched[m.object] |= 1u << m.part;
+  }
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
   for (int bi = 0; bi < (int)staticBatches.size(); ++bi)
     for (const StaticBatchMember& m : staticBatches[bi].members) {
+      if (objectPartBatched[m.object] != 0) continue;  // partly: stays solo
       // -2 means that a multi-part model belongs to more than one batch.
       // Yes/no callers test != -1; a helper that needs one concrete batch
       // deliberately accepts only a non-negative index.
@@ -20182,6 +20208,14 @@ void TerrainGame::buildStaticBatchList() {
         objectBatchOf[m.object] = (short)bi;
       else if (objectBatchOf[m.object] != bi)
         objectBatchOf[m.object] = -2;
+    }
+  int partlyBatched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (objectPartBatched[i] != 0) {
+      ++partlyBatched;
+      // Like a batched member: the scene-load flag is not a mutation. Its
+      // solo parts are baked on first use by the object pass.
+      runtimeObjects[i].dirty = false;
     }
   int batched = 0;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
@@ -20212,7 +20246,8 @@ void TerrainGame::buildStaticBatchList() {
   TYRA_LOG("Static batching: eligible ", eligible, ", solo ",
            eligible - batched, ", base cell ", (int)baseCellW, ", widest cell ",
            (int)widestCell);
-  TYRA_LOG("Static batching: partial models kept solo ", partialFallback);
+  TYRA_LOG("Static batching: partial models kept solo ", partialFallback,
+           ", partly batched ", partlyBatched);
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
@@ -20624,8 +20659,12 @@ void TerrainGame::renderStaticBatches() {
     for (size_t k = 0; k < b.members.size(); ++k) {
       const int object = b.members[k].object;
       const RuntimeObject& o = runtimeObjects[object];
-      if (o.dirty) {
+      const bool partlyDemoted =
+          object < (int)partialDemote.size() && partialDemote[object];
+      if (o.dirty || partlyDemoted) {
         objectBatchOf[object] = -1;  // demote: solo from now on
+        if (object < (int)objectPartBatched.size())
+          objectPartBatched[object] = 0;
         b.members.erase(b.members.begin() + (long)k);
         b.shown.erase(b.shown.begin() + (long)k);
         --k;
@@ -20680,6 +20719,8 @@ void TerrainGame::renderStaticBatches() {
     if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
     submitHeavy(b.bag.get());
   }
+  // Every batch has dropped its demoted members by now.
+  for (unsigned char& f : partialDemote) f = 0;
 }
 
 
@@ -23971,6 +24012,10 @@ void TerrainGame::renderScene() {
     } else if (runtimeObjects[i].dirty) {
       rebuildObjectGeometry(i);
       if (lp) ++lpNRebuild;
+    } else if (i < (int)objectPartBatched.size() && objectPartBatched[i] != 0 &&
+               objectGeometry[i].parts.empty()) {
+      rebuildObjectGeometry(i);  // a partly batched model's solo parts
+      if (lp) ++lpNRebuild;
     }
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
@@ -24109,8 +24154,14 @@ void TerrainGame::renderScene() {
     if (lp) ++lpNDrawn;
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
+    // Modified by TyraX: parts a batch already draws (partly batched model).
+    const unsigned int batchedParts =
+        i < (int)objectPartBatched.size() ? objectPartBatched[i] : 0u;
+    int partIndex = -1;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag && !part.translucent && !part.lodHidden) {
+      if (++partIndex, partIndex < 32 && ((batchedParts >> partIndex) & 1u)) {
+        continue;
+      } else if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
         renderObjectBag(i, part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;

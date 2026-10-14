@@ -2016,6 +2016,10 @@ void TerrainGame::renderScene() {
     } else if (runtimeObjects[i].dirty) {
       rebuildObjectGeometry(i);
       if (lp) ++lpNRebuild;
+    } else if (i < (int)objectPartBatched.size() && objectPartBatched[i] != 0 &&
+               objectGeometry[i].parts.empty()) {
+      rebuildObjectGeometry(i);  // a partly batched model's solo parts
+      if (lp) ++lpNRebuild;
     }
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
@@ -2154,8 +2158,14 @@ void TerrainGame::renderScene() {
     if (lp) ++lpNDrawn;
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
+    // Modified by TyraX: parts a batch already draws (partly batched model).
+    const unsigned int batchedParts =
+        i < (int)objectPartBatched.size() ? objectPartBatched[i] : 0u;
+    int partIndex = -1;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag && !part.translucent && !part.lodHidden) {
+      if (++partIndex, partIndex < 32 && ((batchedParts >> partIndex) & 1u)) {
+        continue;
+      } else if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
         renderObjectBag(i, part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;

@@ -85,8 +85,8 @@ enum class Reason {
                              // whole-bag frustum cut
     SingletonGroup,       // the only member of its key - a batch of one saves
                           // no submit and only duplicates geometry
-    PartialModel,         // a multi-part model with a part left alone: batching
-                          // a model is all-or-nothing, so it all draws solo
+    PartialModel,         // a multi-part model with only some parts batched:
+                          // those draw from batches, the rest solo (1.175.0)
 };
 
 // A short label for a panel cell, and the one-line reason behind it. Two

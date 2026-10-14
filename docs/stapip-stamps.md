@@ -289,6 +289,26 @@ Less than the miss counts promised: the runs are short, because ordinary bags
 and other passes interleave with the stamps. The VRAM grab is the same within
 the noise between two cycles of one arm.
 
+## Crossing bags (2026-10-15, 1.175.0)
+
+A bag that crosses the frustum still routes its packages every frame (some
+inside, some clipped, some dropped), but its HEAD - texture binding, light
+pick, batch decision and the whole uniform block - is what the previous frame
+produced. `tryHeadStamp` replays it: the same producer, renderer, prim,
+texture, wrap and light checks as a whole-bag stamp, the same MVP / fog / spot
+/ TEX0 / colour patches, and the clip block kept in its one-REF form (the
+shared VIF copy of the clip constants, whose length must match the capture).
+It returns with the packages still to route; nothing was kicked, so the first
+package names its program and GS state. The entry is keyed by the bag pointer
+with its low bit set, so a bag keeps both its whole stamp and its head stamp.
+`StaPipCore::setHeadStampEnabled` (default on) is the A/B switch.
+
+Priced before it was built: the head is ~1.1 ms a frame for ~13 crossing bags
+at the heavy night spot, of which texture/light preparation (0.33 ms) and the
+uniform block (0.21 ms) are what a replay removes. Verified in PCSX2 (frame
+grab equal to the switch off, 60 px of 200 704); **the PS2 timing is owed** -
+the console was wedged when it was built.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.

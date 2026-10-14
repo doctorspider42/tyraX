@@ -813,12 +813,26 @@ class StaPipQBufferRenderer {
   /** Arm a capture for the bag about to go through sendObjectData + whole
    * baked replay. `lo`/`hi` are its world-space box (identity model). */
   void armStampCapture(StaPipBag* bag, const Vec4& lo, const Vec4& hi,
-                       bool batchSized);
+                       bool batchSized, bool partial = false);
   void disarmStampCapture() { stampArmed = false; }
   /** Re-emit a valid stamp for `bag`; false = take the ordinary path. */
   bool tryStamp(StaPipBag* bag, const M4x4& viewProj, const Plane* planes,
                 const Plane* guardBandPlanes, bool dynamicLightReceive,
                 const RendererCoreSpotLight* noSpot);
+  /** Modified by TyraX: the HEAD stamp of a frustum-crossing bag
+   * (docs/stapip-stamps.md, "Crossing bags"). Re-emits the uniform head its
+   * last ordinary crossing draw produced - the same validity checks and
+   * patches as tryStamp, plus the shared clip-constant REF - and returns true
+   * with the bag's packages still to be routed by the caller. The caller has
+   * already classified the bag as crossing; `batchOk` is its batch verdict. */
+  bool tryHeadStamp(StaPipBag* bag, const M4x4& viewProj,
+                    bool dynamicLightReceive,
+                    const RendererCoreSpotLight* noSpot, bool batchOk);
+  /** Capture the head just written by sendObjectData for a crossing bag armed
+   * with armStampCapture(..., partial = true). */
+  void captureHeadStamp();
+  void setHeadStampEnabled(bool on) { headStampEnabled = on; }
+  bool isHeadStampEnabled() const { return headStampEnabled; }
   u32 takeStampHits() { const u32 v = stampHits; stampHits = 0; return v; }
   u32 takeStampCaptures() { const u32 v = stampCaptures; stampCaptures = 0; return v; }
 #endif
@@ -1139,6 +1153,8 @@ class StaPipQBufferRenderer {
     u16 singleAt = 0;
     texwrap_t wrap = {};
     StaPipProgramName program = StaPipUndefinedProgram;
+    u8 partial = 0;    // Modified by TyraX: a crossing bag's head only
+    u16 clipQw = 0;    // the clip-constant REF's length when captured
     alignas(16) Vec4 lo, hi;     // object-space main box
     alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
     alignas(16) M4x4 model;
@@ -1156,6 +1172,9 @@ class StaPipQBufferRenderer {
   bool stampEnabled = false;
   bool stampBatchAnySize = true;
   bool stampArmed = false;   // a capture is wanted for the current bag
+  bool stampPartial = false;  // ...and it is a crossing bag's head
+  bool headStampEnabled = true;
+  u16 stampClipQw = 0;
   bool stampOk = false;      // sendObjectData emitted only stampable blocks
   StaPipBag* stampBag = nullptr;
   bool stampBatchSized = false;
