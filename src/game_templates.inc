@@ -23377,9 +23377,14 @@ void TerrainGame::renderScene() {
   if (!splitSecondPass) {
     terrainBuiltThisFrame = 0;
     const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    // A streamed map builds up to two missing chunks a frame. A resident one
+    // only ever rebuilds for a LOD band change, and two of those in one frame
+    // were the heaviest frames of the Motor District drive: one a frame
+    // halved its late frames on a PS2 (docs/terrain.md).
     updateTerrainChunks(terrainFocusX, terrainFocusZ,
                         p2Focus ? players[1].x : 0.0F,
-                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
+                        p2Focus ? players[1].z : 0.0F, p2Focus,
+                        terrainWholeMapResident() ? 1 : 2);
   }
   // Amortised capture (docs/reflective-materials.md): with a second env
   // target the capture is split over THREE frames into the BACK target - the
@@ -27223,6 +27228,29 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.colors.reserve(reserveN);
     lp.sts.reserve(reserveN);
   }
+  // Per-layer constants, hoisted out of the vertex loops: the tint scaled for
+  // modulate, the tiling and the whole-repeat UV rebase are properties of the
+  // LAYER and the CHUNK, not of a vertex. They used to be re-derived per
+  // vertex - two software floorf calls and a three-level table walk per
+  // vertex per layer - which made vertex emission ~1.6 ms of a 2.4 ms chunk
+  // rebuild on a physical PS2 (docs/terrain.md, "A map that fits").
+  struct LayerConst {
+    float tint[3], tu, tv, offU, offV;
+  };
+  LayerConst layerConst[TERRAIN_MAX_LAYERS > 0 ? TERRAIN_MAX_LAYERS : 1];
+  for (int a = 0; a < activeN; ++a) {
+    const int l = activeLayers[a];
+    const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+    const float lk = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0 ? 128.0F : 255.0F;
+    LayerConst& c = layerConst[a];
+    c.tint[0] = tint[0] * lk;
+    c.tint[1] = tint[1] * lk;
+    c.tint[2] = tint[2] * lk;
+    c.tu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+    c.tv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+    c.offU = floorf(chunkMidX * c.tu + 0.5F);
+    c.offV = floorf(chunkMidZ * c.tv + 0.5F);
+  }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
     if (iz < 0) iz = 0;
@@ -27290,19 +27318,12 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       if (terrainMapLit) ch.emisCols.push_back(ec);
       for (int a = 0; a < activeN; ++a) {
         TerrainChunk::LayerPass& lp = ch.layerPasses[a];
-        const int l = lp.layer;
-        const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
-        const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
-        const float lk = ltex ? 128.0F : 255.0F;
-        const float w = splatAt(ix, iz, l);
-        lp.colors.push_back(Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                                  tint[2] * lk * s.z, w * 128.0F));
+        const LayerConst& c = layerConst[a];
+        const float w = splatAt(ix, iz, lp.layer);
+        lp.colors.push_back(Color(c.tint[0] * s.x, c.tint[1] * s.y,
+                                  c.tint[2] * s.z, w * 128.0F));
         // The same whole-repeat rebase, at this layer's own tiling.
-        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
-        lp.sts.push_back(Vec4(wx * ltu - floorf(chunkMidX * ltu + 0.5F),
-                              wz * ltv - floorf(chunkMidZ * ltv + 0.5F),
-                              1.0F, 0.0F));
+        lp.sts.push_back(Vec4(wx * c.tu - c.offU, wz * c.tv - c.offV, 1.0F, 0.0F));
       }
     };
     // A run that fills MID-STRIP carries the two-vertex overlap into the next
@@ -27410,14 +27431,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         for (int a = 0; a < activeN; ++a) {
           TerrainChunk::LayerPass& lp = ch.layerPasses[a];
           const int l = lp.layer;
-          const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
-          const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
-          const float lk = ltex ? 128.0F : 255.0F;
-          const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-          const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+          const LayerConst& c = layerConst[a];
+          const float ltu = c.tu, ltv = c.tv;
           auto lcol = [&](const V3& s, float w) {
-            return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                         tint[2] * lk * s.z, w * 128.0F);
+            return Color(c.tint[0] * s.x, c.tint[1] * s.y, c.tint[2] * s.z,
+                         w * 128.0F);
           };
           // Sampled at the quad's own corners: a painted layer's weight is a
           // blend factor, so a coarse chunk reading coarse weights loses detail
@@ -27432,8 +27450,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           lp.colors.push_back(lcol(s10, w10));
           lp.colors.push_back(lcol(s11, w11));
           lp.colors.push_back(lcol(s01, w01));
-          const float lOffU = floorf(chunkMidX * ltu + 0.5F);
-          const float lOffV = floorf(chunkMidZ * ltv + 0.5F);
+          const float lOffU = c.offU, lOffV = c.offV;
           auto lst = [&](float wx, float wz) {
             lp.sts.push_back(Vec4(wx * ltu - lOffU, wz * ltv - lOffV, 1.0F, 0.0F));
           };
@@ -27672,8 +27689,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // rasterises - degenerate joins and padding included - so it is not
   // comparable with a list build's size / 3 (docs/model-pipeline.md, "What
   // the triangle counters count"). This number must be identical in both arms
-  // of an A/B or the arms are not drawing the same ground.
-  {
+  // of an A/B or the arms are not drawing the same ground. Once per slot: a
+  // LOD rebuild while driving would pay a walk over every vertex for a log
+  // line nobody reads at that point.
+  if (!ch.stripLogged) {
+    ch.stripLogged = true;
     int tris = 0;
     if (!strips) {
       tris = (int)(ch.vertices.size() / 3);

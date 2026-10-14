@@ -356,6 +356,41 @@ Found and fixed or measured that day:
    Writing packets straight into the frame arena needs a second arena, because
    a packet is reserved for its worst case.
 
+### Later on 2026-10-14: what the late frames are
+
+Lean, production build, two drive cycles. The late frames repeat at the same
+frames of the same road stretch in both cycles, so they are geometry, not
+noise. Each one is an Objects baseline of 7.2-7.7 ms plus one of these:
+
+- **a terrain LOD rebuild:** `T.build` up to 2.4 ms, plus ~1.2 ms of first
+  draw in `Terrain`;
+- **a frame where the interleave autotuner draws the roads outside the object
+  loop:** `Roads` 3.1-3.8 ms, `Objects` 2.8 ms.
+
+Two terrain changes from this, both in [terrain.md](terrain.md) ("What a LOD
+rebuild still costs"):
+
+- **A cheaper chunk build:** 1 055 -> 879 us average in the slow frames.
+- **At most one LOD rebuild a frame on a resident map:** late frames in the
+  heaviest window went 9/7 -> 4/5, and p95 16.9/16.1 -> 16.3/15.9 ms.
+
+What is left at the end of the day is ~4-5 late frames of 150 in the
+heaviest window, each an Objects-heavy stretch plus one rebuild or an
+interleave switch.
+
+Measured and set aside:
+
+- **The light pick.** In the stamps it costs 0.33-0.36 ms, plus 0.19-0.24 ms
+  of spot build. That is at most nine candidates (eight lights and the
+  torch), and the car's own lights change every frame while driving, so a
+  cache would save ~0.15 ms.
+- **`submit` internals.** The snapshot (chain copy and two tag walks) costs
+  1.6-1.7 ms for ~39 packets and ~85 KB a frame, about 5.7 cycles a byte.
+  Native recording costs 0.42-0.44 ms. The StaPip packets are already in
+  cached memory, so the remaining suspect is the arena writes thrashing the
+  8 KB D-cache. Writing the arena through the uncached-accelerated segment
+  is the experiment, but it reaches into the recorder's address handling.
+
 Not the lever (measured):
 
 - terrain LOD off: +0.4 ms parked;

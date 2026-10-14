@@ -1196,6 +1196,9 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // The TERRAINSTRIP diagnostic ran for this slot's first build (the scene
+    // load); LOD rebuilds while driving skip its per-vertex walk.
+    bool stripLogged = false;
     // The terrain lightmap passes, both blended over the base (and the
     // layers) and both sampling ONE map with the chunk's extent-normalized
     // STs - texturing is MODULATE, so the vertex color of each pass picks
@@ -3096,6 +3099,9 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // The TERRAINSTRIP diagnostic ran for this slot's first build (the scene
+    // load); LOD rebuilds while driving skip its per-vertex walk.
+    bool stripLogged = false;
     // The terrain lightmap passes, both blended over the base (and the
     // layers) and both sampling ONE map with the chunk's extent-normalized
     // STs - texturing is MODULATE, so the vertex color of each pass picks

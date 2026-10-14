@@ -179,8 +179,54 @@ Physical PS2, heavy-spot drive, lean build:
 | Resident, LOD off | no builds | 4 |
 
 LOD off still costs +0.4 ms parked (more vertices through StaPip), so LOD 70
-stays. The late frames left in that window come from object submission, not
-from the terrain ([the night EE investigation](tyrax2-night-ee-2026-10-12.md)).
+stays.
+
+### What a LOD rebuild still costs (2026-10-14, later)
+
+The heavy-spot trace repeats in both drive cycles. The worst frames
+(16.5-20 ms) are the same few frames of one road stretch, where LOD rebuilds
+land on top of an Objects baseline of 7.2-7.7 ms:
+
+- `T.build` takes up to 2.4-2.8 ms in a frame;
+- the first draw of the rebuilt chunks adds ~1.2 ms to `Terrain`.
+
+Inside a build frame (lean COP0 ticks, averages over the slow frames):
+
+| Stage | Before | After |
+| --- | --- | --- |
+| Head | 63 us | 51 us |
+| Vertex emission | 712 us | 570 us |
+| Bags | 4 us | 4 us |
+| Tail (ground shadow pass, diagnostics) | 272 us | 250 us |
+| `T.build` | 1 055 us | 879 us |
+
+Two habits removed:
+
+- **Per-layer constants per vertex.** The tint scaled for modulate, the
+  tiling and the whole-repeat UV rebase (two software `floorf` calls) are
+  properties of the layer and the chunk. They were recomputed for every
+  vertex of every painted layer; they are now computed once per build.
+- **A diagnostic on every rebuild.** The TERRAINSTRIP log line walked every
+  vertex of the chunk to count degenerate triangles on every rebuild. It now
+  runs on a slot's first build only (the scene load), which is where the A/B
+  tooling reads it.
+
+A resident map also rebuilds at most **one chunk a frame** (a streamed map
+keeps two, because a missing chunk is a hole). Two LOD rebuilds in one frame
+were the heaviest frames of the drive. Same ELF, two cycles each on a PS2:
+
+| Budget | Late frames, heaviest window | p95 |
+| --- | --- | --- |
+| Two a frame | 9 and 7 | 16.9 and 16.1 ms |
+| One a frame | 4 and 5 | 16.3 and 15.9 ms |
+
+Parked frames do not change. A crack along a neighbour's new band can now
+live one frame longer.
+
+Emission is still ~1 us a vertex. `BagArray::push_back` bumps a global
+content stamp on every push, and each vertex evaluates the edge snap twice
+(height and shade). Writing into a pre-sized raw buffer is the next step if
+the rebuild frames still matter.
 
 ## Texture coordinates are chunk-relative (1.124.3)
 
