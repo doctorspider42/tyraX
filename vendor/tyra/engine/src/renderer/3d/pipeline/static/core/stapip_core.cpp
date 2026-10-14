@@ -1436,7 +1436,8 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       // (docs/vu1-clipping.md, "A whole package, streamed").
       recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
       auto* buffer = qbufferRenderer.getBuffer();
-      buffer->fillByPointer(packages[i]);
+      if (!qbufferRenderer.fillCachedPackage(buffer, packages[i]))
+        buffer->fillByPointer(packages[i]);
       qbufferRenderer.clip(buffer);
     } else if (doSubpkgs && sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
                !packages[i].bag->billboard &&
@@ -1503,7 +1504,10 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
         // pointer - no subrange classification, no expansion into a list,
         // no copy pool. See docs/vu1-clipping.md, "A whole package, streamed".
         auto* buffer = qbufferRenderer.getBuffer();
-        buffer->fillByPointer(packages[i]);
+        // An immutable copy, so the frame recorder borrows it instead of
+        // copying the chunk's arrays every frame (fillCachedPackage).
+        if (!qbufferRenderer.fillCachedPackage(buffer, packages[i]))
+          buffer->fillByPointer(packages[i]);
         qbufferRenderer.clip(buffer);
         continue;
       }

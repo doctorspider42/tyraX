@@ -871,6 +871,14 @@ class StaPipQBufferRenderer {
   // Experimental immutable strip expansion; shares baked budget and leases.
   bool fillCachedStrip(StaPipQBuffer* buffer, const StaPipBagPackage& package,
                        u32 firstTriangle, u32 triangleCount);
+  /** Modified by TyraX: a frustum-crossing package goes to the clip program
+   * whole (docs/vu1-clipping.md, "A whole package, streamed"), and its REFs
+   * would name the bag's own, mutable arrays - which the frame recorder copies
+   * every frame. This points the buffer at a verbatim copy of the package in an
+   * immutable span instead, made once per (arrays, versions) and shared with
+   * the strip-expansion entries' budget and leases. False = not cached; the
+   * caller fills the buffer by pointer as before. */
+  bool fillCachedPackage(StaPipQBuffer* buffer, const StaPipBagPackage& package);
   /**
    * Modified by TyraX: replay a COMPLETE baked bag with ONE DMA REF tag,
    * bypassing the qbuffer ring entirely.

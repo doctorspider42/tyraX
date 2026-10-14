@@ -2390,6 +2390,72 @@ bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer* buffer,
   return true;
 }
 
+bool StaPipQBufferRenderer::fillCachedPackage(StaPipQBuffer* buffer,
+                                              const StaPipBagPackage& pkg) {
+  auto* bag = pkg.bag;
+  // A bag whose streams are already registered is borrowed in place.
+  if (!vu1Clipping || pkg.size < 3 || bag->billboard ||
+      repository.hasAnyOverride() || bag->immutableRegistered) return false;
+  const Vec4* source[] = {pkg.vertices, bag->texture ? pkg.sts : nullptr,
+                          bag->color->many ? pkg.colors : nullptr,
+                          bag->lighting ? pkg.normals : nullptr};
+  u32 streams = 0;
+  for (const auto* data : source) if (data) ++streams;
+  const u32 qw = pkg.size * streams;
+  if (qw > 4096) return false;
+  StaPipBakedEntry key{};
+  key.vertices = pkg.vertices;
+  key.sts = source[1];
+  key.colors = source[2];
+  key.normals = source[3];
+  key.program = getClipProgramByBag(bag);
+  key.count = pkg.size;
+  // Disjoint from VU package sizes and from the strip expansions.
+  key.maxVertCount = 0xC0000000u | pkg.size;
+  key.bboxVersion = bag->bboxVersion;
+  key.contentVersion = stampOf(bag->contentVersion) * 0x9E3779B1U +
+      stampOf(bag->color->contentVersion) * 0x85EBCA6BU +
+      stampOf(bag->texture ? bag->texture->contentVersion : nullptr) * 0xC2B2AE35U +
+      stampOf(bag->lighting ? bag->lighting->contentVersion : nullptr) * 0x27D4EB2FU;
+  key.singleColor = bag->color->many == nullptr;
+  key.stripped = bag->stripped ? 1 : 0;
+  key.packages = 1;
+  auto* entry = baked.acquire(key);
+  if (!entry) return false;
+  if (!entry->complete) {
+    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
+    entry->arena = reinterpret_cast<qword_t*>(aligned);
+    if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
+      entry->raw.reset(); entry->arena = nullptr; return false;
+    }
+    if (!baked.reserve(qw)) {
+      Vif1Queue::retireImmutableSpan(entry->arena);
+      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
+      TYRA_ASSERT(released, "Unpublished package copy acquired a DMA reader");
+      entry->raw.reset(); entry->arena = nullptr; return false;
+    }
+    Vec4* out = reinterpret_cast<Vec4*>(entry->arena);
+    for (const auto* data : source) if (data) {
+      memcpy(out, data, pkg.size * sizeof(Vec4));
+      out += pkg.size;
+    }
+    entry->arenaQw = qw;
+    entry->offsets[0] = 0;
+    entry->sizes[0] = qw;
+    entry->built = entry->complete = 1;
+  }
+  StaPipBagPackage cached = pkg;
+  const Vec4* in = reinterpret_cast<const Vec4*>(entry->arena);
+  cached.vertices = in;
+  in += pkg.size;
+  if (source[1]) { cached.sts = in; in += pkg.size; }
+  if (source[2]) { cached.colors = in; in += pkg.size; }
+  if (source[3]) cached.normals = in;
+  buffer->fillByPointer(cached);
+  return true;
+}
+
 #if TYRA_STAPIP_PREPARED_STATIC
 bool StaPipQBufferRenderer::prepareStaticGeometry(StaPipBag* bag,
     u32 packageSize, u32 clipSize) {
@@ -3290,6 +3356,8 @@ u32 StaPipQBufferRenderer::getVerifyFailed() const { return 0; }
 
 bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer*,
     const StaPipBagPackage&, u32, u32) { return false; }
+bool StaPipQBufferRenderer::fillCachedPackage(StaPipQBuffer*,
+    const StaPipBagPackage&) { return false; }
 
 bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&, bool) {
   return false;

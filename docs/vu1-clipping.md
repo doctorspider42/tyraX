@@ -637,6 +637,20 @@ A VRAM grab of the parked frame differs between the routes in 2153 pixels, by
 one LSB (four at most) - below the 15 000-pixel noise between two cycles of the
 SAME route at night.
 
+**The REFs it creates must not be copied every frame (1.174.2).** A whole
+package by pointer names the bag's own arrays, and the frame recorder copies
+every REF target that is not a registered immutable span into the frame arena,
+on every frame. The old route's strip expansions lived in an immutable cache;
+the terrain chunks (base pass, paint layers, lightmap passes - each with its own
+streams) do not register theirs, so the new route raised the recorder's
+mutable copies from 38 to 70 KB a frame. `fillCachedPackage` now points a
+crossing package at a verbatim copy of its streams in an immutable span, made
+once per (arrays, `bboxVersion`, content stamps) and shared with the
+expansion entries' budget and leases. A bag that registered its own streams
+(roads, static batches) is borrowed in place. Measured, same ELF: mutable copies
+70 -> 16 KB a frame, the snapshot's REF fixup 0.65 -> 0.32 ms, `submit`
+1.93 -> 1.62 ms, heaviest window 12.49 -> 12.26-12.38 ms.
+
 `StaPipCore::setStreamClip(false)` restores the slice and strip-subrange
 routes for an A/B; the new programs take those small buffers unchanged.
 
