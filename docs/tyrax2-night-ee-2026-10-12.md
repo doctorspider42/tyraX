@@ -408,3 +408,44 @@ Rig notes for whoever picks this up:
   to release before `--refresh-gen` in a rig copy, or the game polls
   host:livepad.bin every frame.
 - Never reuse an arm name: a stale run log fools the monitor.
+
+### State on 2026-10-15 (1.174.0-1.174.2)
+
+Lean, physical PS2, night, same-ELF A/Bs (rig `C:	xig`, base `vpnR5`):
+
+| Route | Before | Now | Late |
+| --- | --- | --- | --- |
+| Heavy spot, heaviest drive window | 14.0 ms, p95 16.1 | 12.26-12.38 ms, p95 ~13.9 | 1 of 150 |
+| Heavy spot, parked | 12.4 ms | 12.4 ms | 0 |
+| District spawn (0, -74), heaviest drive | - | 11.2-11.7 ms, p95 12.3-13.2 | 1 of 150 |
+
+The one late frame per window appears in every window, both arms, parked
+too: it is the rig printing ~40 lines over ps2link at the window's end.
+
+What did it, in order of size:
+
+1. **Whole-package streamed clipping** ([vu1-clipping.md](vu1-clipping.md),
+   "A whole package, streamed"): -1.6 ms in the heaviest window.
+2. **Stamps in runs** ([stapip-stamps.md](stapip-stamps.md)): -0.3 ms.
+   A stamp hit was ~28 us, ~87% cache misses (58 I + 104 D lines).
+3. **Immutable copies of crossing packages**: recorder copies 70 -> 16 KB,
+   -0.15..-0.2 ms.
+
+Measured and priced, not done:
+
+- **Packets built in the frame arena.** The chain copy in `submit` is only
+  0.19 ms (35 KB); preflight 0.44 ms (886 tags), REF fixup 0.32 ms, native
+  recording 0.31 ms. At most ~0.2 ms.
+- **A stamp for a crossing bag's head.** Head = 1.1 ms for ~13 bags (bounds
+  0.28, prep 0.33, uniforms 0.21, bake lookup 0.16, failed stamp try 0.13);
+  only prep + uniforms replay from a stamp, so ~0.3-0.4 ms net.
+- **Sky card.** The whole Sky scope is 0.57 ms with stars, sun and moon; the
+  dome itself ~0.2 ms after streamed clipping, against a painted-panorama seam
+  and horizon to reproduce.
+- **Light-pick cache** (~0.15 ms, earlier) and **lamp glow** (0.18 ms).
+
+The largest remaining item is the stamp count itself: 107 stamps x ~28 us =
+3.0 ms. `--batch-report` on the example says 143 shapes draw solo: 68 "alone
+in its group", 46 "a part is alone" (a multi-part model batches all or
+nothing), 37 reflected windows, 29 too big for their cell, 16 physics bodies.
+Fewer, bigger draws - per-part batching first - is the PS2 way to cut it.
