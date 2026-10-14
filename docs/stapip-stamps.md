@@ -159,6 +159,90 @@ copies, not the call count (see the night EE investigation).
 distances before taking the square root. The verdict is the same; the gain
 was not measurable.
 
+### Crossing bags batch too (2026-10-14)
+
+`StaPipCore::setPartialBatch` (default on, VU1 clipping only) lets a bag
+that crosses the frustum join the open submission batch. Before this, every
+crossing bag closed and submitted a packet of its own. On a physical PS2 that
+cost ~70 us a bag, mostly the VIF1 queue's per-packet copy and tag walk.
+
+A crossing bag stays pending only when both of these hold:
+
+- **It copied nothing into the slot copy pools** (`StaPipQBuffer::poolTouched`):
+  no strip expansion and no merged subpackages. The pools are per slot, and
+  only a send flips their side, so the next bag would overwrite a pending
+  bag's copies. This is the 1.81.1 slot-pool race in a new shape.
+- **No half flush sent the packet mid-bag** (`objectDataPending` still true):
+  otherwise nothing would ever send what the bag appends afterwards.
+
+Otherwise the bag sends at its end, exactly as an unbatched one does.
+
+Measured lean, heavy night spot, same ELF:
+
+| | Heaviest window | Late frames |
+| --- | --- | --- |
+| Off | 14.50 ms | 9 |
+| On | 14.31 ms | 7 |
+
+Strip bags usually expand into the pool and still send, which is why the
+gain is small. The picture on a TV has not been checked yet.
+
+## Immutable streams (2026-10-14)
+
+The frame recorder copies every DMA REF target that is not a registered
+immutable span into the frame arena, on every frame. Only the engine's baked
+arenas were registered. So a crossing bag's clip slices, and every other REF
+to a bag's own arrays, copied static geometry into the arena each frame. At
+the heavy night spot that was 45-55 KB in 170-230 REFs a frame, and none of
+it was in the qbuffer copy pool.
+
+Treating every REF as immutable (a timing ceiling only, unsafe for arrays
+refilled per frame) measured on a physical PS2:
+
+| | Heaviest window | p95 | Late frames |
+| --- | --- | --- | --- |
+| Copy (as before) | 13.65 ms | 16.5 ms | 6 |
+| Borrow everything | 12.60 ms | 14.5 ms | 3 |
+
+The safe version is opt-in per bag:
+
+- **The producer sets `StaPipBag::immutableStreams`.** This promises the
+  streams (vertices, STs, per-vertex colours, normals) do not change while
+  registered.
+- **`StaPipCore::render` registers them on the bag's first ordinary draw**
+  (`registerImmutableStreams`). A stream another bag already registered, or a
+  full table, stays copied.
+- **The owner calls `releaseImmutableStreams` before it changes,
+  reallocates or frees a stream.** The destructor calls it too. Release waits
+  for every DMA reader, so it belongs to rebuilds, not to every frame.
+
+The span table grew from 512 to 1024 entries, since baked arenas share it.
+
+The generated game opts in two producers:
+
+- **static batches:** `rebuildStaticBatch` releases first;
+- **procedural chunks, roads included:** `procAddMergedObject` releases a chunk
+  before it grows its arrays.
+
+Measured on a physical PS2 (lean, heavy night spot, two cycles each):
+
+- With roads and static batches registered, the arena copies 34-44 KB a
+  frame instead of 44-59 KB.
+- The heaviest window is 13.59-13.66 ms with 5-6 late frames, the same as
+  without it (13.65 ms, 6 late frames).
+
+This is groundwork, not yet a gain. The bytes that matter are elsewhere:
+
+- **Terrain chunks.** A LOD rebuild rewrites a chunk's arrays while the
+  previous frame's DMA may still read them. Opting them in needs the rebuild
+  deferred by a frame (retire the spans, rebuild once
+  `Vif1Queue::immutableSpanReady`), not release's drain.
+- **Dynamic bags refilled every frame.** These must stay copied.
+
+The drain is not cheap. An A/B arm that released bags on their first draw
+spiked exactly where new roads came into view (25 late frames instead of 6),
+so release must never sit on a per-frame path.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.

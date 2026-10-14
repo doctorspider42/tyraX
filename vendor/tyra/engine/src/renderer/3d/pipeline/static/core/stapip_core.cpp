@@ -597,6 +597,9 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
 
   bool frustumCull =
       bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise;
+  // Modified by TyraX: StaPipBag::immutableStreams - first draw registers.
+  if (bag->immutableStreams && !bag->immutableRegistered)
+    bag->registerImmutableStreams();
 
   TYRA_ASSERT(bag->vertices != nullptr,
               "Vertices are required in 3D render bag!");
@@ -815,9 +818,15 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
       (!frustumCull && !bag->info->fullClipChecks);
   const bool batchScope = qbufferRenderer.isSubmissionBatchOpen();
   const bool hasTexture = bag->texture && bag->texture->texture;
+  // Modified by TyraX: setPartialBatch - a crossing bag batches too. Its
+  // package count is not capped: a crossing bag's packet is sent at every
+  // half flush, so the reserve below still bounds what one bag appends.
+  const bool partialCandidate =
+      partialBatch && frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
+      qbufferRenderer.isVU1ClippingEnabled();
   const bool cheapBatchCandidate =
-      batchScope && directBag && bag->billboard == nullptr &&
-      bag->count <= maxVertCount * 15 &&
+      batchScope && bag->billboard == nullptr &&
+      ((directBag && bag->count <= maxVertCount * 15) || partialCandidate) &&
       !qbufferRenderer.hasProgramOverrides();
   bool residentTexture = true;
   bool repeatTexture = true;

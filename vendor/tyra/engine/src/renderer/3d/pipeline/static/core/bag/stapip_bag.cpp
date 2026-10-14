@@ -9,6 +9,7 @@
 */
 
 #include "renderer/3d/pipeline/static/core/bag/stapip_bag.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <sstream>
 #include <iomanip>
 
@@ -25,9 +26,39 @@ StaPipBag::StaPipBag() {
   packageSize = 0;  // Modified by TyraX: 0 = derive from the program class
   stripped = false;  // Modified by TyraX: triangle list unless told otherwise
   refineStrips = false;  // Generated terrain opts in for all coplanar passes.
+  immutableStreams = false;  // Modified by TyraX: see the header
+  immutableRegistered = false;
+  for (auto& s : immutableSpans) s = nullptr;
 }
 
-StaPipBag::~StaPipBag() {}
+StaPipBag::~StaPipBag() { releaseImmutableStreams(); }
+
+// Modified by TyraX: one span per stream, each exactly count quadwords. A
+// stream another bag already registered (coplanar passes share vertices) or a
+// full table simply stays copied - registration is an optimisation, never a
+// requirement.
+void StaPipBag::registerImmutableStreams() {
+  if (immutableRegistered || count == 0) return;
+  immutableRegistered = true;
+  const void* streams[4] = {
+      vertices, texture ? texture->coordinates : nullptr,
+      color ? static_cast<const void*>(color->many) : nullptr,
+      lighting ? lighting->normals : nullptr};
+  for (int i = 0; i < 4; ++i) {
+    immutableSpans[i] = nullptr;
+    if (streams[i] && Vif1Queue::registerImmutableSpan(streams[i], count))
+      immutableSpans[i] = streams[i];
+  }
+}
+
+void StaPipBag::releaseImmutableStreams() {
+  if (!immutableRegistered) return;
+  immutableRegistered = false;
+  for (auto& s : immutableSpans) {
+    if (s) Vif1Queue::unregisterImmutableSpan(s);
+    s = nullptr;
+  }
+}
 
 StaPipBagPackagesBBox StaPipBag::calculateBbox(const u32& maxVertCount) {
   TYRA_ASSERT(vertices != nullptr, "Vertices are required to calculate bbox");

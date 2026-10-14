@@ -289,6 +289,81 @@ The heaviest window still has 7 late frames at LOD 70; with LOD off it has 4,
 but LOD off costs +0.4 ms parked. The slowest frames (18–21 ms) are now
 `Objects` at 6.7–7.9 ms on that stretch, which is the next target.
 
+### State at the end of 2026-10-14
+
+Lean, heavy spot, heaviest 150-frame drive window:
+
+| | Work | p95 | Late |
+| --- | --- | --- | --- |
+| Night | 13.6 ms | 16.4 ms | 5-6 |
+| Day | 13.9 ms | 16.0 ms | 4 |
+
+Parked is 12.3-12.6 ms at night and 11.8 ms by day. The mean fits 60 fps with
+~3 ms to spare; what is left is a short stretch of road whose frames carry
+more crossing bags.
+
+### Where the heavy frames go (2026-10-14, lean, per frame)
+
+Lean COP0 ticks per route inside `StaPipCore::render`, heaviest window:
+
+| Route | Bags | ms | Each |
+| --- | ---: | ---: | ---: |
+| Stamp | 107 | 3.2-3.6 | 34 us |
+| Partial list (clip slices) | 6 | 1.9-2.0 | ~316 us |
+| Partial strip (EE expansion) | 6.6 | 2.5-2.7 | ~378 us |
+| Direct | 3 | 0.55 | 185 us |
+| Whole replay | 4.3 | 0.45 | 105 us |
+
+A crossing bag's ~330 us splits into three parts:
+
+- **~100 us of head:** the stamp miss, bounds, light and texture prep, the
+  uniform block and the bake bookkeeping.
+- **~180 us of package loop.**
+- **~70 us of packet send.** It never joined the submission batch, so it paid
+  the VIF1 queue's copy and tag walk alone.
+
+The per-package emit itself is only ~6 us. The slow frames do not have one
+culprit: they carry about +0.5 ms each in the partial routes, the road and
+static-batch scopes, the probe and the update.
+
+Found and fixed or measured that day:
+
+- terrain streaming of a map that fits ([terrain.md](terrain.md));
+- crossing bags now batch ([stapip-stamps.md](stapip-stamps.md));
+- static streams copied every frame, now opt-in immutable
+  ([stapip-stamps.md](stapip-stamps.md), "Immutable streams").
+
+### Next steps (what still smells)
+
+1. **Terrain chunks as immutable streams.** Terrain is the largest producer of
+   crossing bags. It needs the LOD rebuild deferred by one frame: retire the
+   spans and rebuild when `Vif1Queue::immutableSpanReady`. Release's drain is
+   not an option, because it spikes. The borrow-everything ceiling is
+   1.05 ms. Roads and static batches alone cut the copy by ~10 KB a frame and
+   moved the heaviest window by nothing measurable (13.6 ms, 5-6 late
+   frames), so the remaining bytes are terrain and dynamic bags. Find out
+   which before building anything.
+2. **A stamp for a crossing bag's head.** It differs from a stamp only by the
+   shared clip-constant REF, so the ~100 us head (light pick, texture prep,
+   uniform block) can replay with patched MVP, fog and spot words. About
+   0.8-1 ms in the heavy frames, where crossing bags multiply.
+3. **A VU1 strip clip program.** Partial strip packages are expanded into lists
+   on the EE, into the copy pool. That keeps them out of the batch and costs
+   ~0.2 ms of expansion.
+4. **Light pick per stamp, 0.74 ms.** Static lamps are re-scored for every bag
+   on every frame; only the car's own lights move.
+5. **The sky dome in the main view, ~0.5 ms.** A camera-facing card with the
+   same elevation gradient would take a stamp.
+6. **`submit` walks each packet three times and copies the chain, ~2.2 ms.**
+   Writing packets straight into the frame arena needs a second arena, because
+   a packet is reserved for its worst case.
+
+Not the lever (measured):
+
+- terrain LOD off: +0.4 ms parked;
+- larger submission batches: rejected earlier;
+- the light-pick early-out: unmeasurable.
+
 Rig notes for whoever picks this up:
 
 - `cld_probe.hpp` holds 96 scope names (it was 48, and later names were

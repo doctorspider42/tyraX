@@ -2085,10 +2085,20 @@ void StaPipQBufferRenderer::flushBuffers() {
     auto offset = currentBufferIndex >= buffersCount / 2 ? buffersCount / 2 : 0;
     auto size = (currentBufferIndex + 1) - offset;
     Verbose("-- End flush. from: ", offset, " to: ", offset + size);
-    addBuffersDataToPacket(offset, offset + size,
-                           !submissionBatchCandidate);
-    if (!submissionBatchCandidate) {
+    // Modified by TyraX: a batched PARTIAL bag (StaPipCore::setPartialBatch)
+    // may not stay pending in two cases. (1) It copied into the slot pools
+    // (strip expansion, merged subpackages): the next bag reuses those slots
+    // on the same pool side, which only a send flips. (2) A half flush sent
+    // the packet mid-bag: the uniforms are gone with it, so objectDataPending
+    // is false and nothing would ever send what is appended now. Either way
+    // the packet goes out at the end of this bag, as an unbatched one does.
+    const bool keepPending =
+        submissionBatchCandidate && objectDataPending &&
+        !StaPipQBuffer::poolTouched();
+    addBuffersDataToPacket(offset, offset + size, !keepPending);
+    if (!keepPending) {
       sendPacket();
+      submissionBatchBags = 0;
     } else if (++submissionBatchBags >= kSubmissionBatchSize) {
       flushPendingPacket();
     }

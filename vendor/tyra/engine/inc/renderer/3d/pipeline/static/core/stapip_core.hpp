@@ -52,6 +52,14 @@ class StaPipCore {
    * vertices) and COPIED the inside ones together into the copy pool, every
    * frame. Default on; false restores it for an A/B. */
   void setSliceClip(bool on) { sliceClip = on; }
+  /** Modified by TyraX: a bag that crosses the frustum joins the open
+   * submission batch too (docs/stapip-stamps.md, "Batching"). It used to close
+   * and submit a packet of its own - ~70 us a bag on a physical PS2, mostly the
+   * VIF1 queue's per-packet copy and tag walk. It stays pending only when it
+   * left nothing in the slot copy pools and sent nothing mid-bag; otherwise it
+   * sends at its end exactly as before. VU1 clipping only. Default on; false
+   * restores the old rule for an A/B. */
+  void setPartialBatch(bool on) { partialBatch = on; }
   StaPipCore();
   ~StaPipCore();
 
@@ -256,6 +264,7 @@ class StaPipCore {
   // VU1 clip program by pointer, in clipPackageSize slices.
   void renderClipSlices(StaPipBag* bag, u32 offset, u32 count, u8 planeMask);
   bool sliceClip = true;
+  bool partialBatch = true;
 };
 
 }  // namespace Tyra

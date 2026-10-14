@@ -157,6 +157,20 @@ class StaPipBag {
    * Coplanar passes must share package size and enable this together. */
   bool refineStrips;
 
+  /** Modified by TyraX: the owner promises that the streams (vertices, STs,
+   * per-vertex colours, normals) do not change while they are registered.
+   * StaPipCore registers them with the VIF1 queue the first time it draws the
+   * bag, and the frame recorder then REFs them in place instead of copying
+   * them into the frame arena on every frame (docs/stapip-stamps.md,
+   * "Immutable streams"). Before changing, reallocating or freeing any of
+   * them, call releaseImmutableStreams() - the destructor does too. It waits
+   * for every DMA reader, so it belongs to rebuilds, not to every frame. */
+  bool immutableStreams;
+  void registerImmutableStreams();
+  void releaseImmutableStreams();
+  bool immutableRegistered;
+  const void* immutableSpans[4];
+
   /**
    * @param maxVertCount This parameter is available in renderer API.
    */

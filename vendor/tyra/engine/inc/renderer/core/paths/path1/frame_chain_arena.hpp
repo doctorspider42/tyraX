@@ -28,7 +28,7 @@ class ImmutableSpanTable {
  public:
   bool add(uint32_t base, uint32_t qwords) {
     if (!base || (base & 15) || !qwords || qwords > (UINT32_MAX - base) / 16 ||
-        count == 512) return false;
+        count == kCapacity) return false;
     uint32_t at = lowerBound(base);
     if ((at && spans[at-1].base + spans[at-1].qwords * 16 > base) ||
         (at < count && base + qwords * 16 > spans[at].base)) return false;
@@ -83,7 +83,10 @@ class ImmutableSpanTable {
     uint32_t base = 0, qwords = 0, readers = 0;
     bool retired = false;
   };
-  Span spans[512]; uint32_t count = 0;
+  // Modified by TyraX: 512 -> 1024 - static bags register their streams
+  // too (StaPipBag::immutableStreams), next to the baked arenas.
+  static constexpr uint32_t kCapacity = 1024;
+  Span spans[kCapacity]; uint32_t count = 0;
   uint32_t lowerBound(uint32_t address) const {
     uint32_t lo = 0, hi = count;
     while (lo < hi) {

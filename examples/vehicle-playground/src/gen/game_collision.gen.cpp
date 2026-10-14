@@ -2305,6 +2305,9 @@ void TerrainGame::buildStaticBatchList() {
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.dirty = false;
+  // The streams are about to change: hand them back first (see the
+  // immutableStreams note where the bag is made).
+  if (b.bag) b.bag->releaseImmutableStreams();
   b.vertices.clear();
   b.colors.clear();
   b.sts.clear();
@@ -2460,6 +2463,11 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     b.bag->color = b.colorBag.get();
     b.bag->texture = nullptr;
     b.bag->lighting = nullptr;
+    // Static geometry: the frame recorder may REF these arrays in place
+    // instead of copying them into the frame arena every frame
+    // (docs/stapip-stamps.md, "Immutable streams"). rebuildStaticBatch
+    // releases them before it touches them; destroying the bag does too.
+    b.bag->immutableStreams = true;
   }
   b.colors.bind(b.colorBag);
   b.vertices.bind(b.bag);
@@ -2872,6 +2880,8 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       if (c.owner == owner && c.instance == instance && c.model == model &&
           c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
         c.smooth = c.smooth || wantSmooth;
+        // About to grow its arrays: release them first (immutableStreams).
+        if (c.bag) c.bag->releaseImmutableStreams();
         return c;
       }
     procChunks.emplace_back();
@@ -2985,6 +2995,9 @@ void TerrainGame::procFinishChunks() {
       c.bag = std::make_unique<StaPipBag>();
       c.bag->color = c.colorBag.get();
       c.bag->lighting = nullptr;
+      // Static between regenerations (immutableStreams): chunkFor releases
+      // the arrays before it grows them, and erasing a chunk destroys its bag.
+      c.bag->immutableStreams = true;
     }
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
