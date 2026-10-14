@@ -196,13 +196,11 @@ to a bag's own arrays, copied static geometry into the arena each frame. At
 the heavy night spot that was 45-55 KB in 170-230 REFs a frame, and none of
 it was in the qbuffer copy pool.
 
-Treating every REF as immutable (a timing ceiling only, unsafe for arrays
-refilled per frame) measured on a physical PS2:
-
-| | Heaviest window | p95 | Late frames |
-| --- | --- | --- | --- |
-| Copy (as before) | 13.65 ms | 16.5 ms | 6 |
-| Borrow everything | 12.60 ms | 14.5 ms | 3 |
+A first ceiling arm that treated EVERY REF as immutable measured 13.65 ->
+12.60 ms in the heaviest window. That number is an artefact: the arm also
+borrowed arrays refilled every frame, so the console drew partly garbage,
+the GPU finished sooner and the EE waited less inside `submit`. Do not quote
+it. The attribution runs below are the real price.
 
 The safe version is opt-in per bag:
 
@@ -231,13 +229,22 @@ Measured on a physical PS2 (lean, heavy night spot, two cycles each):
 - The heaviest window is 13.59-13.66 ms with 5-6 late frames, the same as
   without it (13.65 ms, 6 late frames).
 
-This is groundwork, not yet a gain. The bytes that matter are elsewhere:
+Who owns the copied bytes, measured by opting producers in for one arm each:
 
-- **Terrain chunks.** A LOD rebuild rewrites a chunk's arrays while the
-  previous frame's DMA may still read them. Opting them in needs the rebuild
-  deferred by a frame (retire the spans, rebuild once
-  `Vif1Queue::immutableSpanReady`), not release's drain.
-- **Dynamic bags refilled every frame.** These must stay copied.
+| Opted in | Copied a frame | Heaviest window |
+| --- | --- | --- |
+| roads + static batches (as shipped) | 34-44 KB | 13.77 ms |
+| + every bag drawn through `renderObjectBag` | 34-41 KB | 13.81 ms |
+| + every bag drawn through `renderWorldBag` | 2-4 KB | 13.61 ms |
+| terrain chunks alone (LOD off, both arms) | no change | no change |
+
+Terrain contributes nothing: its chunks go through stamps and the strip
+expansion cache, which are already immutable arenas. The remaining bytes
+belong to world bags, and some of those are refilled every frame. Removing
+almost the whole copy is worth ~0.15 ms, so no further producer was opted in.
+
+A last-hit cache in `ImmutableSpanTable::borrow` (one binary search instead
+of up to four per REF) was also measured: 13.655 against 13.656 ms. Reverted.
 
 The drain is not cheap. An A/B arm that released bags on their first draw
 spiked exactly where new roads came into view (25 late frames instead of 6),

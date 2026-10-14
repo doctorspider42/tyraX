@@ -335,14 +335,12 @@ Found and fixed or measured that day:
 
 ### Next steps (what still smells)
 
-1. **Terrain chunks as immutable streams.** Terrain is the largest producer of
-   crossing bags. It needs the LOD rebuild deferred by one frame: retire the
-   spans and rebuild when `Vif1Queue::immutableSpanReady`. Release's drain is
-   not an option, because it spikes. The borrow-everything ceiling is
-   1.05 ms. Roads and static batches alone cut the copy by ~10 KB a frame and
-   moved the heaviest window by nothing measurable (13.6 ms, 5-6 late
-   frames), so the remaining bytes are terrain and dynamic bags. Find out
-   which before building anything.
+1. ~~**Zero-copy for static streams.**~~ Measured and closed. The arena copy is
+   worth ~0.15 ms at most: opting in every world bag cuts it from 34 KB to
+   2 KB a frame and the heaviest window from 13.77 to 13.61 ms. Terrain
+   contributes no copied bytes at all. The 1.05 ms "borrow everything"
+   ceiling was an artefact of garbage geometry
+   ([stapip-stamps.md](stapip-stamps.md), "Immutable streams").
 2. **A stamp for a crossing bag's head.** It differs from a stamp only by the
    shared clip-constant REF, so the ~100 us head (light pick, texture prep,
    uniform block) can replay with patched MVP, fog and spot words. About
