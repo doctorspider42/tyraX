@@ -1302,7 +1302,9 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
       TYRA_ATTRIB_MARK(attribRenderStripStart);
       renderStrippedPkgs(packages, doClip, packagesCount);
       TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderStripStart);
-    } else if (!doClip || bag->count >= maxVertCount * 2) {
+    } else if (!doClip || bag->count >= maxVertCount * 2 || wholeClip()) {
+      // Modified by TyraX: with VU1 clipping a crossing package is clipped
+      // whole (renderPkgs), so a small bag takes the same route.
       TYRA_ATTRIB_MARK(attribCreateStart);
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
       TYRA_ATTRIB_ADD(dsCreateTicks, attribCreateStart);
@@ -1379,6 +1381,15 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
       buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
+    } else if (doSubpkgs && wholeClip()) {
+      // Modified by TyraX: the WHOLE package, by pointer. The clip program
+      // streams its output (mid-program XGKICKs), so the fan-out no longer
+      // has to fit one output block and the package is not cut into sixths
+      // (docs/vu1-clipping.md, "A whole package, streamed").
+      recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
+      auto* buffer = qbufferRenderer.getBuffer();
+      buffer->fillByPointer(packages[i]);
+      qbufferRenderer.clip(buffer);
     } else if (doSubpkgs && sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
                !packages[i].bag->billboard &&
                !qbufferRenderer.hasProgramOverrides()) {
@@ -1437,7 +1448,18 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       // same triangles: the strip is a saving on the packages that do NOT need
       // cutting, and the guard band means that is nearly all of them.
       recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
-      if (packages[i].size < 3 || trisPerChunk == 0) continue;
+      if (packages[i].size < 3) continue;
+      if (wholeClip()) {
+        // Modified by TyraX: the clip program reads a strip itself (packed
+        // bit 9) and streams its output, so the package goes whole and by
+        // pointer - no subrange classification, no expansion into a list,
+        // no copy pool. See docs/vu1-clipping.md, "A whole package, streamed".
+        auto* buffer = qbufferRenderer.getBuffer();
+        buffer->fillByPointer(packages[i]);
+        qbufferRenderer.clip(buffer);
+        continue;
+      }
+      if (trisPerChunk == 0) continue;
       if (telemetryEnabled) ++telemetry.packagesStripExpanded;
       const u32 triangles = packages[i].size - 2;
       const auto& pkg = packages[i];

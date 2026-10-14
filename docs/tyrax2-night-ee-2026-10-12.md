@@ -345,7 +345,10 @@ Found and fixed or measured that day:
    shared clip-constant REF, so the ~100 us head (light pick, texture prep,
    uniform block) can replay with patched MVP, fog and spot words. About
    0.8-1 ms in the heavy frames, where crossing bags multiply.
-3. **A VU1 strip clip program.** Partial strip packages are expanded into lists
+3. ~~**A VU1 strip clip program.**~~ Done in 1.174.0, together with whole-package
+   streaming: heaviest window 14.0 -> 12.3-12.55 ms, 5 -> 1 late
+   ([vu1-clipping.md](vu1-clipping.md), "A whole package, streamed").
+   Before: partial strip packages were expanded into lists
    on the EE, into the copy pool. That keeps them out of the batch and costs
    ~0.2 ms of expansion.
 4. **Light pick per stamp, 0.74 ms.** Static lamps are re-scored for every bag

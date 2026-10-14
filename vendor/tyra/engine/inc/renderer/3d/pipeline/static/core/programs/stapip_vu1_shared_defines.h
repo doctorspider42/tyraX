@@ -87,6 +87,12 @@
 // Cull/as_is/billboard buffers keep the original raw count ABI.
 #define VU1_STAPIP_COUNT_MASK 0x03FF
 #define VU1_STAPIP_CLIP_MASK_SHIFT 10
+// Modified by TyraX: a clip buffer's count is bits 0..8 and bit 9 says the
+// buffer is a triangle STRIP - the clip program then walks one vertex per
+// triangle instead of three (docs/vu1-clipping.md, "A whole package,
+// streamed"). Packages never come near 512 vertices.
+#define VU1_STAPIP_CLIP_COUNT_MASK 0x01FF
+#define VU1_STAPIP_CLIP_STRIP_FLAG 0x0200
 // TyraX: supported non-clip textured programs use the otherwise-unused sign
 // bit to tell VU1 whether this package must emit the per-material GS state.
 // The count itself remains in bits 0-9; clip programs keep all six high bits
@@ -109,5 +115,14 @@
 // written by the cull programs once per batch so their vertex loops read
 // colours through one pointer in both modes (stride 0 here, 3 over the
 // colour array). Like the clip scratch it is transient per program run.
-// 1019..1023 are still free. A literal, like the rest (see above).
+// A literal, like the rest (see above).
 #define VU1_SINGLE_COLOR_COPIES_ADDR 1016
+// Modified by TyraX: 1019 is the clip family's output-stream state (x = the
+// open chunk's prim tag, y = its kick address, z = the other chunk's prim tag,
+// w = input vertices per triangle). Transient per program run, like the clip
+// scratch. 1020..1023 are still free.
+#define VU1_CLIP_STREAM_ADDR 1019
+// Vertices one streamed output chunk holds; two chunks of
+// (1 + VU1_CLIP_STREAM_VERTS * GS registers) quadwords follow the clip
+// program's input (src/vugen.cpp kClipStreamVerts).
+#define VU1_CLIP_STREAM_VERTS 30

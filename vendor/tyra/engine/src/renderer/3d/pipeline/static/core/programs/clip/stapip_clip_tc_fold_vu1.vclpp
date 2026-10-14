@@ -44,8 +44,8 @@ begin:
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
     ilw.w      vertexCount, 0(buffer)
-    iaddiu     countMask, vi00, 1023
-    iand       vertexCount, vertexCount, countMask  ; strip the packed six-plane mask
+    iaddiu     countMask, vi00, 511
+    iand       vertexCount, vertexCount, countMask  ; strip the packed six-plane mask and strip flag
     iadd       stqData, vertexData, vertexCount
     iadd       colorData, stqData, vertexCount
     ilw.x      sceFlag, 8(vi00)  ; VU1_OPTIONS_ADDR.x = single colour flag
@@ -55,13 +55,6 @@ begin:
 setDestAddrMultiColor:
     iadd       destAddress, colorData, vertexCount
 setDestAddr:
-    ; Modified by TyraX: the tag block's five constants load HERE, once per
-    ; buffer, instead of staying pinned in VF registers for the whole
-    ; program. With the TD path on this image, sharedDirMode had 33 live
-    ; against VU1's 31 and Sony's vcl refused it ("no opt table"); openvcl
-    ; only fitted it by sinking loads. Same values: the EE writes these
-    ; addresses only in sendObjectData, behind a FLUSHE, before the MSCAL.
-    ; See tagsPerBuffer in src/vugen.cpp.
     lq         gifSetTag, 19(vi00)  ; VU1_SET_GIFTAG_ADDR - per buffer (Sony vcl's VF budget)
     lq         lodGifTag, 9(vi00)  ; VU1_LOD_ADDR
     lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
@@ -79,6 +72,21 @@ setDestAddr:
     iaddiu     destAddress, destAddress, 9
     iaddiu     outCount, vi00, 0
     iadd       vertexCounter, vi00, vertexCount
+    iaddi      vertMask, destAddress, -1
+    isw.x      vertMask, 1019(vi00)  ; VU1_CLIP_STREAM_ADDR.x = chunk A's prim tag
+    iaddiu     fanPtr, vertMask, 91
+    isw.z      fanPtr, 1019(vi00)
+    iaddi      fanPtr, destAddress, -9
+    isw.y      fanPtr, 1019(vi00)  ; the first kick carries the tag block
+    ilw.w      vertMask, 0(buffer)  ; packed count: bit 9 = strip
+    iaddiu     fanPtr, vi00, 512
+    iand       vertMask, vertMask, fanPtr
+    iaddiu     fanPtr, vi00, 3
+    ibeq       vertMask, vi00, streamStepReady
+    iaddiu     fanPtr, vi00, 1
+    iaddi      vertexCounter, vertexCounter, -2
+streamStepReady:
+    isw.w      fanPtr, 1019(vi00)
 triLoop:
     ilw.x      sceFlag, 8(vi00)
     iblez      sceFlag, multiColor
@@ -99,12 +107,6 @@ processing:
     lq         stq3, 2(stqData)
     ilw.y      sceFlag, 8(vi00)
     ibgtz      sceFlag, sharedEnvMode
-    ; Modified by TyraX: VU1_OPTIONS_ADDR.y is negative only when a dynamic
-    ; light actually reaches this mesh - see LoadTyraSpotLight in
-    ; tyra_macros.i. 63 upper-pipe operations a triangle for one branch.
-    ; The clamp below is DUPLICATED rather than jumped into, so this block -
-    ; spot light, clamp, exit - is the same basic block the assembler already
-    ; scheduled and the LIT path cannot lose packing to the new branch.
     ibgez      sceFlag, noSpot
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
@@ -184,15 +186,6 @@ noSpot:
     loi        255
     mini.xyz   color3, color3, i
     b          sharedAttributesReady
-    ; Modified by TyraX: clip TD shares this image. A TD bag sets .y > 0
-    ; (it is a lighting bag) AND .x < 0 (StaPipQBufferRenderer::sendObjectData),
-    ; so it reaches this block from sharedEnvMode below; its normals sit
-    ; where TC keeps colours, so color1..3 already hold them (.x < 0 took
-    ; the multi-colour loads). The light matrix and directions are the
-    ; env-basis and spot registers the preamble loaded from the same
-    ; addresses; only the colours + ambient load here, per triangle.
-    ; stapip_clip_td_vu1.vclpp is the unlinked reference --vu-check runs
-    ; this path against.
 sharedDirMode:
     lq.xyz     lightColors[0], 15(vi00)  ; TD path: light colours + ambient
     lq.xyz     lightColors[1], 16(vi00)
@@ -398,6 +391,31 @@ fanStart:
     iaddiu     vertMask, srcBase, 9
     isub       vertMask, srcEnd, vertMask
     ibltz      vertMask, triNext
+    isub       fanPtr, srcEnd, srcBase
+    iadd       fanNext, fanPtr, fanPtr
+    iadd       fanPtr, fanNext, fanPtr
+    iadd       fanPtr, fanPtr, destAddress
+    ilw.x      fanNext, 1019(vi00)  ; the open chunk's prim tag
+    isub       fanPtr, fanPtr, fanNext
+    iaddiu     fanNext, vi00, 109
+    isub       fanPtr, fanPtr, fanNext
+    iblez      fanPtr, fanFits
+    ilw.x      fanNext, 1019(vi00)
+    iaddiu     emitPtr, outCount, 16384
+    iaddiu     emitPtr, emitPtr, 16384
+    isw.x      emitPtr, 0(fanNext)  ; NLOOP | EOP of the full chunk
+    ilw.y      emitNxt, 1019(vi00)
+    xgkick     emitNxt  ; stream the full chunk to the GS
+    ilw.z      emitPtr, 1019(vi00)
+    isw.z      fanNext, 1019(vi00)
+    isw.x      emitPtr, 1019(vi00)
+    isw.y      emitPtr, 1019(vi00)
+    xtop       emitNxt
+    lq         dtmp, 1(emitNxt)  ; the buffer's prim tag
+    sq         dtmp, 0(emitPtr)
+    iaddiu     destAddress, emitPtr, 1
+    iaddiu     outCount, vi00, 0
+fanFits:
     iaddiu     fanPtr, srcBase, 3  ; (P0, Pj, Pj+1) for j = 1 .. n-2
 fanLoop:
     iaddiu     fanNext, fanPtr, 3
@@ -439,21 +457,17 @@ fanEmitLoop:
     iadd       fanPtr, fanNext, vi00
     b          fanLoop
 triNext:
-    iaddiu     vertexData, vertexData, 3
-    iaddiu     stqData, stqData, 3
-    iaddiu     colorData, colorData, 3
-    iaddi      vertexCounter, vertexCounter, -3  ; decrement the loop counter
+    ilw.w      vertMask, 1019(vi00)  ; input step
+    iadd       vertexData, vertexData, vertMask
+    iadd       stqData, stqData, vertMask
+    iadd       colorData, colorData, vertMask
+    isub       vertexCounter, vertexCounter, vertMask  ; decrement the loop counter
     ibgtz      vertexCounter, triLoop
-    ilw.x      sceFlag, 8(vi00)
-    iblez      sceFlag, kickMulti
-    iadd       vertexData, stqData, vi00
-    b          kickPatch
-kickMulti:
-    iadd       vertexData, colorData, vi00
-kickPatch:
+    ilw.x      vertexData, 1019(vi00)
     iaddiu     vertMask, outCount, 16384
     iaddiu     vertMask, vertMask, 16384
-    isw.x      vertMask, 8(vertexData)
+    isw.x      vertMask, 0(vertexData)
+    ilw.y      vertexData, 1019(vi00)
     xgkick     vertexData  ; dispatch to the GS rasterizer
 
 --barrier

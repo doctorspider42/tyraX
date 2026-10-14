@@ -2603,6 +2603,20 @@ the prior mixColor, so generic restoration must respect assigned-field semantics
   landed on 459 of 460 quadwords. Runnable per class, and the check to re-run
   after touching any of it:
   `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
+- **Since 1.174.0 the VU1 clip programs STREAM their output and take a whole
+  package, list or strip** (docs/vu1-clipping.md, "A whole package, streamed").
+  Two chunks of `1 + 30 * regs` quadwords sit behind the input; a fan that
+  would not fit closes the open chunk with an `XGKICK`. So the fixed-block
+  fan-out rule above now binds only `setStreamClip(false)` and the EE clipper;
+  the streamed route's bound is "input of a cull-sized package + 8 tag
+  quadwords + two chunks fits the 461-quadword half" (textured: 417). The
+  stream state is spilled to `VU1_CLIP_STREAM_ADDR` (1019) because the textured
+  clipper has no free integer register, and bit 9 of the packed count is the
+  strip flag, so the count mask is 0x1FF for clip buffers. A clip program must
+  emit a LIST prim tag even for a stripped buffer. Prove any change with the
+  "clip stream" section of `--vu-check` (and `TYRAX_CLIP_REF_DIR` against the
+  previous programs); the shipping images are the `_fold` variants, derived by
+  `tools/derive-fold-images.py`.
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the

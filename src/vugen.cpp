@@ -59,6 +59,22 @@ constexpr int kClipPolyBAddr = 986;
 // sits here with stride 0 instead of walking the colour array with stride 3.
 // 1016..1023 are the free tail above polygon B (stapip_vu1_shared_defines.h).
 constexpr int kSingleColorCopiesAddr = 1016;
+// The CLIP family's streaming state, one quadword in the free tail
+// (VU1_CLIP_STREAM_ADDR): x = the prim tag of the chunk being filled, y = the
+// address that chunk is kicked from, z = the other chunk's prim tag, w = the
+// input step per triangle (3 for a list, 1 for a strip). Spilled rather than
+// kept in integer registers because the textured clipper has none to spare.
+constexpr int kClipStreamAddr = 1019;
+// The packed count word of a clip buffer: count in bits 0..8, the STRIP flag
+// in bit 9, the six-plane mask in bits 10..15 (stapip_vu1_shared_defines.h).
+constexpr int kClipCountMask = 0x01FF;
+constexpr int kClipStripFlag = 0x0200;
+// Vertices one output chunk holds. A cut triangle fans out into at most seven,
+// i.e. 21 vertices, so a chunk always has room for one whole fan; the rest is
+// how many fans share one XGKICK. Two chunks of (1 + 30 * stride) quadwords
+// fit behind every class's input at its cull-sized package
+// (StaPipVU1Program::clipStreamFits checks it on the EE).
+constexpr int kClipStreamVerts = 30;
 constexpr float kClipGuard = 4096.0f;
 // The env (matcap) camera basis reuses the lights-matrix area: an env bag
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
@@ -2196,9 +2212,9 @@ BufferHeader emitBufferHeader(Vu& b, Program& prog,
     }
     if (packedClipCount) {
         const IVal countMask = b.inamed("countMask");
-        b.iaddiuInto(countMask, b.izero(), kBufferCountMask);
+        b.iaddiuInto(countMask, b.izero(), kClipCountMask);
         b.iandInto(h.vertexCount, h.vertexCount, countMask);
-        prog.code.back().comment = "strip the packed six-plane mask";
+        prog.code.back().comment = "strip the packed six-plane mask and strip flag";
     }
     return h;
 }
@@ -2748,6 +2764,13 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
     // The prim tag is the LAST quadword of the tag block, and its NLOOP is what
     // gets patched once the emitted count is known.
     const int primQuad = tagQuads(d) - 1;
+    // The stream's room check sizes a fan's output from the polygon's span in
+    // the scratch area, which only works while the two strides agree.
+    if (stride != outStride) {
+        std::fprintf(stderr, "vugen: %s: scratch stride %d != GS stride %d\n",
+                     d.asmName.c_str(), stride, outStride);
+        std::abort();
+    }
 
     StagePlan plan = planStages(d.stages, d);
     if (d.script) {
@@ -2832,6 +2855,45 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
     b.iaddiuInto(outCount, b.izero(), 0);
     const IVal vertexCounter = b.inamed("vertexCounter");
     b.iaddInto(vertexCounter, b.izero(), vertexCount);
+
+    // --- the output STREAM (Modified by TyraX) --------------------------------
+    //
+    // The output is not one block sized for the worst case: it is two chunks
+    // of `chunkQw` quadwords behind the input, each opened by a prim tag, and a
+    // full chunk is XGKICKed mid-program while the next one fills. A fan that
+    // would not fit closes the chunk first (see fanStart). That is what lets
+    // the EE hand this program a WHOLE package by pointer - a list or a strip -
+    // instead of cutting it into sixths so that seven-fold fan-out could never
+    // overrun a fixed output area. Chunk A's tag is the tag block's own prim
+    // tag, so the first kick still carries the GS state; chunk B follows it.
+    // An XGKICK stalls until the previous one has been read, so once B is
+    // kicked A is free again.
+    const int chunkQw = 1 + kClipStreamVerts * outStride;
+    {
+        const IVal t0 = b.inamed("vertMask");
+        const IVal t1 = b.inamed("fanPtr");
+        b.iaddiuInto(t0, destAddress, -1);
+        b.isw(t0, b.izero(), kClipStreamAddr, 0);
+        prog.code.back().comment = "VU1_CLIP_STREAM_ADDR.x = chunk A's prim tag";
+        b.iaddiuInto(t1, t0, chunkQw);
+        b.isw(t1, b.izero(), kClipStreamAddr, 2);
+        b.iaddiuInto(t1, destAddress, -tagQuads(d));
+        b.isw(t1, b.izero(), kClipStreamAddr, 1);
+        prog.code.back().comment = "the first kick carries the tag block";
+        // A STRIP buffer (packed bit 9) walks one vertex per triangle and has
+        // count - 2 of them; a list walks three. Winding is not kept, and does
+        // not need to be: nothing in this engine backface-culls.
+        const Lbl stepReady = b.label("streamStepReady");
+        ilwInto(prog, t0, buffer, 0, 3, "packed count: bit 9 = strip");
+        b.iaddiuInto(t1, b.izero(), kClipStripFlag);
+        b.iandInto(t0, t0, t1);
+        b.iaddiuInto(t1, b.izero(), 3);
+        b.branchIfEq(t0, b.izero(), stepReady);
+        b.iaddiuInto(t1, b.izero(), 1);
+        b.iaddiuInto(vertexCounter, vertexCounter, -2);
+        b.bind(stepReady);
+        b.isw(t1, b.izero(), kClipStreamAddr, 3);
+    }
 
     const Lbl triLoop = b.label("triLoop");
     const Lbl triNext = b.label("triNext");
@@ -3323,6 +3385,43 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
     const IVal emitPtr = b.inamed("emitPtr");
     const IVal emitNxt = b.inamed("emitNxt");
     const IVal emitCnt = b.inamed("emitCnt");
+
+    // Does this fan fit in the chunk? n polygon vertices fan into n - 2
+    // triangles, 3 * (n - 2) * outStride quadwords, and the polygon spans
+    // n * stride - the same stride (checked when the description is built).
+    // If not: patch the chunk's NLOOP, kick it, and open the other chunk.
+    {
+        const Lbl fanFits = b.label("fanFits");
+        b.isubInto(fanPtr, srcEnd, srcBase);
+        b.iaddInto(fanNext, fanPtr, fanPtr);
+        b.iaddInto(fanPtr, fanNext, fanPtr);
+        b.iaddInto(fanPtr, fanPtr, destAddress);
+        ilwInto(prog, fanNext, b.izero(), kClipStreamAddr, 0,
+                "the open chunk's prim tag");
+        b.isubInto(fanPtr, fanPtr, fanNext);
+        b.iaddiuInto(fanNext, b.izero(), 6 * stride + chunkQw);
+        b.isubInto(fanPtr, fanPtr, fanNext);
+        b.branchIfLez(fanPtr, fanFits);
+        ilwInto(prog, fanNext, b.izero(), kClipStreamAddr, 0);
+        b.iaddiuInto(emitPtr, outCount, 0x4000);
+        b.iaddiuInto(emitPtr, emitPtr, 0x4000);
+        b.isw(emitPtr, fanNext, 0, 0);
+        prog.code.back().comment = "NLOOP | EOP of the full chunk";
+        ilwInto(prog, emitNxt, b.izero(), kClipStreamAddr, 1);
+        b.xgkick(emitNxt);
+        prog.code.back().comment = "stream the full chunk to the GS";
+        ilwInto(prog, emitPtr, b.izero(), kClipStreamAddr, 2);
+        b.isw(fanNext, b.izero(), kClipStreamAddr, 2);
+        b.isw(emitPtr, b.izero(), kClipStreamAddr, 0);
+        b.isw(emitPtr, b.izero(), kClipStreamAddr, 1);
+        b.xtop(emitNxt);
+        loadInto(prog, dtmp, emitNxt, 1, MALL, "the buffer's prim tag");
+        b.sq(dtmp, emitPtr, 0);
+        b.iaddiuInto(destAddress, emitPtr, 1);
+        b.iaddiuInto(outCount, b.izero(), 0);
+        b.bind(fanFits);
+    }
+
     b.iaddiuInto(fanPtr, srcBase, stride);
     prog.code.back().comment = "(P0, Pj, Pj+1) for j = 1 .. n-2";
     const Lbl fanLoop = b.label("fanLoop");
@@ -3403,47 +3502,31 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr,
     b.branch(fanLoop);
 
     b.bind(triNext);
-    b.iaddiuInto(vertexData, vertexData, 3);
-    if (d.texture) b.iaddiuInto(stqData, stqData, 3);
+    // Three input vertices a triangle for a list, one for a strip.
+    ilwInto(prog, vertMask, b.izero(), kClipStreamAddr, 3, "input step");
+    b.iaddInto(vertexData, vertexData, vertMask);
+    if (d.texture) b.iaddInto(stqData, stqData, vertMask);
     if (colorStream)
-        b.iaddiuInto(colorData, colorData, 3);
+        b.iaddInto(colorData, colorData, vertMask);
     else
-        b.iaddiuInto(normalData, normalData, 3);
-    b.iaddiuInto(vertexCounter, vertexCounter, -3);
+        b.iaddInto(normalData, normalData, vertMask);
+    b.isubInto(vertexCounter, vertexCounter, vertMask);
     prog.code.back().comment = "decrement the loop counter";
     b.branchIfGtz(vertexCounter, triLoop);
 
     // --- the kick -----------------------------------------------------------
     //
-    // The input pointers advanced once per source vertex and now already point
-    // at the GIF tag block. Reuse them instead of a second xtop + packed-count
-    // decode + address rebuild.
-    if (!colorStream) {
-        b.iaddInto(vertexData, normalData, b.izero());
-    } else {
-        const Lbl kickMulti = b.label("kickMulti");
-        const Lbl kickPatch = b.label("kickPatch");
-        const Lbl kickColor = b.label("kickColor");
-        if (sharedDir) {
-            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
-            b.branchIfLez(sceFlag, kickColor);
-            b.iaddInto(vertexData, colorData, b.izero());
-            b.branch(kickPatch);
-            b.bind(kickColor);
-        }
-        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
-        b.branchIfLez(sceFlag, kickMulti);
-        if (d.texture) b.iaddInto(vertexData, stqData, b.izero());
-        b.branch(kickPatch);
-        b.bind(kickMulti);
-        b.iaddInto(vertexData, colorData, b.izero());
-        b.bind(kickPatch);
-    }
+    // The last chunk: its prim tag and kick address are where the stream left
+    // them (the tag block itself when nothing was streamed before).
     // The prim giftag's word 0 is NLOOP | EOP, and 0x8000 does not fit in one
     // 15-bit immediate.
+    (void)primQuad;
+    (void)sharedDir;
+    ilwInto(prog, vertexData, b.izero(), kClipStreamAddr, 0);
     b.iaddiuInto(vertMask, outCount, 0x4000);
     b.iaddiuInto(vertMask, vertMask, 0x4000);
-    b.isw(vertMask, vertexData, primQuad, 0);
+    b.isw(vertMask, vertexData, 0, 0);
+    ilwInto(prog, vertexData, b.izero(), kClipStreamAddr, 1);
 
     b.xgkick(vertexData);
     prog.code.back().comment = "dispatch to the GS rasterizer";
@@ -4623,6 +4706,110 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
             }
     }
     return eq;
+}
+
+StreamEquivalence streamEquivalence(const Program& whole,
+                                    const Program& reference, const Desc& d,
+                                    int trials, uint32_t seed) {
+    StreamEquivalence out;
+    const int top = 22;  // VU1_STAPIP_LAST_ITEM_ADDR + 1
+    const int blocks = attrStreams(d);
+    const int nreg = regsPerVertex(d);
+    // Only the vertex packets: the tag block's A+D pairs (NREG 1) go out once
+    // per kick in the reference's slices and once in total for the stream.
+    auto vertexPayload = [&](const vusim::Result& r) {
+        std::vector<uint32_t> v;
+        for (const auto& pkt : r.kickPayload) {
+            size_t at = 0;
+            while (at + 2 <= pkt.size()) {
+                const uint32_t w0 = pkt[at], w1 = pkt[at + 1];
+                int n = (int)((w1 >> 28) & 0xF);
+                if (n == 0) n = 16;
+                const size_t words = (size_t)(w0 & 0x7FFF) * (size_t)n * 4;
+                at += 2;
+                if (n == nreg && n > 1)
+                    v.insert(v.end(), pkt.begin() + (long)at,
+                             pkt.begin() + (long)(at + words));
+                at += words;
+            }
+        }
+        return v;
+    };
+    for (int t = 0; t < trials; ++t) {
+        uint32_t s = seed + (uint32_t)t * 2654435761u;
+        if (s == 0) s = 1;
+        const bool strip = (t & 1) != 0;
+        // Up to the largest package a textured class derives (75): the size
+        // the EE now hands this program whole.
+        const int verts = strip ? 3 + (int)(xorshift(s) % 73)
+                                : 3 * (1 + (int)(xorshift(s) % 25));
+        const bool single = !d.dirLights && (xorshift(s) & 1) != 0;
+        const bool spotOn = (xorshift(s) & 1) != 0;
+        uint32_t sw = s;
+        std::vector<uint32_t> memW =
+            stageInput(d, top, verts, sw, single, spotOn, nullptr, 0.0f);
+        const uint32_t packed = memW[(size_t)top * 4 + 3];
+        if (strip) memW[(size_t)top * 4 + 3] = packed | (uint32_t)kClipStripFlag;
+
+        vusim::Config cfg;
+        cfg.top = top;
+        cfg.captureKicks = true;
+        const vusim::Result rw = vusim::run(whole, memW, cfg);
+        if (!rw.ok) {
+            out.detail = "whole package: " + rw.error;
+            return out;
+        }
+        out.kicks += (int)rw.kicks.size();
+        if (verts > out.maxVertices) out.maxVertices = verts;
+        if (strip) ++out.stripTrials;
+
+        // The reference: the same triangles as a list, in slices of 12.
+        std::vector<int> order;
+        if (strip) {
+            for (int i = 0; i + 2 < verts; ++i)
+                for (int k = 0; k < 3; ++k) order.push_back(i + k);
+        } else {
+            for (int i = 0; i < verts; ++i) order.push_back(i);
+        }
+        std::vector<uint32_t> refData;
+        const int slice = 12;
+        for (size_t from = 0; from < order.size(); from += slice) {
+            const int n = (int)std::min<size_t>(slice, order.size() - from);
+            std::vector<uint32_t> memS = memW;
+            for (int b = 0; b < blocks; ++b)
+                for (int i = 0; i < n; ++i)
+                    for (int f = 0; f < 4; ++f)
+                        memS[(size_t)(top + kVertDataAddr + b * n + i) * 4 + f] =
+                            memW[(size_t)(top + kVertDataAddr + b * verts +
+                                          order[from + (size_t)i]) * 4 + f];
+            memS[(size_t)top * 4 + 3] =
+                (packed & ~(uint32_t)kClipCountMask) | (uint32_t)n;
+            const vusim::Result rs = vusim::run(reference, memS, cfg);
+            if (!rs.ok) {
+                out.detail = "reference slice: " + rs.error;
+                return out;
+            }
+            const auto v = vertexPayload(rs);
+            refData.insert(refData.end(), v.begin(), v.end());
+        }
+        const auto got = vertexPayload(rw);
+        out.trials = t + 1;
+        out.vertices += (long long)(got.size() / (4 * (size_t)nreg));
+        if (got != refData) {
+            size_t i = 0;
+            while (i < got.size() && i < refData.size() && got[i] == refData[i]) ++i;
+            char buf[256];
+            std::snprintf(buf, sizeof buf,
+                          "trial %d (%s, %d vertices, %d kicks): payload word %zu "
+                          "differs (%zu words streamed, %zu in slices)",
+                          t, strip ? "strip" : "list", verts, (int)rw.kicks.size(),
+                          i, got.size(), refData.size());
+            out.detail = buf;
+            return out;
+        }
+    }
+    out.identical = true;
+    return out;
 }
 
 Tolerance experimentEquivalence(const Program& a, const Program& b,

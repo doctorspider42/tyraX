@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.174.0: VU1 clip programs stream their output (mid-program XGKICKs) and read
+// strips, so a frustum-crossing package is clipped whole and by pointer.
 // 1.173.5: terrain residency/LOD follows the camera target before visual shake.
 // Millimetre camera jitter no longer flips half-chunk detail bands while driving.
 
@@ -5553,7 +5555,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 173
+#define TYRAX_VERSION_MINOR 174
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5659,7 +5661,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

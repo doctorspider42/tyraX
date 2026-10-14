@@ -3951,6 +3951,51 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
+    // Modified by TyraX: the clip family streams its output (mid-program
+    // XGKICKs) so the EE can hand it a WHOLE package, list or strip. The
+    // reference feeds the same triangles in 12-vertex list slices, the shape
+    // the EE used to cut; TYRAX_CLIP_REF_DIR may point at an older tree's
+    // clip/*.vclpp to use THOSE programs as the reference instead.
+    std::printf("-- clip stream: whole package vs 12-vertex slices --\n");
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Desc d = vugen::allDescs()[i];
+        const vugen::Built& b = built[i];
+        if (!d.clip || b.program.code.empty()) continue;
+        vuir::Program ref = b.program;
+        const char* refDir = std::getenv("TYRAX_CLIP_REF_DIR");
+        if (refDir && *refDir) {
+            vuasm::Options opt;
+            opt.includeRoot = engine;
+            std::string err;
+            const std::string path =
+                (fs::path(refDir) / (d.fileStem + ".vclpp")).string();
+            ref = vuir::Program{};  // parseFile appends
+            if (!vuasm::parseFile(path, opt, ref, err)) {
+                std::printf("  %-16s no reference at %s: %s\n", d.vclName.c_str(),
+                            path.c_str(), err.c_str());
+                ++mismatches;
+                continue;
+            }
+        }
+        const vugen::StreamEquivalence se =
+            vugen::streamEquivalence(b.program, ref, d, 80, 0x51ce5u);
+        std::printf("  %-16s %-9s %d trials (%d strips), up to %d vertices, "
+                    "%d kicks, %lld GS vertices\n",
+                    d.vclName.c_str(), se.identical ? "IDENTICAL" : "DIFFERENT",
+                    se.trials, se.stripTrials, se.maxVertices, se.kicks,
+                    se.vertices);
+        // A run that drew nothing compares equal to anything.
+        if (se.identical && se.vertices == 0) {
+            ++mismatches;
+            std::printf("      VACUOUS: no vertex reached the GIF\n");
+        }
+        if (!se.identical) {
+            ++mismatches;
+            std::printf("      %s\n", se.detail.c_str());
+        }
+    }
+    std::printf("\n");
+
     // The built-in clip classes share resident images: C carries D, TC
     // carries TCE and TD. The ordinary checks above exercise variant zero;
     // compare each peer path directly with the old specialised program too.

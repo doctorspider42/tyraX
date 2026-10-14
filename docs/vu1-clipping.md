@@ -20,13 +20,18 @@ it down one of three paths:
 |---|---|---|---|
 | `OUTSIDE_FRUSTUM` | dropped on the EE | — | nothing |
 | `IN_FRUSTUM` | **cull** | `stapip_cull_*` | DMA by reference, one kick |
-| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into sixths, memcpy per stream, one kick each |
+| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | the whole package by reference; the program streams its output (since 1.174.0) |
 
 The cull programs transform, light and project, and mark a triangle that fails
 their `clipw` judgement as **not drawn** by setting its ADC bit. They never cut
 anything. The clip programs run a full Sutherland–Hodgman cut against up to six
 planes on VU1, then fan-triangulate whatever polygon comes out and patch the
 prim giftag's NLOOP with the vertex count they actually produced.
+
+**Since 1.174.0 the clip route takes a package WHOLE** - see "A whole package,
+streamed" below. The rest of this section, and the next one, describe the
+sliced route that `StaPipCore::setStreamClip(false)` and the EE clipper still
+use.
 
 The clip route is the expensive one, and not mainly because of the cut. A
 crossing package is split into **sixths** (`StaPipCore::clipDivisor`; the EE
@@ -562,6 +567,83 @@ Measured on a PS2 (Motor District night, heavy spot, lean build, same ELF
 A/B), this saves only ~0.2 ms of EE work per frame. The instrumented build had
 priced the subpackage work at ~1.8 ms, but per-call COP0 scopes inflate exactly
 this kind of short, frequent work. Trust lean A/Bs only.
+
+## A whole package, streamed (2026-10-14, 1.174.0)
+
+**The PC habit:** the EE cut every frustum-crossing package into pieces small
+enough that the clip program's worst-case output - seven triangles per input
+triangle - fitted one fixed block behind the input. A list package became
+4-triangle slices (12 vertices for the textured classes), each its own buffer,
+DMA chain and kick. A STRIP package was worse: the clip programs read lists, so
+`renderStrippedPkgs` classified the strip in 4-triangle blocks
+(`StaPipStripSubranges`, ~14 plane tests a block), expanded each block into a
+list in the copy pool and sent it, a whole package's worth of EE work for the
+two or three triangles that actually touch the near plane. On the heavy night
+spot that was ~1 ms of EE a frame for ~9 crossing strip packages, and every
+bag that used the copy pool had to send its own packet.
+
+**The PS2 way:** VU1 streams. The clip program now writes its output into two
+chunks of `1 + 30 * regs` quadwords behind the input, each opened by a prim
+GIF tag. Before it emits a fan it checks the fan fits the open chunk; if not,
+it patches the chunk's NLOOP, `XGKICK`s it and opens the other one. An
+`XGKICK` stalls until the previous one has been read, so the chunk kicked two
+kicks ago is free again. Chunk A's tag is the tag block's own prim tag, so the
+first kick still carries the GS state. Because the fan-out no longer has to fit
+one block, the EE hands the program a **whole package by pointer**:
+
+- a list package goes as one buffer (`renderPkgs`);
+- a strip package goes as one buffer too, with bit 9 of the packed count set
+  (`VU1_STAPIP_CLIP_STRIP_FLAG`): the program walks one vertex per triangle
+  and runs `count - 2` triangles. Winding is not kept and does not need to be -
+  nothing in this engine backface-culls. The prim tag is a LIST (the fan
+  triangulation's output), whatever the bag's topology;
+- a small crossing bag takes the same package route.
+
+The stream state lives in `VU1_CLIP_STREAM_ADDR` (1019): the open chunk's prim
+tag, its kick address, the other chunk's tag and the input step. It is spilled
+rather than kept in integer registers because the textured clipper has none to
+spare. The count is bits 0..8 of the packed word now
+(`VU1_STAPIP_CLIP_COUNT_MASK`); packages never come near 512 vertices.
+
+**Fits:** a cull-sized package plus two chunks fits every class's half of the
+double buffer (461 quadwords): textured, 75 vertices, is 2 + 225 + 8 + 2 x 91 =
+417. The resident set is ~1918 of 2042 slots (clip TC fold 364 -> 406, clip C
+fold ~ +34), measured from the objects' `_CodeStart`/`_CodeEnd`.
+
+**Proof it draws the same:** `--vu-check` gained a "clip stream" section. It
+runs each clip program over a whole package (lists and strips up to 75
+vertices, ~3.6 kicks each) and the reference over the same triangles as
+12-vertex LIST slices - the shape the EE used to cut - and compares the vertex
+payload the GIF receives across all kicks, bit for bit. Pointing
+`TYRAX_CLIP_REF_DIR` at a copy of the pre-1.174 `clip/*.vclpp` runs the OLD
+programs as the reference; all five classes were identical, and planting a
+one-instruction bug in the old TC reference turned it DIFFERENT. (The first
+version of the check appended the reference to the program under test -
+`vuasm::parseFile` appends - and passed against the planted bug. Falsify a new
+check before trusting it.) The simulator records each kick's GIF packet at the
+moment of the kick (`vusim::Config::captureKicks`), because a streamed chunk is
+overwritten by a later one before the run ends.
+
+**Measured on a physical PS2** (Vehicle Playground, night, the heavy spot,
+lean build, same-ELF A/B, three cycles):
+
+| Heaviest 150-frame drive window | Work | p95 | Late (> 18 ms) |
+| --- | ---: | ---: | ---: |
+| sliced / strip subranges (`setStreamClip(false)`) | 14.0 ms | 16.1 ms | 5 |
+| whole package, streamed | 12.28-12.55 ms | 13.9-14.1 ms | 1 |
+
+Parked frames do not change (12.4 ms): nothing there crosses the near plane.
+A VRAM grab of the parked frame differs between the routes in 2153 pixels, by
+one LSB (four at most) - below the 15 000-pixel noise between two cycles of the
+SAME route at night.
+
+`StaPipCore::setStreamClip(false)` restores the slice and strip-subrange
+routes for an A/B; the new programs take those small buffers unchanged.
+
+The shipping light-fold images (`stapip_clip_*_fold_vu1.vclpp`) are derived
+from the generated bases by `tools/derive-fold-images.py` - re-run it after
+`--vu-emit`. The paint images (`*_paint_vu1.vclpp`, default off) were not
+regenerated and still carry the pre-stream body.
 
 ## See also
 

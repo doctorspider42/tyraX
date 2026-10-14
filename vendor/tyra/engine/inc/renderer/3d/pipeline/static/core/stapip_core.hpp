@@ -60,6 +60,12 @@ class StaPipCore {
    * sends at its end exactly as before. VU1 clipping only. Default on; false
    * restores the old rule for an A/B. */
   void setPartialBatch(bool on) { partialBatch = on; }
+  /** Modified by TyraX: whole-package clipping (docs/vu1-clipping.md, "A
+   * whole package, streamed"). With VU1 clipping on, a frustum-crossing
+   * package - list or strip - goes to the clip program WHOLE and by pointer;
+   * the program streams its output with mid-program XGKICKs. False restores
+   * the slice / strip-subrange routes for an A/B. Default on. */
+  void setStreamClip(bool on) { streamClip = on; }
   StaPipCore();
   ~StaPipCore();
 
@@ -265,6 +271,10 @@ class StaPipCore {
   void renderClipSlices(StaPipBag* bag, u32 offset, u32 count, u8 planeMask);
   bool sliceClip = true;
   bool partialBatch = true;
+  bool streamClip = true;
+  bool wholeClip() const {
+    return streamClip && qbufferRenderer.isVU1ClippingEnabled();
+  }
 };
 
 }  // namespace Tyra

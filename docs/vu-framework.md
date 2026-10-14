@@ -107,6 +107,15 @@ coefficient.
 
 That check runs in milliseconds and needs no PS2.
 
+The clip family has a second check of its own, "clip stream" (1.174.0): each
+clip program runs over a WHOLE package, list or strip, streaming its output
+across several `XGKICK`s, and must hand the GIF the same vertex payload as a
+reference fed the same triangles in 12-vertex list slices. `vusim` records each
+kick's packet when it happens (`Config::captureKicks`), because a later chunk
+overwrites an earlier one. `TYRAX_CLIP_REF_DIR=<dir of old clip/*.vclpp>` makes
+an older tree's programs the reference. See [vu1-clipping.md](vu1-clipping.md),
+"A whole package, streamed".
+
 **What it does not cover: the EE side.** `--vu-check` stages VU1 memory itself
 (`stageInput`) and diffs only what the microprogram staged for the GS, so the
 generated `addProgramQBufferDataToPacket` — the code that decides *where* each
