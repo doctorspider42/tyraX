@@ -117,6 +117,48 @@ The replay performs the same side effects as the ordinary path:
 Stamps pack into the open packet until the next stamp would not fit. An
 ordinary bag still reserves its own worst case before appending.
 
+## Batching (2026-10-14)
+
+A stamp joins the open submission batch whatever its bag's size
+(`setStampBatchAnySize`, default true). Only the REPEAT half of the
+ordinary rule still applies. The size cap in `batchSized`
+(`count <= maxVertCount * 15`) bounds an ordinary bag's packet, which holds one
+command group per package. A stamp appends ~20 qwords and a REF to an
+immutable arena, so the cap meant nothing for it. It only kept every large road
+and terrain strip sending a packet of its own.
+
+The generated game also opens a batch around the main view's terrain chunks.
+
+The cost of one stamp hit was measured on the PS2 (heavy night spot, lean
+build, COP0 ticks per segment, 122 hits per frame, ~34 µs each):
+
+| Segment | ms per frame |
+| --- | ---: |
+| find | 0.29 |
+| producer facts | 0.35 |
+| frustum | 0.36 |
+| texture | 0.14 |
+| light pick | 0.74 |
+| close the previous packet | 0.70 |
+| program + texture use | 0.24 |
+| copy + MVP + fog | 0.59 |
+| send after the stamp | 0.87 |
+
+With any-size batching:
+
+| | Before | After |
+| --- | --- | --- |
+| Packets per frame | 81 | 45 |
+| Parked work | 13.0 ms | 12.5 ms |
+| Heaviest drive window | 14.35 ms | 14.0–14.1 ms |
+
+`submit` itself only fell from 2.39 to 2.18 ms. Its cost follows the bytes it
+copies, not the call count (see the night EE investigation).
+
+`RendererCore::pickDynLight` rejects out-of-reach lights by comparing squared
+distances before taking the square root. The verdict is the same; the gain
+was not measurable.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.

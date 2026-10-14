@@ -304,7 +304,15 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
     const float dx = l->position.x - worldCenter.x;
     const float dy = l->position.y - worldCenter.y;
     const float dz = l->position.z - worldCenter.z;
-    float d = Math::sqrtNonNegative(dx * dx + dy * dy + dz * dz) - worldRadius;
+    // Modified by TyraX: out of reach without the square root. d >= range
+    // below is |c - p| >= range + radius, and both sides are non-negative,
+    // so comparing squares gives the same verdict. Every stamped bag runs
+    // this loop over every light (docs/stapip-stamps.md); at night most
+    // lights are out of reach of most bags.
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    const float reach = l->range + worldRadius;
+    if (d2 >= reach * reach) continue;
+    float d = Math::sqrtNonNegative(d2) - worldRadius;
     if (d < 0.0F) d = 0.0F;
     if (d >= l->range) continue;
     const float att = 1.0F - d / l->range;

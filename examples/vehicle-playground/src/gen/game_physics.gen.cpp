@@ -1595,7 +1595,13 @@ void TerrainGame::renderScene() {
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
   // (Streaming runs before the reflection capture - see there.)
+  // One submission batch around the chunks: their stamps then share packets
+  // instead of sending one each (docs/stapip-stamps.md, "Batching"). Chunk
+  // arrays are not rewritten between the chunk draws, which is what the
+  // batch scope asks of its bags.
+  stapip.core.beginSubmissionBatch();
   renderTerrain();
+  stapip.core.endSubmissionBatch();
   costEnd("Terrain",-1,costTerrainStart);
   { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving

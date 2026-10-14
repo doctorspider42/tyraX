@@ -40,6 +40,7 @@ class StaPipCore {
 #if TYRA_STAPIP_STAMP
   /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). */
   void setStampEnabled(bool on) { qbufferRenderer.setStampEnabled(on); }
+  void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
 #endif

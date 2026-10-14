@@ -3082,7 +3082,19 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   // Batch membership exactly as StaPipCore decides it for this bag. This is
   // also the ordinary path's first mutation (it may flush the pending packet),
   // so a rejection below still leaves the ordinary path a valid start.
-  setSubmissionBatchCandidate(s->batchSized != 0, tex != nullptr);
+  // Modified by TyraX: the size cap in batchSized bounds an ORDINARY bag's
+  // packet (one command group per package). A stamp appends ~20 qwords and a
+  // REF to an immutable arena whatever the bag's size, so only the REPEAT half
+  // of the rule still applies: large road and terrain strips used to send one
+  // packet per stamp (docs/stapip-stamps.md, "Batching").
+  {
+    const bool repeatNow =
+        tex == nullptr ||
+        (tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+         tex->getWrapSettings()->vertical == WRAP_REPEAT);
+    setSubmissionBatchCandidate(
+        s->batchSized != 0 || (stampBatchAnySize && repeatNow), tex != nullptr);
+  }
   // The wrap write is state-dependent: both captured forms assume REPEAT in
   // force, the state the wrap block (or its absence) was recorded under.
   {

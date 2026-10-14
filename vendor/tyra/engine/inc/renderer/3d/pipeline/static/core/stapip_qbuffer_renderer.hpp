@@ -799,6 +799,10 @@ class StaPipQBufferRenderer {
 #if TYRA_STAPIP_STAMP
   /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). Off by default. */
   void setStampEnabled(bool on) { stampEnabled = on; }
+  /** Modified by TyraX: a stamp joins the open submission batch whatever
+   * its bag's size (docs/stapip-stamps.md, "Batching"). false restores the
+   * old rule (only bags under the ordinary size cap) for an A/B. */
+  void setStampBatchAnySize(bool on) { stampBatchAnySize = on; }
   bool isStampEnabled() const { return stampEnabled; }
   /** Arm a capture for the bag about to go through sendObjectData + whole
    * baked replay. `lo`/`hi` are its world-space box (identity model). */
@@ -1128,6 +1132,7 @@ class StaPipQBufferRenderer {
   };
   StampEntry* stamps = nullptr;
   bool stampEnabled = false;
+  bool stampBatchAnySize = true;
   bool stampArmed = false;   // a capture is wanted for the current bag
   bool stampOk = false;      // sendObjectData emitted only stampable blocks
   StaPipBag* stampBag = nullptr;
