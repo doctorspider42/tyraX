@@ -2108,12 +2108,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go

@@ -1140,6 +1140,16 @@ class TerrainGame : public Tyra::Game {
   // crosses a snap line, instead of on every centimetre of walking.
   float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
   int terrainLodFocusCount = 0;
+  // The view rects of the last streaming pass, in chunk indices
+  // (cx0, cz0, cx1, cz1). When the whole map fits the slot pool nothing is
+  // evicted, and these rects only decide what renderTerrain draws.
+  int terrainDrawRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainDrawRectCount = 0;
+  bool terrainWholeMapResident() const;
+  // The vertex shade of every heightfield node, computed once (r, g, b and a
+  // "valid" flag per node). Only kept for a whole-map-resident terrain; see
+  // buildTerrainChunk.
+  std::vector<float> terrainShadeCache;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
@@ -3029,6 +3039,16 @@ class TerrainGame : public Tyra::Game {
   // crosses a snap line, instead of on every centimetre of walking.
   float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
   int terrainLodFocusCount = 0;
+  // The view rects of the last streaming pass, in chunk indices
+  // (cx0, cz0, cx1, cz1). When the whole map fits the slot pool nothing is
+  // evicted, and these rects only decide what renderTerrain draws.
+  int terrainDrawRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainDrawRectCount = 0;
+  bool terrainWholeMapResident() const;
+  // The vertex shade of every heightfield node, computed once (r, g, b and a
+  // "valid" flag per node). Only kept for a whole-map-resident terrain; see
+  // buildTerrainChunk.
+  std::vector<float> terrainShadeCache;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.

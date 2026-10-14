@@ -149,6 +149,39 @@ the digit. Pictures: 0 pixels differ on both DAY benchmark poses, both arms
 byte-identical within themselves. The night poses cannot be read; their own
 repeats disagree (lamp flicker, star twinkle).
 
+## A map that fits is not streamed (2026-10-14)
+
+The chunk ring (focus +- *Terrain view distance*) evicts the chunks behind the
+player and builds the ones ahead. On a map whose every chunk fits the slot pool
+that is pure loss: the pool reserves memory for all of them anyway. The Motor
+District has 25 chunks and a 25-slot pool, and on a physical PS2 the ring rebuilt
+chunks behind a driving car for 2.6-5.7 ms of EE apiece.
+
+When the pool holds the whole map (`terrainWholeMapResident`), the generated game
+now builds every chunk behind the loading screen and never evicts one. The view
+rects still decide what `renderTerrain` draws (a chunk outside every rect is
+skipped), so the picture is the same as with streaming.
+
+A rebuild still happens when a chunk's LOD band changes. It now reads its
+vertex shade from a per-node cache instead of recomputing it. The shade (normal,
+GI probes, point lights, emissive pools, tint noise) depends only on the
+heightfield node, so `terrainShadeCache` holds r, g, b and a valid flag per
+node, about 105 KB on an 81 x 81 map. The cache is kept only for a whole-map
+resident terrain and is dropped wherever every chunk is thrown away (scene
+reset, the terrain texture landing).
+
+Physical PS2, heavy-spot drive, lean build:
+
+| | Build cost in frames with a build | Late frames, heaviest window |
+| --- | --- | --- |
+| Streamed, LOD 70 | 1.9 ms | 7 |
+| Resident + shade cache, LOD 70 | 1.2 ms | 7 |
+| Resident, LOD off | no builds | 4 |
+
+LOD off still costs +0.4 ms parked (more vertices through StaPip), so LOD 70
+stays. The late frames left in that window come from object submission, not
+from the terrain ([the night EE investigation](tyrax2-night-ee-2026-10-12.md)).
+
 ## Texture coordinates are chunk-relative (1.124.3)
 
 The ground texture tiles in world space - `u = x * tile`, from the material's

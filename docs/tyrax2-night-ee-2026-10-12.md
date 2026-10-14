@@ -268,6 +268,27 @@ Next leads, roughly by expected value:
    strips and streams its output with mid-program XGKICKs would turn a
    partial bag into one baked REF.
 
+### Terrain chunk builds (2026-10-14)
+
+The spike cluster at one road spot was terrain chunk builds. They had two
+causes:
+
+- **LOD band changes.** Turning LOD off removed these, but builds came back
+  from the second cause.
+- **The streaming ring.** It evicted chunks behind the car and rebuilt them on
+  the way back, at 2.6–5.7 ms of EE apiece, on a 25-chunk map whose pool holds
+  all 25.
+
+The fix ([terrain.md](terrain.md), "A map that fits is not streamed"):
+
+- a map that fits is built whole and never evicted;
+- a LOD rebuild reads a per-node shade cache instead of relighting every
+  vertex (build cost 1.9 → 1.2 ms in the frames that have one).
+
+The heaviest window still has 7 late frames at LOD 70; with LOD off it has 4,
+but LOD off costs +0.4 ms parked. The slowest frames (18–21 ms) are now
+`Objects` at 6.7–7.9 ms on that stretch, which is the next target.
+
 Rig notes for whoever picks this up:
 
 - `cld_probe.hpp` holds 96 scope names (it was 48, and later names were

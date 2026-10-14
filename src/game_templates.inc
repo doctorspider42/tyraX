@@ -6355,12 +6355,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -8716,12 +8718,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -26804,6 +26808,7 @@ void TerrainGame::resetTerrainChunks() {
 
   terrainChunks.clear();
   terrainChunks.resize(pool);  // sized once per scene - slots stay put
+  terrainShadeCache.clear();
   terrainChunkSlot.assign(total, -1);
   prepareGroundShadowTextures();
 }
@@ -27019,6 +27024,27 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (s.z > 1.0F) s.z = 1.0F;
     return s;
   };
+  // The shade is a function of the heightfield node alone: normal, probes,
+  // point lights, emissive pools, tint noise - all static for the scene. A
+  // whole-map-resident terrain therefore computes each node once and every
+  // later build (a LOD band change, a texture landing) only reads it back.
+  // Rebuilding a chunk used to redo all of it, 1.3-5.7 ms of EE per chunk on
+  // the PS2. Shared edge nodes see the same emitters from either chunk (the
+  // local emitter list is collected over a sphere that contains them), so the
+  // value cached by one chunk is the one its neighbour would compute.
+  const bool shadeCached = terrainWholeMapResident();
+  if (shadeCached && terrainShadeCache.size() != (size_t)HM_W * HM_D * 4)
+    terrainShadeCache.assign((size_t)HM_W * HM_D * 4, -1.0F);
+  auto shadeAtC = [&](int ix, int iz) -> V3 {
+    if (!shadeCached || ix < 0 || iz < 0 || ix >= HM_W || iz >= HM_D)
+      return shadeAt(ix, iz);
+    float* c = &terrainShadeCache[((size_t)iz * HM_W + ix) * 4];
+    if (c[3] < 0.0F) {
+      const V3 s = shadeAt(ix, iz);
+      c[0] = s.x, c[1] = s.y, c[2] = s.z, c[3] = 1.0F;
+    }
+    return V3{c[0], c[1], c[2]};
+  };
 
   // No material: two greens in a checker pattern. With a material, the Kd
   // tint colors every cell uniformly - textured terrain modulates the map
@@ -27115,9 +27141,9 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   };
   auto shadeAtE = [&](int ix, int iz) -> V3 {
     const EdgeMix m = edgeMix(ix, iz);
-    if (!m.snap) return shadeAt(ix, iz);
-    const V3 sa = m.alongZ ? shadeAt(ix, m.a) : shadeAt(m.a, iz);
-    const V3 sb = m.alongZ ? shadeAt(ix, m.b) : shadeAt(m.b, iz);
+    if (!m.snap) return shadeAtC(ix, iz);
+    const V3 sa = m.alongZ ? shadeAtC(ix, m.a) : shadeAtC(m.a, iz);
+    const V3 sb = m.alongZ ? shadeAtC(ix, m.b) : shadeAtC(m.b, iz);
     return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
               sa.z + (sb.z - sa.z) * m.t};
   };
@@ -27681,6 +27707,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
 
 
 
+// True when the slot pool holds every chunk of the map (see
+// updateTerrainChunks): the map is then built whole and never streamed.
+bool TerrainGame::terrainWholeMapResident() const {
+  return TERRAIN_VIEW_DISTANCE > 0.0F &&
+         (int)terrainChunks.size() >= terrainChunksX * terrainChunksZ;
+}
+
+
+
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
 // builds into). loadScene uses this as the loading-bar denominator and to
 // drive the batched terrain drain to completion.
@@ -27693,7 +27728,7 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
   int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+  if (TERRAIN_VIEW_DISTANCE > 0.0F && !terrainWholeMapResident()) {
     auto clampX = [&](int v) {
       return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
     };
@@ -27760,6 +27795,26 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   addRect(focusX, focusZ);
   if (twoFoci) addRect(focus2X, focus2Z);
 
+  // A map whose every chunk fits the slot pool is not streamed: it is built
+  // whole (behind the loading screen) and never evicted. The ring used to
+  // throw out the chunks behind the player and rebuild them on the way back,
+  // 2.6-5.7 ms of EE apiece on the PS2, for memory the pool had reserved
+  // anyway. The view rects then only cull what renderTerrain draws.
+  terrainDrawRectCount = rectCount;
+  for (int r = 0; r < rectCount; ++r) {
+    terrainDrawRect[r][0] = rects[r].cx0;
+    terrainDrawRect[r][1] = rects[r].cz0;
+    terrainDrawRect[r][2] = rects[r].cx1;
+    terrainDrawRect[r][3] = rects[r].cz1;
+  }
+  const bool wholeMap = terrainWholeMapResident();
+  if (wholeMap)
+    for (int r = 0; r < rectCount; ++r) {
+      rects[r].cx0 = rects[r].cz0 = 0;
+      rects[r].cx1 = terrainChunksX - 1;
+      rects[r].cz1 = terrainChunksZ - 1;
+    }
+
   // The LOD bands' own foci, SNAPPED to half a chunk. Detail is a step
   // function, so its input may as well be one: without the snap the field
   // changes on every centimetre of walking and a chunk sitting on a band
@@ -27777,7 +27832,7 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     }
   }
 
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+  if (TERRAIN_VIEW_DISTANCE > 0.0F && !wholeMap) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       bool keep = false;
@@ -27943,8 +27998,18 @@ void TerrainGame::renderTerrain() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerTerrain);
 #endif
+  const bool ringCull = terrainWholeMapResident() && terrainDrawRectCount > 0;
   for (TerrainChunk& ch : terrainChunks) {
     if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (ringCull) {
+      bool inRing = false;
+      for (int r = 0; r < terrainDrawRectCount && !inRing; ++r)
+        inRing = ch.cx >= terrainDrawRect[r][0] &&
+                 ch.cx <= terrainDrawRect[r][2] &&
+                 ch.cz >= terrainDrawRect[r][1] &&
+                 ch.cz <= terrainDrawRect[r][3];
+      if (!inRing) continue;
+    }
     if (portalExitPlaneOn) {
       // Portal through-view dead zone: skip chunks fully on the virtual
       // camera's side of the exit plane - through a real hole that region
