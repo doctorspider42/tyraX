@@ -485,3 +485,28 @@ that fit this are about memory, not instructions - code layout and size
 objects touched per draw, packets built where the DMA reads them (the
 scratchpad, as Burnout 3 does), and prefetching in loops that know what comes
 next.
+
+### The -Os crash and what -Os is worth (2026-10-15)
+
+The "-Os/PGO boot crash" is not a boot crash. Bisected in PCSX2 by engine
+directory (`$(filter obj/<dir>/%,$(OBJECTS)): CFLAGS += -Os`, 240 s a run):
+renderer, loaders, physics, audio/debug/pad/irx/thread at -Os all run clean;
+**`src/math` at -Os alone** reproduces it - an IOP jump to a float-valued PC
+(0x3f800000, 0x3f7a1100...) or a silent hang, ~240 frames into the rig's
+first drive, every run. An earlier "corrupted RPC client" lead was an
+artefact: the scan read addresses from a stale `.elf.sym` of another build.
+With the right table the EE-side SIF RPC clients stay intact to the crash.
+
+The audit of `src/math` asm found real bugs (no `"memory"` clobbers,
+undeclared `$2`/`$8`, `atan2` rewriting its inputs - fixed in 1.175.2), but
+they are not this crash. Per-frame traces show the -Os and -O3 cars on the
+same path to a few cm, no host file I/O and no unusual audio call before the
+IOP dies. Unresolved; a size build keeps `src/math` at -O3.
+
+Measured on the PS2 (rig, base vpnR5, two ELFs deployed back to back, 3-4
+cycles each): **engine -Os (math -O3) is 300 KB smaller and no faster** -
+parked p50 12.35 ms in both, driving p50 12.43-12.53 vs 12.0-12.3 ms and p95
+~14.7 vs ~13.9 ms, i.e. 0.3-0.5 ms SLOWER in motion. A smaller image does not
+cut the misses that matter; the hot loops lose more to -Os code than the
+I-cache gains. -Os is off the table as a layout tool; hot/cold grouping
+without it (function sections + an order file from the PC samples) is next.
