@@ -842,3 +842,37 @@ Traps met on the way:
 Verified: PCSX2 and physical-PS2 captures of the reported pose (107, -67, yaw
 65) with the full scene and with terrain and static batches off. Before, the
 holes are there; after, the road and junction are whole.
+
+## Bands (1.176.0)
+
+The lateral merge (above) and the flat collapse are replaced by a **band
+planner** (`roadPlanBands` in `src/roadgen.cpp`, pasted verbatim into the
+generated `buildRoads`). It still samples the dense grid first, then keeps:
+
+- per row, the samples where the ground under it **bends** (Douglas-Peucker on
+  the row's height profile at half `kRoadTolY`);
+- per neighbouring station pair, more samples where that pair alone breaks a
+  budget (both rows gain the failing dense cell's edges);
+- per road, only the stations a band cannot skip: a band of up to
+  `kRoadBandMax` (8) stations is the **zipper** triangulation of its two kept
+  rows, accepted while every dense sample and every dense triangle centroid it
+  replaces lies on it within `kRoadTolY` (1 cm) in height, `kRoadTolUV` (0.006
+  of a repeat, 0.77 texel at 128 px) in texture, and the skipped shoulders
+  within `kRoadTolXZ` (1 cm) of its chords.
+
+Both bands meeting at a kept row use that row's whole kept set, so no T-vertex
+seam can open. Soft-edged roads keep every station (their baked fade bands
+meet the core on them), and spills keep every station too.
+
+**Why:** on the Motor District the roads were 41% of every frame's VU1
+vertices (~21k of ~51k, measured with the GPU timeline rig on a PS2, where VU1
+is ~9 ms of the frame). The decal was sampled every 0.5 units across and 1-2
+along on a 4-unit terrain. Scene 0's roads go from 22 104 strip vertices /
+19 320 triangles to 12 165 / 8 018 (sweep: UV 0.003 keeps 12 544 triangles,
+0.01 keeps 6 094). `verify-road-twins.py` checks the budgets against
+`roadgen::tessellateDense`, the seams, strip = list, and host = runtime
+vertex for vertex. The selected-road outline finds a band's shoulder as the
+triangle edge whose ends share u 0 (or 1) across two rows.
+
+**Not yet done:** PCSX2 screenshot comparison and the PS2 frame A/B were
+stopped before they ran.

@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.176.0: roads tessellate into error-bounded bands (docs/roads.md, Bands):
+// scene-0 Motor District roads 19 320 -> 8 018 triangles; PS2 A/B pending.
 // 1.175.5: Show in reflections no longer keeps an object out of static batches;
 // the flag joins the group key and the env-map passes submit reflected batches whole.
 // 1.175.4: the chase camera sweeps the frame's vehicle collider list (boxes carry
@@ -5570,7 +5572,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 175
+#define TYRAX_VERSION_MINOR 176
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5676,7 +5678,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 5
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -3455,35 +3455,26 @@ void App::drawViewportWindow() {
                 dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
                 const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
                 // The two authored borders, found by U rather than by
-                // counting. A station pair emits SIX vertices per lateral
-                // span - A, B, C, A, C, D - but how many spans it emits is
-                // the lateral reduction's business and has not been a fixed
-                // `crossSteps` since the flat collapse existed
-                // (docs/roads.md, "The lateral budget", where a pair can now
-                // be cut anywhere). Walking in strides of `crossSteps * 6`
-                // therefore drifts off the station grid and draws the cyan
-                // border through the middle of the asphalt. U is exactly 0 on
-                // the left shoulder and exactly 1 on the right, by
-                // construction in buildRows, so the spans that own a border
-                // say so themselves: A->D is a border when A's u is 0, and
-                // B->C is one when B's u is 1. Drawing both sides of every
-                // lateral cell instead would expose the tessellation as a
-                // cyan comb.
-                for (size_t s = 0; s + 5 < strip.size(); s += 6) {
-                    ImVec2 a, b;
-                    if (strip[s].u == 0.0f &&
-                        worldToImage(strip[s].x, strip[s].y + 0.05f,
-                                     strip[s].z, a) &&
-                        worldToImage(strip[s + 5].x, strip[s + 5].y + 0.05f,
-                                     strip[s + 5].z, b))
-                        dl->AddLine(a, b, edgeCol, 2.0f);
-                    if (strip[s + 1].u == 1.0f &&
-                        worldToImage(strip[s + 1].x, strip[s + 1].y + 0.05f,
-                                     strip[s + 1].z, a) &&
-                        worldToImage(strip[s + 2].x, strip[s + 2].y + 0.05f,
-                                     strip[s + 2].z, b))
-                        dl->AddLine(a, b, edgeCol, 2.0f);
-                }
+                // counting. A band is a zipper of triangles between two kept
+                // stations (docs/roads.md, "Bands"), so neither a station
+                // pair's vertex count nor its spans are fixed. U is exactly 0
+                // on the left shoulder and exactly 1 on the right, by
+                // construction in buildRows, and a band's shoulder is the one
+                // triangle edge whose two ends share that U across its two
+                // rows (different V) - a boundary edge, so it is drawn once.
+                // Drawing every lateral edge instead would expose the
+                // tessellation as a cyan comb.
+                for (size_t s = 0; s + 2 < strip.size(); s += 3)
+                    for (int e = 0; e < 3; ++e) {
+                        const roadgen::Vertex& p = strip[s + (size_t)e];
+                        const roadgen::Vertex& q = strip[s + (size_t)((e + 1) % 3)];
+                        if (p.u != q.u || (p.u != 0.0f && p.u != 1.0f) || p.v == q.v)
+                            continue;
+                        ImVec2 a, b;
+                        if (worldToImage(p.x, p.y + 0.05f, p.z, a) &&
+                            worldToImage(q.x, q.y + 0.05f, q.z, b))
+                            dl->AddLine(a, b, edgeCol, 2.0f);
+                    }
                 for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
                     const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
                     ImVec2 pt;
