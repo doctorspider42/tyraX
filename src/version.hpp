@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.175.4: the chase camera sweeps the frame's vehicle collider list (boxes carry
+// their world extents) instead of every object: ~0.20 -> ~0.07 ms on a PS2.
 // 1.175.3: sweepSphere keeps each object's box, rotated centre and world
 // extents between calls (keyed like the vehicle colliders): the chase-camera
 // sweep drops from ~0.30 to ~0.20 ms a frame on a PS2.
@@ -5672,7 +5674,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

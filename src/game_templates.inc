@@ -18149,129 +18149,143 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
 
 
 
-float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
-                               float dy, float dz, float maxDist, float radius,
-                               int skipIndex) const {
-  const float r = radius;
-  float best = maxDist;
+// Per-object box geometry for the sweeps, kept across calls and keyed on
+// everything objectCollisionBox and boxRotate read (the vehicle colliders'
+// VehColCache rule). Building it fresh for every object on every call - the
+// box, its rotated centre and three rotated half-extent vectors, each rotation
+// a handful of sinf/cosf - was ~0.3 ms of the frame on a PS2 for the ONE
+// chase-camera sweep, nearly all of it for objects nowhere near the boom.
+namespace {
+struct SweepBoxCache {
+  float key[12] = {};
+  float half[3] = {0.0F, 0.0F, 0.0F};
+  V3 cW = {0.0F, 0.0F, 0.0F};
+  float we[3] = {0.0F, 0.0F, 0.0F};  // the OBB's world AABB half-extents
+  bool valid = false;
+};
+std::vector<SweepBoxCache> g_sweepBoxCache;
+unsigned int g_sweepBoxGen = ~0u;
+}  // namespace
 
-  // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
-  const float qx = px + dx * maxDist, qy = py + dy * maxDist,
-              qz = pz + dz * maxDist;
-  const float sminX = (px < qx ? px : qx) - r, smaxX = (px > qx ? px : qx) + r;
-  const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
-  const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
-
-  // Per-object box geometry, kept across calls and keyed on everything
-  // objectCollisionBox and boxRotate read (the vehicle colliders' VehColCache
-  // rule). Building it fresh for every object on every call - the box, its
-  // rotated centre and three rotated half-extent vectors, each rotation a
-  // handful of sinf/cosf - was ~0.3 ms of the frame on a PS2 for the ONE
-  // chase-camera sweep, nearly all of it for objects nowhere near the boom.
-  // Now a far object costs a key compare and the AABB test.
-  struct SweepBoxCache {
-    float key[12] = {};
-    float half[3] = {0.0F, 0.0F, 0.0F};
-    V3 cW = {0.0F, 0.0F, 0.0F};
-    float we[3] = {0.0F, 0.0F, 0.0F};  // the OBB's world AABB half-extents
-    bool valid = false;
-  };
-  static std::vector<SweepBoxCache> sweepBoxCache;
-  static unsigned int sweepBoxGen = 0;
-  if (sweepBoxCache.size() != runtimeObjects.size() ||
-      sweepBoxGen != sceneGeneration) {
-    sweepBoxCache.assign(runtimeObjects.size(), SweepBoxCache{});
-    sweepBoxGen = sceneGeneration;
+// The boom segment's AABB, expanded by the sphere radius: the broad-phase key.
+TerrainGame::SweepSeg TerrainGame::sweepSegment(float px, float py, float pz,
+                                                float dx, float dy, float dz,
+                                                float maxDist, float r) const {
+  SweepSeg s;
+  s.p[0] = px, s.p[1] = py, s.p[2] = pz;
+  s.d[0] = dx, s.d[1] = dy, s.d[2] = dz;
+  s.r = r;
+  const float q[3] = {px + dx * maxDist, py + dy * maxDist, pz + dz * maxDist};
+  for (int k = 0; k < 3; ++k) {
+    s.mn[k] = (s.p[k] < q[k] ? s.p[k] : q[k]) - r;
+    s.mx[k] = (s.p[k] > q[k] ? s.p[k] : q[k]) + r;
   }
+  return s;
+}
 
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-    const RuntimeObject& o = runtimeObjects[oi];
-    if (oi == skipIndex) continue;  // the swept object itself
-    if (!o.active || !o.visible) continue;
-    // Markers, lights, decals, areas, volumes, belts and "collision: none"
-    // are not blockers - one list, shared with the walker (objectCollides).
-    if (!objectCollides(o.data)) continue;
-    // Portal pass-through for a swept body (a throw, the carried object,
-    // the carry whisker): the geometry the aimed opening is cut into opens
-    // up - collidePlayer's doorway rule, same function.
-    if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
-      continue;
+// Narrow phase for one placed box: slab test in the box's local frame (the
+// frame is orthonormal, so the hit parameter is still a world distance).
+// Returns the hit distance when it is nearer than `best`, else `best`.
+float TerrainGame::sweepBoxHit(const SweepSeg& s, const SceneObjectData& d,
+                               float cx, float cy, float cz, float ex,
+                               float ey, float ez, float best) const {
+  const float r = s.r;
+  const V3 lo = boxInvRotate({s.p[0] - cx, s.p[1] - cy, s.p[2] - cz}, d);
+  const V3 ld = boxInvRotate({s.d[0], s.d[1], s.d[2]}, d);
+  float t0 = 0.0F, t1 = best;
+  bool miss = false;
+  auto slab = [&](float o1, float d1, float lo1, float hi1) {
+    if (miss) return;
+    if (d1 > 1e-6F || d1 < -1e-6F) {
+      const float inv = 1.0F / d1;
+      float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
+      if (ta > tb) {
+        const float sw = ta;
+        ta = tb;
+        tb = sw;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+    } else if (o1 < lo1 || o1 > hi1) {
+      miss = true;  // parallel and outside the slab
+    }
+  };
+  slab(lo.x, ld.x, -ex - r, ex + r);
+  slab(lo.y, ld.y, -ey - r, ey + r);
+  slab(lo.z, ld.z, -ez - r, ez + r);
+  if (miss || t0 > t1) return best;
+  // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
+  // player brushing a wall. Ignore it rather than collapse the camera onto
+  // the head; a box we are standing in cannot usefully block the boom.
+  if (t0 < 0.0F) return best;
+  return t0 < best ? t0 : best;
+}
 
+// One object against the segment: the filters, the cached box, the broad
+// phase and the narrow phase. Returns the new best distance.
+float TerrainGame::sweepObject(const SweepSeg& s, int oi, float best) const {
+  const RuntimeObject& o = runtimeObjects[oi];
+  if (!o.active || !o.visible) return best;
+  // Markers, lights, decals, areas, volumes, belts and "collision: none"
+  // are not blockers - one list, shared with the walker (objectCollides).
+  if (!objectCollides(o.data)) return best;
+  // Portal pass-through for a swept body (a throw, the carried object,
+  // the carry whisker): the geometry the aimed opening is cut into opens
+  // up - collidePlayer's doorway rule, same function.
+  if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
+    return best;
+
+  if (g_sweepBoxCache.size() != runtimeObjects.size() ||
+      g_sweepBoxGen != sceneGeneration) {
+    g_sweepBoxCache.assign(runtimeObjects.size(), SweepBoxCache{});
+    g_sweepBoxGen = sceneGeneration;
+  }
+  SweepBoxCache& sc = g_sweepBoxCache[(size_t)oi];
+  const float skey[12] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
+                          o.data.scale[0], o.data.scale[1], o.data.scale[2],
+                          o.data.modelYaw, (float)o.data.model,
+                          (float)o.data.animModel, (float)o.data.type,
+                          (float)o.data.collision, o.dirty ? 1.0F : 0.0F};
+  bool same = sc.valid;
+  for (int k = 0; k < 12 && same; ++k) same = sc.key[k] == skey[k];
+  if (!same) {
     // The shared collision box, cast in the box's OWN frame - so a rotated
     // block stops the boom at its real faces instead of leaking through the
     // corners of an axis-aligned stand-in.
-    SweepBoxCache& sc = sweepBoxCache[(size_t)oi];
-    const float skey[12] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
-                            o.data.scale[0], o.data.scale[1], o.data.scale[2],
-                            o.data.modelYaw, (float)o.data.model,
-                            (float)o.data.animModel, (float)o.data.type,
-                            (float)o.data.collision, o.dirty ? 1.0F : 0.0F};
-    bool same = sc.valid;
-    for (int k = 0; k < 12 && same; ++k) same = sc.key[k] == skey[k];
-    if (!same) {
-      const CollisionBox b = objectCollisionBox(o);
-      for (int k = 0; k < 3; ++k) sc.half[k] = b.half[k];
-      sc.cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
-      // Broad phase box: the OBB's own world AABB (rotated half-extent
-      // vectors summed per axis). Conservative - it never rejects an object
-      // the local slab test could still hit (the old scale-box AABB was too
-      // small for a rotated block and leaked candidates).
-      const V3 hxv = boxRotate({b.half[0], 0.0F, 0.0F}, o.data);
-      const V3 hyv = boxRotate({0.0F, b.half[1], 0.0F}, o.data);
-      const V3 hzv = boxRotate({0.0F, 0.0F, b.half[2]}, o.data);
-      sc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
-      sc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
-      sc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
-      for (int k = 0; k < 12; ++k) sc.key[k] = skey[k];
-      sc.valid = true;
-    }
-    const float ex = sc.half[0], ey = sc.half[1], ez = sc.half[2];
-    const float cx = o.data.position[0] + sc.cW.x;
-    const float cy = o.data.position[1] + sc.cW.y;
-    const float cz = o.data.position[2] + sc.cW.z;
-    const float wex = sc.we[0], wey = sc.we[1], wez = sc.we[2];
-    // Broad phase, inflated by r, vs the boom segment AABB.
-    if (cx + wex + r < sminX || cx - wex - r > smaxX ||
-        cy + wey + r < sminY || cy - wey - r > smaxY ||
-        cz + wez + r < sminZ || cz - wez - r > smaxZ)
-      continue;  // broad phase: nowhere near the boom
-
-    // Narrow phase: slab test in the box's local frame. The frame is
-    // orthonormal, so the hit parameter t is still a world-space distance.
-    const V3 lo = boxInvRotate({px - cx, py - cy, pz - cz}, o.data);
-    const V3 ld = boxInvRotate({dx, dy, dz}, o.data);
-    float t0 = 0.0F, t1 = best;
-    bool miss = false;
-    auto slab = [&](float o1, float d1, float lo1, float hi1) {
-      if (miss) return;
-      if (d1 > 1e-6F || d1 < -1e-6F) {
-        const float inv = 1.0F / d1;
-        float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
-        if (ta > tb) {
-          const float s = ta;
-          ta = tb;
-          tb = s;
-        }
-        if (ta > t0) t0 = ta;
-        if (tb < t1) t1 = tb;
-      } else if (o1 < lo1 || o1 > hi1) {
-        miss = true;  // parallel and outside the slab
-      }
-    };
-    slab(lo.x, ld.x, -ex - r, ex + r);
-    slab(lo.y, ld.y, -ey - r, ey + r);
-    slab(lo.z, ld.z, -ez - r, ez + r);
-    if (miss || t0 > t1) continue;
-    // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
-    // player brushing a wall. Ignore it rather than collapse the camera onto
-    // the head; a box we are standing in cannot usefully block the boom.
-    if (t0 < 0.0F) continue;
-    if (t0 < best) best = t0;
+    const CollisionBox b = objectCollisionBox(o);
+    for (int k = 0; k < 3; ++k) sc.half[k] = b.half[k];
+    sc.cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+    // Broad-phase box: the OBB's own world AABB (rotated half-extent vectors
+    // summed per axis). Conservative - it never rejects an object the local
+    // slab test could still hit (the old scale-box AABB was too small for a
+    // rotated block and leaked candidates).
+    const V3 hxv = boxRotate({b.half[0], 0.0F, 0.0F}, o.data);
+    const V3 hyv = boxRotate({0.0F, b.half[1], 0.0F}, o.data);
+    const V3 hzv = boxRotate({0.0F, 0.0F, b.half[2]}, o.data);
+    sc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+    sc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+    sc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    for (int k = 0; k < 12; ++k) sc.key[k] = skey[k];
+    sc.valid = true;
   }
+  const float cx = o.data.position[0] + sc.cW.x;
+  const float cy = o.data.position[1] + sc.cW.y;
+  const float cz = o.data.position[2] + sc.cW.z;
+  const float r = s.r;
+  if (cx + sc.we[0] + r < s.mn[0] || cx - sc.we[0] - r > s.mx[0] ||
+      cy + sc.we[1] + r < s.mn[1] || cy - sc.we[1] - r > s.mx[1] ||
+      cz + sc.we[2] + r < s.mn[2] || cz - sc.we[2] - r > s.mx[2])
+    return best;  // broad phase: nowhere near the boom
+  return sweepBoxHit(s, o.data, cx, cy, cz, sc.half[0], sc.half[1], sc.half[2],
+                     best);
+}
 
-  // Terrain: march the surviving distance, then bisect to tighten the hit.
-  // `- r` keeps the eye a radius clear of the ground, and `lo` (the last
-  // known-free sample) is the conservative answer.
+// Terrain: march the surviving distance, then bisect to tighten the hit.
+// `- r` keeps the eye a radius clear of the ground, and `lo` (the last
+// known-free sample) is the conservative answer.
+float TerrainGame::sweepTerrain(const SweepSeg& s, float best) const {
+  const float px = s.p[0], py = s.p[1], pz = s.p[2];
+  const float dx = s.d[0], dy = s.d[1], dz = s.d[2], r = s.r;
   const float step = best * 0.125F;
   if (step > 1e-4F) {
     float prev = 0.0F;
@@ -18293,6 +18307,18 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     }
   }
   return best;
+}
+
+float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
+                               float dy, float dz, float maxDist, float radius,
+                               int skipIndex) const {
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, radius);
+  float best = maxDist;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    if (oi == skipIndex) continue;  // the swept object itself
+    best = sweepObject(s, oi, best);
+  }
+  return sweepTerrain(s, best);
 }
 
 

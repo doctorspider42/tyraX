@@ -547,8 +547,14 @@ The audit's suspects, measured instead of guessed (PS2, rig `--updsegs
 the collision box and four rotations (each several sinf/cosf) before its
 broad-phase reject. 1.175.3 keys that geometry per object the way
 `buildVehicleColliders` already did: 302 -> ~205 us, parked and driving.
-What is left in both walks is touching every RuntimeObject (D-cache misses);
-the camera could read the vehicle collider list built earlier the same frame.
+What was left was touching every RuntimeObject (D-cache misses), so 1.175.4
+gives the chase camera its own sweep over the vehicle collider list built
+earlier the same frame (`sweepVehicleCamera`): kind-0 entries now carry their
+world-AABB extents, so a far box is rejected from the compact array; physics
+bodies, mesh colliders and the other cars take the general per-object path.
+~205 -> ~66 us; the list build grew ~17 us. G.update 1137 -> 947 us parked,
+1177 -> 990 us driving. A per-frame equivalence check against `sweepSphere`
+(rig `--camcheck`, PCSX2, 9000 frames) found 0 differences.
 The "Particles" render scope on this map is the vehicle passes nested inside
 it: `renderVehicleGlow` ~0.5 ms and lamp glow ~0.2 ms with three cars; the
 map has no emitters.
