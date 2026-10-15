@@ -450,19 +450,38 @@ in its group", 46 "a part is alone" (a multi-part model batches all or
 nothing), 37 reflected windows, 29 too big for their cell, 16 physics bodies.
 Fewer, bigger draws - per-part batching first - is the PS2 way to cut it.
 
-Later that night (1.175.0, verified in PCSX2, PS2 timing owed - the console
-wedged on deploy):
+Later that night (1.175.0), measured the next morning and **reverted in
+1.175.1** (physical PS2, same ELF, rig `--partheadab`, two cycles an arm):
 
-- **Partly batched models.** A multi-part model now batches the parts that have
-  partners instead of none. At the heavy spot that is only 136 -> 134 bags
-  parked (stamps 118.7 -> 114.7, two more strip bags): few such models are in
-  that view. Frame grab equal within noise.
-- **Head stamps for crossing bags** ([stapip-stamps.md](stapip-stamps.md),
-  "Crossing bags"). Expected ~0.3-0.4 ms; unmeasured.
-- **Not built:** the sky card (the dome is ~0.2 ms after streamed clipping and a
-  card would rebuild colours and STs on the EE every frame, so about the same);
-  packets in the frame arena (at most ~0.2 ms, and a DMA mistake there wedges a
-  console nobody can power-cycle overnight).
+| Window | Both on | Partial batching off | Head stamps off |
+| --- | ---: | ---: | ---: |
+| Parked | 12.68-12.74 ms | **12.53-12.56 ms** | 12.72 ms |
+| Heaviest drive | 12.84-12.85 ms | 12.90 ms | 12.84 ms |
 
-The rig arm for the owed measurement is `--partheadab` on base `C:\tx\vpnB1`
-(arm 1 = partial batching off, arm 2 = head stamps off).
+- **Partly batched models made the parked frame ~0.15 ms SLOWER.** They saved
+  two bags at the heavy spot and grew the batches they joined (two more strip
+  bags crossing the frustum). Reverted.
+- **Head stamps for crossing bags replayed 89% of the time** (PCSX2 counters:
+  160 856 hits of 180 000 tries; the misses were producer facts) **and saved
+  nothing measurable.** The ordinary head and the replay touch about the same
+  memory, and memory is what the head costs (next section). Reverted.
+- Not built: the sky card and packets in the frame arena (about 0.2 ms each).
+
+### Where the EE frame actually goes: waiting for memory (2026-10-15)
+
+PMU counters over the heaviest drive window (non-lean build, 150 frames):
+about **22 000 I-cache and 46 000 D-cache misses a frame**, outside the vsync
+wait. At the calibrated ~50 and ~42 cycles a miss that is **~3.8 ms of
+fetching code and ~6.6 ms of fetching data out of ~13 ms of EE work** - the
+EE stalls on memory for three quarters of the frame. The interrupted-PC
+profile ([tyrax2-pc-sampling-2026-10-11.md](tyrax2-pc-sampling-2026-10-11.md))
+agrees from the other side: 375 functions run, no single one above ~6%, the
+top 150 hold 95% of the non-vsync samples.
+
+That is why the last weeks' wins were small and per-function: a path that is
+replaced by a cheaper-looking one still touches the same lines. The levers
+that fit this are about memory, not instructions - code layout and size
+(hot code together, the -Os/PGO boot crash fixed), fewer and more compact
+objects touched per draw, packets built where the DMA reads them (the
+scratchpad, as Burnout 3 does), and prefetching in loops that know what comes
+next.

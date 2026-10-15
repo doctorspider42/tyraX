@@ -99,7 +99,7 @@ const char* reasonLabel(Reason r) {
         case Reason::ReflectiveMaterial: return "reflective material";
         case Reason::FootprintTooBigForCell: return "too big for its cell";
         case Reason::SingletonGroup: return "alone in its group";
-        case Reason::PartialModel: return "partly batched";
+        case Reason::PartialModel: return "a part is alone";
     }
     return "?";
 }
@@ -174,10 +174,10 @@ const char* reasonDetail(Reason r) {
                    "lamp and strip run. A batch of one saves no submit and "
                    "only duplicates geometry, so it is dropped.";
         case Reason::PartialModel:
-            return "Some of this model's parts have batch partners and some "
-                   "do not. The batched parts draw from their batches and the "
-                   "rest draw solo (a model with more than 32 parts is still "
-                   "batched all or nothing).";
+            return "One of this model's parts has no batch partner. The solo "
+                   "path skips a model as ONE object, so batching only some "
+                   "parts would leave the others missing - the whole model "
+                   "draws solo instead.";
     }
     return "";
 }
@@ -464,11 +464,12 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     }
     res.batches = std::move(kept);
 
-    // A model with at most 32 parts may be PARTLY batched (1.175.0, the
-    // runtime's buildStaticBatchList): its batched parts stay in their
-    // batches and the rest draw solo. Only a bigger model - or a primitive,
-    // which is one part - keeps the all-or-nothing prune below, repeated to
-    // the fixed point exactly as the runtime does.
+    // A model is batched ALL-OR-NOTHING (the runtime's buildStaticBatchList,
+    // 1.139+: the solo path skips a model as one object, so a model with only
+    // some parts batched lost the rest - walls missing under a batched roof).
+    // Prune every object whose surviving members are fewer than its parts,
+    // drop the groups that leaves as singletons, and repeat to the fixed
+    // point, exactly as the runtime does.
     for (;;) {
         std::vector<unsigned int> memberCount((size_t)count, 0u);
         for (const Batch& b : res.batches)
@@ -478,9 +479,6 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
         for (int i = 0; i < count; ++i) {
             if (memberCount[(size_t)i] == 0) continue;
             if (memberCount[(size_t)i] == expectedParts[(size_t)i]) continue;
-            if (sc.objects[(size_t)i].type == PrimitiveType::Model &&
-                expectedParts[(size_t)i] <= 32u)
-                continue;  // partly batched
             incomplete[(size_t)i] = 1;
             anyIncomplete = true;
             runtimeReason[(size_t)i] = Reason::PartialModel;
@@ -504,21 +502,12 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
         res.batches = std::move(next);
     }
 
-    // The survivors. An object with every part in some batch is Batched; one
-    // with only some is PartialModel - its other parts draw solo.
-    {
-        std::vector<unsigned int> memberCount((size_t)count, 0u);
-        for (const Batch& b : res.batches)
-            for (const Member& m : b.members) ++memberCount[(size_t)m.object];
-        for (int bi = 0; bi < (int)res.batches.size(); ++bi)
-            for (const Member& m : res.batches[(size_t)bi].members) {
-                runtimeReason[(size_t)m.object] =
-                    memberCount[(size_t)m.object] == expectedParts[(size_t)m.object]
-                        ? Reason::Batched
-                        : Reason::PartialModel;
-                res.objects[(size_t)m.object].batches.push_back(bi);
-            }
-    }
+    // The survivors: every one of an object's parts is in some batch.
+    for (int bi = 0; bi < (int)res.batches.size(); ++bi)
+        for (const Member& m : res.batches[(size_t)bi].members) {
+            runtimeReason[(size_t)m.object] = Reason::Batched;
+            res.objects[(size_t)m.object].batches.push_back(bi);
+        }
 
     for (int i = 0; i < count; ++i) {
         if (!flagged[(size_t)i]) continue;

@@ -138,8 +138,6 @@ static std::vector<DynLightRt> g_dynLights;
 struct TerrainGame {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;
-  std::vector<unsigned int> objectPartBatched;
-  std::vector<unsigned char> partialDemote;
   std::vector<RuntimeObjectStub> runtimeObjects;
   std::vector<GameModel> gameModels;
   std::vector<GameMaterial> gameMaterials;

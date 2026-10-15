@@ -1755,13 +1755,6 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
-  // Modified by TyraX (1.175.0): a model with SOME parts in batches. Bit p =
-  // part p draws from a batch; the object itself stays solo (objectBatchOf
-  // -1) and the main view skips only those parts (docs/static-batching.md,
-  // "Partly batched models"). partialDemote asks renderStaticBatches to drop
-  // a mutated object's members.
-  std::vector<unsigned int> objectPartBatched;
-  std::vector<unsigned char> partialDemote;
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
   // ...and its Gouraud twin, for generated chunks whose vertex colours are
   // meant to be READ ACROSS a triangle rather than picked from one corner
@@ -3665,13 +3658,6 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
-  // Modified by TyraX (1.175.0): a model with SOME parts in batches. Bit p =
-  // part p draws from a batch; the object itself stays solo (objectBatchOf
-  // -1) and the main view skips only those parts (docs/static-batching.md,
-  // "Partly batched models"). partialDemote asks renderStaticBatches to drop
-  // a mutated object's members.
-  std::vector<unsigned int> objectPartBatched;
-  std::vector<unsigned char> partialDemote;
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
   // ...and its Gouraud twin, for generated chunks whose vertex colours are
   // meant to be READ ACROSS a triangle rather than picked from one corner

@@ -1,7 +1,7 @@
 #pragma once
 
-// 1.175.0: partly batched models (the parts with batch partners draw from
-// batches, the rest solo) and head stamps for frustum-crossing bags.
+// 1.175.1: reverted 1.175.0 (partly batched models were 0.15 ms slower parked,
+// crossing-bag head stamps saved nothing on the PS2).
 // 1.174.2: crossing packages REF an immutable copy of their streams, so the
 // frame recorder stops copying terrain arrays every frame (70 -> 16 KB).
 // 1.174.1: stamp hits inside a submission batch are queued and replayed in
@@ -5667,7 +5667,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

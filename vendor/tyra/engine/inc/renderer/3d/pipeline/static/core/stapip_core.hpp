@@ -64,12 +64,6 @@ class StaPipCore {
     qbufferRenderer.setStampEnabled(on);
   }
   void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
-  /** Modified by TyraX: head stamps for frustum-crossing bags
-   * (docs/stapip-stamps.md, "Crossing bags"). Default on. */
-  void setHeadStampEnabled(bool on) {
-    flushDeferred();
-    qbufferRenderer.setHeadStampEnabled(on);
-  }
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
 #endif
