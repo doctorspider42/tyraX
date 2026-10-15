@@ -558,3 +558,16 @@ bodies, mesh colliders and the other cars take the general per-object path.
 The "Particles" render scope on this map is the vehicle passes nested inside
 it: `renderVehicleGlow` ~0.5 ms and lamp glow ~0.2 ms with three cars; the
 map has no emitters.
+
+### Render-side scope costs lie since stamp deferral (2026-10-15)
+
+With 1.174.1's stamp deferral, a stamped bag inside a batch is QUEUED and the
+queue is replayed when the next non-stamp bag (or a batch end) flushes it. A
+`costStart/costEnd` scope around one producer therefore pays for every
+deferred stamp queued before it - the "direct" and "partial" bags looked like
+0.2-0.35 ms each. Measured trap: headlight pools split one bag per car (the
+shared bag's box spanned all three cars and always took the partial route)
+moved Vehicle_lights from ~500 to ~660 us parked - and left the whole frame
+exactly where it was (parked p50 12.345 ms, driving within 0.1 ms). Reverted.
+**Judge render-side changes by the frame (CLD win work/p50), never by a
+producer scope.** Update-side scopes (G.update, U.*, V.*) are unaffected.
