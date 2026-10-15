@@ -510,3 +510,17 @@ parked p50 12.35 ms in both, driving p50 12.43-12.53 vs 12.0-12.3 ms and p95
 cut the misses that matter; the hot loops lose more to -Os code than the
 I-cache gains. -Os is off the table as a layout tool; hot/cold grouping
 without it (function sections + an order file from the PC samples) is next.
+
+### Hot code grouped: worth nothing (2026-10-15)
+
+Same rig, three ELFs back to back on the PS2: the plain build, the build with
+`-ffunction-sections` (control), and the same with
+`-Wl,--section-ordering-file` putting the 146 hottest functions of the PC
+profile (93% of the non-vsync samples, `renderNow`/`flushDeferredRun` added by
+hand) first in `.text`, hottest first. Parked p50 12.35 ms in all three;
+driving p50 12.01/11.93/9.90 (control) vs 12.04/12.01/9.92 ms (ordered).
+**No difference.** The I-cache misses are capacity misses - the hot set is
+~150 functions, orders of magnitude above the 16 KB cache - not conflicts a
+layout can remove. With -Os also slower (above), point 1 of the plan is
+closed: code layout is not a lever here. Fewer instructions executed per
+frame is; that is points 3 and 4 (per-frame producers, draw count).
