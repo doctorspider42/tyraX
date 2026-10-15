@@ -37,7 +37,8 @@ Vec4 Vec4::operator+(const Vec4& v) const {
       "vadd.xyz   $vf6,   $vf4,   $vf5    \n\t"
       "sqc2       $vf6,   0x0(%0)         \n\t"
       :
-      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
   return res;
 }
 
@@ -48,7 +49,8 @@ void Vec4::operator+=(const Vec4& v) {
       "vadd.xyz  $vf4, $vf4, $vf5 \n\t"
       "sqc2      $vf4, 0x0(%0)    \n\t"
       :
-      : "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
 }
 
 Vec4 Vec4::operator-(const Vec4& v) const {
@@ -59,7 +61,8 @@ Vec4 Vec4::operator-(const Vec4& v) const {
       "vsub.xyz   $vf6,   $vf4,   $vf5    \n\t"
       "sqc2       $vf6,   0x0(%0)         \n\t"
       :
-      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
   return res;
 }
 
@@ -70,7 +73,8 @@ void Vec4::operator-=(const Vec4& v) {
       "vsub.xyz  $vf4, $vf4, $vf5 \n\t"
       "sqc2      $vf4, 0x0(%0)    \n\t"
       :
-      : "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
 }
 
 Vec4 Vec4::operator*(const Vec4& v) const {
@@ -81,7 +85,8 @@ Vec4 Vec4::operator*(const Vec4& v) const {
       "vmul.xyzw      $vf6,   $vf4,   $vf5    \n\t"
       "sqc2           $vf6,   0x0(%0)         \n\t"
       :
-      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
   return res;
 }
 
@@ -92,7 +97,8 @@ void Vec4::operator*=(const Vec4& v) {
       "vmul.xyzw      $vf6,   $vf4,   $vf5    \n\t"
       "sqc2           $vf6,   0x0(%0)         \n\t"
       :
-      : "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
 }
 
 Vec4 Vec4::operator/(const Vec4& v) const {
@@ -116,7 +122,8 @@ Vec4 Vec4::operator*(const float& v) const {
       "vmove.w    $vf6,   $vf4            \n\t"
       "sqc2       $vf6,   0x0(%0)         \n\t"
       :
-      : "r"(res.xyzw), "r"(this->xyzw), "f"(v));
+      : "r"(res.xyzw), "r"(this->xyzw), "f"(v)
+      : "memory", "$8");
   return res;
 }
 
@@ -128,7 +135,8 @@ void Vec4::operator*=(const float& v) {
       "vmulx.xyz  $vf4, $vf4, $vf5  \n\t"
       "sqc2       $vf4, 0x0(%0)     \n\t"
       :
-      : "r"(this->xyzw), "f"(v));
+      : "r"(this->xyzw), "f"(v)
+      : "memory", "$8");
 }
 
 Vec4 Vec4::operator/(const float& v) const {
@@ -143,7 +151,7 @@ Vec4 Vec4::operator/(const float& v) const {
       "sqc2		$vf4, 0x00(%0)    \n\t"
       :
       : "r"(res.xyzw), "r"(this->xyzw), "f"(v)
-      : "$8");
+      : "$8", "memory");
   return res;
 }
 
@@ -158,11 +166,12 @@ void Vec4::operator/=(const float& v) {
       "sqc2		$vf4, 0x00(%0)    \n\t"
       :
       : "r"(this->xyzw), "f"(v)
-      : "$8");
+      : "$8", "memory");
 }
 
 void Vec4::unit() {
-  asm volatile("sqc2		$vf0, 0x00(%0)	\n" : : "r"(this->xyzw));
+  asm volatile("sqc2		$vf0, 0x00(%0)	\n" : : "r"(this->xyzw)
+      : "memory");
 }
 
 void Vec4::copy(Vec4* out, const float* in) {
@@ -170,7 +179,8 @@ void Vec4::copy(Vec4* out, const float* in) {
       "lqc2		$vf1, 0x00(%1)	\n"
       "sqc2		$vf1, 0x00(%0)	\n"
       :
-      : "r"(out->xyzw), "r"(in));
+      : "r"(out->xyzw), "r"(in)
+      : "memory");
 }
 
 Vec4 Vec4::cross(const Vec4& v) const {
@@ -183,7 +193,8 @@ Vec4 Vec4::cross(const Vec4& v) const {
       "vsub.w         $vf8,   $vf0,   $vf0    \n\t"
       "sqc2           $vf8,   0x0(%0)         \n\t"
       :
-      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(res.xyzw), "r"(this->xyzw), "r"(v.xyzw)
+      : "memory");
   return res;
 }
 
@@ -227,7 +238,8 @@ float Vec4::innerProduct(const Vec4& v) const {
       "qmfc2    $2,  $vf6      \n\t"
       "mtc1     $2,  %0       \n\t"
       : "=f"(result)
-      : "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(this->xyzw), "r"(v.xyzw)
+      : "memory", "$2");
   return result;
 }
 
@@ -244,7 +256,8 @@ float Vec4::length() const {
       "qmfc2    $2,  $vf8      \n\t"
       "mtc1     $2,  %0       \n\t"
       : "=f"(result)
-      : "r"(this->xyzw));
+      : "r"(this->xyzw)
+      : "memory", "$2");
   return result;
 }
 
@@ -262,7 +275,8 @@ void Vec4::normalize() {
       "vmulq.xyz  $vf6, $vf4,  $Q    \n\t"
       "sqc2       $vf6, 0x0(%0)    \n\t"
       :
-      : "r"(this->xyzw));
+      : "r"(this->xyzw)
+      : "memory");
 }
 
 Vec4 Vec4::getNormalized() const {
@@ -286,7 +300,8 @@ float Vec4::distanceTo(const Vec4& v) const {
       "qmfc2    $2,  $vf8      \n\t"
       "mtc1     $2,  %0       \n\t"
       : "=f"(result)
-      : "r"(this->xyzw), "r"(v.xyzw));
+      : "r"(this->xyzw), "r"(v.xyzw)
+      : "memory", "$2");
   return result;
 }
 
@@ -310,7 +325,8 @@ u8 Vec4::shouldBeBackfaceCulled(const Vec4* cameraPos, const Vec4* v0,
       "qmfc2       $2,  $vf5        \n\t"  // store result on `dot` variable
       "mtc1        $2,  %0          \n\t"
       : "=f"(dot)
-      : "r"(cameraPos->xyzw), "r"(v0->xyzw), "r"(v1->xyzw), "r"(v2->xyzw));
+      : "r"(cameraPos->xyzw), "r"(v0->xyzw), "r"(v1->xyzw), "r"(v2->xyzw)
+      : "memory", "$2");
   return dot <= 0.0F;
 }
 
@@ -336,7 +352,8 @@ void Vec4::setLerp(Vec4* output, const Vec4& v1, const Vec4& v2,
       "vadd.xyzw  $vf9, $vf8, $vf4    \n\t"  // $vf9 = $vf8 + $vf4
       "sqc2       $vf9, 0x0(%0)       \n\t"  // v0  = $vf9
       :
-      : "r"(&output->xyzw), "r"(&v1.xyzw), "r"(&v2.xyzw), "f"(interp));
+      : "r"(&output->xyzw), "r"(&v1.xyzw), "r"(&v2.xyzw), "f"(interp)
+      : "$8", "memory");
 }
 
 void Vec4::print() const {

@@ -2274,6 +2274,24 @@ Its corrected exact-key candidate saves only about 0.02 ms in both physical
 orders and is private. Cycle output reuse is also private: gradeOff preserves
 the prior mixColor, so generic restoration must respect assigned-field semantics.
 
+**Inline asm in `src/math` declares everything it touches (1.175.2).** The VU0
+helpers (`Vec4`, `M4x4`, `Math::atan2`) read and write through pointer operands
+(`lqc2`/`sqc2`) and used hard-coded GPRs (`$2`, `$8`) without saying so: no
+`"memory"` clobber, no register clobber, and `atan2` rewrote its two `"f"`
+inputs. GCC may then sink a pending store past the asm, keep a stale copy of
+what it wrote, or (IPA-RA, same TU) keep a live value in a register the callee
+"does not touch". Every block now lists `"memory"` and the GPRs it writes, and
+`atan2` takes `x`/`y` as `"+f"`. New asm here follows the same rule - the
+`clobber audit` in the night notes is one regex away.
+Related, still open: building `src/math` with `-Os` (alone or with the rest of
+the engine) makes the vehicle-playground rig die ~240 frames into its first
+drive with an IOP jump to a float-valued PC (0x3f800000 etc.) - every time, and
+NOT fixed by the clobbers above. Trajectories match the `-O3` build to a few
+cm, no host file I/O and no unusual audio call precedes it; the EE-side SIF RPC
+client structs stay intact. Everything else in the engine at `-Os` (renderer,
+loaders, physics, audio, debug...) ran 240 s clean, so a size build keeps
+`src/math` at `-O3` (`$(filter obj/math/%,$(OBJECTS)): CFLAGS += -O3`).
+
 **Devkit and measurement**
 - **Producer bypasses can hide ownership, even with no foreign roots.** A
   private census notes qbuffer streams in the ordinary program writer; retained

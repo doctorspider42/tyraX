@@ -179,9 +179,12 @@ float Math::atan2(float y, float x) {
       "_atan_05:    \n\t"
       "add.s		%0, %1, %0    \n\t"
       "_atan_06:    \n\t"
-      : "=&f"(r)
-      : "f"(x), "f"(y)
-      : "$6", "$7", "$8", "$9", "$f0", "$f1", "$f2");
+      // x and y are rewritten by the code above (abs, swap, the table base),
+      // so they are in/out operands - as plain inputs GCC was free to keep
+      // using the registers afterwards as if they still held x and y.
+      : "=&f"(r), "+f"(x), "+f"(y)
+      :
+      : "$6", "$7", "$8", "$9", "$f0", "$f1", "$f2", "memory");
 
   return r;
 }

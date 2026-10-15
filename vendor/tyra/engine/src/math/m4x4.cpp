@@ -43,7 +43,8 @@ void M4x4::copy(M4x4* out, const float* in) {
       "sqc2		$vf3, 0x20(%0)  \n"
       "sqc2		$vf4, 0x30(%0)  \n"
       :
-      : "r"(out->data), "r"(in));
+      : "r"(out->data), "r"(in)
+      : "memory");
 }
 
 void M4x4::copy(M4x4* out, const M4x4& in) { copy(out, in.data); }
@@ -64,7 +65,8 @@ Vec4 M4x4::operator*(const Vec4& v) const {
       "vmaddz	$vf6, $vf3, $vf5\n"
       "sqc2		$vf6, 0x00(%0)	\n"
       :
-      : "r"(result.xyzw), "r"(v.xyzw), "r"(this->data));
+      : "r"(result.xyzw), "r"(v.xyzw), "r"(this->data)
+      : "memory");
   return result;
 }
 
@@ -117,7 +119,8 @@ void M4x4::identity() {
       "sqc2       $vf6, 0x10(%0) \n\t"
       "sqc2       $vf7, 0x0(%0)  \n\t"
       :
-      : "r"(this->data));
+      : "r"(this->data)
+      : "memory");
 }
 
 void M4x4::translate(const Vec4& v) {
@@ -287,7 +290,8 @@ void M4x4::lookAt(M4x4* res, const Vec4& position, const Vec4& target) {
       // up_vec
       "sqc2		    $vf6, 0x00(%1)      \n\t"
       :
-      : "r"(viewVec), "r"(upVec), "r"(eye), "r"(obj));
+      : "r"(viewVec), "r"(upVec), "r"(eye), "r"(obj)
+      : "memory");
 
   M4x4 temp = setCamera(eye, viewVec, upVec);
   res->identity();
@@ -471,7 +475,8 @@ M4x4 M4x4::setCamera(const float pos[4], const float vz[4], const float vy[4]) {
       "sq			$10, 0x20(%0)           \n\t"
       "sqc2			$vf5, 0x30(%0)          \n\t"
       :
-      : "r"(res.data), "r"(pos), "r"(vz), "r"(vy));
+      : "r"(res.data), "r"(pos), "r"(vz), "r"(vy)
+      : "memory");
   return res;
 }
 
