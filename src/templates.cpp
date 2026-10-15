@@ -1726,6 +1726,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -3643,6 +3647,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -8177,7 +8185,11 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.usable) return false;       // highlight defers/re-submits the body
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it
-    if (o.reflected) return false;    // re-submitted into the env map pass
+    // Reflected objects batch among THEMSELVES (the group key carries the
+    // flag) and the environment-map passes submit those batches whole. A
+    // reflection PROXY is a different shape in the map than on screen, so it
+    // stays solo.
+    if (o.reflected && o.reflectionProxy) return false;
     // Dynamic lighting is a per-OBJECT bag on the lit VU1 program, refilled
     // from the probe grid every frame. A batch merges members into one baked
     // bag built by rebuildStaticBatch, which knows nothing about it - the

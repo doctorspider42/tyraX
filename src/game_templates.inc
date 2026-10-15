@@ -20121,18 +20121,21 @@ void TerrainGame::buildStaticBatchList() {
   // the nearest member's number would silently extend every other member's.
   // Objects that leave it at 0 group exactly as they did before.
   auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
-                       float dd, int lamp, unsigned int stripRun) {
+                       float dd, int lamp, unsigned int stripRun,
+                       bool reflected) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
       if (staticBatches[b].texture == texture && keyX[b] == cx &&
           keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
-          keyL[b] == lamp && staticBatches[b].stripRun == stripRun) {
+          keyL[b] == lamp && staticBatches[b].stripRun == stripRun &&
+          staticBatches[b].reflected == reflected) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().reflected = reflected;
       staticBatches.back().drawDistance = dd;
       staticBatches.back().stripRun = stripRun;
       keyX.push_back(cx);
@@ -20178,7 +20181,7 @@ void TerrainGame::buildStaticBatchList() {
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
         addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
-                  gm.parts[pi].stripRun);
+                  gm.parts[pi].stripRun, d.reflected != 0);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -20186,7 +20189,8 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
+      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u,
+                d.reflected != 0);
     }
   }
   // A model is skipped by the solo path as ONE object, so batching it is also
@@ -23545,6 +23549,10 @@ void TerrainGame::renderScene() {
     for (int ri = 0; envDoRest && ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // A batched member is drawn by its (reflected) batch below - and must
+      // not reach rebuildObjectGeometry here, which would eat the dirty flag
+      // renderStaticBatches demotes it on.
+      if (ri < (int)objectBatchOf.size() && objectBatchOf[ri] != -1) continue;
       // Skip the object the PROBE stands at: it would swamp the whole
       // map - typically the very reflective surface being inspected, whose
       // own dark self-reflection reads as ugly patches up close. In
@@ -23569,6 +23577,18 @@ void TerrainGame::renderScene() {
       else
         for (GeoPart& part : objectGeometry[ri].parts)
           if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
+    }
+    if (envDoRest) {
+      // The reflected static batches, whole. The per-object self-skip above
+      // becomes: a probe eye inside the batch's box draws it not at all.
+      for (StaticBatch& b : staticBatches) {
+        if (!b.reflected || !b.bag || b.bag->count == 0) continue;
+        if (probeEye.x >= b.aabbMin[0] && probeEye.x <= b.aabbMax[0] &&
+            probeEye.y >= b.aabbMin[1] && probeEye.y <= b.aabbMax[1] &&
+            probeEye.z >= b.aabbMin[2] && probeEye.z <= b.aabbMax[2])
+          continue;
+        renderWorldBag(b.bag.get());
+      }
     }
 {{REFL_SCENERY_CAPTURE}}    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -25096,6 +25116,10 @@ void TerrainGame::renderObjectProbe(int index) {
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
     RuntimeObject& ro = runtimeObjects[ri];
     if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+    // A batched member is drawn by its (reflected) batch below - and must
+    // not reach rebuildObjectGeometry here, which would eat the dirty flag
+    // renderStaticBatches demotes it on.
+    if (ri < (int)objectBatchOf.size() && objectBatchOf[ri] != -1) continue;
     if (ri == index) continue;  // never the mirror-er itself
     // proximity self-skip against the probe eye (see the classic pass)
     {
@@ -25115,6 +25139,16 @@ void TerrainGame::renderObjectProbe(int index) {
     else
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
+  }
+  // The reflected static batches, whole. The per-object self-skip above
+  // becomes: a probe eye inside the batch's box draws it not at all.
+  for (StaticBatch& b : staticBatches) {
+    if (!b.reflected || !b.bag || b.bag->count == 0) continue;
+    if (probeEye.x >= b.aabbMin[0] && probeEye.x <= b.aabbMax[0] &&
+        probeEye.y >= b.aabbMin[1] && probeEye.y <= b.aabbMax[1] &&
+        probeEye.z >= b.aabbMin[2] && probeEye.z <= b.aabbMax[2])
+      continue;
+    renderWorldBag(b.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();

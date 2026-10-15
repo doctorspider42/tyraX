@@ -39,6 +39,16 @@ totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
 in reflections*, 6 physics bodies).
 
+*Show in reflections* no longer keeps an object solo (1.175.5). The flag is
+part of the group key instead, so a reflected object batches only with other
+reflected objects, and the environment-map passes submit those batches whole
+(a probe eye inside a batch's box skips it, the per-object self-skip's batch
+form). Before, every reflected object paid its own submit in the main pass:
+on the Vehicle Playground garage that was 13 of the 36 solo objects drawn in
+the parked view - eight night windows and five garage trims. Only an object
+shown through a *reflection proxy* stays solo, because the map draws a box
+where the screen draws the model.
+
 ## Reading the panel
 
 **Batches** lists one row per batch: its texture, how many members, its
@@ -91,7 +101,7 @@ Build-time (`staticBatchEligible` in `templates.cpp` — these decide the
 | usable | the USE highlight re-submits the body itself |
 | pickable | carried and thrown, so it moves |
 | save state | a loaded save repositions it |
-| reflected | re-submitted into the environment-map pass |
+| reflection proxy | *Show in reflections* through a proxy box: a different shape in the map than on screen |
 | dynamic lighting | wants its own VU1-lit bag, refilled per frame |
 | texture feed | a live feed rebinds its texture, and a batch groups *by* texture |
 | VU parameters | per-mesh VU numbers are uploaded once per bag |

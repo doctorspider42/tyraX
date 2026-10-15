@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.175.5: Show in reflections no longer keeps an object out of static batches;
+// the flag joins the group key and the env-map passes submit reflected batches whole.
 // 1.175.4: the chase camera sweeps the frame's vehicle collider list (boxes carry
 // their world extents) instead of every object: ~0.20 -> ~0.07 ms on a PS2.
 // 1.175.3: sweepSphere keeps each object's box, rotated centre and world
@@ -5674,7 +5676,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
