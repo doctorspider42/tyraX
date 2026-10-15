@@ -524,3 +524,31 @@ driving p50 12.01/11.93/9.90 (control) vs 12.04/12.01/9.92 ms (ordered).
 layout can remove. With -Os also slower (above), point 1 of the plan is
 closed: code layout is not a lever here. Fewer instructions executed per
 frame is; that is points 3 and 4 (per-frame producers, draw count).
+
+### Per-frame producers: where G.update goes (2026-10-15)
+
+The audit's suspects, measured instead of guessed (PS2, rig `--updsegs
+--vehsegs`, fast frames, parked / driving, us):
+
+| Segment | Parked | Driving |
+|---|---|---|
+| G.update total | 1137 | 1177 |
+| `stepVehicles` + smoke/skids/debris (U.l5) | 574 | 608 |
+| - `buildVehicleColliders` | 182 | 181 |
+| - per-car gather | 151 | 146 |
+| - per-car physics bodies | 68 | 108 |
+| - per-car sprung rig | 41 | 42 |
+| `collideVehicleCamera` | 302 | 300 |
+| `updateDynLights` | 62 | 60 |
+| `updateDynLitObjects` | 2 | 2 |
+
+`updateDynLitObjects` (an audit suspect) is free. The camera was ONE
+`sweepSphere` a frame costing 0.3 ms: for every one of ~170 objects it built
+the collision box and four rotations (each several sinf/cosf) before its
+broad-phase reject. 1.175.3 keys that geometry per object the way
+`buildVehicleColliders` already did: 302 -> ~205 us, parked and driving.
+What is left in both walks is touching every RuntimeObject (D-cache misses);
+the camera could read the vehicle collider list built earlier the same frame.
+The "Particles" render scope on this map is the vehicle passes nested inside
+it: `renderVehicleGlow` ~0.5 ms and lamp glow ~0.2 ms with three cars; the
+map has no emitters.

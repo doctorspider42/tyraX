@@ -18162,6 +18162,28 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
+  // Per-object box geometry, kept across calls and keyed on everything
+  // objectCollisionBox and boxRotate read (the vehicle colliders' VehColCache
+  // rule). Building it fresh for every object on every call - the box, its
+  // rotated centre and three rotated half-extent vectors, each rotation a
+  // handful of sinf/cosf - was ~0.3 ms of the frame on a PS2 for the ONE
+  // chase-camera sweep, nearly all of it for objects nowhere near the boom.
+  // Now a far object costs a key compare and the AABB test.
+  struct SweepBoxCache {
+    float key[12] = {};
+    float half[3] = {0.0F, 0.0F, 0.0F};
+    V3 cW = {0.0F, 0.0F, 0.0F};
+    float we[3] = {0.0F, 0.0F, 0.0F};  // the OBB's world AABB half-extents
+    bool valid = false;
+  };
+  static std::vector<SweepBoxCache> sweepBoxCache;
+  static unsigned int sweepBoxGen = 0;
+  if (sweepBoxCache.size() != runtimeObjects.size() ||
+      sweepBoxGen != sceneGeneration) {
+    sweepBoxCache.assign(runtimeObjects.size(), SweepBoxCache{});
+    sweepBoxGen = sceneGeneration;
+  }
+
   for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
@@ -18178,23 +18200,37 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // The shared collision box, cast in the box's OWN frame - so a rotated
     // block stops the boom at its real faces instead of leaking through the
     // corners of an axis-aligned stand-in.
-    const CollisionBox b = objectCollisionBox(o);
-    const float ex = b.half[0], ey = b.half[1], ez = b.half[2];
-    const V3 cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
-    const float cx = o.data.position[0] + cW.x;
-    const float cy = o.data.position[1] + cW.y;
-    const float cz = o.data.position[2] + cW.z;
-
-    // Broad phase: the OBB's own world AABB (rotated half-extent vectors summed
-    // per axis), inflated by r, vs the boom segment AABB. Conservative - it
-    // never rejects an object the local slab test could still hit (the old
-    // scale-box AABB was too small for a rotated block and leaked candidates).
-    const V3 hxv = boxRotate({ex, 0.0F, 0.0F}, o.data);
-    const V3 hyv = boxRotate({0.0F, ey, 0.0F}, o.data);
-    const V3 hzv = boxRotate({0.0F, 0.0F, ez}, o.data);
-    const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
-    const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
-    const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    SweepBoxCache& sc = sweepBoxCache[(size_t)oi];
+    const float skey[12] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
+                            o.data.scale[0], o.data.scale[1], o.data.scale[2],
+                            o.data.modelYaw, (float)o.data.model,
+                            (float)o.data.animModel, (float)o.data.type,
+                            (float)o.data.collision, o.dirty ? 1.0F : 0.0F};
+    bool same = sc.valid;
+    for (int k = 0; k < 12 && same; ++k) same = sc.key[k] == skey[k];
+    if (!same) {
+      const CollisionBox b = objectCollisionBox(o);
+      for (int k = 0; k < 3; ++k) sc.half[k] = b.half[k];
+      sc.cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+      // Broad phase box: the OBB's own world AABB (rotated half-extent
+      // vectors summed per axis). Conservative - it never rejects an object
+      // the local slab test could still hit (the old scale-box AABB was too
+      // small for a rotated block and leaked candidates).
+      const V3 hxv = boxRotate({b.half[0], 0.0F, 0.0F}, o.data);
+      const V3 hyv = boxRotate({0.0F, b.half[1], 0.0F}, o.data);
+      const V3 hzv = boxRotate({0.0F, 0.0F, b.half[2]}, o.data);
+      sc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+      sc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+      sc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+      for (int k = 0; k < 12; ++k) sc.key[k] = skey[k];
+      sc.valid = true;
+    }
+    const float ex = sc.half[0], ey = sc.half[1], ez = sc.half[2];
+    const float cx = o.data.position[0] + sc.cW.x;
+    const float cy = o.data.position[1] + sc.cW.y;
+    const float cz = o.data.position[2] + sc.cW.z;
+    const float wex = sc.we[0], wey = sc.we[1], wez = sc.we[2];
+    // Broad phase, inflated by r, vs the boom segment AABB.
     if (cx + wex + r < sminX || cx - wex - r > smaxX ||
         cy + wey + r < sminY || cy - wey - r > smaxY ||
         cz + wez + r < sminZ || cz - wez - r > smaxZ)
