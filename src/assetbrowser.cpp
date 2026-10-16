@@ -2028,14 +2028,57 @@ void App::drawAssetInspector(const std::string& rel) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const float r = ImGui::GetStyle().FrameRounding + 3.0f;
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), r);
-        const uint32_t tex = viewport_.assetThumb(rel, true);
+        // Models and materials: drag to orbit, wheel to zoom, double-click to
+        // reset - a live render at the preview's size (Viewport::
+        // assetOrbitView, redrawn only when the orbit moves). Images show
+        // themselves.
+        const bool orbitable = item->kind != AssetKind::Texture;
+        if (assetOrbitRel_ != rel) {
+            assetOrbitRel_ = rel;
+            assetOrbitYaw_ = 35.0f;
+            assetOrbitPitch_ = 22.0f;
+            assetOrbitZoom_ = 1.0f;
+        }
+        const float s = h - fs;
+        const ImVec2 a(p.x + (w - s) * 0.5f, p.y + fs * 0.5f);
+        uint32_t tex = 0;
+        if (orbitable) {
+            ImGui::SetCursorScreenPos(p);
+            ImGui::InvisibleButton("Asset preview", ImVec2(w, h));
+            ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);  // zoom, not scroll
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+                const ImVec2 d = ImGui::GetIO().MouseDelta;
+                assetOrbitYaw_ += d.x * 0.5f;
+                assetOrbitPitch_ = ImClamp(assetOrbitPitch_ + d.y * 0.4f, -80.0f, 85.0f);
+            }
+            if (ImGui::IsItemHovered()) {
+                const float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f)
+                    assetOrbitZoom_ = ImClamp(assetOrbitZoom_ * std::pow(1.15f, wheel), 0.4f, 6.0f);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    assetOrbitYaw_ = 35.0f;
+                    assetOrbitPitch_ = 22.0f;
+                    assetOrbitZoom_ = 1.0f;
+                }
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+                ImGui::SetItemTooltip("Drag to orbit, wheel to zoom, double-click to reset.");
+            }
+            ImGui::SetCursorScreenPos(p);
+            const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+            tex = viewport_.assetOrbitView(rel, (int)(s * sc), assetOrbitYaw_, assetOrbitPitch_,
+                                           assetOrbitZoom_);
+            // the model zoomed in past the frame stays inside the card
+            dl->PushClipRect(p, ImVec2(p.x + w, p.y + h), true);
+        } else {
+            tex = viewport_.assetThumb(rel, true);
+        }
         if (tex) {
-            const bool flip = item->kind != AssetKind::Texture;
-            const float s = h - fs;
-            const ImVec2 a(p.x + (w - s) * 0.5f, p.y + fs * 0.5f);
+            const bool flip = orbitable;
             dl->AddImage((ImTextureID)(intptr_t)tex, a, ImVec2(a.x + s, a.y + s),
                          ImVec2(0, flip ? 1.0f : 0.0f), ImVec2(1, flip ? 0.0f : 1.0f));
-        } else {
+        }
+        if (orbitable) dl->PopClipRect();
+        if (!tex) {
             std::string ext = extOf(rel);
             if (!ext.empty()) ext = lowerOf(ext.substr(1));
             ui::FontScope b(ui::boldFont());

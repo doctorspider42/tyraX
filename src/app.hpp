@@ -747,6 +747,9 @@ private:
     float assetTileSize_ = 84.0f;
     double assetScanTime_ = -1.0;   // ImGui time of the last disk scan
     int assetThumbBudget_ = 0;      // thumbnails still allowed this frame
+    // Asset Browser inspector preview orbit (view state; reset per asset).
+    std::string assetOrbitRel_;
+    float assetOrbitYaw_ = 35.0f, assetOrbitPitch_ = 22.0f, assetOrbitZoom_ = 1.0f;
     uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),

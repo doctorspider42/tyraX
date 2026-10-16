@@ -682,6 +682,12 @@ public:
     // new thumbnails a single frame may pay for. Failed assets are remembered
     // as 0 so an unreadable file is not retried every frame.
     uint32_t assetThumb(const std::string& relPath, bool render);
+    // Asset Browser inspector: the same studio shot as assetThumb, at `size`
+    // square and from a caller-held orbit (yaw/pitch in degrees, zoom > 1 =
+    // closer), into its own target. Re-renders only when an argument changes;
+    // 0 while a .glb/.fbx is still baking or for an unreadable file.
+    uint32_t assetOrbitView(const std::string& relPath, int size, float yawDeg,
+                            float pitchDeg, float zoom);
     static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
     // --- assets-c: prefab thumbnails ---
     // The Prefabs panel's tiles: a prefab's geometry members (primitives and
@@ -1584,6 +1590,15 @@ private:
     // entry with value 0 = tried and unusable), dropped by invalidateAssets.
     void ensureThumbFramebuffer();
     uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    // assetOrbitView's target and what its last picture was of.
+    uint32_t orbitFbo_ = 0, orbitTex_ = 0, orbitDepth_ = 0;
+    std::string orbitRel_;
+    int orbitSize_ = 0;
+    float orbitYaw_ = 0.0f, orbitPitch_ = 0.0f, orbitZoom_ = 0.0f;
+    const void* orbitSrc_ = nullptr;
+    void drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
+                       const MaterialDraw* material, int s, float yawDeg, float pitchDeg,
+                       float zoom);
     std::map<std::string, uint32_t> thumbCache_;
     void clearThumbCache();
 

@@ -1886,6 +1886,9 @@ void Viewport::shutdown() {
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
+    if (orbitFbo_) glDeleteFramebuffers(1, &orbitFbo_);
+    if (orbitTex_) glDeleteTextures(1, &orbitTex_);
+    if (orbitDepth_) glDeleteRenderbuffers(1, &orbitDepth_);
     for (ShotTargets& st : shots_) {
         if (st.fbo) glDeleteFramebuffers(1, &st.fbo);
         if (st.colorTex) glDeleteTextures(1, &st.colorTex);
@@ -8372,54 +8375,16 @@ void Viewport::clearThumbCache() {
     thumbCache_.clear();
 }
 
-uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
-    if (!program_ || relPath.empty()) return 0;
-
-    std::string ext = std::filesystem::path(relPath).extension().string();
-    for (char& c : ext) c = (char)tolower((unsigned char)c);
-
-    // Images are their own thumbnail: the shared texture cache already holds
-    // exactly the pixels the scene samples, so nothing is rendered or copied.
-    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
-        ext == ".bmp") {
-        auto it = texCache_.find(relPath);
-        if (it != texCache_.end()) return it->second;
-        return render ? glTexture(relPath) : 0;
-    }
-
-    const bool isObj = ext == ".obj";
-    const bool isAnim = ext == ".glb" || ext == ".fbx";
-    const bool isMtl = ext == ".mtl";
-    if (!isObj && !isAnim && !isMtl) return 0;
-
-    auto cached = thumbCache_.find(relPath);
-    if (cached != thumbCache_.end()) return cached->second;
-    if (!render) return 0;
-
-    // Collect what to draw first: an unreadable file caches a 0 and never
-    // touches the framebuffer.
-    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
-    // A .glb/.fbx bakes on a worker (animModelDraw returns nullptr until it
-    // lands). That is NOT "unreadable": caching the 0 here made every model
-    // nothing in the scene had baked yet - the vehicle bodies, whose scene
-    // draw is the .tmdl - keep an empty tile for the session. Collect a
-    // finished bake (render() may not run while a tool covers the viewport)
-    // and come back next frame.
-    if (isAnim) animBakeCollect();
-    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
-    if (isAnim && !anim) return 0;
-    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
-    if (isObj && (!model || model->parts.empty())) model = nullptr;
-    if (isAnim && anim && !anim->ok) anim = nullptr;
-    if (!model && !anim && !material) {
-        thumbCache_[relPath] = 0;
-        return 0;
-    }
+// The asset studio shot shared by assetThumb and assetOrbitView: the asset
+// framed by its own bounds (a material on the unit sphere), unlit colours,
+// transparent background, into the framebuffer the caller bound (s x s).
+// yawDeg/pitchDeg place the camera around the bounds centre; zoom > 1 moves
+// it closer.
+void Viewport::drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
+                             const MaterialDraw* material, int s, float yawDeg,
+                             float pitchDeg, float zoom) {
     if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
 
-    const int s = kAssetThumbSize;
-    ensureThumbFramebuffer();
-    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
     glViewport(0, 0, s, s);
     // Transparent background: the tile shows the browser's own panel color
     // behind the asset, so a grid reads as one surface instead of 200 boxes.
@@ -8487,8 +8452,8 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     }
     if (radius < 0.05f) radius = 0.05f;
 
-    const float dist = radius * 2.35f;
-    const float pitch = 22.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const float dist = radius * 2.35f / (zoom > 0.05f ? zoom : 0.05f);
+    const float pitch = pitchDeg * kPi / 180.0f, yaw = yawDeg * kPi / 180.0f;
     const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
                    center.y + dist * std::sin(pitch),
                    center.z + dist * std::cos(pitch) * std::sin(yaw)};
@@ -8519,6 +8484,55 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     }
 
     glBindVertexArray(0);
+}
+
+uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
+    if (!program_ || relPath.empty()) return 0;
+
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+    // Images are their own thumbnail: the shared texture cache already holds
+    // exactly the pixels the scene samples, so nothing is rendered or copied.
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+        ext == ".bmp") {
+        auto it = texCache_.find(relPath);
+        if (it != texCache_.end()) return it->second;
+        return render ? glTexture(relPath) : 0;
+    }
+
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+
+    auto cached = thumbCache_.find(relPath);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // Collect what to draw first: an unreadable file caches a 0 and never
+    // touches the framebuffer.
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    // A .glb/.fbx bakes on a worker (animModelDraw returns nullptr until it
+    // lands). That is NOT "unreadable": caching the 0 here made every model
+    // nothing in the scene had baked yet - the vehicle bodies, whose scene
+    // draw is the .tmdl - keep an empty tile for the session. Collect a
+    // finished bake (render() may not run while a tool covers the viewport)
+    // and come back next frame.
+    if (isAnim) animBakeCollect();
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    if (isAnim && !anim) return 0;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) {
+        thumbCache_[relPath] = 0;
+        return 0;
+    }
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    drawAssetView(model, anim, material, s, 35.0f, 22.0f, 1.0f);
 
     // Framebuffer -> the asset's own texture. The FBO is still bound for
     // reading, so this is a pure GPU copy of the square just drawn.
@@ -8535,6 +8549,70 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
 
     thumbCache_[relPath] = tex;
     return tex;
+}
+
+uint32_t Viewport::assetOrbitView(const std::string& relPath, int size, float yawDeg,
+                                  float pitchDeg, float zoom) {
+    if (!program_ || relPath.empty()) return 0;
+    if (size < 16) size = 16;
+    if (size > 1024) size = 1024;
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+    if (isAnim) animBakeCollect();
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) return 0;
+
+    // Re-render only when something the picture depends on moved: one cheap
+    // draw per drag step, nothing while the inspector just sits there. The
+    // model pointer joins the key so a re-import (new cache entry) refreshes.
+    const void* src = model ? (const void*)model
+                            : (anim ? (const void*)anim : (const void*)material);
+    if (orbitTex_ && relPath == orbitRel_ && size == orbitSize_ && yawDeg == orbitYaw_ &&
+        pitchDeg == orbitPitch_ && zoom == orbitZoom_ && src == orbitSrc_)
+        return orbitTex_;
+
+    // Its own target (the one-framebuffer-per-preview rule), resized with the
+    // inspector.
+    if (!orbitFbo_ || size != orbitSize_) {
+        if (!orbitFbo_) glGenFramebuffers(1, &orbitFbo_);
+        if (!orbitTex_) glGenTextures(1, &orbitTex_);
+        if (!orbitDepth_) glGenRenderbuffers(1, &orbitDepth_);
+        glBindTexture(GL_TEXTURE_2D, orbitTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindRenderbuffer(GL_RENDERBUFFER, orbitDepth_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, size, size);
+        glBindFramebuffer(GL_FRAMEBUFFER, orbitFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, orbitTex_,
+                               0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                                  orbitDepth_);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            std::fprintf(stderr, "asset orbit framebuffer incomplete\n");
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, orbitFbo_);
+    drawAssetView(model, anim, material, size, yawDeg, pitchDeg, zoom);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    orbitRel_ = relPath;
+    orbitSize_ = size;
+    orbitYaw_ = yawDeg;
+    orbitPitch_ = pitchDeg;
+    orbitZoom_ = zoom;
+    orbitSrc_ = src;
+    return orbitTex_;
 }
 
 // --- assets-c: prefab thumbnails ---
