@@ -111,7 +111,7 @@ logic — see [Live Logic](live-logic.md)):
 - **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
   in the same graph puts it out of reach of the interpreter, whatever the Set
   Motion Blur node itself supports — the chip goes amber **LOGIC (rebuild)** and
-  the Debugger's *Logic* tab names the node.
+  the Debugger's *Hot patches* page names the node.
 
 Scene changes re-apply the scene's authored amount, so a graph that raised the
 blur does not leak it into the next scene. The idle clear is a one-frame override

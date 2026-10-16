@@ -3970,6 +3970,44 @@ private:
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
     void drawDebuggerWindow();
+    // The window's parts (devkit_ui.cpp): a status header with the transport,
+    // a section rail instead of a tab strip, one page, a right column (where
+    // the game stopped, or why it is not running) and one time strip.
+    enum class DbgPage {
+        Watch, Nodes, Breakpoints, Patches,  // Logic
+        Objects, Screen,                     // World
+        Stats, RenderCost, Hardware, Vu      // Performance
+    };
+    DbgPage dbgPage_ = DbgPage::Watch;
+    bool dbgTimeOpen_ = true;       // the time strip expanded (else one row)
+    int dbgWatchKind_ = 0;          // 0 all, 1 facts, 2 save values, 3 flow vars, 4 just changed
+    // Watch "Changed" column: each row's frame of the report that last changed
+    // it (0 = no change seen), diffed in livedbgTick from consecutive reports.
+    std::vector<float> dbgPrevVars_;
+    std::vector<uint32_t> dbgVarChanged_;
+    // Stats chart: the game's rendered rate per report, as ms a frame.
+    std::vector<float> dbgFrameMs_;
+    static constexpr size_t kDbgFrameMsKeep = 150;
+    std::string dbgNodeLabel(const livedbg::NodeSym& n) const;
+    void dbgRevealNode(const livedbg::NodeSym& n);
+    void dbgSetTransport(int what);  // 0 pause/continue, 1 step frame, 2 step node
+    void dbgBuildAndRun();
+    void dbgDrawHeader();
+    void dbgDrawRail(bool compact, bool horizontal = false);
+    void dbgDrawChecklist();
+    void dbgDrawStoppedAt(bool showPath);
+    void dbgDrawBreakpointList(bool compactRows);
+    void dbgDrawCrashBanner();
+    void dbgDrawTimeStrip(bool open);
+    void dbgDrawWatchPage();
+    void dbgDrawNodesPage();
+    void dbgDrawBreakpointsPage();
+    void dbgDrawPatchesPage();
+    void dbgDrawObjectsPage();
+    void dbgDrawScreenPage();
+    void dbgDrawStatsPage();
+    void dbgDrawRenderCostPage();
+    void dbgDrawVuPage();
 
     // The time machine (docs/time-machine.md): the third direction of the same
     // host: channel. The game captures everything it mutates into
@@ -3990,7 +4028,6 @@ private:
     void livetimeTick();
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
-    void drawTimeMachinePanel();
 
     // The input recorder (docs/input-replay.md): the fifth direction of the
     // same host: channel, and the only one that reproduces a whole SESSION.

@@ -874,5 +874,447 @@ void Pill(const char* text, int kind) {
     ImGui::Dummy(ImVec2(ts.x + padX * 2.0f, lineH));
 }
 
+// --- runtime-a ---
+void DrawRtIcon(ImDrawList* dl, RtIcon icon, ImVec2 c, float size, ImU32 col) {
+    const float s = size * 0.5f;
+    const float th = ImMax(1.3f, size * 0.09f);
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * s, c.y + y * s); };
+    const float pi = 3.14159265f;
+    switch (icon) {
+        case RtIcon::Play:
+            dl->AddTriangleFilled(P(-0.55f, -0.75f), P(0.8f, 0.0f), P(-0.55f, 0.75f), col);
+            break;
+        case RtIcon::Pause:
+            dl->AddRectFilled(P(-0.6f, -0.72f), P(-0.15f, 0.72f), col, s * 0.1f);
+            dl->AddRectFilled(P(0.15f, -0.72f), P(0.6f, 0.72f), col, s * 0.1f);
+            break;
+        case RtIcon::StepFrame: {
+            const ImVec2 t[3] = {P(-0.7f, -0.7f), P(0.35f, 0.0f), P(-0.7f, 0.7f)};
+            dl->AddPolyline(t, 3, col, ImDrawFlags_Closed, th);
+            dl->AddLine(P(0.72f, -0.72f), P(0.72f, 0.72f), col, th);
+            break;
+        }
+        case RtIcon::StepNode:
+            dl->AddRect(P(-0.95f, -0.38f), P(-0.25f, 0.38f), col, s * 0.15f, 0, th);
+            dl->AddLine(P(-0.25f, 0.0f), P(0.45f, 0.0f), col, th);
+            dl->AddLine(P(0.2f, -0.28f), P(0.48f, 0.0f), col, th);
+            dl->AddLine(P(0.2f, 0.28f), P(0.48f, 0.0f), col, th);
+            dl->AddCircle(P(0.78f, 0.0f), s * 0.2f, col, 12, th);
+            break;
+        case RtIcon::Camera:
+            dl->AddRect(P(-0.85f, -0.45f), P(0.85f, 0.7f), col, s * 0.15f, 0, th);
+            dl->AddLine(P(-0.35f, -0.45f), P(-0.2f, -0.72f), col, th);
+            dl->AddLine(P(-0.2f, -0.72f), P(0.2f, -0.72f), col, th);
+            dl->AddLine(P(0.2f, -0.72f), P(0.35f, -0.45f), col, th);
+            dl->AddCircle(P(0.0f, 0.12f), s * 0.3f, col, 16, th);
+            break;
+        case RtIcon::More:
+            for (int i = -1; i <= 1; ++i) dl->AddCircleFilled(P(i * 0.62f, 0.0f), s * 0.14f, col, 8);
+            break;
+        case RtIcon::Eye:
+            dl->PathArcTo(P(0.0f, 0.9f), s * 1.35f, pi * 1.18f, pi * 1.82f, 16);
+            dl->PathStroke(col, 0, th);
+            dl->PathArcTo(P(0.0f, -0.9f), s * 1.35f, pi * 0.18f, pi * 0.82f, 16);
+            dl->PathStroke(col, 0, th);
+            dl->AddCircle(c, s * 0.28f, col, 12, th);
+            break;
+        case RtIcon::Nodes:
+            dl->AddRect(P(-0.85f, -0.75f), P(-0.2f, -0.2f), col, s * 0.12f, 0, th);
+            dl->AddRect(P(0.2f, 0.2f), P(0.85f, 0.75f), col, s * 0.12f, 0, th);
+            dl->AddLine(P(-0.2f, -0.48f), P(0.52f, -0.48f), col, th);
+            dl->AddLine(P(0.52f, -0.48f), P(0.52f, 0.2f), col, th);
+            break;
+        case RtIcon::Breakpoint:
+            dl->AddCircle(c, s * 0.7f, col, 20, th);
+            dl->AddCircleFilled(c, s * 0.3f, c32(theme::semantics().danger), 12);
+            break;
+        case RtIcon::Bolt: {
+            const ImVec2 pts[7] = {P(0.15f, -0.95f), P(-0.6f, 0.15f), P(-0.05f, 0.15f), P(-0.2f, 0.95f),
+                                   P(0.6f, -0.15f), P(0.05f, -0.15f), P(0.15f, -0.95f)};
+            dl->AddPolyline(pts, 7, col, 0, th);
+            break;
+        }
+        case RtIcon::Cube: {
+            const ImVec2 hex[6] = {P(0, -0.85f), P(0.75f, -0.45f), P(0.75f, 0.45f),
+                                   P(0, 0.85f),  P(-0.75f, 0.45f), P(-0.75f, -0.45f)};
+            dl->AddPolyline(hex, 6, col, ImDrawFlags_Closed, th);
+            dl->AddLine(P(-0.75f, -0.45f), P(0, -0.05f), col, th);
+            dl->AddLine(P(0.75f, -0.45f), P(0, -0.05f), col, th);
+            dl->AddLine(P(0, -0.05f), P(0, 0.85f), col, th);
+            break;
+        }
+        case RtIcon::Monitor:
+            dl->AddRect(P(-0.85f, -0.65f), P(0.85f, 0.4f), col, s * 0.15f, 0, th);
+            dl->AddLine(P(0, 0.4f), P(0, 0.8f), col, th);
+            dl->AddLine(P(-0.38f, 0.8f), P(0.38f, 0.8f), col, th);
+            break;
+        case RtIcon::Bars:
+            dl->AddLine(P(-0.55f, 0.75f), P(-0.55f, -0.1f), col, th);
+            dl->AddLine(P(0.0f, 0.75f), P(0.0f, -0.65f), col, th);
+            dl->AddLine(P(0.55f, 0.75f), P(0.55f, 0.2f), col, th);
+            dl->AddLine(P(-0.9f, 0.8f), P(0.9f, 0.8f), col, th);
+            break;
+        case RtIcon::Lines:
+            dl->AddLine(P(-0.75f, -0.55f), P(0.75f, -0.55f), col, th);
+            dl->AddLine(P(-0.75f, 0.0f), P(0.25f, 0.0f), col, th);
+            dl->AddLine(P(-0.75f, 0.55f), P(-0.15f, 0.55f), col, th);
+            break;
+        case RtIcon::Timeline:
+            dl->AddLine(P(-0.85f, -0.55f), P(-0.15f, -0.55f), col, th);
+            dl->AddLine(P(-0.5f, 0.0f), P(0.55f, 0.0f), col, th);
+            dl->AddLine(P(-0.15f, 0.55f), P(0.85f, 0.55f), col, th);
+            break;
+        case RtIcon::Chip:
+            dl->AddRect(P(-0.5f, -0.5f), P(0.5f, 0.5f), col, s * 0.12f, 0, th);
+            for (int i = -1; i <= 1; i += 2) {
+                const float o = i * 0.22f;
+                dl->AddLine(P(o, -0.5f), P(o, -0.85f), col, th);
+                dl->AddLine(P(o, 0.5f), P(o, 0.85f), col, th);
+                dl->AddLine(P(-0.5f, o), P(-0.85f, o), col, th);
+                dl->AddLine(P(0.5f, o), P(0.85f, o), col, th);
+            }
+            break;
+        case RtIcon::Rewind:
+        case RtIcon::History:
+            dl->PathArcTo(c, s * 0.72f, pi * 1.05f, pi * 2.75f, 24);
+            dl->PathStroke(col, 0, th);
+            dl->AddLine(P(-0.72f, 0.0f), P(-0.98f, -0.32f), col, th);
+            dl->AddLine(P(-0.72f, 0.0f), P(-0.4f, -0.22f), col, th);
+            if (icon == RtIcon::History) {
+                dl->AddLine(c, P(0.0f, -0.42f), col, th);
+                dl->AddLine(c, P(0.3f, 0.2f), col, th);
+            }
+            break;
+        case RtIcon::Timer:
+            dl->AddCircle(P(0.0f, 0.12f), s * 0.72f, col, 20, th);
+            dl->AddLine(P(0.0f, 0.12f), P(0.0f, -0.3f), col, th);
+            dl->AddLine(P(-0.25f, -0.9f), P(0.25f, -0.9f), col, th);
+            break;
+        case RtIcon::Copy:
+            dl->AddRect(P(-0.25f, -0.25f), P(0.8f, 0.8f), col, s * 0.15f, 0, th);
+            dl->AddLine(P(0.4f, -0.25f), P(0.4f, -0.8f), col, th);
+            dl->AddLine(P(0.4f, -0.8f), P(-0.8f, -0.8f), col, th);
+            dl->AddLine(P(-0.8f, -0.8f), P(-0.8f, 0.4f), col, th);
+            dl->AddLine(P(-0.8f, 0.4f), P(-0.25f, 0.4f), col, th);
+            break;
+        case RtIcon::Plus:
+            dl->AddLine(P(0, -0.75f), P(0, 0.75f), col, th);
+            dl->AddLine(P(-0.75f, 0), P(0.75f, 0), col, th);
+            break;
+        case RtIcon::Sparkle: {
+            ImVec2 pts[8];
+            for (int i = 0; i < 8; ++i) {
+                const float a = -pi * 0.5f + i * pi * 0.25f;
+                const float r = (i % 2 == 0) ? s * 0.92f : s * 0.3f;
+                pts[i] = ImVec2(c.x + std::cos(a) * r, c.y + std::sin(a) * r);
+            }
+            dl->AddPolyline(pts, 8, col, ImDrawFlags_Closed, th);
+            break;
+        }
+        case RtIcon::Send:
+            dl->AddLine(P(0, 0.75f), P(0, -0.7f), col, th * 1.2f);
+            dl->AddLine(P(-0.55f, -0.15f), P(0, -0.72f), col, th * 1.2f);
+            dl->AddLine(P(0.55f, -0.15f), P(0, -0.72f), col, th * 1.2f);
+            break;
+        case RtIcon::Stop:
+            dl->AddRectFilled(P(-0.55f, -0.55f), P(0.55f, 0.55f), col, s * 0.15f);
+            break;
+        case RtIcon::Record:
+            dl->AddCircleFilled(c, s * 0.55f, col, 16);
+            break;
+        case RtIcon::Keyboard:
+            dl->AddRect(P(-0.95f, -0.55f), P(0.95f, 0.55f), col, s * 0.15f, 0, th);
+            for (int i = 0; i < 4; ++i)
+                dl->AddCircleFilled(P(-0.6f + i * 0.4f, -0.15f), s * 0.07f, col, 6);
+            dl->AddLine(P(-0.45f, 0.25f), P(0.45f, 0.25f), col, th);
+            break;
+        case RtIcon::Undo:
+            dl->PathArcTo(P(0.1f, 0.15f), s * 0.55f, -pi * 0.5f, pi * 0.5f, 16);
+            dl->PathStroke(col, 0, th);
+            dl->AddLine(P(0.1f, -0.4f), P(-0.75f, -0.4f), col, th);
+            dl->AddLine(P(-0.75f, -0.4f), P(-0.4f, -0.75f), col, th);
+            dl->AddLine(P(-0.75f, -0.4f), P(-0.4f, -0.05f), col, th);
+            dl->AddLine(P(0.1f, 0.7f), P(-0.3f, 0.7f), col, th);
+            break;
+        case RtIcon::ChevronUp:
+            dl->AddLine(P(-0.6f, 0.3f), P(0, -0.3f), col, th);
+            dl->AddLine(P(0.6f, 0.3f), P(0, -0.3f), col, th);
+            break;
+        case RtIcon::ChevronDown:
+            dl->AddLine(P(-0.6f, -0.3f), P(0, 0.3f), col, th);
+            dl->AddLine(P(0.6f, -0.3f), P(0, 0.3f), col, th);
+            break;
+        case RtIcon::ChevronRight:
+            dl->AddLine(P(-0.3f, -0.6f), P(0.3f, 0), col, th);
+            dl->AddLine(P(-0.3f, 0.6f), P(0.3f, 0), col, th);
+            break;
+        case RtIcon::Check:
+            dl->AddLine(P(-0.7f, 0.0f), P(-0.2f, 0.55f), col, th * 1.2f);
+            dl->AddLine(P(-0.2f, 0.55f), P(0.75f, -0.55f), col, th * 1.2f);
+            break;
+        case RtIcon::Close:
+            dl->AddLine(P(-0.6f, -0.6f), P(0.6f, 0.6f), col, th);
+            dl->AddLine(P(0.6f, -0.6f), P(-0.6f, 0.6f), col, th);
+            break;
+        case RtIcon::Question:
+            dl->AddCircle(c, s * 0.85f, col, 20, th);
+            dl->PathArcTo(P(0, -0.22f), s * 0.3f, pi, pi * 2.3f, 12);
+            dl->PathStroke(col, 0, th);
+            dl->AddLine(P(0.05f, 0.05f), P(0.0f, 0.25f), col, th);
+            dl->AddCircleFilled(P(0.0f, 0.52f), th * 0.7f, col, 6);
+            break;
+        case RtIcon::Pencil:
+            dl->AddLine(P(-0.7f, 0.7f), P(0.5f, -0.5f), col, th * 1.6f);
+            dl->AddLine(P(-0.85f, 0.85f), P(-0.7f, 0.4f), col, th);
+            break;
+    }
+}
+
+bool IconButton(const char* label, RtIcon icon, float size, const char* tooltip, bool enabled,
+                bool active) {
+    const theme::Semantics& sem = theme::semantics();
+    const float sz = size > 0.0f ? size : ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(sz, sz));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + sz, p.y + sz);
+    const float r = ImGui::GetStyle().FrameRounding;
+    if (active) dl->AddRectFilled(p, q, c32(sem.accent, 0.18f), r);
+    else if (t > 0.0f) dl->AddRectFilled(p, q, c32(sem.surface, t), r);
+    const ImU32 ink = !enabled ? c32(sem.textDim, 0.45f)
+                      : active ? c32(sem.accent)
+                               : c32(mixv(sem.textDim, sem.text, t));
+    DrawRtIcon(dl, icon, ImVec2(p.x + sz * 0.5f, p.y + sz * 0.5f), sz * 0.52f, ink);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) {
+        const char* end = ImGui::FindRenderedTextEnd(label);
+        if (tooltip) ImGui::SetTooltip("%s", tooltip);
+        else ImGui::SetTooltip("%.*s", (int)(end - label), label);
+    }
+    return pressed && enabled;
+}
+
+float StatePillWidth(const char* text) {
+    const float fs = ImGui::GetFontSize();
+    FontScope bold(boldFont());
+    return ImGui::CalcTextSize(text).x + fs * 1.9f;
+}
+
+void StatePill(const char* text, int kind, bool withIcon, RtIcon icon) {
+    const float fs = ImGui::GetFontSize();
+    const float h = ImGui::GetFrameHeight();
+    const float w = StatePillWidth(text);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec4 base = ImGui::ColorConvertU32ToFloat4(kindCol(kind));
+    const ImVec2 q(p.x + w, p.y + h);
+    dl->AddRectFilled(p, q, c32(base, kind == 4 ? 0.08f : 0.12f), h * 0.5f);
+    dl->AddRect(p, q, c32(base, kind == 4 ? 0.25f : 0.38f), h * 0.5f);
+    const ImVec2 ic(p.x + fs * 0.75f, p.y + h * 0.5f);
+    if (withIcon) {
+        DrawRtIcon(dl, icon, ic, fs * 0.72f, c32(base));
+    } else {
+        dl->AddCircleFilled(ic, fs * 0.42f, c32(base, 0.2f), 12);
+        dl->AddCircleFilled(ic, fs * 0.25f, c32(base), 12);
+    }
+    {
+        FontScope bold(boldFont());
+        dl->AddText(ImVec2(p.x + fs * 1.35f, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f), c32(base),
+                    text);
+    }
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+namespace {
+float transportItemW(const TransportItem& it) {
+    const float fs = ImGui::GetFontSize();
+    const char* text = it.text ? it.text : it.label;
+    const char* end = it.text ? nullptr : ImGui::FindRenderedTextEnd(it.label);
+    float tw;
+    {
+        FontScope bold(it.primary && it.enabled ? boldFont() : nullptr);
+        tw = ImGui::CalcTextSize(text, end).x;
+    }
+    float w = fs * 0.8f + fs + fs * 0.45f + tw;
+    if (it.key) w += fs * 0.45f + Keycap(nullptr, ImVec2(0, 0), fs * 1.15f, it.key);
+    return w;
+}
+}  // namespace
+
+float TransportBarWidth(const TransportItem* items, int count) {
+    float w = 6.0f;
+    for (int i = 0; i < count; ++i) w += transportItemW(items[i]) + (i ? 2.0f : 0.0f);
+    return w;
+}
+
+int TransportBar(const char* id, const TransportItem* items, int count) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float h = ImGui::GetFrameHeight() + 6.0f;
+    const float pad = 3.0f;
+    const float w = TransportBarWidth(items, count);
+    const ImVec2 base = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    dl->AddRectFilled(base, ImVec2(base.x + w, base.y + h), c32(sem.field), r);
+    dl->AddRect(base, ImVec2(base.x + w, base.y + h), c32(sem.border), r);
+    int clicked = -1;
+    ImGui::PushID(id);
+    float x = base.x + pad;
+    for (int i = 0; i < count; ++i) {
+        const TransportItem& it = items[i];
+        const float iw = transportItemW(it);
+        const ImVec2 p(x, base.y + pad), q(x + iw, base.y + h - pad);
+        ImGui::SetCursorScreenPos(p);
+        ImGui::BeginDisabled(!it.enabled);
+        if (ImGui::InvisibleButton(it.label, ImVec2(iw, q.y - p.y)) && it.enabled) clicked = i;
+        ImGui::EndDisabled();
+        const bool hov = it.enabled && ImGui::IsItemHovered();
+        const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+        if (it.tooltip &&
+            ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", it.tooltip);
+        ImU32 ink;
+        if (it.primary && it.enabled) {
+            dl->AddRectFilled(p, q, c32(mixv(sem.accent, ImVec4(1, 1, 1, 1), 0.1f * t)), r - pad * 0.5f);
+            ink = c32(sem.ground);
+        } else {
+            if (t > 0.0f) dl->AddRectFilled(p, q, c32(sem.surface, t), r - pad * 0.5f);
+            ink = it.enabled ? c32(mixv(sem.textDim, sem.text, 0.55f + 0.45f * t))
+                             : c32(sem.textDim, 0.5f);
+        }
+        float cx = x + fs * 0.4f;
+        DrawRtIcon(dl, it.icon, ImVec2(cx + fs * 0.5f, (p.y + q.y) * 0.5f), fs * 0.78f, ink);
+        cx += fs + fs * 0.45f;
+        const char* text = it.text ? it.text : it.label;
+        const char* end = it.text ? nullptr : ImGui::FindRenderedTextEnd(it.label);
+        {
+            FontScope bold(it.primary && it.enabled ? boldFont() : nullptr);
+            dl->AddText(ImVec2(cx, (p.y + q.y - ImGui::GetTextLineHeight()) * 0.5f), ink, text, end);
+            cx += ImGui::CalcTextSize(text, end).x;
+        }
+        if (it.key) {
+            const float kh = fs * 1.15f;
+            Keycap(dl, ImVec2(cx + fs * 0.45f, (p.y + q.y - kh) * 0.5f), kh, it.key);
+        }
+        x += iw + 2.0f;
+    }
+    ImGui::PopID();
+    ImGui::SetCursorScreenPos(base);
+    ImGui::Dummy(ImVec2(w, h));
+    return clicked;
+}
+
+bool RailRow(const char* label, RtIcon icon, const char* count, int countKind, bool selected,
+             bool compact) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float h = ImGui::GetFrameHeight() + 4.0f;
+    const float w = compact ? h : ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(ImMax(1.0f, w), h));
+    const ImGuiID id = ImGui::GetItemID();
+    ImGuiContext& g = *GImGui;
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label,
+                                g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                    (selected ? ImGuiItemStatusFlags_Checked : 0));
+    const bool hov = ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(id, hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = ImGui::GetStyle().FrameRounding;
+    if (selected) {
+        dl->AddRectFilled(p, q, c32(sem.surface), r);
+        dl->AddRectFilled(p, ImVec2(p.x + 2.0f, q.y), c32(sem.accent));
+    } else if (t > 0.0f) {
+        dl->AddRectFilled(p, q, c32(sem.surface, 0.7f * t), r);
+    }
+    const ImU32 iconCol = selected ? c32(sem.accent) : c32(mixv(sem.textDim, sem.text, t));
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    if (compact) {
+        DrawRtIcon(dl, icon, ImVec2(p.x + w * 0.5f, p.y + h * 0.5f), fs * 0.9f, iconCol);
+        if (count && *count && countKind != 4)
+            dl->AddCircleFilled(ImVec2(q.x - fs * 0.3f, p.y + fs * 0.35f), fs * 0.18f, kindCol(countKind), 8);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%.*s%s%s", (int)(end - label), label, count && *count ? "  " : "",
+                              count ? count : "");
+        return pressed;
+    }
+    DrawRtIcon(dl, icon, ImVec2(p.x + fs * 1.05f, p.y + h * 0.5f), fs * 0.9f, iconCol);
+    float cw = 0.0f;
+    if (count && *count) {
+        FontScope mono(monoFont());
+        const float cfs = ImGui::GetFontSize() * 0.85f;
+        cw = ImGui::GetFont()->CalcTextSizeA(cfs, FLT_MAX, 0.0f, count).x;
+        dl->AddText(ImGui::GetFont(), cfs, ImVec2(q.x - cw - fs * 0.6f, p.y + (h - cfs) * 0.5f),
+                    countKind == 4 ? c32(sem.textDim, 0.8f) : kindCol(countKind), count);
+    }
+    dl->PushClipRect(p, ImVec2(q.x - cw - fs, q.y), true);
+    dl->AddText(ImVec2(p.x + fs * 2.0f, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                selected ? c32(sem.text) : c32(mixv(sem.text, sem.textDim, 0.25f * (1.0f - t))), label,
+                end);
+    dl->PopClipRect();
+    return pressed;
+}
+
+void KpiTile(const char* label, const char* value, const char* sub, ImU32 valueCol, float w) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float h = fs * 4.4f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(sem.field), r);
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), c32(sem.border), r);
+    const float x = p.x + fs * 0.8f;
+    dl->PushClipRect(p, ImVec2(p.x + w - fs * 0.4f, p.y + h), true);
+    dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(x, p.y + fs * 0.55f), c32(sem.textDim), label);
+    {
+        ImFont* f = monoFont() ? monoFont() : ImGui::GetFont();
+        dl->AddText(f, fs * 1.4f, ImVec2(x, p.y + fs * 1.5f), valueCol ? valueCol : c32(sem.text), value);
+    }
+    if (sub)
+        dl->AddText(ImGui::GetFont(), fs * 0.82f, ImVec2(x, p.y + fs * 3.1f), c32(sem.textDim, 0.75f), sub);
+    dl->PopClipRect();
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+void Meter(const float* fracs, const ImU32* cols, int n, float height) {
+    const theme::Semantics& sem = theme::semantics();
+    const float h = height > 0.0f ? height : ImMax(6.0f, ImGui::GetFontSize() * 0.5f);
+    const float w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(sem.field), h * 0.5f);
+    dl->PushClipRect(p, ImVec2(p.x + w, p.y + h), true);
+    float x = p.x;
+    for (int i = 0; i < n; ++i) {
+        const float sw = w * ImClamp(fracs[i], 0.0f, 1.0f);
+        if (sw <= 0.0f) continue;
+        dl->AddRectFilled(ImVec2(x, p.y), ImVec2(ImMin(x + sw, p.x + w), p.y + h), cols[i],
+                          i == 0 ? h * 0.5f : 0.0f, i == 0 ? ImDrawFlags_RoundCornersLeft : 0);
+        x += sw;
+    }
+    dl->PopClipRect();
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+void LegendSwatch(ImU32 col, const char* text) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float sw = fs * 0.55f;
+    const float y = p.y + (ImGui::GetTextLineHeight() - sw) * 0.5f;
+    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + sw, y + sw), col, 2.0f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + sw + fs * 0.4f, p.y));
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+}
+// --- end runtime-a ---
+
 }  // namespace ui
 // --- end screens-c ---

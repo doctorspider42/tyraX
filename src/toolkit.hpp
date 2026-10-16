@@ -192,4 +192,67 @@ void Callout(int kind, const char* text, float width = 0.0f);
 void SwatchDot(ImU32 col, float d, bool glow = false);
 // --- end assets-c ---
 
+// --- runtime-a ---
+// Pieces of the running-game tools (Debugger, Remote Pad, AI Assistant):
+// stroke icons the interface font has no glyph for (media transport, eye,
+// timer...), quiet icon buttons, state pills, a transport bar with key hints,
+// a navigation rail row, KPI tiles and a thin meter. Same contract as above.
+
+/** Icons drawn as strokes, so they never depend on the font (the transport
+ * buttons once rendered as "? Pause" because U+23F8 was missing). */
+enum class RtIcon {
+    Play, Pause, StepFrame, StepNode, Camera, More, Eye, Nodes, Breakpoint, Bolt,
+    Cube, Monitor, Bars, Lines, Timeline, Chip, Rewind, Timer, Copy, History,
+    Plus, Sparkle, Send, Stop, Keyboard, Undo, ChevronUp, ChevronDown, ChevronRight,
+    Check, Close, Question, Pencil, Record
+};
+/** Draws `icon` centred on `c` in a `size` px box. */
+void DrawRtIcon(ImDrawList* dl, RtIcon icon, ImVec2 c, float size, ImU32 col);
+
+/** A square quiet icon button (`size` px; 0 = frame height): no fill until
+ * hovered, accent tint when `active`. `label` is the ID, the --ui-script name
+ * and (when `tooltip` is null) the hover text. Returns clicked. */
+bool IconButton(const char* label, RtIcon icon, float size = 0.0f, const char* tooltip = nullptr,
+                bool enabled = true, bool active = false);
+
+/** A rounded state pill at the cursor: tinted fill + border in the kind's
+ * colour (kind as StatusLine; 4 = dim), a dot, or `icon` when given. */
+void StatePill(const char* text, int kind, bool withIcon = false, RtIcon icon = RtIcon::Pause);
+float StatePillWidth(const char* text);
+
+/** One button of a TransportBar. `key` (may be null) is drawn as a keycap;
+ * `primary` fills it with the accent (one per bar: what to do next). */
+struct TransportItem {
+    const char* label;  // ID / --ui-script name
+    RtIcon icon;
+    const char* text;   // what it shows (the label's visible part when null)
+    const char* key;
+    bool primary;
+    bool enabled;
+    const char* tooltip;
+};
+/** A segmented row of icon + text buttons on one track. Returns the index of
+ * the clicked item or -1. */
+int TransportBar(const char* id, const TransportItem* items, int count);
+float TransportBarWidth(const TransportItem* items, int count);
+
+/** A navigation rail row: icon, label, a right-aligned dim count (kind as
+ * Badge colours its text; 4 = dim), the selected row filled with an accent
+ * edge. `compact` draws the icon alone (the label becomes the tooltip).
+ * Reported to --ui-script as checkable with `selected`. Returns clicked. */
+bool RailRow(const char* label, RtIcon icon, const char* count, int countKind, bool selected,
+             bool compact);
+
+/** A KPI tile `w` px wide: a small label, a big mono value in `valueCol` (0 =
+ * text colour) and a dim sub line. Not interactive. */
+void KpiTile(const char* label, const char* value, const char* sub, ImU32 valueCol, float w);
+
+/** A thin full-width meter: up to three segments (fractions of the whole, in
+ * order) on a field-coloured track. */
+void Meter(const float* fracs, const ImU32* cols, int n, float height = 0.0f);
+
+/** A dim caption with a swatch, for legends ("frame buffers 1.64"). */
+void LegendSwatch(ImU32 col, const char* text);
+// --- end runtime-a ---
+
 }  // namespace ui

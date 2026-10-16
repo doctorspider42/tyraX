@@ -348,7 +348,7 @@ reported instead of being written out as picture.
 
 ## Inspecting VU1 input
 
-In **Debugger > VU**, arm a capture and choose a flush. The game writes
+In **Debugger > VU memory**, arm a capture and choose a flush. The game writes
 `bin/vucap.bin`; the editor shows DMA/VIF commands, mesh boundaries, vertices
 and common packet problems.
 

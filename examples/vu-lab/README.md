@@ -310,7 +310,7 @@ program and the UV scroll is on the textured one, each with its own 31.
 
 ## The loop this example exists for
 
-**1. Run it, and capture one draw.** *Debugger > VU > "Capture next VU1 packet"*.
+**1. Run it, and capture one draw.** *Debugger > VU memory > "Capture VU1 packet"*.
 A frame sends one DMA chain per bag flush, and the flush picker chooses which
 draw you get. The file lands in `bin/vucap.bin`.
 

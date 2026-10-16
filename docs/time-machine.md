@@ -18,14 +18,16 @@ across the map.
 1. Build profile **debug** and **Time machine** on (*Project > Preferences >
    Build*; on by default).
 2. Build & run once — **F5** (PCSX2) or **F6** (a console over ps2link).
-3. Play. The game starts capturing immediately; *Tools > Debugger* > **Rewind**
-   shows how much history you have.
-4. Drag the slider back and press **Rewind to here**. The game snaps into that
-   capture and keeps running from it.
+3. Play. The game starts capturing immediately; the Debugger's `...` menu
+   shows how much history you have (and *Clear history*).
+4. Click a past frame on the Debugger's **time strip** and press **Rewind
+   world**. The game snaps into its capture at or before that frame and keeps
+   running from it.
 
-The Rewind tab sits next to the Debugger's **Timeline** on purpose: the Timeline
-says *what ran* on a frame, Rewind puts the world back *into* that frame. Same
-axis, two halves of the same question.
+Rewinding lives on the Debugger's **time strip** on purpose: the strip's bars
+say *what ran* on a frame, Rewind world puts the world back *into* that frame.
+Same axis, two halves of the same question - a blue mark on the strip shows
+where the world is, the playhead which frame you are looking at.
 
 ## What a capture holds
 
@@ -62,8 +64,8 @@ Named here rather than discovered later:
   reaches what the generated game publishes on `ScriptContext`; state you added
   by hand is yours.
 
-The Rewind tab lists these under the controls, so the panel never implies more
-than it does.
+The *Rewind world* button's tooltip lists these, so the panel never implies
+more than it does.
 
 ## Why the history is in RAM
 
@@ -137,7 +139,7 @@ touched.
 A [recording](input-replay.md) is a list of *inputs*, not of states: it
 reproduces a run by performing it again. So a rewind moves the world out from
 under it, and every frame after that describes a different situation — the
-Replay tab will report the difference as a divergence, from the frame you
+input recorder will report the difference as a divergence, from the frame you
 rewound at onwards.
 
 That is frequently exactly what you want: rewind a few seconds, patch a graph
