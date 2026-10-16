@@ -332,7 +332,7 @@ here would be a misleading reference for the ARKit one.
 | `src/wire.cpp` | `makeWebSocketTransport()` — RFC 6455 server behind `wire::Transport` |
 | `src/camtake.hpp/.cpp` | `mapCamSample` (shared with the live view), the live anchor, fixed-rate resampling |
 | `src/viewport.cpp` | `grabPreviewRgb()` — GPU downscale + readback of the last rendered frame |
-| `src/cutscene_ui.cpp` | `phoneCamTick` / `drawPhoneCamWindow` (link, phone's view via `Viewport::renderShot`, recorder) / `phoneCamPushPreview` |
+| `src/cutscene_ui.cpp` | `phoneCamTick` / `drawPhoneCamWindow` (link, phone's view via `Viewport::renderShot`, slot `GameViewPhone`, recorder) / `phoneCamPushPreview` |
 
 The iOS app is not in this repo: see
 [doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam), whose

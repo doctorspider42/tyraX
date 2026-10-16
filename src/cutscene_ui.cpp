@@ -840,7 +840,8 @@ void App::drawPhoneCamWindow() {
             viewport_.setHiddenCameras(hide);
             const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
             const uint32_t tex = viewport_.renderShot((int)(iw * sc), (int)(h * sc), project_.objects(),
-                                                      phoneEye_, phoneTarget_, phoneFov_, phoneRoll_);
+                                                      phoneEye_, phoneTarget_, phoneFov_, phoneRoll_,
+                                                      Viewport::GameViewPhone, modelEditSerial_);
             dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, q, ImVec2(0, 1), ImVec2(1, 0),
                                 IM_COL32_WHITE, r);
         } else {
@@ -1697,8 +1698,14 @@ void App::drawCutsceneWindow() {
                     if (!k.camera.empty()) hide.push_back(k.camera);
                 viewport_.setHiddenCameras(std::move(hide));
                 const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+                // The scene as the game draws it, re-rendered when the shot,
+                // the playhead or the project changes (Viewport::renderGameView).
+                uint32_t playBits = 0;
+                std::memcpy(&playBits, &seqPlayhead_, sizeof(playBits));
                 const uint32_t tex = viewport_.renderShot((int)(w * sc), (int)(h * sc), seqPosed_, seqShotEye_,
-                                                          seqShotAt_, seqShotFov_, seqShotRoll_);
+                                                          seqShotAt_, seqShotFov_, seqShotRoll_,
+                                                          Viewport::GameViewShot,
+                                                          modelEditSerial_ * 31u + playBits);
                 dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, q, ImVec2(0, 1), ImVec2(1, 0),
                                     IM_COL32_WHITE, r);
                 // bars and fade, the same coverage the PS2 composites

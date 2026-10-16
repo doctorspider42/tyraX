@@ -1886,11 +1886,13 @@ void Viewport::shutdown() {
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
-    if (shot_.fbo) glDeleteFramebuffers(1, &shot_.fbo);
-    if (shot_.colorTex) glDeleteTextures(1, &shot_.colorTex);
-    if (shot_.depthRbo) glDeleteRenderbuffers(1, &shot_.depthRbo);
-    if (shot_.gradeFbo) glDeleteFramebuffers(1, &shot_.gradeFbo);
-    if (shot_.gradeTex) glDeleteTextures(1, &shot_.gradeTex);
+    for (ShotTargets& st : shots_) {
+        if (st.fbo) glDeleteFramebuffers(1, &st.fbo);
+        if (st.colorTex) glDeleteTextures(1, &st.colorTex);
+        if (st.depthRbo) glDeleteRenderbuffers(1, &st.depthRbo);
+        if (st.gradeFbo) glDeleteFramebuffers(1, &st.gradeFbo);
+        if (st.gradeTex) glDeleteTextures(1, &st.gradeTex);
+    }
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
     if (ps2Program_) glDeleteProgram(ps2Program_);
     if (outFbo_) glDeleteFramebuffers(1, &outFbo_);
@@ -5398,6 +5400,29 @@ void Viewport::fly(float forward, float strafe, float dt) {
     target_[2] += (fwdH.z * forward + rightH.z * strafe) * s;
 }
 
+// Game view (renderGameView): does the GAME draw anything for this object?
+// The editor-only markers say no - their whole appearance is a gizmo. A
+// third-person Player draws its avatar; any other Player is the camera.
+static bool drawsInGame(const SceneObject& o) {
+    if (o.collisionMode == 3) return false;  // invisible wall
+    switch (o.type) {
+        case PrimitiveType::SpawnPoint:
+        case PrimitiveType::SoundEmitter:
+        case PrimitiveType::PointLight:
+        case PrimitiveType::Empty:
+        case PrimitiveType::Camera:
+        case PrimitiveType::Area:
+        case PrimitiveType::Scatter:
+        case PrimitiveType::Scroller:
+        case PrimitiveType::Comment:
+            return false;
+        case PrimitiveType::Player:
+            return o.playerMode == 2 && isAnimatedModelPath(o.modelPath);
+        default:
+            return true;
+    }
+}
+
 // A local AABB against the six homogeneous clip planes. Testing the box's
 // support point avoids transforming eight corners and handles rotation,
 // negative/nonuniform scale, perspective and orthographic views alike.
@@ -5415,53 +5440,132 @@ static bool modelInView(const Mat4& mvp, const float mn[3], const float mx[3]) {
 
 uint32_t Viewport::renderShot(int width, int height, const std::vector<SceneObject>& objects,
                               const float eye[3], const float target[3], float fovDeg,
-                              float rollDeg) {
+                              float rollDeg, int slot, uint64_t stamp) {
+    return renderGameView(slot, width, height, objects, stamp, eye, target, fovDeg, rollDeg);
+}
+
+bool Viewport::gameViewFrames(int slot, uint32_t& before, uint32_t& after, int& w,
+                              int& h) const {
+    if (slot < 0 || slot >= GameViewSlots) return false;
+    const ShotTargets& st = shots_[slot];
+    if (!st.tex || !st.colorTex || st.w <= 0 || st.h <= 0) return false;
+    before = st.colorTex;
+    after = st.graded ? st.gradeTex : st.colorTex;
+    w = st.w;
+    h = st.h;
+    return true;
+}
+
+uint32_t Viewport::renderGameView(int slot, int width, int height,
+                                  const std::vector<SceneObject>& objects, uint64_t stamp,
+                                  const float* eye, const float* target, float fovDeg,
+                                  float rollDeg) {
+    if (slot < 0 || slot >= GameViewSlots) slot = GameViewShot;
+    ShotTargets& shot = shots_[slot];
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+
+    // Save the camera override first: the key below must see the camera the
+    // pass will actually use.
+    const bool savedOverride = camOverride_;
+    float savedEye[3], savedTarget[3];
+    std::memcpy(savedEye, camEye_, sizeof(savedEye));
+    std::memcpy(savedTarget, camTarget_, sizeof(savedTarget));
+    const float savedFov = camFov_, savedRoll = camRoll_;
+    auto restoreCamera = [&]() {
+        camOverride_ = savedOverride;
+        std::memcpy(camEye_, savedEye, sizeof(savedEye));
+        std::memcpy(camTarget_, savedTarget, sizeof(savedTarget));
+        camFov_ = savedFov;
+        camRoll_ = savedRoll;
+    };
+    if (eye && target) setCameraOverride(eye, target, fovDeg, rollDeg);
+
+    // The cache key: FNV-1a over everything that changes the picture and is
+    // cheap to read - size, the resolved camera, the grade, the object list
+    // (identity and length; content edits arrive through the caller's stamp).
+    uint64_t key = 1469598103934665603ull;
+    auto mix = [&key](const void* p, size_t n) {
+        const unsigned char* b = static_cast<const unsigned char*>(p);
+        for (size_t i = 0; i < n; ++i) key = (key ^ b[i]) * 1099511628211ull;
+    };
+    const CamView cv = camView(width, height);
+    mix(&width, sizeof(width));
+    mix(&height, sizeof(height));
+    mix(cv.eye, sizeof(cv.eye));
+    mix(cv.fwd, sizeof(cv.fwd));
+    mix(cv.up, sizeof(cv.up));
+    mix(&cv.ortho, sizeof(cv.ortho));
+    mix(&cv.tanHalf, sizeof(cv.tanHalf));
+    mix(&cv.halfH, sizeof(cv.halfH));
+    mix(&gradingOn_, sizeof(gradingOn_));
+    mix(&grading_, sizeof(grading_));
+    mix(&gsQuant_, sizeof(gsQuant_));
+    mix(&gsDither_, sizeof(gsDither_));
+    const void* objData = objects.data();
+    const size_t objCount = objects.size();
+    mix(&objData, sizeof(objData));
+    mix(&objCount, sizeof(objCount));
+    mix(&stamp, sizeof(stamp));
+    const double now = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    if (shot.tex && shot.key == key && shot.at >= 0.0 &&
+        now - shot.at < 1.0 / kGameViewIdleHz) {
+        restoreCamera();
+        return shot.tex;
+    }
+
     // Swap the scene-pass targets (exactly the set ensureFramebuffer owns)
-    // for the private ones, so render() draws into them and resizes them, not
-    // the panel's. Everything else render() leaves behind that the MAIN image
-    // is read through - matrices for picking/gizmos, the last-image source the
-    // phone stream blits from, the camera override - is saved and restored.
+    // for the slot's, so render() draws into them and resizes them, not the
+    // panel's. Everything else render() leaves behind that the MAIN image is
+    // read through - matrices for picking/gizmos, the last-image source the
+    // phone stream blits from, gradingFrames' record - is saved and restored.
     auto swapTargets = [&]() {
-        std::swap(fbo_, shot_.fbo);
-        std::swap(colorTex_, shot_.colorTex);
-        std::swap(depthRbo_, shot_.depthRbo);
-        std::swap(gradeFbo_, shot_.gradeFbo);
-        std::swap(gradeTex_, shot_.gradeTex);
-        std::swap(fbWidth_, shot_.w);
-        std::swap(fbHeight_, shot_.h);
+        std::swap(fbo_, shot.fbo);
+        std::swap(colorTex_, shot.colorTex);
+        std::swap(depthRbo_, shot.depthRbo);
+        std::swap(gradeFbo_, shot.gradeFbo);
+        std::swap(gradeTex_, shot.gradeTex);
+        std::swap(fbWidth_, shot.w);
+        std::swap(fbHeight_, shot.h);
     };
     float savedView[16], savedProj[16];
     std::memcpy(savedView, viewM_, sizeof(savedView));
     std::memcpy(savedProj, projM_, sizeof(savedProj));
     const uint32_t savedLast = lastImageFbo_;
     const int savedLastW = lastImageW_, savedLastH = lastImageH_;
-    const bool savedOverride = camOverride_;
-    float savedEye[3], savedTarget[3];
-    std::memcpy(savedEye, camEye_, sizeof(savedEye));
-    std::memcpy(savedTarget, camTarget_, sizeof(savedTarget));
-    const float savedFov = camFov_, savedRoll = camRoll_;
+    const bool savedGraded = lastGraded_;
+    const int savedSceneW = lastSceneW_, savedSceneH = lastSceneH_;
     const bool savedGuides = guidesVisible_;
     const bool savedPs2 = ps2_.on;
+    const ViewMode savedMode = viewMode_;
 
     swapTargets();
-    setCameraOverride(eye, target, fovDeg, rollDeg);
     guidesVisible_ = false;
     ps2_.on = false;
+    viewMode_ = ViewMode::Solid;
+    gameView_ = true;
     const uint32_t tex = render(width, height, objects, std::vector<int>(), -1);
+    gameView_ = false;
+    viewMode_ = savedMode;
     ps2_.on = savedPs2;
     guidesVisible_ = savedGuides;
+    shot.graded = lastGraded_;
     swapTargets();
 
-    camOverride_ = savedOverride;
-    std::memcpy(camEye_, savedEye, sizeof(savedEye));
-    std::memcpy(camTarget_, savedTarget, sizeof(savedTarget));
-    camFov_ = savedFov;
-    camRoll_ = savedRoll;
+    restoreCamera();
     lastImageFbo_ = savedLast;
     lastImageW_ = savedLastW;
     lastImageH_ = savedLastH;
+    lastGraded_ = savedGraded;
+    lastSceneW_ = savedSceneW;
+    lastSceneH_ = savedSceneH;
     std::memcpy(viewM_, savedView, sizeof(savedView));
     std::memcpy(projM_, savedProj, sizeof(savedProj));
+    shot.key = key;
+    shot.at = now;
+    shot.tex = tex;
     return tex;
 }
 
@@ -6285,6 +6389,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            if (gameView_ && !drawsInGame(o)) continue;
             // Baked scatter chunks are build output of the graph the preview
             // below draws live from the same deterministic evaluation - drawing
             // both would double every instance. Frozen volumes instead draw
@@ -6834,7 +6939,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
     for (size_t pi = 0; pi < objects.size(); ++pi) {
         const SceneObject& p = objects[pi];
-        if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+        if (gameView_ || p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
         const float d2r = kPi / 180.0f;
         Mat4 m = scaleM(1.2f, 1.2f, 1.2f);  // fixed length, quad-scale-free
         m = mul(rotX(p.rotation[0] * d2r), m);
@@ -6890,8 +6995,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // origin marker so the invisible belt object is locatable
             const Mat4 om = mul(translation(s.position[0], s.position[1], s.position[2]),
                                 scaleM(0.3f, 0.3f, 0.3f));
-            draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
-                 s.color[2], 0, &om);
+            if (!gameView_)
+                draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
+                     s.color[2], 0, &om);
             // Hiding a belt hides its GHOSTS only - the origin marker above is
             // drawn either way, or a hidden belt would be unfindable. An index
             // past the mask draws (an unset mask means "show all").
@@ -6929,20 +7035,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Nav-mesh overlay: translucent green quads over the walkable cells
     // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).
-    if (navOverlayOn_ && navOverlayMesh_.vertexCount)
+    // Everything from here to the particles is editor overlay: none of it in
+    // the game view.
+    const bool overlays = !gameView_;
+    if (overlays && navOverlayOn_ && navOverlayMesh_.vertexCount)
         draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.4f);
 
     // Scatter overlays: an isolated mask draped on the ground, the curve being
     // edited, its control-point handles, and the proxy dots for huge counts.
-    if (scatterMaskMesh_.vertexCount)
+    if (overlays && scatterMaskMesh_.vertexCount)
         draw(scatterMaskMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.55f);
-    if (scatterPointsMesh_.vertexCount)
+    if (overlays && scatterPointsMesh_.vertexCount)
         draw(scatterPointsMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-    if (scatterCurveMesh_.vertexCount)
+    if (overlays && scatterCurveMesh_.vertexCount)
         draw(scatterCurveMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-    for (size_t h = 0; h * 3 + 2 < scatter_.handles.size(); ++h) {
+    for (size_t h = 0; overlays && h * 3 + 2 < scatter_.handles.size(); ++h) {
         const float* hp = &scatter_.handles[h * 3];
         const bool active = (int)h == scatter_.activeHandle;
         const float r = active ? 0.9f : 0.55f;
@@ -6956,7 +7065,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // appearance in the editor and nothing at all in the game.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
         draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
              o.color[1], o.color[2]);
     }
@@ -6968,7 +7077,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // console's own (Preferences > Build > Show collision boxes) draw one
     // answer - including the content-forward yaw, which turns an animated
     // model's box with its mesh.
-    if (collisionOverlay_) {
+    if (overlays && collisionOverlay_) {
         const aobake::ModelAabbFn bounds = [this](const SceneObject& o, float* mn,
                                                   float* mx) {
             return modelLocalBounds(o, mn, mx);
@@ -6995,7 +7104,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // light gizmos, in world space, depth-tested like the rest of the scene -
     // an overlay that ignored depth would put a batch box for the far side of
     // the map on top of the building in front of you.
-    if (!batchOverlay_.empty()) {
+    if (overlays && !batchOverlay_.empty()) {
         for (const BatchOverlayBox& b : batchOverlay_) {
             const float cx = 0.5f * (b.min[0] + b.max[0]);
             const float cy = 0.5f * (b.min[1] + b.max[1]);
@@ -7030,7 +7139,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // said nothing about where a spot points; the cone is the light.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
         const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
         if (o.lightDynamic && o.lightSpot) {
             const float d2r = kPi / 180.0f;
@@ -7057,7 +7166,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // entity but ignoring its scale so the wedge always reads the actual shot.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
         if (camHidden(o.name)) continue;  // previewing through this camera
         const float d2r = kPi / 180.0f;
         const float len = 2.4f;
@@ -7076,7 +7185,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // mesh's two vertices sit at local z=0 and z=1).
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
         if (o.portalTarget.empty()) continue;
         const SceneObject* tgt = nullptr;
         for (const SceneObject& t : objects)
@@ -7099,7 +7208,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // "Highlight usable objects" preference: wire box in the highlight color
     // around every usable object (the proximity condition only applies
     // in-game; the editor just shows which objects qualify and the color).
-    if (usableHighlight_) {
+    if (overlays && usableHighlight_) {
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             const SceneObject& o = objects[oi];
             if (!o.usable || hiddenAt(oi)) continue;
@@ -7118,6 +7227,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Session peers' selections first (their color), so the local outline
     // below always draws on top when both select the same object.
     for (const PeerSel& ps : peerSels_) {
+        if (!overlays) break;
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
             // A road's selected spline overlay is its outline. Its otherwise

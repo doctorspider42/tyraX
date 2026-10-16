@@ -2859,10 +2859,6 @@ private:
     bool uiPrevSafe_ = true;
     int uiDragMode_ = 0;
     double uiTransPlayT0_ = -1.0;
-    // The viewport's rendered frame (set by the Viewport window every frame it
-    // draws): the UI Editor's "Scene" background.
-    uint32_t uiSceneTex_ = 0;
-    int uiSceneTexW_ = 0, uiSceneTexH_ = 0;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // The specimen and the atlas card: backdrop (0 on the scene, 1 on black,

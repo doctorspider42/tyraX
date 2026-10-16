@@ -3441,10 +3441,6 @@ void App::drawViewportWindow() {
         // The overlay cards' frosted backdrop (ui::OverlayGlassPanel): a small
         // blurred copy of this very image, 0 when the panel is too small.
         const uint32_t blurTex = viewport_.blurBackdrop(tex, (int)avail.x, (int)avail.y);
-        // The UI Editor's "Scene" preview background: this frame, as drawn.
-        uiSceneTex_ = tex;
-        uiSceneTexW_ = (int)avail.x;
-        uiSceneTexH_ = (int)avail.y;
         // Phone camera link: stream THIS frame to the connected device, so the
         // phone is a viewfinder onto the editor's own image rather than a
         // second, subtly different render.
@@ -12343,10 +12339,11 @@ static int quickLookOf(const ColorGradingPreset& g) {
 }
 
 // Color Grading window (Tools > Color Grading; docs/color-grading.md): looks
-// list | preview | controls. The preview is the viewport's own last frame
-// before and after the grade pass (Viewport::gradingFrames) with a draggable
-// split, so a look is judged on the scene beside its controls instead of in a
-// viewport the window covers. The viewport previews the selected look with
+// list | preview | controls. The preview is the scene as the game draws it
+// through the editor camera (Viewport::renderGameView - no grid, markers or
+// selection), before and after the grade pass, with a draggable split, so a
+// look is judged on the scene beside its controls instead of in a viewport
+// the window covers. The viewport previews the selected look with
 // the same quantized math the PS2 GS runs.
 void App::drawGradingWindow() {
     if (!showGradingEditor_ || !hasProject_) return;
@@ -12534,7 +12531,27 @@ void App::drawGradingWindow() {
         const float h = ImMax(scaled(120), ImGui::GetContentRegionAvail().y - stripH - fs * (have ? 0.5f : 5.0f));
         uint32_t before = 0, after = 0;
         int iw = 0, ih = 0;
-        const bool frames = viewport_.gradingFrames(before, after, iw, ih) && iw > 0 && ih > 0;
+        {
+            // The scene as the game draws it (no grid, markers or selection),
+            // through the editor camera, at this rect's size - re-rendered
+            // only when the camera, the look or the project changes.
+            const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+            float rw = w * sc, rh = h * sc;
+            const float cap = 1280.0f / ImMax(rw, rh);
+            if (cap < 1.0f) rw *= cap, rh *= cap;
+            // The window grades its own pass with the selected look, then puts
+            // back what the viewport panel set for its image this frame.
+            const bool sel = have && gradingPreview_;
+            viewport_.setGrading(sel, sel ? compileGrading(project_.gradings[selectedGrading_])
+                                          : CompiledGrading{});
+            viewport_.renderGameView(Viewport::GameViewGrading, (int)rw, (int)rh, project_.objects(),
+                                     modelEditSerial_);
+            const int vgi = selectedGrading_ >= 0 ? selectedGrading_ : project_.defaultGrading;
+            const bool vpOn = gradingPreview_ && vgi >= 0 && vgi < (int)project_.gradings.size();
+            viewport_.setGrading(vpOn, vpOn ? compileGrading(project_.gradings[vgi]) : CompiledGrading{});
+        }
+        const bool frames =
+            viewport_.gameViewFrames(Viewport::GameViewGrading, before, after, iw, ih) && iw > 0 && ih > 0;
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImGui::InvisibleButton("Grading preview", ImVec2(w, h));
         if (frames) {
@@ -12582,7 +12599,7 @@ void App::drawGradingWindow() {
                 ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
         } else {
             dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), 8.0f);
-            const char* t = "The preview shows the viewport's frame - show the Viewport to fill it.";
+            const char* t = "No preview: the scene could not be rendered.";
             const ImVec2 ts = ImGui::CalcTextSize(t);
             dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + h * 0.5f), ImGui::GetColorU32(sem.textDim), t);
         }

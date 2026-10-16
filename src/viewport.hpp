@@ -431,14 +431,40 @@ public:
                     const std::vector<int>& selection, int primary);
 
     // A second picture of the same scene through an explicit camera, into its
-    // own target - the Cutscene Director's shot preview. The same render()
-    // with the scene-pass targets swapped for a private set, the camera
-    // override set for the one call, and editor guides (grid, axes) and the
-    // PS2 output mode off; everything the main image and the picking depend
-    // on (matrices, the last-image source the phone stream reads) is put back.
-    // Returns the GL texture (bottom-up), valid until the next renderShot.
+    // own target - the Cutscene Director's shot preview (`slot` GameViewShot)
+    // and the Phone Camera window's (GameViewPhone). renderGameView through
+    // an explicit camera: the scene as the game draws it, everything the main
+    // image and the picking depend on (matrices, the last-image source the
+    // phone stream reads) put back. Returns the GL texture (bottom-up), valid
+    // until the next call for the same slot.
     uint32_t renderShot(int width, int height, const std::vector<SceneObject>& objects,
-                        const float eye[3], const float target[3], float fovDeg, float rollDeg);
+                        const float eye[3], const float target[3], float fovDeg, float rollDeg,
+                        int slot = GameViewShot, uint64_t stamp = 0);
+
+    // "Game view": the scene as the GAME draws it, into a private target per
+    // slot - no grid/axes, no markers (spawn points, players, lights' bulbs
+    // and reach, cameras and their frustums, empties, sound emitters, areas,
+    // scatter boxes, invisible walls, scroller origins, portal arrows/links),
+    // no overlays (nav mesh, collision, batches, usable highlight), no
+    // selection or peer outlines, solid shading, PS2 output mode off. Grading
+    // and the GS colour simulation still run, so gameViewFrames() hands back
+    // the ungraded and graded images of the same pass.
+    //   eye == nullptr: through the editor's own camera (look-through and
+    //   cutscene overrides included); otherwise through the given camera.
+    // Cheap by construction: a slot re-renders only when its key changes (size,
+    // camera, grading, the object list, the caller's `stamp`) or, for the
+    // things that move on their own (particles, animated models), at most
+    // kGameViewIdleHz times a second. Returns the GL texture (bottom-up),
+    // valid until the next call for the same slot.
+    enum GameViewSlot { GameViewShot = 0, GameViewPhone, GameViewGrading, GameViewHud, GameViewSlots };
+    static constexpr double kGameViewIdleHz = 10.0;
+    uint32_t renderGameView(int slot, int width, int height, const std::vector<SceneObject>& objects,
+                            uint64_t stamp = 0, const float* eye = nullptr,
+                            const float* target = nullptr, float fovDeg = 50.0f,
+                            float rollDeg = 0.0f);
+    // The slot's last pass before (`before`) and after (`after`) the grade
+    // pass; the same texture twice when no grade ran. False before the first.
+    bool gameViewFrames(int slot, uint32_t& before, uint32_t& after, int& w, int& h) const;
 
     // Phone camera link (docs/phone-camera.md): reads the image the LAST
     // render() produced back into packed RGB for JPEG streaming to the
@@ -1464,7 +1490,16 @@ private:
     struct ShotTargets {
         uint32_t fbo = 0, colorTex = 0, depthRbo = 0, gradeFbo = 0, gradeTex = 0;
         int w = 0, h = 0;
-    } shot_;
+        // renderGameView's cache: what the last pass was keyed on, when it
+        // ran, what it returned, and whether its grade pass ran.
+        uint64_t key = 0;
+        double at = -1.0;
+        uint32_t tex = 0;
+        bool graded = false;
+    } shots_[GameViewSlots];
+    // render(): draw the scene as the game does (renderGameView sets it for
+    // one call) - the scene pass skips markers, the overlay passes skip.
+    bool gameView_ = false;
     // Which framebuffer holds the image the last render() returned (fbo_,
     // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
     // and its size - the source grabPreviewRgb blits from, so the phone sees

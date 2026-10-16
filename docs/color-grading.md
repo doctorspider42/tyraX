@@ -6,7 +6,7 @@ drawn, at no EE cost. Looks are project-wide presets; one can be the look the
 game starts with, and the **Set Color Grading** flow node switches looks at
 runtime.
 
-![The Color Grading window with a before/after split over the scene.](img/color-grading.png)
+![The Color Grading window on cutscene-demo with the sepia look: a before/after split over the scene as the game draws it - no grid, camera or player markers.](img/color-grading.png)
 
 ## The window
 
@@ -19,10 +19,13 @@ controls move under it):
   *start* badge on the game-start look. **None** at the top is the ungraded
   reference. Under the list, **Used by** names the game start and every Set
   Color Grading node that uses the selected look.
-- **Preview** - the viewport's last frame before and after the grade pass, with
-  a draggable **Split** line, or **After** / **Before** alone. It is the same
-  image the viewport shows (no second scene pass), so it follows the editor
-  camera; *Preview in viewport* turns the look on in the viewport itself. Under
+- **Preview** - the scene as the game draws it (no grid, markers, light or
+  camera gizmos, selection outline) through the editor camera, before and
+  after the grade pass, with a draggable **Split** line, or **After** /
+  **Before** alone. It is a second render of its own, refreshed when the
+  camera, the look or the project changes, so it works with the viewport
+  hidden behind the window; *Preview in viewport* grades the viewport itself
+  (and this preview) with the selected look. Under
   it the **GS pass** strip shows the exact numbers the console blends with -
   per-channel gain, lift and the mix colour and amount - and what it costs
   ("5 sprites · 0 EE ms", or *neutral - skipped*).
