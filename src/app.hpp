@@ -1462,6 +1462,7 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveDataAddButtons();
     void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();

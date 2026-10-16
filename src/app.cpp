@@ -11093,7 +11093,9 @@ void App::drawSoundsSection() {
 // one place - how the save presents in the PS2 browser (title + icon, baked
 // to res/save/ by refreshGenerated), an exact byte breakdown of what one
 // slot stores (the same fixed payload the in-RAM checkpoint buffer holds),
-// and the custom save values/texts (drawSaveDataSection below).
+// and the custom save values/texts (drawSaveDataSection below). Three columns:
+// the card as the browser shows it | what a slot carries, card space and
+// checkpoints | how saving behaves.
 //
 // The icon preview is rendered at the card icon's own texture resolution and
 // shown smaller, so the model's edges stay clean on a HiDPI panel.
@@ -11159,10 +11161,86 @@ void App::drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin) {
     ImGui::TextDisabled("cell %d/%d", cell + 1, spin.frames);
 }
 
+namespace {
+
+// Who writes and who reads a save value / text: flow nodes by the object they
+// live in, plus menu rows (a Toggle writes its value, enabledWhen reads one).
+struct SaveUse {
+    std::vector<std::string> writes, reads;
+};
+
+void addUnique(std::vector<std::string>& v, const std::string& s) {
+    for (const std::string& o : v)
+        if (o == s) return;
+    v.push_back(s);
+}
+
+SaveUse saveUse(const Project& p, FlowParamKind kind, const std::string& name) {
+    SaveUse u;
+    if (name.empty()) return u;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(n.type);
+                if (!t || t->strKind != kind || n.str != name) continue;
+                const bool w = n.type == "SetValue" || n.type == "AddValue" || n.type == "SetSaveText";
+                addUnique(w ? u.writes : u.reads, o.name);
+            }
+    if (kind == FlowParamKind::SaveValue)
+        for (const GameMenu& m : p.menus)
+            for (const MenuEntry& e : m.entries) {
+                const bool w = (e.action == MenuEntry::SetValue || e.action == MenuEntry::AddValue ||
+                                e.action == MenuEntry::Toggle || e.action == MenuEntry::Choice ||
+                                e.action == MenuEntry::RebindKey) &&
+                               e.param == name;
+                if (w) addUnique(u.writes, "menu " + m.name);
+                if (e.enabledWhen == name) addUnique(u.reads, "menu " + m.name);
+            }
+    return u;
+}
+
+// "coin-1, coin-2 +2"
+std::string shortList(const std::vector<std::string>& v) {
+    std::string s;
+    for (size_t i = 0; i < v.size() && i < 2; ++i) s += (i ? ", " : "") + v[i];
+    if (v.size() > 2) s += " +" + std::to_string(v.size() - 2);
+    return s;
+}
+
+std::string useSummary(const SaveUse& u) {
+    std::string s;
+    if (!u.writes.empty()) s = shortList(u.writes) + " write";
+    if (!u.reads.empty()) s += (s.empty() ? "" : " · ") + shortList(u.reads) + " read";
+    return s;
+}
+
+std::string useTooltip(const SaveUse& u) {
+    std::string s;
+    if (!u.writes.empty()) {
+        s += "Written by:";
+        for (const std::string& w : u.writes) s += "\n  " + w;
+    }
+    if (!u.reads.empty()) {
+        s += std::string(s.empty() ? "" : "\n") + "Read by:";
+        for (const std::string& r : u.reads) s += "\n  " + r;
+    }
+    return s;
+}
+
+std::string byteText(int b) {
+    char buf[32];
+    if (b >= 1024)
+        std::snprintf(buf, sizeof(buf), "%.1f KB", b / 1024.0);
+    else
+        std::snprintf(buf, sizeof(buf), "%d B", b);
+    return buf;
+}
+
+}  // namespace
+
 void App::drawSaveEditorWindow() {
     if (!showSaveEditor_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(460.0f), scaled(760.0f)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200.0f), scaled(760.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Save Editor", &showSaveEditor_)) {
         ImGui::End();
         return;
@@ -11172,424 +11250,673 @@ void App::drawSaveEditorWindow() {
     // WROTE THE PROJECT on every slider release - against the editing model in
     // app.hpp ("saving is on demand; there is no autosave") and the reason the
     // save icon never lit for them: the edit was already on disk.
-    const std::string saveDataBefore =
-        project::sectionJson(project_, project::Section::SaveData);
-
-    // --- Memory card appearance --------------------------------------------
-    ImGui::SeparatorText("Memory card appearance");
-    char titleBuf[68];
-    std::snprintf(titleBuf, sizeof(titleBuf), "%s", project_.saveTitle.c_str());
-    ImGui::SetNextItemWidth(scaled(240.0f));
-    if (ImGui::InputTextWithHint("Save title", project_.name.c_str(), titleBuf,
-                                 sizeof(titleBuf)))
-        project_.saveTitle = titleBuf;
-    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The name the PS2 browser shows for this game's\n"
-                          "saves (icon.sys). '|' breaks it onto a second\n"
-                          "line; empty = the project name. ASCII only.");
-
-    // Geometry: the flat image quad, or a 3D icon from a project model -
-    // .obj (static, gently swaying) / .glb (a clip sampled into morph
-    // shapes: a real animated icon, like retail games).
+    const std::string saveDataBefore = project::sectionJson(project_, project::Section::SaveData);
     namespace fs = std::filesystem;
-    if (ImGui::BeginCombo("Icon model",
-                          project_.saveIconModel.empty()
-                              ? "(flat image quad)"
-                              : project_.saveIconModel.c_str())) {
-        if (ImGui::Selectable("(flat image quad)",
-                              project_.saveIconModel.empty()) &&
-            !project_.saveIconModel.empty()) {
-            project_.saveIconModel.clear();
-            commitChange();
-        }
-        std::error_code ec;
-        const fs::path models = fs::path(project_.dir) / "res" / "models";
-        for (fs::directory_iterator it(models, ec), end; it != end;
-             it.increment(ec)) {
-            if (ec) break;
-            if (!it->is_regular_file(ec)) continue;
-            std::string ext = it->path().extension().string();
-            for (char& c : ext) c = (char)tolower((unsigned char)c);
-            if (ext != ".obj" && ext != ".glb") continue;
-            const std::string rel =
-                "res/models/" + it->path().filename().generic_string();
-            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIconModel)) {
-                project_.saveIconModel = rel;
-                commitChange();
-            }
-        }
-        ImGui::EndCombo();
-    }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs_ = ImGui::GetFontSize();
+    const templates::SaveSizeInfo sz = templates::saveSizeInfo(project_);
+    const int slots = templates::saveSlotCount(project_);
 
-    std::string modelExt =
-        fs::path(project_.saveIconModel).extension().string();
-    for (char& c : modelExt) c = (char)tolower((unsigned char)c);
-    if (modelExt == ".glb") {
-        // Clip picker: parse the model's clip list once per picked file.
-        if (saveIconClipsModel_ != project_.saveIconModel) {
+    // A stock widget with its label on the right, laid out as an inspector
+    // row (caption left, widget filling the rest, its own label clipped away).
+    // For the few widgets the ui:: row wrappers do not cover.
+    auto rowLead = [&](const char* caption) {
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float labelW = std::clamp(avail / 3.0f, scaled(70.0f), scaled(110.0f));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", caption);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + labelW, p.y));
+        ImGui::SetNextItemWidth(avail - labelW);
+        ImGui::PushClipRect(ImVec2(p.x + labelW, p.y), ImVec2(p.x + avail, p.y + ImGui::GetFrameHeight()), true);
+    };
+
+    // --- header: the card folder, and how much of the card the game takes ---
+    {
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", templates::saveDirName(project_).c_str());
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The save's folder on the memory card");
+        const float kb = sz.cardFootprintBytes / 1024.0f;
+        char tot[48];
+        std::snprintf(tot, sizeof(tot), "%.0f KB of 8 MB", kb);
+        const float meterW = fs_ * 5.0f;
+        const float w = ImGui::CalcTextSize("Card space").x + meterW + ImGui::CalcTextSize(tot).x + fs_ * 1.6f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - w));
+        ImGui::TextDisabled("Card space");
+        ImGui::SameLine();
+        ui::Meter(kb / 8192.0f * 10.0f, meterW, 0.5f, 1.0f);  // the bar spans 10% of a card
+        ImGui::SameLine();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::TextUnformatted(tot);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("What the game's saves take on an 8 MB card, in whole 1 KB clusters\n"
+                              "(the bar spans the first 10%% of the card).");
+    }
+    ImGui::Spacing();
+
+    const ImVec2 bodyAvail = ImGui::GetContentRegionAvail();
+    const float sideW = std::min(scaled(300.0f), bodyAvail.x * 0.27f);
+    const float rightW = std::min(scaled(300.0f), bodyAvail.x * 0.27f);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+
+    // === left: the card as the PS2 browser shows it ===========================
+    auto leftBody = [&] {
+        // The bake: the GEOMETRY rendered the way the browser draws it
+        // (texture x vertex colour, shaded), one image per animation shape. The
+        // same bake fills the stats, so picture and numbers describe one icon.
+        // project_.dir is in the key: two projects can carry identical icon
+        // settings, and the second would keep showing the first one's render.
+        const std::string previewKey = project_.dir + "|" + project_.saveIcon + "|" + project_.saveIconModel +
+                                       "|" + project_.saveIconClip + "|" +
+                                       std::to_string(project_.saveIconFrames) + "|" + project_.saveIconMotion +
+                                       "|" + std::to_string(project_.saveIconMotionAmount);
+        if (saveIconPreviewKey_ != previewKey || saveIconPreviewTex_.empty()) {
+            saveIconInfo_ = savebake::iconInfo(project_);
+            const std::vector<std::vector<unsigned char>> frames =
+                savebake::iconPreviewFrames(project_, kSaveIconPreviewPx);
+            if (!saveIconPreviewTex_.empty()) {
+                glDeleteTextures((GLsizei)saveIconPreviewTex_.size(), saveIconPreviewTex_.data());
+                saveIconPreviewTex_.clear();
+            }
+            for (const std::vector<unsigned char>& f : frames) {
+                unsigned tex = 0;
+                glGenTextures(1, &tex);
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSaveIconPreviewPx, kSaveIconPreviewPx, 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, f.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                saveIconPreviewTex_.push_back(tex);
+            }
+            saveIconPreviewKey_ = previewKey;
+        }
+        std::string modelExt = fs::path(project_.saveIconModel).extension().string();
+        for (char& c : modelExt) c = (char)tolower((unsigned char)c);
+        if (modelExt == ".glb" && saveIconClipsModel_ != project_.saveIconModel) {
+            // Clip list: parsed once per picked file.
             saveIconClips_.clear();
             glbparser::Baked baked;
             std::string err;
-            if (glbparser::bake((fs::path(project_.dir) /
-                                 project_.saveIconModel).string(),
-                                12.0f, baked, err))
-                for (const glbparser::Clip& c : baked.clips)
-                    saveIconClips_.push_back(c.name);
+            if (glbparser::bake((fs::path(project_.dir) / project_.saveIconModel).string(), 12.0f, baked, err))
+                for (const glbparser::Clip& c : baked.clips) saveIconClips_.push_back(c.name);
             saveIconClipsModel_ = project_.saveIconModel;
         }
-        const char* shown = project_.saveIconClip.empty()
-                                ? "(first clip)"
-                                : project_.saveIconClip.c_str();
-        if (ImGui::BeginCombo("Clip", shown)) {
-            if (ImGui::Selectable("(first clip)",
-                                  project_.saveIconClip.empty()) &&
-                !project_.saveIconClip.empty()) {
-                project_.saveIconClip.clear();
-                commitChange();
-            }
-            for (const std::string& c : saveIconClips_)
-                if (ImGui::Selectable(c.c_str(), c == project_.saveIconClip)) {
-                    project_.saveIconClip = c;
-                    commitChange();
-                }
-            ImGui::EndCombo();
-        }
-    }
-    // A .glb with a clip plays that clip, so the idle motion below would mean
-    // nothing for it. saveIconClips_ is already the cached clip list.
-    const bool clipDriven = modelExt == ".glb" && !saveIconClips_.empty();
-
-    ImGui::SetNextItemWidth(scaled(120.0f));
-    ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
-                     savebake::kMaxIconShapes);
-    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Animation shapes baked into the icon. A .glb clip is sampled\n"
-            "into this many morph frames; everything else gets this many\n"
-            "steps of the Motion below. More frames = smoother motion but\n"
-            "a bigger icon file (each shape is another copy of every vertex).");
-
-    // Idle motion: what a source with no animation of its own does.
-    {
+        // A .glb with a clip plays that clip; the idle motion means nothing then.
+        const bool clipDriven = modelExt == ".glb" && !saveIconClips_.empty();
         const std::vector<savebake::IconMotion>& motions = savebake::iconMotions();
-        const int cur = savebake::iconMotionIndex(project_.saveIconMotion);
-        ImGui::BeginDisabled(clipDriven);
-        if (ImGui::BeginCombo("Motion", motions[cur].label)) {
-            for (size_t i = 0; i < motions.size(); ++i) {
-                if (ImGui::Selectable(motions[i].label, (int)i == cur) &&
-                    (int)i != cur) {
-                    project_.saveIconMotion = motions[i].key;
+        const int curMotion = savebake::iconMotionIndex(project_.saveIconMotion);
+
+        // The hero: the icon playing its motion over the browser's dark field,
+        // the title under it the way the browser spaces it.
+        {
+            const float w = std::min(ImGui::GetContentRegionAvail().x, scaled(320.0f));
+            const float h = w * 0.82f;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float rr = ImGui::GetStyle().FrameRounding + 3.0f;
+            dl->AddRectFilledMultiColor(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.ground),
+                                        ImGui::GetColorU32(sem.ground), ImGui::GetColorU32(sem.surface),
+                                        ImGui::GetColorU32(sem.surface));
+            dl->AddRect(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.border), rr);
+            if (!saveIconPreviewTex_.empty()) {
+                // One loop every kSaveIconLoopSeconds however many shapes - so
+                // more Frames make the SAME motion smoother, not faster.
+                const size_t n = saveIconPreviewTex_.size();
+                const double phase = ImGui::GetTime() / kSaveIconLoopSeconds * (double)n;
+                const size_t f = (size_t)((long long)phase % (long long)n);
+                const float is = h * 0.62f;
+                const ImVec2 i0(p.x + (w - is) * 0.5f, p.y + h * 0.04f);
+                dl->AddImage((ImTextureID)(intptr_t)saveIconPreviewTex_[f], i0, ImVec2(i0.x + is, i0.y + is));
+            }
+            std::string title = savebake::displayTitle(project_);
+            std::string l1 = title, l2;
+            const size_t bar = title.find('|');
+            if (bar != std::string::npos) {
+                l1 = title.substr(0, bar);
+                l2 = title.substr(bar + 1);
+            }
+            auto spaced = [](const std::string& s) {
+                std::string o;
+                for (char c : s) {
+                    o += c;
+                    o += ' ';
+                }
+                return o;
+            };
+            const std::string s1 = spaced(l1), s2 = spaced(l2);
+            const float t1 = ImGui::CalcTextSize(s1.c_str()).x, t2 = ImGui::CalcTextSize(s2.c_str()).x;
+            const float ty = p.y + h * 0.70f;
+            dl->AddText(ImVec2(p.x + (w - t1) * 0.5f, ty), ImGui::GetColorU32(sem.text), s1.c_str());
+            if (!l2.empty())
+                dl->AddText(ImVec2(p.x + (w - t2) * 0.5f, ty + fs_ * 1.3f), ImGui::GetColorU32(sem.textDim),
+                            s2.c_str());
+            ImGui::SetCursorScreenPos(ImVec2(p.x + fs_ * 0.5f, p.y + fs_ * 0.4f));
+            {
+                char tag[64];
+                std::snprintf(tag, sizeof(tag), "browser preview · %s",
+                              clipDriven ? "clip" : motions[(size_t)curMotion].label);
+                ui::Badge(tag, 4);
+            }
+            ImGui::SetCursorScreenPos(p);
+            ImGui::Dummy(ImVec2(w, h));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The baked icon, rendered the way the PS2 browser draws it: the\n"
+                                  "model's triangles with texture x vertex colour, cycling through\n"
+                                  "the %d animation shape%s that ship in list.icn. The browser's own\n"
+                                  "lighting and camera differ slightly.",
+                                  (int)saveIconPreviewTex_.size(), saveIconPreviewTex_.size() == 1 ? "" : "s");
+        }
+        ImGui::Spacing();
+
+        // Title
+        char titleBuf[68];
+        std::snprintf(titleBuf, sizeof(titleBuf), "%s", project_.saveTitle.c_str());
+        rowLead("Title");
+        if (ImGui::InputTextWithHint("Save title", project_.name.c_str(), titleBuf, sizeof(titleBuf)))
+            project_.saveTitle = titleBuf;
+        ImGui::PopClipRect();
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        ImGui::TextDisabled("| breaks the line · ASCII · shown full-width");
+
+        // Icon source: the flat image quad, or a 3D icon from a project model -
+        // .obj (static) / .glb (a clip sampled into morph shapes).
+        rowLead("Icon");
+        if (ImGui::BeginCombo("Icon model",
+                              project_.saveIconModel.empty() ? "(flat image quad)" : project_.saveIconModel.c_str())) {
+            if (ImGui::Selectable("(flat image quad)", project_.saveIconModel.empty()) &&
+                !project_.saveIconModel.empty()) {
+                project_.saveIconModel.clear();
+                commitChange();
+            }
+            std::error_code ec;
+            const fs::path models = fs::path(project_.dir) / "res" / "models";
+            for (fs::directory_iterator it(models, ec), end; it != end; it.increment(ec)) {
+                if (ec) break;
+                if (!it->is_regular_file(ec)) continue;
+                std::string ext = it->path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".obj" && ext != ".glb") continue;
+                const std::string rel = "res/models/" + it->path().filename().generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == project_.saveIconModel)) {
+                    project_.saveIconModel = rel;
                     commitChange();
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", motions[i].desc);
             }
             ImGui::EndCombo();
         }
-        // The (?) sits OUTSIDE the disabled block on purpose: a disabled item
-        // takes no hover, and the .glb case - the one where the picker is
-        // greyed out - is exactly when someone wants to know why.
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s",
-                              clipDriven
-                                  ? "The .glb clip drives this icon's motion,\n"
-                                    "so these presets do not apply to it."
-                                  : motions[cur].desc);
-        ImGui::BeginDisabled(clipDriven);
-        if (savebake::iconMotionIndex(project_.saveIconMotion) != 5) {
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            ImGui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f,
-                               2.0f, "%.2fx");
+        ImGui::PopClipRect();
+        {
+            char st[96];
+            std::snprintf(st, sizeof(st), "%s · %d tris · %d shape%s", saveIconInfo_.source.c_str(),
+                          saveIconInfo_.triangles, saveIconInfo_.shapes, saveIconInfo_.shapes == 1 ? "" : "s");
+            ImGui::TextDisabled("%s", st);
+        }
+        if (modelExt == ".glb") {
+            rowLead("Clip");
+            if (ImGui::BeginCombo("Clip", project_.saveIconClip.empty() ? "(first clip)"
+                                                                         : project_.saveIconClip.c_str())) {
+                if (ImGui::Selectable("(first clip)", project_.saveIconClip.empty()) &&
+                    !project_.saveIconClip.empty()) {
+                    project_.saveIconClip.clear();
+                    commitChange();
+                }
+                for (const std::string& c : saveIconClips_)
+                    if (ImGui::Selectable(c.c_str(), c == project_.saveIconClip)) {
+                        project_.saveIconClip = c;
+                        commitChange();
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::PopClipRect();
+        }
+        // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
+        // (a model with its own texture ships that instead).
+        rowLead("Image");
+        if (ImGui::BeginCombo("Icon image",
+                              project_.saveIcon.empty() ? "(built-in placeholder)" : project_.saveIcon.c_str())) {
+            if (ImGui::Selectable("(built-in placeholder)", project_.saveIcon.empty()) &&
+                !project_.saveIcon.empty()) {
+                project_.saveIcon.clear();
+                commitChange();
+            }
+            std::error_code ec;
+            const fs::path res = fs::path(project_.dir) / "res";
+            for (fs::recursive_directory_iterator it(res, ec), end; it != end; it.increment(ec)) {
+                if (ec) break;
+                if (!it->is_regular_file(ec)) continue;
+                std::string ext = it->path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
+                const std::string rel = "res/" + fs::relative(it->path(), res, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == project_.saveIcon)) {
+                    project_.saveIcon = rel;
+                    commitChange();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopClipRect();
+
+        // Motion: the six presets as one segmented control.
+        ImGui::Spacing();
+        ImGui::TextDisabled("Motion");
+        {
+            std::vector<const char*> labels;
+            for (const savebake::IconMotion& mo : motions) labels.push_back(mo.label);
+            int sel = curMotion;
+            ImGui::BeginDisabled(clipDriven);
+            if (ui::Segmented("##icon_motion", labels.data(), (int)labels.size(), &sel, -1.0f) &&
+                sel != curMotion) {
+                project_.saveIconMotion = motions[(size_t)sel].key;
+                commitChange();
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", clipDriven ? "The .glb clip drives this icon's motion, so these\n"
+                                                     "presets do not apply to it."
+                                                   : motions[(size_t)curMotion].desc);
+        }
+        {
+            ui::InspectorRows rows(scaled(70.0f), scaled(110.0f));
+            char fmt[48];
+            std::snprintf(fmt, sizeof(fmt), "%%d · %.1f KB", saveIconInfo_.bytes / 1024.0);
+            ui::SliderInt("Frames", &project_.saveIconFrames, 1, savebake::kMaxIconShapes, fmt);
             if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+            ui::RowHelp("Animation shapes baked into the icon. A .glb clip is sampled into\n"
+                        "this many morph frames; everything else gets this many steps of the\n"
+                        "Motion. More = smoother, and a bigger list.icn (each shape is\n"
+                        "another copy of every vertex).");
+            ImGui::BeginDisabled(clipDriven || curMotion == 5);
+            ui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f, 2.0f, "%.2fx");
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+            ImGui::EndDisabled();
         }
-        ImGui::EndDisabled();
-    }
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Frames are most of the icon's size: %d morph shape%s, %.1f KB.", saveIconInfo_.shapes,
+                            saveIconInfo_.shapes == 1 ? "" : "s", saveIconInfo_.bytes / 1024.0);
+        if (!saveIconInfo_.warning.empty()) ImGui::TextColored(sem.warn, "%s", saveIconInfo_.warning.c_str());
+        ImGui::PopTextWrapPos();
+    };
 
-    // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
-    // (a model with its own texture ships that instead).
-    if (ImGui::BeginCombo("Icon image",
-                          project_.saveIcon.empty() ? "(built-in placeholder)"
-                                                    : project_.saveIcon.c_str())) {
-        if (ImGui::Selectable("(built-in placeholder)",
-                              project_.saveIcon.empty()) &&
-            !project_.saveIcon.empty()) {
-            project_.saveIcon.clear();
-            commitChange();
+    // === centre: what a slot carries, what the card holds, checkpoints ======
+    auto centreBody = [&] {
+        const float addW = ui::ChipButtonWidth("+ Value") + ui::ChipButtonWidth("+ Text") + gap;
+        const ImVec2 cp = ImGui::GetCursorPos();
+        ui::Caption("What every slot carries");
+        ImGui::SetCursorPos(ImVec2(ImGui::GetContentRegionMax().x - addW, cp.y - fs_ * 0.25f));
+        drawSaveDataAddButtons();
+        ImGui::SetCursorPos(ImVec2(cp.x, cp.y + ImGui::GetFrameHeightWithSpacing()));
+        drawSaveDataSection();
+
+        // The fixed part of every slot, then the slot's total.
+        int saveFlaggedMax = 0;
+        std::string flaggedTip;
+        for (const SceneData& sc : project_.scenes) {
+            int flagged = 0;
+            std::string names;
+            for (const SceneObject& o : sc.objects)
+                if (o.saveState) {
+                    ++flagged;
+                    names += "\n  " + o.name;
+                }
+            saveFlaggedMax = std::max(saveFlaggedMax, flagged);
+            flaggedTip += sc.name + " (" + std::to_string(flagged) + ")" + names + "\n";
         }
-        std::error_code ec;
-        const fs::path res = fs::path(project_.dir) / "res";
-        for (fs::recursive_directory_iterator it(res, ec), end; it != end;
-             it.increment(ec)) {
-            if (ec) break;
-            if (!it->is_regular_file(ec)) continue;
-            std::string ext = it->path().extension().string();
-            for (char& c : ext) c = (char)tolower((unsigned char)c);
-            if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
-            const std::string rel =
-                "res/" + fs::relative(it->path(), res, ec).generic_string();
-            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIcon)) {
-                project_.saveIcon = rel;
-                commitChange();
+        if (ImGui::BeginTable("##slotfixed", 3, ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableSetupColumn("note", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+            ImGui::TableSetupColumn("bytes", ImGuiTableColumnFlags_WidthFixed, fs_ * 4.0f);
+            auto row = [&](const char* what, const std::string& note, int bytes, bool bold, const char* tip) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                {
+                    ui::FontScope f(bold ? ui::boldFont() : nullptr);
+                    ImGui::TextUnformatted(what);
+                }
+                if (tip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+                ImGui::TableNextColumn();
+                ImGui::TextDisabled("%s", note.c_str());
+                ImGui::TableNextColumn();
+                ui::FontScope mono(ui::monoFont());
+                const std::string b = byteText(bytes);
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+                                     ImGui::CalcTextSize(b.c_str()).x);
+                ui::FontScope f2(bold ? ui::boldFont() : nullptr);
+                ImGui::TextUnformatted(b.c_str());
+            };
+            char objs[64];
+            std::snprintf(objs, sizeof(objs), "%d object slot%s · Save state", sz.objectSlots,
+                          sz.objectSlots == 1 ? "" : "s");
+            row(objs, saveFlaggedMax == 0 ? "none flagged yet" : "as placed", sz.objectsBytes, false,
+                (std::string("Objects with \"Save state\" keep position, colour and visibility,\n"
+                             "sized by the largest per-scene count:\n") +
+                 flaggedTip)
+                    .c_str());
+            row("Player, scene, header", "always", sz.headerBytes, false, nullptr);
+            row("World facts", sz.facts == 0 ? "none" : std::to_string(sz.facts) + " ride a slot", sz.factsBytes,
+                false, "Facts kept per checkpoint or save (docs/world-facts.md).");
+            const int raw = sz.headerBytes + sz.valuesBytes + sz.textsBytes + sz.objectsBytes + sz.factsBytes;
+            row("One slot", byteText(raw) + ", padded to 64", sz.payloadBytes, true,
+                "The slot file. The in-game checkpoint (Save Checkpoint) keeps exactly\n"
+                "ONE copy of this payload in RAM until it is committed to the card.");
+            ImGui::EndTable();
+        }
+
+        // --- card space: whole clusters, stacked ------------------------------
+        ImGui::Spacing();
+        ui::BeginCard("##cardspace");
+        {
+            const int cl = sz.cardClusterBytes > 0 ? sz.cardClusterBytes : 1024;
+            auto clusters = [&](int b) { return b <= 0 ? 0 : (b + cl - 1) / cl; };
+            const int cIcn = clusters(sz.iconIcnBytes);
+            const int cSys = clusters(sz.iconSysBytes);
+            const int cSlots = clusters(sz.payloadBytes) * slots;
+            const int cProfile = clusters(sz.profileBytes);
+            const int cDir = std::max(1, sz.cardFootprintBytes / cl - cIcn - cSys - cSlots - cProfile);
+            const int total = cIcn + cSys + cSlots + cProfile + cDir;
+            {
+                const ImVec2 cp2 = ImGui::GetCursorPos();
+                ui::Caption("Card space");
+                ImGui::SetCursorPos(cp2);
+                ImGui::SetCursorPosX(cp2.x + ImGui::CalcTextSize("CARD SPACE").x * 1.1f + fs_);
+                ImGui::TextDisabled("whole %d KB clusters - no two files share one", cl / 1024);
+                char tot[32];
+                std::snprintf(tot, sizeof(tot), "%d KB", sz.cardFootprintBytes / 1024);
+                ui::FontScope bold(ui::boldFont());
+                ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(tot).x);
+                ImGui::TextUnformatted(tot);
             }
+            struct Seg {
+                const char* name;
+                int n;
+                ImVec4 col;
+            };
+            const Seg segs[] = {{"icon (list.icn)", cIcn, sem.special},
+                                {"icon.sys", cSys, sem.warn},
+                                {"slots", cSlots, sem.accent},
+                                {"profile", cProfile, sem.ok},
+                                {"folder", cDir, sem.textDim}};
+            const float w = ImGui::GetContentRegionAvail().x;
+            const float bh = fs_ * 0.8f;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            float x = p.x;
+            for (const Seg& sg : segs) {
+                if (sg.n <= 0) continue;
+                const float sw = w * (float)sg.n / (float)std::max(1, total);
+                dl->AddRectFilled(ImVec2(x + 1.0f, p.y), ImVec2(x + sw - 1.0f, p.y + bh), ImGui::GetColorU32(sg.col),
+                                  3.0f);
+                x += sw;
+            }
+            ImGui::Dummy(ImVec2(w, bh + fs_ * 0.4f));
+            bool first = true;
+            for (const Seg& sg : segs) {
+                if (sg.n <= 0) continue;
+                char lab[64];
+                if (std::strcmp(sg.name, "slots") == 0)
+                    std::snprintf(lab, sizeof(lab), "%d slots %d", slots, sg.n);
+                else
+                    std::snprintf(lab, sizeof(lab), "%s %d", sg.name, sg.n);
+                const float lw = ImGui::CalcTextSize(lab).x + fs_ * 0.9f;
+                if (!first) {
+                    ImGui::SameLine(0.0f, fs_);
+                    if (ImGui::GetCursorPosX() + lw > ImGui::GetContentRegionMax().x) ImGui::NewLine();
+                }
+                first = false;
+                const ImVec2 lp = ImGui::GetCursorScreenPos();
+                const float d = fs_ * 0.5f;
+                dl->AddRectFilled(ImVec2(lp.x, lp.y + (ImGui::GetTextLineHeight() - d) * 0.5f),
+                                  ImVec2(lp.x + d, lp.y + (ImGui::GetTextLineHeight() + d) * 0.5f),
+                                  ImGui::GetColorU32(sg.col), 2.0f);
+                ImGui::SetCursorScreenPos(ImVec2(lp.x + d + fs_ * 0.35f, lp.y));
+                ImGui::TextDisabled("%s", lab);
+            }
+            // The verdict: the one thing to know about where the space goes.
+            const float iconShare = total > 0 ? (float)(cIcn + cSys) / (float)total : 0.0f;
+            ImGui::PushTextWrapPos(0.0f);
+            if (iconShare >= 0.5f)
+                ImGui::TextColored(sem.warn, "The icon is %d%% of the card space. Fewer motion frames shrink it most.",
+                                   (int)(iconShare * 100.0f + 0.5f));
+            else
+                ImGui::TextDisabled("The slots are %d%% of the card space - each costs a whole cluster.",
+                                    total > 0 ? (int)(100.0f * cSlots / total + 0.5f) : 0);
+            ImGui::PopTextWrapPos();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A PS2 card allocates whole %d-byte clusters and no two files share one,\n"
+                                  "so each of the %d slots costs at least one cluster however small it\n"
+                                  "is - plus icon.sys, list.icn, the profile (if any) and the save's\n"
+                                  "own directory. Raw data: %s.",
+                                  cl, slots,
+                                  byteText(sz.payloadBytes * slots + sz.iconBytes + sz.profileBytes).c_str());
         }
-        ImGui::EndCombo();
-    }
+        ui::EndCard();
 
-    // Preview: the baked GEOMETRY rendered the way the browser draws it
-    // (texture x vertex colour, shaded), one image per animation shape. The
-    // same bake fills the stats line below, so the picture and the numbers can
-    // never describe different icons.
-    // project_.dir is in the key because two projects can carry identical icon
-    // settings ("" everywhere is the default), and without it opening the
-    // second one would keep showing the first one's render.
-    const std::string previewKey = project_.dir + "|" + project_.saveIcon +
-                                   "|" + project_.saveIconModel + "|" +
-                                   project_.saveIconClip + "|" +
-                                   std::to_string(project_.saveIconFrames) +
-                                   "|" + project_.saveIconMotion + "|" +
-                                   std::to_string(project_.saveIconMotionAmount);
-    if (saveIconPreviewKey_ != previewKey || saveIconPreviewTex_.empty()) {
-        saveIconInfo_ = savebake::iconInfo(project_);  // stats line, same bake
-        const std::vector<std::vector<unsigned char>> frames =
-            savebake::iconPreviewFrames(project_, kSaveIconPreviewPx);
-        if (!saveIconPreviewTex_.empty()) {
-            glDeleteTextures((GLsizei)saveIconPreviewTex_.size(),
-                             saveIconPreviewTex_.data());
-            saveIconPreviewTex_.clear();
+        // --- checkpoints ------------------------------------------------------
+        ImGui::Spacing();
+        {
+            const ImVec2 cp3 = ImGui::GetCursorPos();
+            ui::Caption("Checkpoints in this project");
+            char note[64];
+            std::snprintf(note, sizeof(note), "one %d KB RAM buffer · no card access",
+                          (sz.payloadBytes + 1023) / 1024);
+            ImGui::SetCursorPos(cp3);
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(note).x);
+            ImGui::TextDisabled("%s", note);
+            ImGui::Spacing();
         }
-        for (const std::vector<unsigned char>& f : frames) {
-            unsigned tex = 0;
-            glGenTextures(1, &tex);
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSaveIconPreviewPx,
-                         kSaveIconPreviewPx, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                         f.data());
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            saveIconPreviewTex_.push_back(tex);
+        static const char* const kCp[][2] = {{"SaveCheckpoint", "Save Checkpoint"},
+                                             {"LoadCheckpoint", "Load Checkpoint"},
+                                             {"CommitCheckpoint", "Commit to card"},
+                                             {"HasCheckpoint", "Has Checkpoint"}};
+        if (ImGui::BeginTable("##checkpoints", 2, ImGuiTableFlags_SizingStretchSame)) {
+            for (int k = 0; k < 4; ++k) {
+                std::vector<std::string> users;
+                ToolRef first;
+                for (int si = 0; si < (int)project_.scenes.size(); ++si)
+                    for (int oi = 0; oi < (int)project_.scenes[si].objects.size(); ++oi)
+                        for (const FlowNode& n : project_.scenes[si].objects[oi].flowGraph.nodes)
+                            if (n.type == kCp[k][0]) {
+                                addUnique(users, project_.scenes[si].objects[oi].name);
+                                if (first.scene < 0) {
+                                    first.scene = si;
+                                    first.object = oi;
+                                }
+                                break;
+                            }
+                ImGui::TableNextColumn();
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float d = fs_ * 0.4f;
+                ImGui::GetWindowDrawList()->AddCircleFilled(
+                    ImVec2(p.x + d, p.y + ImGui::GetTextLineHeight() * 0.5f), d * 0.6f,
+                    ImGui::GetColorU32(users.empty() ? sem.textDim : sem.ok));
+                ImGui::SetCursorScreenPos(ImVec2(p.x + d * 2.5f, p.y));
+                ImGui::TextUnformatted(kCp[k][1]);
+                ImGui::SameLine();
+                if (users.empty()) {
+                    ImGui::TextDisabled("not used");
+                } else {
+                    ImGui::PushID(k);
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+                    if (ImGui::TextLink(shortList(users).c_str())) openGraphOf(first.scene, first.object);
+                    ImGui::PopStyleColor();
+                    ImGui::PopID();
+                    if (ImGui::IsItemHovered()) {
+                        std::string t;
+                        for (const std::string& u : users) t += u + "\n";
+                        ImGui::SetTooltip("%s", t.c_str());
+                    }
+                }
+            }
+            ImGui::EndTable();
         }
-        saveIconPreviewKey_ = previewKey;
-    }
-    if (!saveIconPreviewTex_.empty()) {
-        // One loop every kSaveIconLoopSeconds, however many shapes there are -
-        // so raising Frames makes the SAME motion smoother rather than faster,
-        // which is what the slider means.
-        const size_t n = saveIconPreviewTex_.size();
-        const double phase =
-            ImGui::GetTime() / kSaveIconLoopSeconds * (double)n;
-        const size_t f = (size_t)((long long)phase % (long long)n);
-        ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_[f],
-                     ImVec2(scaled(96.0f), scaled(96.0f)));
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "The baked icon, rendered the way the PS2 browser draws it:\n"
-                "the model's triangles with texture x vertex colour, cycling\n"
-                "through the %d animation shape%s that ship in list.icn.\n"
-                "The browser's own lighting and camera differ slightly.",
-                (int)n, n == 1 ? "" : "s");
-    }
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    std::string title = savebake::displayTitle(project_);
-    for (char& c : title)
-        if (c == '|') c = '\n';
-    ImGui::TextUnformatted(title.c_str());
-    ImGui::TextDisabled("Card folder: %s",
-                        templates::saveDirName(project_).c_str());
-    ImGui::TextDisabled("%s - %d tris, %d shape%s, %.1f KB",
-                        saveIconInfo_.source.c_str(), saveIconInfo_.triangles,
-                        saveIconInfo_.shapes, saveIconInfo_.shapes == 1 ? "" : "s",
-                        saveIconInfo_.bytes / 1024.0);
-    if (!saveIconInfo_.warning.empty())
-        ImGui::TextColored(theme::semantics().warn, "%s",
-                           saveIconInfo_.warning.c_str());
-    ImGui::TextDisabled("Written to the card with the first save.");
-    ImGui::EndGroup();
+    };
 
-    // --- How a save behaves --------------------------------------------------
-    ImGui::SeparatorText("Saving");
-    {
-        // Settled up front: the Size readout, the preview and the warning all
-        // have to describe the sheet that will actually ship.
+    // === right: how saving behaves ==========================================
+    auto rightBody = [&] {
+        ui::InspectorRows rows(scaled(90.0f), scaled(120.0f));
         const savebake::SpinnerInfo spin = savebake::spinnerInfo(project_);
-        const char* srcLabel = project_.saveMenuWritesCheckpoint
-                                   ? "the last checkpoint"
-                                   : "a live snapshot";
-        if (ImGui::BeginCombo("Save menu writes", srcLabel)) {
-            if (ImGui::Selectable("a live snapshot",
-                                  !project_.saveMenuWritesCheckpoint) &&
-                project_.saveMenuWritesCheckpoint) {
-                project_.saveMenuWritesCheckpoint = false;
+
+        ui::Caption("Save menu writes");
+        {
+            static const char* const kSrc[] = {"Where you stand", "Last checkpoint"};
+            int src = project_.saveMenuWritesCheckpoint ? 1 : 0;
+            if (ui::Segmented("##save_src", kSrc, 2, &src, -1.0f)) {
+                project_.saveMenuWritesCheckpoint = src == 1;
                 commitChange();
             }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The slot records where the player is standing right now.");
-            if (ImGui::Selectable("the last checkpoint",
-                                  project_.saveMenuWritesCheckpoint) &&
-                !project_.saveMenuWritesCheckpoint) {
-                project_.saveMenuWritesCheckpoint = true;
-                commitChange();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The slot records the last Save Checkpoint instead - the\n"
-                    "\"you resume from the shrine, not from here\" model.\n"
-                    "Before the first checkpoint it writes a live snapshot, so\n"
-                    "the menu is never dead at the start of a game.");
-            ImGui::EndCombo();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled("%s", src == 1 ? "The slot records the last Save Checkpoint - you resume from the "
+                                                 "shrine, not from here. Before the first one it writes a live "
+                                                 "snapshot."
+                                               : "A live snapshot of where the player stands. \"Last checkpoint\" "
+                                                 "resumes from the flag instead.");
+            ImGui::PopTextWrapPos();
         }
 
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        ImGui::SliderInt("Slots", &project_.saveSlotCount, 1, kMaxSaveSlots);
+        ImGui::Spacing();
+        ui::Caption("Slots");
+        ui::SliderInt("Slots", &project_.saveSlotCount, 1, kMaxSaveSlots);
         if (ImGui::IsItemDeactivatedAfterEdit()) {
             if (project_.saveAutosaveSlot >= project_.saveSlotCount)
                 project_.saveAutosaveSlot = -1;  // it no longer exists
             commitChange();
         }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "How many memory card slots the game offers. Each one is its\n"
-                "own file and costs a whole 1 KB cluster even when nearly\n"
-                "empty - the table below does that sum for the count you pick.");
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        ImGui::SliderInt("Rows per page", &project_.saveSlotsPerPage, 1,
-                         kMaxSaveSlotsPerPage);
-        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "How many slots the save menu shows at once. With more slots\n"
-                "than this the menu PAGES: the cursor walking off the bottom\n"
-                "row turns to the next page, and left/right jump a whole page.\n"
-                "The panel is baked with this many rows, so it is also what\n"
-                "decides the menu's height.");
+        ui::RowHelp("How many memory card slots the game offers. Each one is its own\n"
+                    "file and costs a whole 1 KB cluster even when nearly empty.");
         {
             const int pages = templates::saveSlotPages(project_);
-            ImGui::PushStyleColor(
-                ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-            ImGui::TextWrapped("%d slot%s over %d page%s.",
-                               templates::saveSlotCount(project_),
-                               templates::saveSlotCount(project_) == 1 ? "" : "s",
-                               pages, pages == 1 ? "" : "s");
-            ImGui::PopStyleColor();
+            char fmt[48];
+            std::snprintf(fmt, sizeof(fmt), "%%d   (%d page%s)", pages, pages == 1 ? "" : "s");
+            ui::SliderInt("Rows per page", &project_.saveSlotsPerPage, 1, kMaxSaveSlotsPerPage, fmt);
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+            ui::RowHelp("How many slots the save menu shows at once. More slots than this\n"
+                        "and the menu PAGES (left/right jump a page). The panel is baked\n"
+                        "with this many rows, so it also decides the menu's height.");
         }
-
-        // The slot Commit Checkpoint's "autosave" mode targets, and the one
-        // its "next free slot" mode leaves alone.
         {
+            // The slot Commit Checkpoint's "autosave" mode targets, and the
+            // one its "next free slot" mode leaves alone.
             char cur[32];
             if (project_.saveAutosaveSlot < 0)
-                std::snprintf(cur, sizeof(cur), "(none)");
+                std::snprintf(cur, sizeof(cur), "None");
             else
-                std::snprintf(cur, sizeof(cur), "Slot %d",
-                              project_.saveAutosaveSlot + 1);
-            if (ImGui::BeginCombo("Autosave slot", cur)) {
-                if (ImGui::Selectable("(none)", project_.saveAutosaveSlot < 0) &&
-                    project_.saveAutosaveSlot >= 0) {
+                std::snprintf(cur, sizeof(cur), "Slot %d", project_.saveAutosaveSlot + 1);
+            if (ui::BeginCombo("Autosave slot", cur)) {
+                if (ImGui::Selectable("None", project_.saveAutosaveSlot < 0) && project_.saveAutosaveSlot >= 0) {
                     project_.saveAutosaveSlot = -1;
                     commitChange();
                 }
-                for (int i = 0; i < templates::saveSlotCount(project_); ++i) {
+                for (int i = 0; i < slots; ++i) {
                     char label[32];
                     std::snprintf(label, sizeof(label), "Slot %d", i + 1);
-                    if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) &&
-                        project_.saveAutosaveSlot != i) {
+                    if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) && project_.saveAutosaveSlot != i) {
                         project_.saveAutosaveSlot = i;
                         commitChange();
                     }
                 }
                 ImGui::EndCombo();
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Sets one slot aside for the game's own saves. A Commit\n"
-                    "Checkpoint set to \"Autosave slot\" writes it, and one set\n"
-                    "to \"Next free slot\" never picks it - so a rotating\n"
-                    "autosave cannot eat the one the game relies on.\n\n"
-                    "It is a designation, not a lock: the in-game menu can\n"
-                    "still save over it and load from it like any other slot.");
+            ui::RowHelp("Sets one slot aside for the game's own saves: Commit Checkpoint\n"
+                        "\"Autosave slot\" writes it, \"Next free slot\" never picks it. A\n"
+                        "designation, not a lock - the menu can still save over it.");
+        }
+        {
+            const int mi = project::saveMenuIndex(project_);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+            if (mi >= 0 && ImGui::TextLink("Edit the save menu's look in Menu Editor")) {
+                selectedMenu_ = mi;
+                showMenusEditor_ = true;
+                pendingFocusWindow_ = "Menu Editor";
+            }
+            ImGui::PopStyleColor();
         }
 
-        if (ImGui::Checkbox("Write in the background", &project_.saveAsync))
+        ImGui::Spacing();
+        ui::Caption("Writing");
+        if (ui::Switch("Write in the background (the game keeps running during a save)", &project_.saveAsync))
             commitChange();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "The card transfer is stepped one call per frame while the\n"
-                "game keeps running: no pause, and no \"do not remove the\n"
-                "memory card\" overlay. Best for Commit Checkpoint, which is\n"
-                "meant to be unobtrusive. LOADING still blocks - the world is\n"
-                "being replaced, so there is nothing to keep playing.");
-
+            ImGui::SetTooltip("The card transfer is stepped one call per frame while the game keeps\n"
+                              "running: no pause, no \"do not remove the memory card\" overlay. LOADING\n"
+                              "still blocks - the world is being replaced.");
         ImGui::BeginDisabled(!project_.saveAsync);
-        if (ImGui::Checkbox("Show a spinner while writing", &project_.saveSpinner))
-            commitChange();
-        ImGui::BeginDisabled(!project_.saveSpinner);
-        const char* kCorners[] = {"Top left", "Top right", "Bottom left",
-                                  "Bottom right"};
-        int corner = project_.saveSpinnerCorner;
-        if (corner < 0 || corner > 3) corner = 3;
-        ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("Corner", &corner, kCorners, 4)) {
-            project_.saveSpinnerCorner = corner;
-            commitChange();
+        {
+            static const char* const kCornerNames[] = {"top left", "top right", "bottom left", "bottom right"};
+            const int corner = (project_.saveSpinnerCorner < 0 || project_.saveSpinnerCorner > 3)
+                                   ? 3
+                                   : project_.saveSpinnerCorner;
+            char lab[160];
+            std::snprintf(lab, sizeof(lab), "Show a spinner while writing (%s · %s · %.0f px · %.0fx%.0f)###spinner",
+                          spin.custom ? "custom sheet" : "built-in", kCornerNames[corner],
+                          project_.saveSpinnerMargin, spin.cellW * project_.saveSpinnerScale,
+                          spin.cellH * project_.saveSpinnerScale);
+            if (ui::Switch(lab, &project_.saveSpinner)) commitChange();
         }
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        ImGui::SliderFloat("Margin", &project_.saveSpinnerMargin, 0.0f, 96.0f,
-                           "%.0f px");
+        ImGui::BeginDisabled(!project_.saveSpinner);
+        {
+            // The corner picker: a little screen, four hit boxes, the chosen
+            // one lit - with the live spinner beside it.
+            const float bw = fs_ * 6.0f, bh = bw * 0.72f;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + bh), ImGui::GetColorU32(sem.field), 6.0f);
+            dl->AddRect(p, ImVec2(p.x + bw, p.y + bh), ImGui::GetColorU32(sem.border), 6.0f);
+            static const char* const kCorners[] = {"Top left", "Top right", "Bottom left", "Bottom right"};
+            const float hs = fs_ * 1.4f;
+            for (int c = 0; c < 4; ++c) {
+                const ImVec2 at(c % 2 == 0 ? p.x + 2.0f : p.x + bw - hs - 2.0f,
+                                c < 2 ? p.y + 2.0f : p.y + bh - hs - 2.0f);
+                ImGui::SetCursorScreenPos(at);
+                ImGui::PushID(c);
+                if (ImGui::InvisibleButton(kCorners[c], ImVec2(hs, hs)) && project_.saveSpinnerCorner != c) {
+                    project_.saveSpinnerCorner = c;
+                    commitChange();
+                }
+                ImGui::PopID();
+                const bool on = (project_.saveSpinnerCorner < 0 || project_.saveSpinnerCorner > 3 ? 3
+                                                                                                  : project_.saveSpinnerCorner) == c;
+                uiscript::markLastItemChecked(on);
+                dl->AddCircle(ImVec2(at.x + hs * 0.5f, at.y + hs * 0.5f), hs * 0.22f,
+                              ImGui::GetColorU32(sem.textDim), 12, 1.2f);
+                if (on)
+                    dl->AddCircleFilled(ImVec2(at.x + hs * 0.5f, at.y + hs * 0.5f), hs * 0.24f,
+                                        ImGui::GetColorU32(sem.accent), 12);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x + bw + fs_, p.y + (bh - ImGui::GetFrameHeight()) * 0.5f));
+            drawSaveSpinnerPreview(spin);
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + bh + fs_ * 0.4f));
+            ImGui::Dummy(ImVec2(bw, 0.0f));
+        }
+        ui::SliderFloat("Margin", &project_.saveSpinnerMargin, 0.0f, 96.0f, "%.0f px");
         if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Distance from the screen edges, in the console's 512x448\n"
-                "pixels. Keep it clear of the TV-safe area if the game is\n"
-                "meant for a CRT (docs/safe-areas.md).");
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        ImGui::SliderFloat("Size", &project_.saveSpinnerScale, 0.4f, 3.0f,
-                           "%.2fx");
+        ui::RowHelp("Distance from the screen edges in the console's 512x448 pixels.\n"
+                    "Keep it clear of the TV-safe area for a CRT (docs/safe-areas.md).");
+        ui::SliderFloat("Size", &project_.saveSpinnerScale, 0.4f, 3.0f, "%.2fx");
         if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-        ImGui::SameLine();
-        ImGui::TextDisabled("%.0fx%.0f px", spin.cellW * project_.saveSpinnerScale,
-                            spin.cellH * project_.saveSpinnerScale);
         // The sheet itself: any project image laid out as a horizontal strip.
-        if (ImGui::BeginCombo("Spinner sheet",
-                              project_.saveSpinnerImage.empty()
-                                  ? "(built-in)"
-                                  : project_.saveSpinnerImage.c_str())) {
-            if (ImGui::Selectable("(built-in)",
-                                  project_.saveSpinnerImage.empty()) &&
+        if (ui::BeginCombo("Spinner sheet",
+                           project_.saveSpinnerImage.empty() ? "(built-in)" : project_.saveSpinnerImage.c_str())) {
+            if (ImGui::Selectable("(built-in)", project_.saveSpinnerImage.empty()) &&
                 !project_.saveSpinnerImage.empty()) {
                 project_.saveSpinnerImage.clear();
                 commitChange();
             }
             std::error_code ec;
             const fs::path res = fs::path(project_.dir) / "res";
-            for (fs::recursive_directory_iterator it(res, ec), end; it != end;
-                 it.increment(ec)) {
+            for (fs::recursive_directory_iterator it(res, ec), end; it != end; it.increment(ec)) {
                 if (ec) break;
                 if (!it->is_regular_file(ec)) continue;
                 std::string ext = it->path().extension().string();
                 for (char& c : ext) c = (char)tolower((unsigned char)c);
                 if (ext != ".png") continue;
-                const std::string rel =
-                    "res/" + fs::relative(it->path(), res, ec).generic_string();
-                if (ImGui::Selectable(rel.c_str(),
-                                      rel == project_.saveSpinnerImage)) {
+                const std::string rel = "res/" + fs::relative(it->path(), res, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(), rel == project_.saveSpinnerImage)) {
                     project_.saveSpinnerImage = rel;
                     commitChange();
                 }
@@ -11597,157 +11924,51 @@ void App::drawSaveEditorWindow() {
             ImGui::EndCombo();
         }
         if (!project_.saveSpinnerImage.empty()) {
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            ImGui::SliderInt("Cells", &project_.saveSpinnerFrames, 1, 32);
+            ui::SliderInt("Cells", &project_.saveSpinnerFrames, 1, 32);
             if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "How many animation cells the strip is cut into. The\n"
-                    "sheet is one ROW, so a cell is (width / cells) x height.");
+            ui::RowHelp("How many animation cells the strip is cut into. The sheet is one\n"
+                        "ROW, so a cell is (width / cells) x height.");
         }
-        drawSaveSpinnerPreview(spin);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         if (!spin.warning.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
-            ImGui::TextWrapped("Using the built-in instead: %s.",
-                               spin.warning.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+            ImGui::TextWrapped("Using the built-in instead: %s.", spin.warning.c_str());
             ImGui::PopStyleColor();
         }
-    }
+    };
 
-    // --- What lands in a save slot ------------------------------------------
-    ImGui::SeparatorText("What a save slot stores");
-    const templates::SaveSizeInfo sz = templates::saveSizeInfo(project_);
-    if (ImGui::BeginTable("savesize", 2, ImGuiTableFlags_SizingStretchProp)) {
-        auto row = [](const char* label, const std::string& value) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(label);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(value.c_str());
-        };
-        auto bytes = [](int b) {
-            char buf[32];
-            if (b >= 1024)
-                std::snprintf(buf, sizeof(buf), "%.1f KB", b / 1024.0);
-            else
-                std::snprintf(buf, sizeof(buf), "%d B", b);
-            return std::string(buf);
-        };
-        row("Header (scene, player position, facing)", bytes(sz.headerBytes));
-        row(("Save values (" + std::to_string(sz.values) + ")").c_str(),
-            bytes(sz.valuesBytes));
-        row(("Save texts (" + std::to_string(sz.texts) + " x 32 B)").c_str(),
-            bytes(sz.textsBytes));
-        row(("Object states (" + std::to_string(sz.objectSlots) +
-             " slots x 32 B)")
-                .c_str(),
-            bytes(sz.objectsBytes));
-        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
-        // a computed or scene-scoped fact stores nothing, and a session-lived
-        // one is not in a save at all.
-        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
-            bytes(sz.factsBytes));
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::Text("Save slot file (64-byte aligned)");
-        ImGui::TableNextColumn();
-        ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
-        row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        if (sz.profileBytes > 0) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Facts kept in the PROFILE live in their own file beside\n"
-                    "the slots, shared by every save - unlocks, a best time,\n"
-                    "'has seen the intro'. It is padded to a whole cluster\n"
-                    "because a smaller payload did not round-trip through the\n"
-                    "card, so it costs the same 1 KB whatever is in it.");
-            ImGui::TableNextColumn();
-            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
-        }
-        row("All data (slots + icon + profile, raw bytes)",
-            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
-                  sz.iconBytes + sz.profileBytes));
-        // What the card actually loses, which is the number that matters and
-        // is always bigger: files are allocated in whole 1 KB clusters and
-        // the save directory costs one of its own.
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::Text("Card space used (1 KB clusters)");
-        // Why this row disagrees with the one above it belongs ON this row -
-        // it is the only place the question comes up. The (?) is there because
-        // a bare line of table text advertises no tooltip.
+    // Three columns when there is room; a window kept narrow by an old layout
+    // (the editor used to be a 460 px column) gets them stacked, scrolling.
+    if (bodyAvail.x >= scaled(860.0f)) {
+        ImGui::BeginChild("##save_card", ImVec2(sideW, bodyAvail.y));
+        leftBody();
+        ImGui::EndChild();
         ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "A PS2 card allocates whole %d-byte clusters and no two files\n"
-                "share one, so each of the %d slots costs at least one cluster\n"
-                "however small it is - plus one for icon.sys, one or more for\n"
-                "list.icn, and one for the save's own directory. That rounding\n"
-                "is why this row and \"All data\" differ.",
-                sz.cardClusterBytes, templates::saveSlotCount(project_));
-        ImGui::TableNextColumn();
-        // The number to quote, so it gets the theme's one bright colour -
-        // emphasis, not a warning (nothing here is wrong).
-        ImGui::TextColored(theme::semantics().accent, "%s",
-                           bytes(sz.cardFootprintBytes).c_str());
-        ImGui::EndTable();
-    }
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "A slot stores the scene index, the player position/facing,\n"
-            "every save value and text below, and position/color/visibility\n"
-            "of objects with \"Save state\" enabled (sized by the largest\n"
-            "per-scene count of such objects). The in-game checkpoint\n"
-            "(Save Checkpoint flow node) keeps exactly ONE copy of this\n"
-            "payload in RAM until it is committed to the card.");
-    ImGui::Text("Checkpoint buffer in game RAM: %d KB",
-                (sz.payloadBytes + 1023) / 1024);
-
-    // Save-flagged objects, per scene - "what is actually in my save?"
-    if (ImGui::TreeNode("Save-flagged objects")) {
-        for (const SceneData& sc : project_.scenes) {
-            int flagged = 0;
-            for (const SceneObject& o : sc.objects)
-                if (o.saveState) ++flagged;
-            if (ImGui::TreeNode(sc.name.c_str(), "%s (%d)", sc.name.c_str(),
-                                flagged)) {
-                for (const SceneObject& o : sc.objects)
-                    if (o.saveState) ImGui::BulletText("%s", o.name.c_str());
-                if (flagged == 0)
-                    ImGui::TextDisabled("None - enable \"Save state\" in an\n"
-                                        "object's properties to persist it.");
-                ImGui::TreePop();
-            }
-        }
-        ImGui::TreePop();
+        ImGui::BeginChild("##save_data", ImVec2(bodyAvail.x - sideW - rightW - gap * 2.0f, bodyAvail.y));
+        centreBody();
+        ImGui::EndChild();
+        ImGui::SameLine();
+        ImGui::BeginChild("##save_behaviour", ImVec2(0, bodyAvail.y));
+        rightBody();
+        ImGui::EndChild();
+    } else {
+        ImGui::BeginChild("##save_stack", ImVec2(0, bodyAvail.y));
+        leftBody();
+        ImGui::Spacing();
+        centreBody();
+        ImGui::Spacing();
+        rightBody();
+        ImGui::EndChild();
     }
 
-    // --- Save data -----------------------------------------------------------
-    ImGui::SeparatorText("Save data");
-    drawSaveDataSection();
     ImGui::End();
-    if (project::sectionJson(project_, project::Section::SaveData) !=
-        saveDataBefore)
-        commitChange();
+    if (project::sectionJson(project_, project::Section::SaveData) != saveDataBefore) commitChange();
 }
 
-// Custom values persisted in memory card save slots. Flow graph "Save"
-// nodes (Set/Add/Value At Least) reference them by name; the defaults are
-// the fresh-game state. Drawn inside the Save Editor window.
-void App::drawSaveDataSection() {
-    if (ImGui::SmallButton("+ Value")) {
-        // unique default name: value-1, value-2, ...
+// + Value / + Text: new names value-1, value-2... (unique).
+void App::drawSaveDataAddButtons() {
+    if (ui::ChipButton("+ Value")) {
         int counter = 0;
         std::string name;
         for (;;) {
@@ -11759,61 +11980,12 @@ void App::drawSaveDataSection() {
         project_.saveValues.push_back(SaveValue{name, 0.0f});
         commitChange();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Named values stored in every memory card save slot\n"
-                          "(coins, progress flags...). Read/write them with the\n"
-                          "Flow Graph \"Save\" nodes; the default is the value\n"
-                          "a fresh game starts with.");
-
-    bool changed = false;
-    for (int i = 0; i < (int)project_.saveValues.size(); ++i) {
-        SaveValue& v = project_.saveValues[i];
-        ImGui::PushID(i + 2000);
-        char nameBuf[64];
-        std::snprintf(nameBuf, sizeof(nameBuf), "%s", v.name.c_str());
-        ImGui::SetNextItemWidth(140.0f);
-        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
-            // keep flow nodes pointing at the renamed value
-            for (SceneData& sc : project_.scenes)
-                for (SceneObject& o : sc.objects)
-                    for (FlowNode& fn : o.flowGraph.nodes) {
-                        const FlowNodeType* ft = flowNodeType(fn.type);
-                        if (ft && ft->strKind == FlowParamKind::SaveValue &&
-                            fn.str == v.name)
-                            fn.str = nameBuf;
-                    }
-            v.name = nameBuf;
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
-        ImGui::DragFloat("##default", &v.value, 0.1f, 0.0f, 0.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x")) {
-            // clear flow nodes that referenced the removed value
-            for (SceneData& sc : project_.scenes)
-                for (SceneObject& o : sc.objects)
-                    for (FlowNode& fn : o.flowGraph.nodes) {
-                        const FlowNodeType* ft = flowNodeType(fn.type);
-                        if (ft && ft->strKind == FlowParamKind::SaveValue &&
-                            fn.str == v.name)
-                            fn.str.clear();
-                    }
-            project_.saveValues.erase(project_.saveValues.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
-        ImGui::PopID();
-    }
-    if (project_.saveValues.empty()) ImGui::TextDisabled("No save values.");
-
-    // Text values (fixed 32-byte slots in the save payload - keep them short)
-    ImGui::Separator();
-    if (ImGui::SmallButton("+ Text")) {
+        ImGui::SetTooltip("A named number stored in every save slot (coins, progress flags).\n"
+                          "Flow Graph Save nodes read and write it; the New game value is\n"
+                          "what a fresh game starts with.");
+    ImGui::SameLine();
+    if (ui::ChipButton("+ Text")) {
         int counter = 0;
         std::string name;
         for (;;) {
@@ -11825,57 +11997,144 @@ void App::drawSaveDataSection() {
         project_.saveTexts.push_back(SaveTextValue{name, ""});
         commitChange();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Named texts stored in every memory card save slot\n"
-                          "(player name, chosen path...). Read/write them with\n"
-                          "the Flow Graph \"Save\" nodes (Set/Get Save Text);\n"
-                          "31 characters fit in a slot.");
-    for (int i = 0; i < (int)project_.saveTexts.size(); ++i) {
-        SaveTextValue& v = project_.saveTexts[i];
-        ImGui::PushID(i + 3000);
+        ImGui::SetTooltip("A named text stored in every save slot (player name, chosen path).\n"
+                          "Set/Get Save Text nodes; 31 characters fit.");
+}
+
+// The save values and texts as table rows: kind, name, new-game value, who
+// writes and reads it, bytes. Flow graph "Save" nodes reference them by name,
+// so renames follow into the graphs and deletes clear the references.
+void App::drawSaveDataSection() {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    bool changed = false;
+    if (project_.saveValues.empty() && project_.saveTexts.empty()) {
+        ImGui::TextDisabled("No save values or texts yet - + Value / + Text above.");
+    }
+    if (!ImGui::BeginTable("##savedata", 6, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
+        return;
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, fs * 1.4f);
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+    ImGui::TableSetupColumn("New game", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+    ImGui::TableSetupColumn("Used by", ImGuiTableColumnFlags_WidthStretch, 2.2f);
+    ImGui::TableSetupColumn("Bytes", ImGuiTableColumnFlags_WidthFixed, fs * 2.6f);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight());
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TableHeadersRow();
+    ImGui::PopStyleColor();
+
+    const int valueBytes = project_.saveValues.empty() ? 4
+                                                       : templates::saveSizeInfo(project_).valuesBytes /
+                                                             (int)project_.saveValues.size();
+    auto kindCell = [&](const char* g, ImVec4 col) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float s = ImGui::GetFrameHeight() * 0.8f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 q(p.x + s, p.y + (ImGui::GetFrameHeight() - s) * 0.5f);
+        dl->AddRectFilled(ImVec2(p.x, q.y), ImVec2(p.x + s, q.y + s),
+                          ImGui::GetColorU32(ImVec4(col.x, col.y, col.z, 0.16f)), 4.0f);
+        const ImVec2 ts = ImGui::CalcTextSize(g);
+        dl->AddText(ImVec2(p.x + (s - ts.x) * 0.5f, q.y + (s - ts.y) * 0.5f), ImGui::GetColorU32(col), g);
+        ImGui::Dummy(ImVec2(s, ImGui::GetFrameHeight()));
+    };
+    auto usedCell = [&](const SaveUse& u) {
+        const std::string s = useSummary(u);
+        ImGui::AlignTextToFramePadding();
+        if (s.empty())
+            ImGui::TextColored(sem.warn, "nothing uses it");
+        else
+            ImGui::TextDisabled("%s", s.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", s.empty() ? "No flow node or menu row reads or writes it." : useTooltip(u).c_str());
+    };
+    auto bytesCell = [&](int b) {
+        ui::FontScope mono(ui::monoFont());
+        const std::string t = std::to_string(b);
+        ImGui::AlignTextToFramePadding();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(t.c_str()).x);
+        ImGui::TextUnformatted(t.c_str());
+    };
+    auto renameRefs = [&](FlowParamKind kind, const std::string& from, const std::string& to) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == kind && fn.str == from) fn.str = to;
+                }
+    };
+
+    for (int i = 0; i < (int)project_.saveValues.size(); ++i) {
+        SaveValue& v = project_.saveValues[i];
+        ImGui::PushID(i + 2000);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        kindCell("#", sem.warn);
+        ImGui::TableNextColumn();
         char nameBuf[64];
         std::snprintf(nameBuf, sizeof(nameBuf), "%s", v.name.c_str());
-        ImGui::SetNextItemWidth(140.0f);
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
-            // keep flow nodes pointing at the renamed value
-            for (SceneData& sc : project_.scenes)
-                for (SceneObject& o : sc.objects)
-                    for (FlowNode& fn : o.flowGraph.nodes) {
-                        const FlowNodeType* ft = flowNodeType(fn.type);
-                        if (ft && ft->strKind == FlowParamKind::SaveText &&
-                            fn.str == v.name)
-                            fn.str = nameBuf;
-                    }
+            renameRefs(FlowParamKind::SaveValue, v.name, nameBuf);  // keep flow nodes pointing here
             v.name = nameBuf;
         }
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(90.0f);
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::DragFloat("##default", &v.value, 0.1f, 0.0f, 0.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TableNextColumn();
+        usedCell(saveUse(project_, FlowParamKind::SaveValue, v.name));
+        ImGui::TableNextColumn();
+        bytesCell(valueBytes);
+        ImGui::TableNextColumn();
+        if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0.0f))) {
+            renameRefs(FlowParamKind::SaveValue, v.name, "");  // clear references to it
+            project_.saveValues.erase(project_.saveValues.begin() + i);
+            changed = true;
+            ImGui::PopID();
+            break;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete - nodes that named it are cleared");
+        ImGui::PopID();
+    }
+    for (int i = 0; i < (int)project_.saveTexts.size(); ++i) {
+        SaveTextValue& v = project_.saveTexts[i];
+        ImGui::PushID(i + 3000);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        kindCell("T", sem.ok);
+        ImGui::TableNextColumn();
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", v.name.c_str());
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf))) {
+            renameRefs(FlowParamKind::SaveText, v.name, nameBuf);
+            v.name = nameBuf;
+        }
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::TableNextColumn();
         char valBuf[32];  // SAVE_TEXT_LEN - what a save slot can hold
         std::snprintf(valBuf, sizeof(valBuf), "%s", v.value.c_str());
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::InputText("##default", valBuf, sizeof(valBuf))) v.value = valBuf;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x")) {
-            // clear flow nodes that referenced the removed value
-            for (SceneData& sc : project_.scenes)
-                for (SceneObject& o : sc.objects)
-                    for (FlowNode& fn : o.flowGraph.nodes) {
-                        const FlowNodeType* ft = flowNodeType(fn.type);
-                        if (ft && ft->strKind == FlowParamKind::SaveText &&
-                            fn.str == v.name)
-                            fn.str.clear();
-                    }
+        ImGui::TableNextColumn();
+        usedCell(saveUse(project_, FlowParamKind::SaveText, v.name));
+        ImGui::TableNextColumn();
+        bytesCell(32);
+        ImGui::TableNextColumn();
+        if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0.0f))) {
+            renameRefs(FlowParamKind::SaveText, v.name, "");
             project_.saveTexts.erase(project_.saveTexts.begin() + i);
             changed = true;
             ImGui::PopID();
             break;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete - nodes that named it are cleared");
         ImGui::PopID();
     }
-    if (project_.saveTexts.empty()) ImGui::TextDisabled("No save texts.");
+    ImGui::EndTable();
     // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
     if (changed) commitChange();
 }
