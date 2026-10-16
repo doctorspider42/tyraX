@@ -7177,6 +7177,7 @@ void App::startHostSession() {
     presenceSentSel_.clear();
     presenceSentScene_ = -1;  // resend presence into the fresh session
     showSessionWindow_ = true;
+    sessionStartedAt_ = ImGui::GetTime();
     statusMessage_ = "Hosting session";
 }
 
@@ -7233,6 +7234,7 @@ void App::openRemoteProject(const std::string& dir) {
     presenceSentSel_.clear();
     presenceSentScene_ = -1;  // resend presence into the fresh session
     showSessionWindow_ = true;
+    sessionStartedAt_ = ImGui::GetTime();
     statusMessage_ = "Joined session: " + project_.name;
 }
 
@@ -7248,135 +7250,387 @@ static void seedSessionName(char* buf, size_t n, const std::string& configured) 
     std::snprintf(buf, n, "%s", u.empty() ? "user" : u.c_str());
 }
 
-void App::drawHostSessionModal() {
-    if (openHostSessionPopup_) {
-        ImGui::OpenPopup("Host Session");
-        openHostSessionPopup_ = false;
-        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
-        if (!sessionCode_[0])
-            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
-                          session::newJoinCode().c_str());
-    }
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (ImGui::BeginPopupModal("Host Session", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(
-            ("Host \"" + project_.name + "\" as a live session.").c_str());
-        ImGui::Spacing();
-        ImGui::SetNextItemWidth(scaled(220));
-        ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
-        ImGui::SetNextItemWidth(scaled(110));
-        ImGui::InputInt("Port", &sessionPort_, 0, 0);
-        sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("Join code: %s", sessionCode_);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("New code"))
-            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s",
-                          session::newJoinCode().c_str());
-        ImGui::Spacing();
-        const auto ips = wire::localIPv4();
-        if (!ips.empty()) {
-            ImGui::TextDisabled("Peers connect to:");
-            for (const auto& ip : ips)
-                ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
-        }
-        ImGui::TextDisabled(
-            "Windows Firewall may ask for permission on the first start.");
-        ImGui::Spacing();
-        if (ImGui::Button("Start hosting", ImVec2(scaled(120), 0))) {
-            startHostSession();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
+// --- Live session: the start modal and the panel -----------------------------
+// One "Live session" modal with Host | Join segments (both menu items open
+// it, on their segment): the host's job is to hand out ONE invite - address,
+// port and code as a single copyable string - and the joiner's is to paste it.
+
+namespace {
+
+// "932653" -> "932 653": a code read out loud is read in halves.
+std::string groupedCode(const char* code) {
+    std::string c = code;
+    if (c.size() == 6) c.insert(3, " ");
+    return c;
 }
 
-void App::drawJoinSessionModal() {
+std::string inviteString(const std::string& ip, int port, const char* code) {
+    return "tyrax-join://" + ip + ":" + std::to_string(port) + "?code=" + code;
+}
+
+// Accepts a pasted invite ("tyrax-join://host:port?code=123456"), "host:port"
+// or a bare host. Fills only what the text carries.
+void parseInvite(const std::string& in, std::string& host, int& port, std::string& code) {
+    std::string s = in;
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\n' || s.back() == '\r')) s.pop_back();
+    while (!s.empty() && s.front() == ' ') s.erase(0, 1);
+    const std::string scheme = "tyrax-join://";
+    if (s.compare(0, scheme.size(), scheme) == 0) s = s.substr(scheme.size());
+    if (const size_t q = s.find('?'); q != std::string::npos) {
+        const std::string query = s.substr(q + 1);
+        s.resize(q);
+        if (const size_t c = query.find("code="); c != std::string::npos) {
+            code = query.substr(c + 5);
+            if (const size_t amp = code.find('&'); amp != std::string::npos) code.resize(amp);
+        }
+    }
+    while (!s.empty() && s.back() == '/') s.pop_back();
+    if (const size_t colon = s.rfind(':'); colon != std::string::npos) {
+        const std::string p = s.substr(colon + 1);
+        if (!p.empty() && p.find_first_not_of("0123456789") == std::string::npos) {
+            port = std::atoi(p.c_str());
+            s.resize(colon);
+        }
+    }
+    host = s;
+}
+
+std::string initialsOf(const std::string& name) {
+    std::string out;
+    bool next = true;
+    for (char c : name) {
+        if (c == ' ' || c == '.' || c == '_' || c == '-') {
+            next = true;
+            continue;
+        }
+        if (next && out.size() < 2) out += (char)toupper((unsigned char)c);
+        next = false;
+    }
+    if (out.size() < 2 && name.size() >= 2) out = {(char)toupper((unsigned char)name[0]), (char)toupper((unsigned char)name[1])};
+    return out.empty() ? std::string("?") : out;
+}
+
+}  // namespace
+
+void App::drawHostSessionModal() {
+    const char* kTitle = "Live session";
+    bool opening = false;
+    if (openHostSessionPopup_) {
+        openHostSessionPopup_ = false;
+        sessionTab_ = 0;
+        opening = true;
+    }
     if (openJoinSessionPopup_) {
-        ImGui::OpenPopup("Join Session");
         openJoinSessionPopup_ = false;
-        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
+        sessionTab_ = 1;
         sessionError_.clear();
+        opening = true;
+    }
+    if (opening) {
+        ImGui::OpenPopup(kTitle);
+        seedSessionName(sessionName_, sizeof(sessionName_), globalDisplayName_);
+        if (!sessionCode_[0])
+            std::snprintf(sessionCode_, sizeof(sessionCode_), "%s", session::newJoinCode().c_str());
     }
     joinModalVisible_ = false;
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (ImGui::BeginPopupModal("Join Session", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        joinModalVisible_ = true;
-        const auto st = session_.state();
-        const bool busy = st == session::Session::State::Connecting ||
-                          st == session::Session::State::Syncing ||
-                          st == session::Session::State::Starting;
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar))
+        return;
+
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float fs = ImGui::GetFontSize();
+    const float w = ImMin(scaled(500.0f), vp->WorkSize.x * 0.9f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const auto state = session_.state();
+    const bool busy = state == session::Session::State::Connecting ||
+                      state == session::Session::State::Syncing || state == session::Session::State::Starting;
+    if (state == session::Session::State::Live && sessionTab_ == 1) {
+        // Sync finished; sessionTick opened the project - close quietly.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    if (sessionTab_ == 1) joinModalVisible_ = true;
+
+    // ---- header ----
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float tile = fs * 2.4f;
+        dl->AddRectFilled(p, ImVec2(p.x + tile, p.y + tile),
+                          ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.16f)), scaled(9));
+        ui::DrawGlyph(dl, ui::Glyph::Person, ImVec2(p.x + tile * 0.5f, p.y + tile * 0.5f), tile * 0.5f,
+                      ImGui::GetColorU32(sem.ok));
+        ImGui::Dummy(ImVec2(tile, tile));
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::BeginGroup();
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.15f);
+            ImGui::TextUnformatted("Live session");
+            ImGui::PopFont();
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted("Edit one project together on this network. The host saves and commits.");
+        ImGui::PopStyleColor();
+        ImGui::EndGroup();
+    }
+    ImGui::Dummy(ImVec2(w, scaled(4)));
+
+    // ---- Host | Join ----
+    ImGui::BeginDisabled(busy);
+    {
+        const std::string hostLabel = hasProject_ ? "Host " + project_.name : std::string("Host");
+        const char* labels[2] = {hostLabel.c_str(), "Join a session"};
+        ui::Segmented("##session_tab", labels, 2, &sessionTab_, w);
+    }
+    ImGui::EndDisabled();
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+
+    const float colX = ImGui::GetCursorPosX() + scaled(110);
+    auto rowCaption = [&](const char* t) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted(t);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(colX);
+    };
+    // "Your name" - shared by both segments; the monogram is what the others
+    // will see next to it.
+    auto nameRow = [&]() {
+        rowCaption("Your name");
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float h = ImGui::GetFrameHeight();
+        ui::Monogram(dl, ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.42f, initialsOf(sessionName_).c_str(),
+                     ImGui::GetColorU32(sem.accent));
+        ImGui::Dummy(ImVec2(h, h));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(w - (ImGui::GetCursorPosX() - ImGui::GetCursorStartPos().x));
+        ImGui::InputText("##your_name", sessionName_, sizeof(sessionName_));
+    };
+
+    const float footerBtnW = 0.0f;
+    (void)footerBtnW;
+    if (sessionTab_ == 0) {
+        // ---------------- Host ----------------
+        if (!hasProject_) {
+            ImGui::BeginChild("##host_none", ImVec2(w, fs * 9.0f));
+            ui::EmptyState(ui::Glyph::Folder, "Nothing to host",
+                           "Open a project first - the host shares the project it has open.");
+            ImGui::EndChild();
+        } else {
+            nameRow();
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+            const auto ips = wire::localIPv4();
+            const std::string ip = ips.empty() ? std::string("127.0.0.1") : ips.front();
+            if (ui::BeginCard("##invite", ImVec2(w, 0))) {
+                ui::Caption("Invite");
+                const float cw = ImGui::GetContentRegionAvail().x;
+                const float y0 = ImGui::GetCursorPosY();
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                ImGui::TextUnformatted("Address");
+                ImGui::PopStyleColor();
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushFont(nullptr, fs * 1.5f);
+                    ImGui::TextUnformatted(ip.c_str());
+                    ImGui::SameLine(0.0f, 0.0f);
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::Text(":%d", sessionPort_);
+                    ImGui::PopStyleColor();
+                    ImGui::PopFont();
+                }
+                const float y1 = ImGui::GetCursorPosY();
+                // The code, right-aligned in the accent, New code beside its caption.
+                const std::string code = groupedCode(sessionCode_);
+                float codeW;
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushFont(nullptr, fs * 1.5f);
+                    codeW = ImGui::CalcTextSize(code.c_str()).x;
+                    ImGui::PopFont();
+                }
+                const float capW = ImGui::CalcTextSize("Join code").x + ImGui::CalcTextSize("New code").x + scaled(10);
+                const float right = ImGui::GetCursorStartPos().x + cw;
+                ImGui::SetCursorPos(ImVec2(right - ImMax(codeW, capW), y0));
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                ImGui::TextUnformatted("Join code");
+                ImGui::PopStyleColor();
+                ImGui::SameLine(0.0f, scaled(8));
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+                if (ImGui::TextLink("New code"))
+                    std::snprintf(sessionCode_, sizeof(sessionCode_), "%s", session::newJoinCode().c_str());
+                ImGui::PopStyleColor();
+                ImGui::SetCursorPos(ImVec2(right - codeW, ImGui::GetCursorPosY()));
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushFont(nullptr, fs * 1.5f);
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+                    ImGui::TextUnformatted(code.c_str());
+                    ImGui::PopStyleColor();
+                    ImGui::PopFont();
+                }
+                ImGui::SetCursorPosY(ImMax(y1, ImGui::GetCursorPosY()) + scaled(4));
+                const std::string invite = inviteString(ip, sessionPort_, sessionCode_);
+                if (ImGui::Button("Copy invite")) {
+                    const std::string text = invite + "\nAddress " + ip + ":" + std::to_string(sessionPort_) +
+                                             ", join code " + sessionCode_;
+                    ImGui::SetClipboardText(text.c_str());
+                    statusMessage_ = "Invite copied";
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Copies the invite link plus the address and code as text");
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::TextUnformatted(invite.c_str());
+                    ImGui::PopStyleColor();
+                }
+                if (ips.size() > 1) {
+                    std::string others = "Also reachable at";
+                    for (size_t i = 1; i < ips.size(); ++i) others += (i == 1 ? " " : ", ") + ips[i];
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::TextUnformatted(others.c_str());
+                    ImGui::PopStyleColor();
+                }
+            }
+            ui::EndCard();
+            char adv[48];
+            std::snprintf(adv, sizeof(adv), "Advanced - port %d###session_advanced", sessionPort_);
+            if (ui::Section(adv)) {
+                rowCaption("Port");
+                ImGui::SetNextItemWidth(scaled(110));
+                ImGui::InputInt("##port", &sessionPort_, 0, 0);
+                sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
+            }
+            // Platform-correct: the old text named Windows Firewall everywhere.
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+            ui::StatusLine(3, platform::firewallNote());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fs * 0.9f);
+            ImGui::TextUnformatted("Everyone needs to be on this network.");
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+        }
+    } else {
+        // ---------------- Join ----------------
         if (busy) {
             const auto prog = session_.syncProgress();
-            if (st == session::Session::State::Syncing && prog.filesTotal > 0) {
-                ImGui::Text("Transferring project: %d / %d files", prog.filesDone,
-                            prog.filesTotal);
-                const float frac =
-                    prog.bytesTotal
-                        ? (float)((double)prog.bytesDone / (double)prog.bytesTotal)
-                        : 1.0f;
-                char overlay[64];
-                std::snprintf(overlay, sizeof(overlay), "%.1f / %.1f MB",
-                              prog.bytesDone / 1048576.0, prog.bytesTotal / 1048576.0);
-                ImGui::ProgressBar(frac, ImVec2(scaled(320), 0), overlay);
-                if (!prog.currentFile.empty())
-                    ImGui::TextDisabled("%s", prog.currentFile.c_str());
-            } else {
-                ImGui::TextUnformatted(st == session::Session::State::Connecting
-                                           ? "Connecting..."
-                                           : "Preparing transfer...");
-            }
-            ImGui::Spacing();
-            if (ImGui::Button("Cancel")) {
-                session_.close();
-                ImGui::CloseCurrentPopup();
-            }
-        } else if (st == session::Session::State::Live) {
-            // Sync finished; sessionTick opened the project - close quietly.
-            ImGui::CloseCurrentPopup();
-        } else {
-            ImGui::SetNextItemWidth(scaled(220));
-            ImGui::InputText("Host address", sessionAddr_, sizeof(sessionAddr_));
-            ImGui::SetNextItemWidth(scaled(110));
-            ImGui::InputInt("Port", &sessionPort_, 0, 0);
-            sessionPort_ = ImClamp(sessionPort_, 1024, 65535);
-            ImGui::SetNextItemWidth(scaled(110));
-            ImGui::InputText("Join code", sessionCode_, sizeof(sessionCode_));
-            ImGui::SetNextItemWidth(scaled(220));
-            ImGui::InputText("Your name", sessionName_, sizeof(sessionName_));
-            if (!sessionError_.empty())
-                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s",
-                                   sessionError_.c_str());
-            ImGui::Spacing();
-            if (ImGui::Button("Join", ImVec2(scaled(120), 0))) {
-                sessionError_.clear();
-                session::JoinConfig cfg;
-                cfg.address = sessionAddr_;
-                cfg.port = (uint16_t)sessionPort_;
-                cfg.joinCode = sessionCode_;
-                cfg.displayName = sessionName_;
-                cfg.cacheRoot = globalSessionCacheDir_;
-                // Remember the typed name for future sessions (editor.ini).
-                if (globalDisplayName_ != sessionName_) {
-                    globalDisplayName_ = sessionName_;
-                    saveGlobalConfig();
+            ImGui::BeginChild("##join_progress", ImVec2(w, fs * 5.5f));
+            if (state == session::Session::State::Syncing && prog.filesTotal > 0) {
+                char label[64], detail[64];
+                std::snprintf(label, sizeof(label), "Fetching the project - %d / %d files", prog.filesDone,
+                              prog.filesTotal);
+                std::snprintf(detail, sizeof(detail), "%.1f / %.1f MB", prog.bytesDone / 1048576.0,
+                              prog.bytesTotal / 1048576.0);
+                ui::ProgressInline(prog.bytesTotal ? (float)((double)prog.bytesDone / (double)prog.bytesTotal) : 1.0f,
+                                   label, detail);
+                if (!prog.currentFile.empty()) {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::TextUnformatted(ellipsizePathLeft(prog.currentFile, w).c_str());
+                    ImGui::PopStyleColor();
                 }
-                session_.join(std::move(cfg));
+            } else {
+                ui::ProgressInline(-1.0f, state == session::Session::State::Connecting
+                                              ? "Connecting..."
+                                              : "Preparing the transfer...");
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-                ImGui::CloseCurrentPopup();
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted("Joining again later fetches only what changed.");
+            ImGui::PopStyleColor();
+            ImGui::EndChild();
+        } else {
+            rowCaption("Invite");
+            ImGui::SetNextItemWidth(w - (colX - ImGui::GetCursorStartPos().x));
+            if (ImGui::InputTextWithHint("##invite", "tyrax-join://... or 192.168.0.28:7797", sessionInvite_,
+                                         sizeof(sessionInvite_))) {
+                std::string host, code;
+                int port = sessionPort_;
+                parseInvite(sessionInvite_, host, port, code);
+                std::snprintf(sessionAddr_, sizeof(sessionAddr_), "%s", host.c_str());
+                sessionPort_ = ImClamp(port, 1024, 65535);
+                if (!code.empty()) std::snprintf(sessionCode_, sizeof(sessionCode_), "%s", code.c_str());
+            }
+            if (sessionAddr_[0]) {
+                ImGui::SetCursorPosX(colX);
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                ImGui::Text("%s : %d", sessionAddr_, sessionPort_);
+                ImGui::PopStyleColor();
+            }
+            rowCaption("Join code");
+            ImGui::SetNextItemWidth(scaled(140));
+            ImGui::InputText("##join_code", sessionCode_, sizeof(sessionCode_));
+            nameRow();
+            if (hasProject_ && dirty_) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+                ui::StatusLine(1, ("Joining closes " + project_.name + " - it has unsaved changes.").c_str());
+                ImGui::PopTextWrapPos();
+            }
+            if (!sessionError_.empty()) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+                ui::StatusLine(2, sessionError_.c_str());
+                ImGui::PopTextWrapPos();
+            }
         }
-        ImGui::EndPopup();
     }
+
+    // ---- footer ----
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, scaled(2)));
+    std::string primary;
+    bool canPrimary = false;
+    if (sessionTab_ == 0) {
+        primary = hasProject_ ? "Start hosting " + project_.name : std::string("Start hosting");
+        canPrimary = hasProject_ && sessionName_[0];
+    } else {
+        primary = "Join";
+        canPrimary = !busy && sessionAddr_[0] && sessionCode_[0] && sessionName_[0];
+    }
+    const float pw = ImGui::CalcTextSize(primary.c_str()).x + st.FramePadding.x * 2.6f;
+    const float cw = ImGui::CalcTextSize("Cancel").x + st.FramePadding.x * 2.0f;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + w - pw - cw - st.ItemSpacing.x);
+    if (ImGui::Button("Cancel") || (!busy && ImGui::IsKeyPressed(ImGuiKey_Escape))) {
+        if (busy) session_.close();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ui::PrimaryButton(primary.c_str(), pw, canPrimary)) {
+        if (sessionTab_ == 0) {
+            startHostSession();
+            ImGui::CloseCurrentPopup();
+        } else if (hasProject_ && dirty_) {
+            // Joining replaces the open project: through the usual guard, which
+            // reopens this modal on the Join segment afterwards.
+            ImGui::CloseCurrentPopup();
+            requestJoinSession();
+        } else {
+            sessionError_.clear();
+            session::JoinConfig cfg;
+            cfg.address = sessionAddr_;
+            cfg.port = (uint16_t)sessionPort_;
+            cfg.joinCode = sessionCode_;
+            cfg.displayName = sessionName_;
+            cfg.cacheRoot = globalSessionCacheDir_;
+            // Remember the typed name for future sessions (editor.ini).
+            if (globalDisplayName_ != sessionName_) {
+                globalDisplayName_ = sessionName_;
+                saveGlobalConfig();
+            }
+            session_.join(std::move(cfg));
+        }
+    }
+    ImGui::EndPopup();
 }
+
+// Both menu items open the one modal above (on their own segment); this only
+// keeps the drawUI call list unchanged.
+void App::drawJoinSessionModal() {}
 
 void App::drawSessionEndedModal() {
     if (openSessionEndedPopup_) {
@@ -7399,74 +7653,217 @@ void App::drawSessionEndedModal() {
     }
 }
 
+// The live session panel: who is in, where they are, the invite again (people
+// join late), and the one destructive action with its weight.
 void App::drawSessionWindow() {
     if (!showSessionWindow_) return;
     if (!session_.active()) {
         showSessionWindow_ = false;
         return;
     }
-    ImGui::SetNextWindowSize(ImVec2(scaled(340), scaled(260)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(380), scaled(560)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Session", &showSessionWindow_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
     const bool hosting = session_.role() == session::Session::Role::Host;
-    if (hosting) {
-        ImGui::Text("Hosting \"%s\"", project_.name.c_str());
-        ImGui::Text("Port %d - join code %s", sessionPort_, sessionCode_);
-        for (const auto& ip : wire::localIPv4())
-            ImGui::TextDisabled("  %s:%d", ip.c_str(), sessionPort_);
-    } else {
-        ImGui::Text("Joined \"%s\" @ %s", project_.name.c_str(), sessionAddr_);
-        ImGui::TextDisabled("The host owns saving and committing.");
-        if (ImGui::SmallButton("Refresh project files")) session_.requestRefresh();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Re-syncs assets/sources from the host (fetches files the "
-                "host\nimported since you joined; unchanged files are "
-                "skipped).\nScene edits stream live and never need this.");
-        const auto prog = session_.syncProgress();
-        if (prog.filesTotal > prog.filesDone)
-            ImGui::TextDisabled("  fetching %d / %d files...", prog.filesDone,
-                                prog.filesTotal);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // ---- header: role pill + elapsed ----
+    ui::Badge(hosting ? "Hosting" : "Joined", hosting ? 0 : 3);
+    ImGui::SameLine();
+    {
+        const int secs = sessionStartedAt_ > 0.0 ? (int)(ImGui::GetTime() - sessionStartedAt_) : 0;
+        char el[32];
+        if (secs >= 3600)
+            std::snprintf(el, sizeof(el), "%d:%02d:%02d", secs / 3600, secs / 60 % 60, secs % 60);
+        else
+            std::snprintf(el, sizeof(el), "%d:%02d", secs / 60, secs % 60);
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted(el);
+        ImGui::PopStyleColor();
     }
-    ImGui::Separator();
-    ImGui::TextDisabled("Participants");
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TextUnformatted(project_.name.c_str());
+    ImGui::PopStyleColor();
+
+    // ---- invite (host) / where we joined (client) ----
+    if (ui::BeginCard("##session_invite")) {
+        const auto ips = wire::localIPv4();
+        const std::string ip = hosting ? (ips.empty() ? std::string("127.0.0.1") : ips.front()) : sessionAddr_;
+        ui::Caption(hosting ? "Invite" : "Host");
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::Text("%s", ip.c_str());
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::Text(":%d", sessionPort_);
+            ImGui::PopStyleColor();
+            if (hosting) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+                ImGui::TextUnformatted(groupedCode(sessionCode_).c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+        if (hosting) {
+            const float bw = ImGui::CalcTextSize("Copy").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
+            if (ImGui::Button("Copy##session_invite_copy")) {
+                const std::string text = inviteString(ip, sessionPort_, sessionCode_) + "\nAddress " + ip + ":" +
+                                         std::to_string(sessionPort_) + ", join code " + sessionCode_;
+                ImGui::SetClipboardText(text.c_str());
+                statusMessage_ = "Invite copied";
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Copy the invite for someone joining late");
+        }
+    }
+    ui::EndCard();
+
+    // ---- people ----
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ui::Caption("People", std::to_string(sessionPeers_.size()).c_str());
+    int kickId = -1;
+    const int selfId = session_.selfId();
     for (const auto& peer : sessionPeers_) {
         ImGui::PushID(peer.id);
         const ImU32 c = kPeerColors[peer.colorIdx % session::kMaxPeers];
-        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rowH = fs * 2.6f;
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float r = ImGui::GetTextLineHeight() * 0.32f;
-        dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.55f),
-                            r, c);
-        ImGui::Dummy(ImVec2(r * 2.0f + 4.0f, 0));
-        ImGui::SameLine();
-        ImGui::TextUnformatted(peer.name.c_str());
-        if (peer.id == 0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(host)");
+        const float wAvail = ImGui::GetContentRegionAvail().x;
+        ui::Monogram(dl, ImVec2(p.x + rowH * 0.42f, p.y + rowH * 0.5f), rowH * 0.36f, initialsOf(peer.name).c_str(), c);
+        const float tx = p.x + rowH * 0.95f;
+        const bool me = peer.id == selfId;
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(tx, p.y + scaled(4)), ImGui::GetColorU32(sem.text), peer.name.c_str());
         }
-        // What they're editing (from presence): the scene name.
-        if (auto it = peerPresence_.find(peer.id); it != peerPresence_.end() &&
-                                                   it->second.scene >= 0 &&
-                                                   it->second.scene <
-                                                       (int)project_.scenes.size()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("- %s", project_.scenes[it->second.scene].name.c_str());
+        std::string tag = me ? (peer.id == 0 ? "you - host" : "you") : (peer.id == 0 ? "host" : peer.address);
+        const float nameW = [&] {
+            ui::FontScope bold(ui::boldFont());
+            return ImGui::CalcTextSize(peer.name.c_str()).x;
+        }();
+        dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(tx + nameW + scaled(8), p.y + scaled(6)),
+                    ImGui::GetColorU32(sem.textDim), tag.c_str());
+        // Where they are: scene + what they have selected (from presence).
+        std::string where;
+        int theirScene = -1;
+        if (me) {
+            theirScene = project_.activeScene;
+        } else if (auto it = peerPresence_.find(peer.id); it != peerPresence_.end()) {
+            theirScene = it->second.scene;
         }
-        if (hosting && peer.id != 0) {
-            if (!peer.address.empty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", peer.address.c_str());
+        if (theirScene >= 0 && theirScene < (int)project_.scenes.size()) {
+            const SceneData& sc = project_.scenes[theirScene];
+            where = sc.name;
+            if (!me) {
+                const auto& sel = peerPresence_.find(peer.id)->second.sel;
+                if (sel.empty()) {
+                    where += " - nothing selected";
+                } else {
+                    std::string first;
+                    for (const SceneObject& o : sc.objects)
+                        if (o.id == sel.front()) first = o.name;
+                    where += " - editing " + (first.empty() ? std::string("an object") : first);
+                    if (sel.size() > 1) where += " +" + std::to_string(sel.size() - 1);
+                }
             }
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - scaled(30));
-            if (ImGui::SmallButton("Kick")) session_.kickPeer(peer.id);
         }
+        const float btnArea = (!me ? ImGui::CalcTextSize("Go to").x + fs * 1.4f : 0.0f) + (hosting && !me ? fs * 1.8f : 0.0f);
+        const ImVec4 clip(tx, p.y, p.x + wAvail - btnArea - scaled(6), p.y + rowH);
+        dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(tx, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim),
+                    where.c_str(), nullptr, 0.0f, &clip);
+        ImGui::Dummy(ImVec2(wAvail, rowH));
+        // Actions, right-aligned on the row.
+        float bx = p.x + wAvail;
+        if (hosting && !me) {
+            const float ks = ImGui::GetFrameHeight();
+            bx -= ks;
+            ImGui::SetCursorScreenPos(ImVec2(bx, p.y + (rowH - ks) * 0.5f));
+            if (ui::MoreButton(("Actions for " + peer.name).c_str(), ks)) ImGui::OpenPopup("peer_menu");
+            if (ImGui::BeginPopup("peer_menu")) {
+                if (ImGui::MenuItem("Copy address", peer.address.c_str(), false, !peer.address.empty()))
+                    ImGui::SetClipboardText(peer.address.c_str());
+                ImGui::Separator();
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+                if (ImGui::MenuItem("Remove from session")) kickId = peer.id;
+                ImGui::PopStyleColor();
+                ImGui::EndPopup();
+            }
+            bx -= scaled(4);
+        }
+        if (!me && theirScene >= 0 && theirScene < (int)project_.scenes.size() &&
+            theirScene != project_.activeScene) {
+            const float gw = ImGui::CalcTextSize("Go to").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            bx -= gw;
+            ImGui::SetCursorScreenPos(ImVec2(bx, p.y + (rowH - ImGui::GetFrameHeight()) * 0.5f));
+            if (ImGui::Button("Go to")) selectScene(theirScene);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Open %s, the scene %s is in", project_.scenes[theirScene].name.c_str(),
+                                  peer.name.c_str());
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + scaled(2)));
+        ImGui::Dummy(ImVec2(0, 0));
         ImGui::PopID();
     }
-    ImGui::Separator();
-    if (ImGui::Button(hosting ? "Close session" : "Leave session")) closeSession();
+    if (kickId >= 0) session_.kickPeer(kickId);
+
+    // ---- how it works ----
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ui::Caption("How it works");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    if (hosting) {
+        ui::StatusLine(0, "You save and commit for everyone. Joined editors work on a synced copy.");
+    } else {
+        ui::StatusLine(3, "Saving and commits belong to the host. This is a synced copy.");
+    }
+    ui::StatusLine(1, "Two people changing the same object: the last edit wins. Outlines in the viewport show "
+                      "who has what selected.");
+    ui::StatusLine(4, "Imported a model or texture? Joined editors fetch it with Refresh project files.");
+    ImGui::PopStyleColor();
+    ImGui::PopTextWrapPos();
+    if (!hosting) {
+        const auto prog = session_.syncProgress();
+        if (prog.filesTotal > prog.filesDone) {
+            char lbl[64];
+            std::snprintf(lbl, sizeof(lbl), "Fetching %d / %d files", prog.filesDone, prog.filesTotal);
+            ui::ProgressInline(prog.filesTotal ? (float)prog.filesDone / prog.filesTotal : -1.0f, lbl);
+        }
+    }
+
+    // ---- footer: pinned to the bottom ----
+    const float footH = ImGui::GetFrameHeight() * (hosting ? 1.0f : 2.0f) + ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    const float y = ImGui::GetWindowHeight() - footH - ImGui::GetStyle().WindowPadding.y;
+    if (y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(y);
+    if (hosting) {
+        // Ending it ends it for everybody: one click arms, the second closes.
+        const bool armed = ImGui::GetTime() < sessionCloseArmedUntil_;
+        char lbl[64];
+        if (armed)
+            std::snprintf(lbl, sizeof(lbl), "Click again to close for everyone###close_session");
+        else
+            std::snprintf(lbl, sizeof(lbl), "Close session for %d %s###close_session", (int)sessionPeers_.size(),
+                          sessionPeers_.size() == 1 ? "person" : "people");
+        if (ui::DangerButton(lbl, -1.0f)) {
+            if (armed) {
+                sessionCloseArmedUntil_ = 0.0;
+                closeSession();
+            } else {
+                sessionCloseArmedUntil_ = ImGui::GetTime() + 3.0;
+            }
+        }
+    } else {
+        if (ImGui::Button("Refresh project files", ImVec2(-FLT_MIN, 0))) session_.requestRefresh();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Fetches files the host imported since you joined (unchanged files are skipped).\n"
+                              "Scene edits stream live and never need this.");
+        if (ui::DangerButton("Leave session", -1.0f)) closeSession();
+    }
     ImGui::End();
 }
 

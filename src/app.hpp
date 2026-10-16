@@ -1937,6 +1937,10 @@ private:
     int sessionPort_ = 7797;
     char sessionCode_[16] = "";
     std::string sessionError_;      // inline error in the join modal
+    int sessionTab_ = 0;            // the Live session modal: 0 Host, 1 Join
+    char sessionInvite_[256] = "";  // pasted invite / host:port (parsed live)
+    double sessionStartedAt_ = 0.0; // the panel's elapsed time
+    double sessionCloseArmedUntil_ = 0.0;  // "Close session" asks for a 2nd click
     std::string sessionEndedText_;  // reason shown by the session-ended popup
     std::vector<session::PeerView> sessionPeers_;
     // Presence: what each OTHER participant has selected (object ids + the

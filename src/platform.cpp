@@ -240,6 +240,16 @@ std::string userName() {
     return "";
 }
 
+const char* firewallNote() {
+#ifdef _WIN32
+    return "Windows Firewall asks once to allow TyraX on this network.";
+#elif defined(__APPLE__)
+    return "macOS asks once to allow incoming connections for TyraX.";
+#else
+    return "If a firewall runs here (ufw, firewalld), allow incoming TCP on the session port.";
+#endif
+}
+
 const char* exeSuffix() {
 #ifdef _WIN32
     return ".exe";

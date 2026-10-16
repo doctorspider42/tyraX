@@ -1,9 +1,5 @@
 # Live collaboration sessions
 
-![Host Session dialog](img/collaboration-host.png)
-
-![Join Session dialog](img/collaboration-join.png)
-
 One editor **hosts** its open project; other editors **join** over the LAN and
 everyone edits the same project at the same time. The host is authoritative:
 it applies every edit in a single order, decides who is in the session (kick /
@@ -16,20 +12,48 @@ project remain the async story).
 
 ## Using it
 
-**Host** (has the project open): *Session > Host Session...* — pick a display
-name and port (default 7797), share the shown `IP:port` and the generated
-6-digit join code. Windows Firewall asks for permission on the first start.
+*Session > Host Session...* and *Session > Join Session...* open the same
+**Live session** dialog, on its *Host* or *Join a session* side.
 
-**Join**: *Session > Join Session...* — enter the host's address, port and
-code. The whole project transfers on the first join (a progress bar shows
-files/bytes); re-joins only fetch what changed since. When the sync finishes,
-the project opens and every edit streams both ways live.
+![The Live session dialog, Host side: your name, the invite card with the
+address, the join code and Copy invite, the Advanced port, and the firewall
+note for this system.](img/collaboration-host.png)
+
+**Host** (has the project open): check *Your name*, then hand out the
+**invite**: the card shows this machine's address and port and the 6-digit
+join code in large type, and **Copy invite** copies one line,
+`tyrax-join://192.168.0.28:7797?code=932653`, plus the address and code as
+text - paste it into a chat. *New code* makes another code; the port (default
+7797) is under *Advanced*. The note under the card is this system's own:
+Windows Firewall or macOS asks once to allow the connection; on Linux a running
+firewall must allow the port. **Start hosting <project>** starts it.
+
+![The Join side: the pasted invite already split into address, port and join
+code.](img/collaboration-join.png)
+
+**Join**: paste the invite into *Invite* - the address, port and code fill
+themselves in (a plain `host:port` or address works too; type the code then).
+**Join** transfers the whole project the first time (a bar with files and MB
+and the file in flight); joining again later fetches only what changed. When
+the sync finishes the project opens and every edit streams both ways live. If
+the project you have open has unsaved changes, the dialog says so and Join goes
+through the usual save / discard question first.
 
 While in a session:
 
 - The status bar shows a **SESSION (n)** chip on the host and a blue **JOINED**
-  chip on clients; clicking it opens the *Session* window (participants with
-  per-peer colors, the scene each one is editing, Kick buttons for the host).
+  chip on clients; clicking it opens the *Session* panel: a Hosting / Joined
+  pill with the session's running time, the invite again with *Copy* (people
+  join late), **People** - each with an avatar in their presence colour, their
+  address, the scene they are in and what they have selected ("editing
+  west-promenade"), **Go to** to open the scene they are in, and on the host a
+  **...** menu with *Copy address* and *Remove from session* - then a short
+  "how it works", and at the bottom **Close session for N people** (the host;
+  it asks for a second click, because it ends the session for everyone) or
+  *Refresh project files* and **Leave session** (a client).
+
+  ![The Session panel while hosting: the Hosting pill and running time, the
+  invite with Copy, People, how it works, and Close session.](img/collaboration-panel.png)
 - Other participants' selections appear as **colored outlines** in the
   viewport and colored dots in the Project panel's object list.
 - A client's **Save is disabled** (window title shows `[joined]`; with the title bar merged into the top bar - the macOS and Windows default - the JOINED chip says it) — the host owns
@@ -37,7 +61,7 @@ While in a session:
   runs and Live Link: the synced copy is a complete, real project.
 - Undo works on every side; undoing rewinds remote edits batch-by-batch (it
   is a snapshot undo, and remote edits land as snapshots between yours).
-- *Session window > Refresh project files* (client) re-syncs assets/sources
+- *Session panel > Refresh project files* (client) re-syncs assets/sources
   mid-session — use it after the host imports new models/textures/audio.
   Scene edits never need this; they stream live.
 

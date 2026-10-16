@@ -56,6 +56,10 @@ std::filesystem::path homeDir();
 // Display name proposed for collaboration sessions.
 std::string userName();
 
+// What hosting a session may trigger on THIS OS's firewall, in one sentence
+// (the Host page used to warn about Windows Firewall on every platform).
+const char* firewallNote();
+
 // ".exe" on Windows, "" elsewhere. For building executable names and the
 // file-dialog pattern that matches them.
 const char* exeSuffix();
