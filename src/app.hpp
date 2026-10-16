@@ -3425,6 +3425,7 @@ private:
     char newLocation_[512] = "";
     int newWidth_ = 100;
     int newDepth_ = 100;
+    bool newSizeCustom_ = false;  // the size segment's "Custom" (free width/depth)
     // "Create terrain" (docs/terrain.md): off starts the scene with NO ground
     // at all - no mesh, no floor in the game - for a project whose floors are
     // placed geometry (an interior, a platformer). Default on: a ground plane

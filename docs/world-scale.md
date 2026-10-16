@@ -25,7 +25,7 @@ along.
 
 ## Choosing it when the project is created
 
-The *New Project* dialog asks for it up front (**World scale > Scale**:
+The *New Project* dialog asks for it up front (**World > Scale**:
 metric, 10 cm, 1 cm, 10 m per unit, or Custom), and `--new` takes it as a
 trailing argument. Not because it can't be changed later — it can, and the
 field above is where — but because changing it later deliberately rescales

@@ -44,6 +44,45 @@ as `<example>`, or `<example>-2` beside an earlier copy, and the copy opens. The
 shipped example is never edited - an installed package may not even be
 writable, and the next update would overwrite your changes.
 
+## New project
+
+*New project* on the start page, *File > New Project* or Ctrl+N (Cmd+N).
+
+![The New Project dialog: the three start types as cards on the left, name,
+location and the world on the right, a summary of what Create makes, and
+Create project.](img/new-project.png)
+
+**Start as** (left) is the one choice that cannot change later: it picks the
+game sources the project generates, and those are yours to edit, so switching
+afterwards would overwrite your work or orphan it.
+
+| Card | What you get |
+|---|---|
+| **First person** | A Player you walk and look through. |
+| **Third person** | A camera on a boom behind the Player; the avatar is the Player object's own animated model (assign a `.glb`/`.fbx` in Properties - the rig works without one). |
+| **Empty** | No player and a camera that stays put - drive it from a cutscene, a Camera object or your own code. |
+
+On the right:
+
+- **Project name** - letters, digits, `-` and `_`. **Location** - the parent
+  folder (*...* to browse; the default is *Edit > Preferences > Projects*).
+  The line under them shows the folder Create will make, joined with this
+  system's separator, or in red why it cannot: no name, a bad character, or a
+  folder of that name that already holds files. **Create project** stays off
+  until that line is green, and the reason is repeated in the footer.
+- **World** - *Ground* (the *Create terrain* switch: off makes a scene with no
+  ground at all, for interiors and platformers - see
+  [terrain](terrain.md)), *Size* (64, 100, 256, 512 or Custom for any width
+  and depth, with the size in meters beside it) and *Scale* (how many units
+  are a meter - [world scale](world-scale.md)).
+- **AI coding assistants** - *Claude Code*, *Codex*, *GitHub Copilot*: guidance
+  files for an assistant opened in the project ([AI support](ai-support.md)).
+- The **summary** card says what Create makes: the scene, its ground and
+  player, and that it builds in the debug profile with Live Link on. A player
+  with no ground gets a warning - it would start in mid-air.
+
+The project opens as soon as it is created.
+
 ## Setup chips
 
 The strip at the bottom says what the first Run will need, before it fails:

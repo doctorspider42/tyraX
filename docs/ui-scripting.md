@@ -133,7 +133,7 @@ tyrax-editor --ui-script ~/TyraProjects/mygame "frames 20; dump"
   [##MainMenuBar] Search  @ 657,6 420x27
   [New Project] Project name  @ 1383,511 624x57  [input]
   [New Project] Claude Code  @ 1383,1201 300x57  [unchecked]
-  [New Project] Create  @ 1383,1438 360x57
+  [New Project] Create project  @ 1383,1438 360x57
   [Remote Pad] Drive with the editor's keyboard  @ 84,942 741x57  [checked]
 ```
 

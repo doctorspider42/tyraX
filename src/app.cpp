@@ -15128,7 +15128,47 @@ static int presetIndexOf(const std::string& tmpl) {
     return kNewPresetCount - 1;  // "orbit" / anything unknown = Empty
 }
 
+// What each preset card says (index = kNewPresets): the consequence in one
+// line, the long story stays in docs/start-page.md.
+static const char* const kNewPresetTitle[] = {"First person", "Third person", "Empty"};
+static const char* const kNewPresetDesc[] = {
+    "Walk and look through the player's eyes.",
+    "Camera on a boom behind the player. Uses the Player object's animated model.",
+    "No player, a camera that stays put. Drive it from a cutscene or your own code."};
+
+// The little picture on a preset card, drawn into [a, b].
+static void drawPresetArt(ImDrawList* dl, int preset, ImVec2 a, ImVec2 b) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = b.x - a.x, h = b.y - a.y;
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(sem.ground), 6.0f);
+    dl->AddRectFilled(ImVec2(a.x, a.y + h * 0.72f), b, ImGui::GetColorU32(sem.field), 6.0f,
+                      ImDrawFlags_RoundCornersBottom);
+    auto P = [&](float x, float y) { return ImVec2(a.x + w * x, a.y + h * y); };
+    const float th = ImMax(1.5f, h * 0.035f);
+    if (preset == 0) {
+        const ImU32 c = ImGui::GetColorU32(sem.accent);
+        dl->AddLine(P(0.38f, 0.32f), P(0.62f, 0.32f), c, th);
+        dl->AddLine(P(0.5f, 0.2f), P(0.5f, 0.44f), c, th);
+        dl->AddLine(P(0.22f, 0.92f), P(0.5f, 0.68f), c, th);
+        dl->AddLine(P(0.5f, 0.68f), P(0.78f, 0.92f), c, th);
+    } else if (preset == 1) {
+        const ImU32 c = ImGui::GetColorU32(sem.ok);
+        dl->AddCircle(P(0.58f, 0.36f), h * 0.07f, c, 16, th);
+        dl->AddLine(P(0.58f, 0.43f), P(0.58f, 0.66f), c, th);
+        dl->AddLine(P(0.49f, 0.52f), P(0.67f, 0.52f), c, th);
+        dl->AddLine(P(0.58f, 0.66f), P(0.52f, 0.8f), c, th);
+        dl->AddLine(P(0.58f, 0.66f), P(0.64f, 0.8f), c, th);
+        dl->AddLine(P(0.18f, 0.24f), P(0.38f, 0.38f), c, th);
+    } else {
+        const ImU32 c = ImGui::GetColorU32(sem.textDim);
+        dl->AddRect(P(0.3f, 0.26f), P(0.7f, 0.6f), c, 2.0f, 0, th);
+        dl->AddLine(P(0.4f, 0.6f), P(0.4f, 0.72f), c, th);
+        dl->AddLine(P(0.6f, 0.6f), P(0.6f, 0.72f), c, th);
+    }
+}
+
 void App::drawNewProjectModal() {
+    namespace stdfs = std::filesystem;
     if (openNewProjectPopup_) {
         ImGui::OpenPopup("New Project");
         openNewProjectPopup_ = false;
@@ -15138,172 +15178,294 @@ void App::drawNewProjectModal() {
                       defaultNewProjectLocation(globalDefaultProjectsDir_).c_str());
     }
 
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(ImMin(scaled(880), vp->WorkSize.x * 0.95f),
+                                    ImMin(scaled(600), vp->WorkSize.y * 0.92f)),
+                             ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
 
-    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::InputText("Project name", newName_, sizeof(newName_));
+    const float fs = ImGui::GetFontSize();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float footerH = ImGui::GetFrameHeight() + st.ItemSpacing.y * 2.0f + scaled(10);
+    const float bodyH = ImGui::GetContentRegionAvail().y - footerH;
+    const float leftW = ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(220), scaled(300));
+    if (newTemplate_ < 0 || newTemplate_ >= kNewPresetCount) newTemplate_ = 0;
 
-        ImGui::InputText("Location", newLocation_, sizeof(newLocation_));
-        ImGui::SameLine();
-        if (ImGui::Button("...")) {
-            std::string dir = pickFolder();
-            if (!dir.empty())
-                std::snprintf(newLocation_, sizeof(newLocation_), "%s", dir.c_str());
+    // ---- left: Start as ----
+    ImGui::BeginChild("##np_start", ImVec2(leftW, bodyH), ImGuiChildFlags_None);
+    ui::Caption("Start as");
+    {
+        const float cardH = fs * 5.2f;
+        const float artW = fs * 4.4f;
+        for (int i = 0; i < kNewPresetCount; ++i) {
+            ImGui::PushID(i);
+            // The label is the preset's title - what a script clicks.
+            if (ui::ChoiceCard(kNewPresetTitle[i], newTemplate_ == i, cardH)) newTemplate_ = i;
+            if (newTemplate_ == i) uiscript::markLastItemChecked(true);
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float pad = scaled(9);
+            drawPresetArt(dl, i, ImVec2(a.x + pad, a.y + pad), ImVec2(a.x + pad + artW, b.y - pad));
+            const float tx = a.x + pad * 2 + artW;
+            {
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(ImVec2(tx, a.y + pad), ImGui::GetColorU32(sem.text), kNewPresetTitle[i]);
+            }
+            dl->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(tx, a.y + pad + fs * 1.35f),
+                        ImGui::GetColorU32(sem.textDim), kNewPresetDesc[i], nullptr, b.x - tx - pad);
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+            ImGui::PopID();
         }
+    }
+    // Pinned to the bottom of the column: why this choice is the big one.
+    {
+        const char* note = "The start type picks the game's generated sources and cannot be changed "
+                           "later. Everything else can.";
+        const float wrap = ImGui::GetContentRegionAvail().x;
+        const float nh = ImGui::CalcTextSize(note, nullptr, false, wrap).y;
+        const float y = ImGui::GetWindowHeight() - nh - scaled(6);
+        if (y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(y);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(note);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, scaled(18));
 
-        // World scale first: the terrain size below reads in meters through it,
-        // and it is the one setting that is genuinely hard to change later (it
-        // rescales nothing by design, so a world built at the wrong scale stays
-        // that size). See docs/world-scale.md.
-        ImGui::SeparatorText("World scale");
+    // ---- right: details ----
+    // What Create would do, checked BEFORE the click: the same rules
+    // project::create applies, so the button can say why it is off.
+    std::string invalid;
+    const std::string name = newName_;
+    if (name.empty()) invalid = "Name the project";
+    for (char c : name)
+        if (!isalnum((unsigned char)c) && c != '-' && c != '_') {
+            invalid = "Letters, digits, - and _ only";
+            break;
+        }
+    // Joined with the platform's separator - it once printed
+    // "/Users/x/TyraProjects\my-game" on macOS.
+    const std::string target =
+        newLocation_[0] ? (stdfs::path(newLocation_) / name).lexically_normal().string() : std::string();
+    if (invalid.empty() && !newLocation_[0]) invalid = "Pick a location";
+    if (invalid.empty()) {
+        std::error_code ec;
+        if (stdfs::exists(target, ec) && !stdfs::is_empty(target, ec))
+            invalid = "A folder with that name exists and is not empty";
+    }
+
+    ImGui::BeginChild("##np_details", ImVec2(0, bodyH), ImGuiChildFlags_None);
+    // The label column of the rows below (InspectorRows' own clamp), for the
+    // rows drawn by hand: a caption, then the control at the column.
+    const float colX = ImGui::GetCursorPosX() +
+                       ImClamp(ImGui::GetContentRegionAvail().x / 3.0f, scaled(90), scaled(120));
+    auto rowCaption = [&](const char* text) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted(text);
+        ImGui::PopStyleColor();
+        ImGui::SameLine(colX);
+    };
+    auto dimAtColumn = [&](const char* text) {
+        ImGui::SetCursorPosX(colX);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    };
+    {
+        ui::InspectorRows rows(scaled(90), scaled(120));
+        ui::InputText("Project name", newName_, sizeof(newName_));
+    }
+    {
+        rowCaption("Location");
+        const float btnW = ImGui::GetFrameHeight();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - btnW - st.ItemSpacing.x);
+        ImGui::InputText("##np_location", newLocation_, sizeof(newLocation_));
+        ImGui::SameLine();
+        if (ImGui::Button("...##np_browse", ImVec2(btnW, 0))) {
+            std::string dir = pickFolder();
+            if (!dir.empty()) std::snprintf(newLocation_, sizeof(newLocation_), "%s", dir.c_str());
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose the parent folder");
+    }
+    {
+        // The live "Creates ..." line under the fields.
+        ImGui::SetCursorPosX(colX);
+        if (invalid.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.ok);
+            ImGui::TextUnformatted("Creates");
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ui::FontScope mono(ui::monoFont());
+            std::string shown = target;
+            const std::string home = platform::homeDir().string();
+            if (!home.empty() && shown.size() > home.size() && shown.compare(0, home.size(), home) == 0)
+                shown = "~" + shown.substr(home.size());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted(ellipsizePathLeft(shown, ImGui::GetContentRegionAvail().x).c_str());
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", target.c_str());
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+            ImGui::TextUnformatted(invalid.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    ui::Caption("World");
+    {
+        ui::InspectorRows rows(scaled(90), scaled(120));
+        rowCaption("Ground");
+        // The switch keeps the old checkbox's label ("Create terrain") - the
+        // name scripts and docs use.
+        ui::Switch("Create terrain", &newTerrain_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off: no ground at all, in the editor and the game.");
+        dimAtColumn(newTerrain_ ? "Flat terrain you can sculpt and paint later."
+                                : "No ground - for interiors and platformers; the player stands on what "
+                                  "you place.");
+
+        // Size: the usual squares, or Custom for anything else.
+        static const int kSizes[] = {64, 100, 256, 512};
+        static const char* const kSizeLabels[] = {"64", "100", "256", "512", "Custom"};
+        int sizeSel = 4;
+        if (!newSizeCustom_)
+            for (int i = 0; i < 4; ++i)
+                if (newWidth_ == kSizes[i] && newDepth_ == kSizes[i]) sizeSel = i;
+        rowCaption(newTerrain_ ? "Size" : "World size");
+        if (ui::Segmented("##np_size", kSizeLabels, 5, &sizeSel)) {
+            newSizeCustom_ = sizeSel == 4;
+            if (sizeSel < 4) newWidth_ = newDepth_ = kSizes[sizeSel];
+        }
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::Text("%g x %g m", (float)newWidth_ / newUnitsPerMeter_, (float)newDepth_ / newUnitsPerMeter_);
+            ImGui::PopStyleColor();
+        }
+        if (sizeSel == 4) {
+            ui::DragInt(newTerrain_ ? "Width (units)" : "World width (units)", &newWidth_, 1.0f, 1, 4096);
+            ui::DragInt(newTerrain_ ? "Depth (units)" : "World depth (units)", &newDepth_, 1.0f, 1, 4096);
+        }
+        newWidth_ = ImClamp(newWidth_, 1, 4096);
+        newDepth_ = ImClamp(newDepth_, 1, 4096);
+
+        // World scale (docs/world-scale.md): the one setting that is genuinely
+        // hard to change later - it rescales nothing by design.
         struct UnitsPreset {
             const char* label;
             float unitsPerMeter;  // 0 = Custom
         };
         static const UnitsPreset kUnitsPresets[] = {
-            {"1 unit = 1 meter (metric)", 1.0f},
+            {"1 unit = 1 meter", 1.0f},
             {"1 unit = 10 cm (10 units/m)", 10.0f},
             {"1 unit = 1 cm (100 units/m)", 100.0f},
             {"1 unit = 10 m (0.1 units/m)", 0.1f},
             {"Custom...", 0.0f},
         };
         const int kUnitsPresetCount = (int)(sizeof(kUnitsPresets) / sizeof(kUnitsPresets[0]));
-        {
-            const char* items[kUnitsPresetCount];
-            for (int i = 0; i < kUnitsPresetCount; ++i) items[i] = kUnitsPresets[i].label;
-            if (ImGui::Combo("Scale", &newUnitsPreset_, items, kUnitsPresetCount) &&
-                kUnitsPresets[newUnitsPreset_].unitsPerMeter > 0.0f)
-                newUnitsPerMeter_ = kUnitsPresets[newUnitsPreset_].unitsPerMeter;
-        }
-        prefHelp(
-            "How many world units a real-world meter is. Everything imported\n"
-            "from reality (a model, a phone camera take) converts through it,\n"
-            "and the FPP preset's player is person-sized at whatever you pick.\n"
-            "The engine itself has no units - changeable later in Project >\n"
-            "Preferences > World, but it never rescales existing content.\n"
-            "See docs/world-scale.md.");
+        const char* items[kUnitsPresetCount];
+        for (int i = 0; i < kUnitsPresetCount; ++i) items[i] = kUnitsPresets[i].label;
+        if (ui::Combo("Scale", &newUnitsPreset_, items, kUnitsPresetCount) &&
+            kUnitsPresets[newUnitsPreset_].unitsPerMeter > 0.0f)
+            newUnitsPerMeter_ = kUnitsPresets[newUnitsPreset_].unitsPerMeter;
+        ui::RowHelp(
+            "How many world units a real-world meter is: imported models and\n"
+            "phone camera takes convert through it. Changeable later, but it\n"
+            "never rescales existing content (docs/world-scale.md).");
         if (kUnitsPresets[newUnitsPreset_].unitsPerMeter <= 0.0f) {
-            ImGui::DragFloat("Units per meter", &newUnitsPerMeter_, 0.05f, 0.001f, 1000.0f,
-                             "%.3f", ImGuiSliderFlags_Logarithmic);
+            ui::DragFloat("Units per meter", &newUnitsPerMeter_, 0.05f, 0.001f, 1000.0f, "%.3f",
+                          ImGuiSliderFlags_Logarithmic);
             if (newUnitsPerMeter_ < 0.001f) newUnitsPerMeter_ = 0.001f;
         }
-
-        ImGui::SeparatorText(newTerrain_ ? "Terrain (flat)" : "World size");
-        ImGui::Checkbox("Create terrain", &newTerrain_);
-        prefHelp(
-            "On: the scene starts with a flat ground plane you can sculpt and\n"
-            "paint (Terrain Editor).\n"
-            "Off: no ground at all - nothing is drawn and the game has no floor\n"
-            "either, so the player and the physics stand on the geometry you\n"
-            "place and fall through the void everywhere else. For interiors,\n"
-            "platformers and cutscene-only projects. The size below stays the\n"
-            "world bounds every walker is clamped to, and the terrain can be\n"
-            "created (or removed) later in the Terrain Editor.");
-        ImGui::InputInt(newTerrain_ ? "Width (units)" : "World width (units)",
-                        &newWidth_);
-        ImGui::InputInt(newTerrain_ ? "Depth (units)" : "World depth (units)",
-                        &newDepth_);
-        if (newWidth_ < 1) newWidth_ = 1;
-        if (newDepth_ < 1) newDepth_ = 1;
-        if (newWidth_ > 4096) newWidth_ = 4096;
-        if (newDepth_ > 4096) newDepth_ = 4096;
-        if (newUnitsPerMeter_ != 1.0f)
-            ImGui::TextDisabled("= %.1f x %.1f m", (float)newWidth_ / newUnitsPerMeter_,
-                                (float)newDepth_ / newUnitsPerMeter_);
-
-        ImGui::SeparatorText("Preset");
-        const char* presetNames[kNewPresetCount];
-        for (int i = 0; i < kNewPresetCount; ++i) presetNames[i] = kNewPresets[i].label;
-        ImGui::Combo("Preset", &newTemplate_, presetNames, kNewPresetCount);
-        prefHelp(
-            "What the project starts as - and what its generated game sources\n"
-            "are, permanently: the preset is fixed at creation and Project >\n"
-            "Preferences only shows it. Those sources are user-ownable, so\n"
-            "switching later would either overwrite your work or leave an\n"
-            "owned file no longer matching what the project builds.\n"
-            "- FPP: walk/look through the player's eyes.\n"
-            "- Third person: camera on a boom behind the player; the avatar\n"
-            "  is the Player object's own animated model (.glb/.fbx),\n"
-            "  assigned in Properties - the rig works without one.\n"
-            "- Empty: nothing in the scene and a camera that does not move\n"
-            "  on its own - add a player, or drive it from your own code,\n"
-            "  a Camera object or a cutscene.");
-
-        ImGui::SeparatorText("AI support");
-        ImGui::Checkbox("Claude Code", &newAiClaude_);
-        ImGui::SameLine();
-        ImGui::Checkbox("Codex", &newAiCodex_);
-        ImGui::SameLine();
-        ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
-        prefHelp(
-            "Copies assistant guides into the project (.claude/skills/ +\n"
-            "CLAUDE.md for Claude Code, .agents/skills/ + AGENTS.md for Codex,\n"
-            ".github/copilot-instructions.md for Copilot): how the project is\n"
-            "structured, flow graphs, custom scripts, the menu stylesheets and\n"
-            "the editor's CLI -\n"
-            "so an AI assistant opened in the project knows what it is doing.\n"
-            "Can also be added later in Project > Preferences.");
-
-        ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
-        ImGui::TextDisabled(
-            newTerrain_ ? "Default scene \"main\" with a flat %d x %d terrain.%s"
-                        : "Default scene \"main\", %d x %d world, no terrain.%s",
-            newWidth_, newDepth_,
-            newTemplate_ == 0   ? " Adds a player entity (FPP)."
-            : newTemplate_ == 1 ? " Adds a player entity (third person)."
-                                : "");
-        // A player with no terrain has nothing to stand on until the first
-        // floor is placed - say so here rather than let it be discovered by
-        // falling through an empty world on the first build.
-        if (!newTerrain_ && newTemplate_ != 2)
-            ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.35f, 1.0f),
-                               "The player starts in mid-air - place a floor "
-                               "(a Box, a model) under it.");
-        // The build defaults a fresh project starts with - one line, because
-        // nobody should have to discover why the FPS overlay is there or the
-        // keyboard is not; the reasoning is in the tooltip.
-        ImGui::TextDisabled("Build: debug + Live Link, keyboard & mouse off.");
-        prefHelp(
-            "A fresh project is set up for authoring, all three in Project >\n"
-            "Preferences > Build:\n"
-            "- Debug profile: the on-screen FPS / memory / profiler overlays\n"
-            "  are available. Switch to release for the disc - it strips them.\n"
-            "- Live Link: edit the running game (move an object in the editor\n"
-            "  and it moves on the console). Debug builds only.\n"
-            "- USB keyboard & mouse: off, so a pad game does not load drivers\n"
-            "  it never uses. Turn it on for a keyboard/mouse game.");
-
-        if (!newProjectError_.empty())
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newProjectError_.c_str());
-
-        ImGui::Separator();
-        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
-            Project p;
-            TerrainConfig t{newWidth_, newDepth_, newTerrain_};
-            if (newTemplate_ < 0 || newTemplate_ >= kNewPresetCount) newTemplate_ = 0;
-            const char* preset = kNewPresets[newTemplate_].preset;
-            std::string err =
-                project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
-            if (err.empty()) {
-                if (newAiClaude_ || newAiCopilot_ || newAiCodex_)
-                    statusMessage_ = aisupport::install(
-                        p.dir, newAiClaude_, newAiCopilot_, newAiCodex_);
-                project_ = p;
-                hasProject_ = true;
-                applyProjectToViewport();
-                attachProject();  // resets dirty + window title
-                rememberRecentProject(project_.dir);
-                ImGui::CloseCurrentPopup();
-            } else {
-                newProjectError_ = err;
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
     }
+
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    if (ui::Section("AI coding assistants", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted("Adds guidance files so an assistant opened in the project knows how a TyraX "
+                               "game is built.");
+        ImGui::PopStyleColor();
+        // Chips keep the old checkbox labels (the --ui-script names).
+        if (ui::FilterChip("Claude Code", newAiClaude_)) newAiClaude_ = !newAiClaude_;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("CLAUDE.md + .claude/skills/");
+        ImGui::SameLine();
+        if (ui::FilterChip("Codex", newAiCodex_)) newAiCodex_ = !newAiCodex_;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("AGENTS.md + .agents/skills/");
+        ImGui::SameLine();
+        if (ui::FilterChip("GitHub Copilot", newAiCopilot_)) newAiCopilot_ = !newAiCopilot_;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(".github/copilot-instructions.md");
+    }
+
+    // The summary: what the click makes, in one card.
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    if (ui::BeginCard("##np_summary")) {
+        const char* who = newTemplate_ == 0   ? " and a first-person player"
+                          : newTemplate_ == 1 ? " and a third-person player"
+                                              : ", no player";
+        char line[256];
+        if (newTerrain_)
+            std::snprintf(line, sizeof(line), "Scene \"main\" with a flat %d x %d terrain%s.", newWidth_,
+                          newDepth_, who);
+        else
+            std::snprintf(line, sizeof(line), "Scene \"main\", a %d x %d world with no terrain%s.", newWidth_,
+                          newDepth_, who);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(line);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted("Builds in the debug profile with Live Link on; USB keyboard & mouse off.");
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+        // A player with no terrain has nothing to stand on until the first
+        // floor is placed - said here rather than discovered by falling.
+        if (!newTerrain_ && newTemplate_ != 2)
+            ui::StatusLine(1, "The player starts in mid-air - place a floor under it.");
+    }
+    ui::EndCard();
+    if (!newProjectError_.empty()) ui::StatusLine(2, newProjectError_.c_str());
+    ImGui::EndChild();
+
+    // ---- footer ----
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, scaled(2)));
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TextUnformatted(invalid.empty() ? "Opens the project when it is created" : invalid.c_str());
+    ImGui::PopStyleColor();
+    const char* kCreate = "Create project";
+    const float createW = ImGui::CalcTextSize(kCreate).x + st.FramePadding.x * 2.6f;
+    const float cancelW = ImGui::CalcTextSize("Cancel").x + st.FramePadding.x * 2.0f;
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - createW - cancelW - st.ItemSpacing.x);
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::SameLine();
+    if (ui::PrimaryButton(kCreate, createW, invalid.empty())) {
+        Project p;
+        TerrainConfig t{newWidth_, newDepth_, newTerrain_};
+        const char* preset = kNewPresets[newTemplate_].preset;
+        std::string err = project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
+        if (err.empty()) {
+            if (newAiClaude_ || newAiCopilot_ || newAiCodex_)
+                statusMessage_ = aisupport::install(p.dir, newAiClaude_, newAiCopilot_, newAiCodex_);
+            project_ = p;
+            hasProject_ = true;
+            applyProjectToViewport();
+            attachProject();  // resets dirty + window title
+            rememberRecentProject(project_.dir);
+            ImGui::CloseCurrentPopup();
+        } else {
+            newProjectError_ = err;
+        }
+    }
+    ImGui::EndPopup();
 }
 
 void App::applyProjectToViewport() {

@@ -12,8 +12,8 @@ build and debug — and how to drive the editor's
 
 ## Installing
 
-- **New Project** (`File > New Project`) — tick *Claude Code*, *Codex* and/or
-  *GitHub Copilot* under **AI support**.
+- **New Project** (`File > New Project`) — switch on *Claude Code*, *Codex*
+  and/or *GitHub Copilot* under **AI coding assistants**.
 - **Later** — `Project > Preferences > AI support` (the buttons install or
   refresh immediately; this writes files, it is not a project setting), or
   headlessly:

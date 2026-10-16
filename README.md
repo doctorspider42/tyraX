@@ -255,9 +255,11 @@ settings at the scoop MinGW kit, or just use `build.ps1`.
 
 Then, in the editor:
 
-1. **`File > New Project`** (`Ctrl+N`) — name, location, world scale, terrain
-   size and one of three presets (FPP / third person / empty). The preset is
-   fixed for the project's life; everything else is editable later.
+1. **New project** on the [start page](docs/start-page.md) (or `File > New
+   Project`, `Ctrl+N`) — what it starts as (first person / third person /
+   empty), name, location, ground, size and world scale. The start type is
+   fixed for the project's life; everything else is editable later. Or open a
+   copy of one of the bundled examples from the same page.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
 3. **Build & Run** (`F5`) — the first build downloads the pinned official
    PS2DEV archive, compiles the in-tree OpenVCL tools and then the whole
