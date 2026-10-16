@@ -46,6 +46,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `facts.cpp/.hpp` | 1.3k | World Facts model/evaluator/validator | flow-graph-input-player |
 | `sequence.hpp` | 430 | Cutscene model + shared camera math | scene-objects-and-gameplay |
 | `ambience.cpp/.hpp` | 660 | Ambience presets, day/night `evaluate` | lighting-and-bakes |
+| `ambience_simple_ui.cpp` | 900 | Ambience Editor > Sky & time, Simple view: looks, time strip, plain-word rows (reads/writes the preset's own fields) | lighting-and-bakes |
 | `grading.hpp` | 80 | Colour grading presets -> GS integers | lighting-and-bakes |
 | `hudanim.hpp` | 130 | Host twin of HUD animation math | game-screens-menus-text |
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |

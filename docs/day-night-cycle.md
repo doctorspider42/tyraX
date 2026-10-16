@@ -10,9 +10,51 @@ The example project shows the same scene at four authored times:
 
 ![The day-night example at dawn, noon, sunset and night.](img/day-night-example.png)
 
-## The Sky & time tab
+## Simple and Detailed
 
-The Ambience Editor opens docked beside the viewport. Its **Sky & time** tab is
+**Sky & time** has two views, picked at the right end of its tab row; the
+choice is remembered on this machine (`editor.ini` `ambienceDetailed`). Both
+edit the same preset - nothing is stored twice, so switching never loses or
+converts anything.
+
+![The Simple view: the sky at the preset's hour, the time of day, looks.](img/ambience-simple.png)
+
+**Simple** (the default) asks the questions a level has, in plain words:
+
+- **Preset** bar: which preset, *Used by scene X* (or **Use for scene X**),
+  *Preview in viewport* and the "..." menu (name, default, duplicate, delete).
+- The **sky** at the preset's hour: the gradient, the sun and moon where they
+  stand, stars, fog over the horizon, "Sunset · sun 15° up in the south-west",
+  and when the stars come out. **Play the day** runs 24 hours through the
+  picture in 24 s; the preset's hour and the viewport stay put.
+- **Time of day**: one strip of the day's own sky - drag it to set the hour
+  (5-minute steps). Sunrise and sunset are marked on it.
+- **Start from a look**: *Clear day*, *Sunrise*, *Golden hour*, *Overcast*,
+  *Foggy*, *Night*. A look writes a whole day (the default nine keys,
+  reshaped), the hour it opens at, the fog level and the stars. The look the
+  preset still matches exactly is ringed. Undo brings the previous day back.
+- **Sun**: *Rises in the* (eight compass points), *Height at noon*, and
+  *Sunrise · sunset* on one two-knob track.
+- **Mood**: *Brightness*, *Warmth* (bluish to golden sunlight) and *Shadows*
+  (soft to hard: how much light comes straight from the sun rather than from
+  the whole sky). Each one reads the average over the keys and rescales every
+  key when dragged, so the shape of the day is kept.
+- **Fog**: *Off / Light / Medium / Thick* (60-320 m, 25-160 m, 6-60 m through
+  the project's units per metre); distances set by hand show as *Custom*.
+- **While the game runs**: *Time passes*, *A whole day lasts* (minutes), *Stars
+  at night*, and - when the clock starts more than an hour from the bake hour -
+  a note with **Bake at HH:MM**.
+
+A preset without a cycle is a **fixed look**: the picture says so, a note
+offers **Add a day** (turns the cycle on, seeding the default keys), and the
+sun and mood rows edit the static light direction, colours and fog instead.
+
+**Detailed** is everything below: keyframes, the arcs, the moon, the painted
+sky and every number.
+
+## The Detailed view
+
+The Ambience Editor opens docked beside the viewport. Its **Detailed** view is
 one split: the **presets** (each with a thumbnail of its sky at its own hour,
 the hour, *static* or *clock runs*, and *default* / *live* badges), a drawn
 **sky** in the middle, and an **inspector** on the right. In a narrow dock the

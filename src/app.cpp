@@ -222,6 +222,8 @@ struct EditorConfig {
     // platform can (macOS, Windows). How a window looks on this desktop is a
     // property of the machine, so it lives here; read at startup only.
     bool nativeTitleBar = false;
+    // Ambience Editor > Sky & time: the Detailed view instead of Simple.
+    bool ambienceDetailed = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -335,6 +337,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("consoleLogFiles", v))
             cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
         else if (match("nativeTitleBar", v)) cfg.nativeTitleBar = toI(v, 0) != 0;
+        else if (match("ambienceDetailed", v)) cfg.ambienceDetailed = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -416,7 +419,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "consoleLogLines=" << cfg.consoleLogLines << "\n"
       << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
       << "updateSkipVersion=" << cfg.updateSkipVersion << "\n"
-      << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n";
+      << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n"
+      << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -688,6 +692,7 @@ int App::run(const std::string& initialProjectDir) {
         // session: un-merging a live NSWindow / HWND is not worth the edge
         // cases, so the preference says "takes effect at the next start".
         nativeTitleBar_ = cfg.nativeTitleBar;
+        ambienceDetailed_ = cfg.ambienceDetailed;
         titleBarMerged_ = !nativeTitleBar_ && platform::mergeTitleBar(window_);
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -1245,7 +1250,7 @@ void App::saveGlobalConfig() {
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
-                      nativeTitleBar_, std::move(recent)});
+                      nativeTitleBar_, ambienceDetailed_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -12862,6 +12867,7 @@ void App::drawAmbienceWindow() {
     // which a new control can forget. The section comparison cannot be.
     const std::string beforeSection = project::sectionJson(project_, project::Section::Ambience);
     const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
     // --- window tabs, and which preset the current scene uses ---------------
     refreshGiStates(false);
@@ -12885,27 +12891,44 @@ void App::drawAmbienceWindow() {
             ui::EndQuietTabBar();
         }
         const ImVec2 after = ImGui::GetCursorPos();
-        // Right end of the tab row: "Scene dusk uses noon (project default)".
-        const SceneData& scn = project_.active();
-        const int idx = project::ambienceIndexFor(project_, scn);
-        std::string uses = "Scene " + scn.name + " uses " +
-                           (idx >= 0 && idx < (int)project_.ambiencePresets.size()
-                                ? project_.ambiencePresets[idx].name
-                                : std::string("no preset")) +
-                           (scn.ambiencePreset.empty() ? " (project default)" : "");
-        const float tw = ImGui::CalcTextSize(uses.c_str()).x;
-        const float right = ImGui::GetWindowContentRegionMax().x;
-        if (right - tw > rowStart.x + ImGui::GetFontSize() * 30.0f) {
-            ImGui::SetCursorPos(ImVec2(right - tw, rowStart.y + ImGui::GetStyle().FramePadding.y));
-            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-            ImGui::TextUnformatted(uses.c_str());
-            ImGui::PopStyleColor();
+        float right = ImGui::GetWindowContentRegionMax().x;
+        // Simple | Detailed for Sky & time, at the row's right end.
+        if (ambienceTab_ == 0) {
+            static const char* kViews[] = {"Simple", "Detailed"};
+            const float segW = ImGui::CalcTextSize("SimpleDetailed").x + fs * 3.2f;
+            ImGui::SetCursorPos(ImVec2(right - segW, rowStart.y + 2.0f));
+            int view = ambienceDetailed_ ? 1 : 0;
+            if (ui::Segmented("##amb_view", kViews, 2, &view, segW)) {
+                ambienceDetailed_ = view == 1;
+                ambiencePlayHour_ = -1.0f;
+                saveGlobalConfig();
+            }
+            right -= segW + fs;
+        }
+        // Then "Scene dusk uses noon (project default)" - the Simple view says
+        // it in its own preset bar.
+        if (ambienceTab_ != 0 || ambienceDetailed_) {
+            const SceneData& scn = project_.active();
+            const int idx = project::ambienceIndexFor(project_, scn);
+            std::string uses = "Scene " + scn.name + " uses " +
+                               (idx >= 0 && idx < (int)project_.ambiencePresets.size()
+                                    ? project_.ambiencePresets[idx].name
+                                    : std::string("no preset")) +
+                               (scn.ambiencePreset.empty() ? " (project default)" : "");
+            const float tw = ImGui::CalcTextSize(uses.c_str()).x;
+            if (right - tw > rowStart.x + ImGui::GetFontSize() * 30.0f) {
+                ImGui::SetCursorPos(ImVec2(right - tw, rowStart.y + ImGui::GetStyle().FramePadding.y));
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                ImGui::TextUnformatted(uses.c_str());
+                ImGui::PopStyleColor();
+            }
         }
         ImGui::SetCursorPos(after);
     }
 
     if (ambienceTab_ == 0) {
-        drawAmbienceSkyTime(changed);
+        if (ambienceDetailed_) drawAmbienceSkyTime(changed);
+        else drawAmbienceSimple(changed);
     } else if (ambienceTab_ == 1) {
         ImGui::BeginChild("##gi_tab", ImVec2(0, 0));
         drawGiBakeSection();
@@ -12920,6 +12943,68 @@ void App::drawAmbienceWindow() {
     ImGui::End();
     if (changed || project::sectionJson(project_, project::Section::Ambience) != beforeSection)
         commitChange();
+}
+
+// The "..." menu of a preset: rename (scene references and Set Ambience nodes
+// follow), project default, duplicate, delete. Shared by Simple and Detailed.
+void App::drawAmbiencePresetMenu(AmbiencePreset& a, int& deleteIdx, bool& changed) {
+    char nameBuf[64];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
+    ImGui::SetNextItemWidth(scaled(180));
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        // keep scene references and Set Ambience flow nodes pointing here
+        for (SceneData& sc : project_.scenes) {
+            if (sc.ambiencePreset == a.name) sc.ambiencePreset = nameBuf;
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == a.name)
+                        fn.str = nameBuf;
+                }
+        }
+        a.name = nameBuf;
+    }
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    bool isDefault = project_.defaultAmbience == selectedAmbience_;
+    if (ImGui::Checkbox("Default at game start", &isDefault)) {
+        project_.defaultAmbience = isDefault ? selectedAmbience_ : -1;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
+    ImGui::Separator();
+    if (ImGui::MenuItem("Duplicate")) {
+        AmbiencePreset copy = a;
+        const std::string base = copy.name;
+        for (int n = 2;; ++n) {
+            copy.name = base + "-" + std::to_string(n);
+            bool taken = false;
+            for (const auto& other : project_.ambiencePresets) taken |= (other.name == copy.name);
+            if (!taken) break;
+        }
+        project_.ambiencePresets.push_back(std::move(copy));
+        selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
+        changed = true;
+    }
+    if (ImGui::MenuItem("Delete")) deleteIdx = selectedAmbience_;
+}
+
+// Remove a preset; scenes and Set Ambience nodes that named it fall back to the
+// default, and the default index follows the shift.
+void App::deleteAmbiencePreset(int idx) {
+    if (idx < 0 || idx >= (int)project_.ambiencePresets.size()) return;
+    const std::string gone = project_.ambiencePresets[idx].name;
+    for (SceneData& sc : project_.scenes) {
+        if (sc.ambiencePreset == gone) sc.ambiencePreset.clear();
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == gone) fn.str.clear();
+            }
+    }
+    if (project_.defaultAmbience == idx) project_.defaultAmbience = -1;
+    else if (project_.defaultAmbience > idx) --project_.defaultAmbience;
+    project_.ambiencePresets.erase(project_.ambiencePresets.begin() + idx);
+    selectedAmbience_ = -1;
 }
 
 // Sky & time: presets | sky preview + 24 h track | inspector. One split, so
@@ -13120,44 +13205,7 @@ void App::drawAmbienceSkyTime(bool& changed) {
         ImGui::SameLine(0.0f, gap);
         if (ui::MoreButton("Preset actions", moreS)) ImGui::OpenPopup("##amb_more");
         if (ImGui::BeginPopup("##amb_more")) {
-            char nameBuf[64];
-            std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
-            ImGui::SetNextItemWidth(scaled(180));
-            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-                // keep scene references and Set Ambience flow nodes pointing here
-                for (SceneData& sc : project_.scenes) {
-                    if (sc.ambiencePreset == a.name) sc.ambiencePreset = nameBuf;
-                    for (SceneObject& o : sc.objects)
-                        for (FlowNode& fn : o.flowGraph.nodes) {
-                            const FlowNodeType* ft = flowNodeType(fn.type);
-                            if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == a.name)
-                                fn.str = nameBuf;
-                        }
-                }
-                a.name = nameBuf;
-            }
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            bool isDefault = project_.defaultAmbience == selectedAmbience_;
-            if (ImGui::Checkbox("Default at game start", &isDefault)) {
-                project_.defaultAmbience = isDefault ? selectedAmbience_ : -1;
-                changed = true;
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Duplicate")) {
-                AmbiencePreset copy = a;
-                const std::string base = copy.name;
-                for (int n = 2;; ++n) {
-                    copy.name = base + "-" + std::to_string(n);
-                    bool taken = false;
-                    for (const auto& other : project_.ambiencePresets) taken |= (other.name == copy.name);
-                    if (!taken) break;
-                }
-                project_.ambiencePresets.push_back(std::move(copy));
-                selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
-                changed = true;
-            }
-            if (ImGui::MenuItem("Delete")) deleteIdx = selectedAmbience_;
+            drawAmbiencePresetMenu(a, deleteIdx, changed);
             ImGui::EndPopup();
         }
         ImGui::Spacing();
@@ -13178,19 +13226,7 @@ void App::drawAmbienceSkyTime(bool& changed) {
     if (stacked) ImGui::EndChild();
 
     if (deleteIdx >= 0 && deleteIdx < (int)project_.ambiencePresets.size()) {
-        const std::string gone = project_.ambiencePresets[deleteIdx].name;
-        for (SceneData& sc : project_.scenes) {
-            if (sc.ambiencePreset == gone) sc.ambiencePreset.clear();
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
-                    const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == gone) fn.str.clear();
-                }
-        }
-        if (project_.defaultAmbience == deleteIdx) project_.defaultAmbience = -1;
-        else if (project_.defaultAmbience > deleteIdx) --project_.defaultAmbience;
-        project_.ambiencePresets.erase(project_.ambiencePresets.begin() + deleteIdx);
-        selectedAmbience_ = -1;
+        deleteAmbiencePreset(deleteIdx);
         changed = true;
     }
     if (wantNewPreset) newPreset();

@@ -1485,6 +1485,11 @@ private:
     void drawAmbienceWindow();
     void drawAmbienceSkyTime(bool& changed);  // Sky & time: presets | sky | inspector
     void drawAmbienceSkyHero(AmbiencePreset& a, bool& changed);
+    void drawAmbienceSimple(bool& changed);  // ambience_simple_ui.cpp
+    // The "..." menu of a preset (rename, default, duplicate, delete); a delete
+    // is only requested through deleteIdx and applied after the panes.
+    void drawAmbiencePresetMenu(AmbiencePreset& a, int& deleteIdx, bool& changed);
+    void deleteAmbiencePreset(int idx);
     void drawAmbienceInspector(AmbiencePreset& a, bool& changed);
     // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
     // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
@@ -3072,6 +3077,10 @@ private:
     // illumination, 2 Baked lighting), the inspector tab, and the hero's
     // Play-the-day hour (-1 = not playing; it never edits the preset).
     int ambienceTab_ = 0;
+    // Sky & time shows the Simple view unless this is on (editor.ini
+    // ambienceDetailed - how much of the machinery a person wants to see is
+    // theirs, not the project's).
+    bool ambienceDetailed_ = false;
     int ambienceInspTab_ = 0;
     float ambiencePlayHour_ = -1.0f;
     // Per-scene GI cache state (refreshGiStates, hud_ui.cpp): the GI tab's

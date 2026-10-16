@@ -248,6 +248,7 @@ add_executable(tyrax-editor
     src/aigen.cpp
     src/aisupport.cpp
     src/ambience.cpp
+    src/ambience_simple_ui.cpp
     src/animedit.cpp
     src/animmerge.cpp
     src/aobake.cpp
