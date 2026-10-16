@@ -135,7 +135,7 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
     // Popups sit ON a window, so they are a step LIGHTER than the page - a
     // menu the same colour as what it covers reads as a hole.
-    c[ImGuiCol_PopupBg] = fade(mix(p.raised, p.surface, 0.45f), 0.98f);
+    c[ImGuiCol_PopupBg] = mix(p.raised, p.surface, 0.45f);  // opaque: menus over the viewport must not show it through
     c[ImGuiCol_Border] = p.border;
     c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
 
