@@ -1873,6 +1873,9 @@ private:
     bool updateManual_ = false;      // asked for from the menu: say so either way
     bool updateChecking_ = false;    // a check is in flight (menu item greys out)
     bool updateDownloading_ = false;
+    bool updateDownloadCancelled_ = false;  // Cancel download pressed (not a failure)
+    double updateRateAt_ = 0.0, updateRate_ = 0.0;  // the download's MB/s readout
+    long long updateRateBytes_ = 0;
     bool openUpdatePopup_ = false;   // request to open the modal next frame
     std::string updateStatus_;       // one line under the menu item / in the modal
     // Started at startup (when the preference is on) and from Help > Check for
