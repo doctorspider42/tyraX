@@ -68,7 +68,12 @@ bool Section(const char* label, ImGuiTreeNodeFlags flags = 0);
 // the scene. Each button is an InvisibleButton named by `label` - the label
 // is the ID and the --ui-script name, exactly as the SmallButton it replaces.
 
-enum class Glyph { Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear, Box };
+enum class Glyph {
+    Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear, Box,
+    // object types (the outliner) and the left rail's pages
+    Person, Bulb, Camera, Speaker, Area, Comment, Sparkle, Flag,
+    List, Layers, Music, Code, Sliders
+};
 
 /** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */
 void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col);

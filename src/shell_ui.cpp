@@ -692,3 +692,80 @@ void App::drawStatusBar() {
     }
     ImGui::End();
 }
+
+// The icon rail along the left edge: one button per Project panel page, then
+// (at the bottom) the AI Assistant and Project Preferences. A viewport side bar
+// like the status bar, so the dockspace shrinks around it. Each button's label
+// is its page name ("Outliner", "Assets"...) - the --ui-script target.
+void App::drawRail() {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = IM_TRUNC(ImGui::GetFrameHeight() * 1.9f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, sem.ground);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, scaled(4.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar |
+                                   ImGuiWindowFlags_NoScrollWithMouse |
+                                   ImGuiWindowFlags_NoSavedSettings;
+    const bool open =
+        ImGui::BeginViewportSideBar("##Rail", ImGui::GetMainViewport(), ImGuiDir_Left, w, flags);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+    if (!open || !hasProject_) {
+        ImGui::End();
+        return;
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float btn = IM_TRUNC(w * 0.8f);
+    const float x = ImGui::GetWindowPos().x + (w - btn) * 0.5f;
+    const float round = ImGui::GetStyle().FrameRounding + scaled(2.0f);
+    auto railButton = [&](const char* label, ui::Glyph g, bool active, float y) {
+        const ImVec2 p(x, y);
+        ImGui::SetCursorScreenPos(p);
+        const bool clicked = ImGui::InvisibleButton(label, ImVec2(btn, btn));
+        const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        if (active) {
+            dl->AddRectFilled(p, ImVec2(p.x + btn, p.y + btn), ImGui::GetColorU32(sem.surface), round);
+            // A short accent bar on the window edge marks the open page.
+            const float bx = ImGui::GetWindowPos().x;
+            dl->AddRectFilled(ImVec2(bx, p.y + btn * 0.28f), ImVec2(bx + scaled(3.0f), p.y + btn * 0.72f),
+                              ImGui::GetColorU32(sem.accent), scaled(2.0f));
+        } else if (t > 0.0f) {
+            ImVec4 hc = sem.surface;
+            hc.w *= 0.7f * t;
+            dl->AddRectFilled(p, ImVec2(p.x + btn, p.y + btn), ImGui::GetColorU32(hc), round);
+        }
+        ImVec4 ink = active ? sem.accent : sem.textDim;
+        if (!active && t > 0.0f) ink = ImVec4(ink.x + (sem.text.x - ink.x) * t, ink.y + (sem.text.y - ink.y) * t,
+                                               ink.z + (sem.text.z - ink.z) * t, 1.0f);
+        ui::DrawGlyph(dl, g, ImVec2(p.x + btn * 0.5f, p.y + btn * 0.5f), btn * 0.44f,
+                      ImGui::GetColorU32(ink));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label);
+        return clicked;
+    };
+
+    struct Page {
+        const char* label;
+        ui::Glyph glyph;
+    };
+    static const Page kPages[] = {{"Outliner", ui::Glyph::List},
+                                  {"Layers", ui::Glyph::Layers},
+                                  {"Assets", ui::Glyph::Box},
+                                  {"Audio", ui::Glyph::Music},
+                                  {"Scripts", ui::Glyph::Code}};
+    float y = ImGui::GetWindowPos().y + scaled(6.0f);
+    for (int i = 0; i < (int)IM_ARRAYSIZE(kPages); ++i) {
+        if (railButton(kPages[i].label, kPages[i].glyph, leftPage_ == i, y)) {
+            leftPage_ = i;
+            pendingFocusWindow_ = "Project";  // a docked-behind panel comes forward
+        }
+        y += btn + scaled(4.0f);
+    }
+
+    float yb = ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - btn - scaled(8.0f);
+    if (railButton("Project Preferences##rail", ui::Glyph::Sliders, false, yb))
+        openProjectPreferences();
+    yb -= btn + scaled(4.0f);
+    if (railButton("AI Assistant##rail", ui::Glyph::Sparkle, showAiChat_, yb)) showAiChat_ = !showAiChat_;
+    ImGui::End();
+}

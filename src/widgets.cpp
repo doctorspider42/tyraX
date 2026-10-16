@@ -260,6 +260,100 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             dl->AddLine(P(0, 0), P(0, 0.9f), col, th);
             break;
         }
+        case Glyph::Person:
+            dl->AddCircle(P(0, -0.45f), s * 0.36f, col, 16, th);
+            dl->PathArcTo(P(0, 0.95f), s * 0.8f, 3.14159f * 1.08f, 3.14159f * 1.92f, 16);
+            dl->PathStroke(col, 0, th);
+            break;
+        case Glyph::Bulb:
+            dl->AddCircle(P(0, -0.25f), s * 0.55f, col, 18, th);
+            dl->AddLine(P(-0.28f, 0.55f), P(0.28f, 0.55f), col, th);
+            dl->AddLine(P(-0.2f, 0.85f), P(0.2f, 0.85f), col, th);
+            break;
+        case Glyph::Camera:
+            dl->AddRect(P(-0.9f, -0.45f), P(0.35f, 0.55f), col, s * 0.1f, 0, th);
+            {
+                const ImVec2 t[3] = {P(0.35f, 0.05f), P(0.9f, -0.35f), P(0.9f, 0.45f)};
+                dl->AddPolyline(t, 3, col, ImDrawFlags_Closed, th);
+            }
+            break;
+        case Glyph::Speaker: {
+            const ImVec2 b[6] = {P(-0.85f, -0.3f), P(-0.4f, -0.3f), P(0.1f, -0.75f),
+                                 P(0.1f, 0.75f),   P(-0.4f, 0.3f),  P(-0.85f, 0.3f)};
+            dl->AddPolyline(b, 6, col, ImDrawFlags_Closed, th);
+            dl->PathArcTo(P(0.1f, 0), s * 0.6f, -0.8f, 0.8f, 10);
+            dl->PathStroke(col, 0, th);
+            break;
+        }
+        case Glyph::Area: {  // a dashed square: a volume, not a solid
+            const float e = 0.85f, g0 = 0.22f;
+            const float sides[4][4] = {{-e, -e, e, -e}, {e, -e, e, e}, {e, e, -e, e}, {-e, e, -e, -e}};
+            for (const auto& sd : sides) {
+                const float mx = (sd[0] + sd[2]) * 0.5f, my = (sd[1] + sd[3]) * 0.5f;
+                const float dx = (sd[2] - sd[0]) * 0.5f, dy = (sd[3] - sd[1]) * 0.5f;
+                const float k = g0 / e;
+                dl->AddLine(P(sd[0], sd[1]), P(mx - dx * k, my - dy * k), col, th);
+                dl->AddLine(P(mx + dx * k, my + dy * k), P(sd[2], sd[3]), col, th);
+            }
+            break;
+        }
+        case Glyph::Comment: {
+            const ImVec2 b[7] = {P(-0.85f, -0.7f), P(0.85f, -0.7f), P(0.85f, 0.35f), P(-0.1f, 0.35f),
+                                 P(-0.5f, 0.8f),   P(-0.5f, 0.35f), P(-0.85f, 0.35f)};
+            dl->AddPolyline(b, 7, col, ImDrawFlags_Closed, th);
+            break;
+        }
+        case Glyph::Sparkle: {
+            const ImVec2 b[8] = {P(0, -0.95f), P(0.22f, -0.22f), P(0.95f, 0), P(0.22f, 0.22f),
+                                 P(0, 0.95f),  P(-0.22f, 0.22f), P(-0.95f, 0), P(-0.22f, -0.22f)};
+            dl->AddPolyline(b, 8, col, ImDrawFlags_Closed, th);
+            break;
+        }
+        case Glyph::Flag:
+            dl->AddLine(P(-0.6f, -0.9f), P(-0.6f, 0.9f), col, th);
+            {
+                const ImVec2 f[3] = {P(-0.6f, -0.85f), P(0.8f, -0.45f), P(-0.6f, -0.05f)};
+                dl->AddPolyline(f, 3, col, 0, th);
+            }
+            break;
+        case Glyph::List:
+            for (int i = 0; i < 3; ++i) {
+                const float y = -0.6f + 0.6f * i;
+                dl->AddCircleFilled(P(-0.75f, y), s * 0.09f, col);
+                dl->AddLine(P(-0.4f, y), P(0.9f, y), col, th);
+            }
+            break;
+        case Glyph::Layers:
+            for (int i = 0; i < 3; ++i) {
+                const float y = -0.45f + 0.45f * i;
+                const ImVec2 d[4] = {P(0, y - 0.45f), P(0.9f, y), P(0, y + 0.45f), P(-0.9f, y)};
+                if (i == 0) dl->AddPolyline(d, 4, col, ImDrawFlags_Closed, th);
+                else {
+                    dl->AddLine(d[1], d[2], col, th);
+                    dl->AddLine(d[2], d[3], col, th);
+                }
+            }
+            break;
+        case Glyph::Music:
+            dl->AddLine(P(-0.3f, 0.55f), P(-0.3f, -0.8f), col, th);
+            dl->AddLine(P(0.7f, 0.35f), P(0.7f, -0.95f), col, th);
+            dl->AddLine(P(-0.3f, -0.8f), P(0.7f, -0.95f), col, th);
+            dl->AddCircleFilled(P(-0.55f, 0.6f), s * 0.25f, col);
+            dl->AddCircleFilled(P(0.45f, 0.4f), s * 0.25f, col);
+            break;
+        case Glyph::Code:
+            dl->AddLine(P(-0.35f, -0.6f), P(-0.9f, 0), col, th);
+            dl->AddLine(P(-0.9f, 0), P(-0.35f, 0.6f), col, th);
+            dl->AddLine(P(0.35f, -0.6f), P(0.9f, 0), col, th);
+            dl->AddLine(P(0.9f, 0), P(0.35f, 0.6f), col, th);
+            dl->AddLine(P(0.15f, -0.85f), P(-0.15f, 0.85f), col, th);
+            break;
+        case Glyph::Sliders:
+            dl->AddLine(P(-0.9f, -0.45f), P(0.9f, -0.45f), col, th);
+            dl->AddLine(P(-0.9f, 0.45f), P(0.9f, 0.45f), col, th);
+            dl->AddCircleFilled(P(0.35f, -0.45f), s * 0.22f, col);
+            dl->AddCircleFilled(P(-0.35f, 0.45f), s * 0.22f, col);
+            break;
         case Glyph::Gear: {
             const float r = s * 0.5f;
             dl->AddCircle(c, r, col, 16, th);

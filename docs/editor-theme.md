@@ -122,6 +122,14 @@ A few things worth knowing because they are decisions rather than defaults:
   build state and the LIVE / DBG / LOGIC / SESSION chips on the left, the last
   status message after them, and the scene's object and selection counts and
   the interface scale on the right. Both are drawn in `src/shell_ui.cpp`.
+- **The left rail picks the Project panel's page.** Outliner, Layers, Assets,
+  Audio (music and sounds) and Scripts each get the whole panel instead of
+  sharing it as a stack of collapsing headers; the Outliner's list takes the
+  full height. At the bottom of the rail: the AI Assistant and Project
+  Preferences. Clicking a page also brings the Project panel forward if it is
+  docked behind another tab. The Outliner rows draw a type icon, the name and
+  the type (dim, right-aligned) themselves; the row's label is still
+  `name  (type)` - the ID and what scripts name it by.
 - **The viewport's controls float on cards.** Top left, one vertical tool
   palette: Move, Rotate, Scale | Sculpt, Paint | Measure, Surface snap - icons
   with their shortcut in the corner, the active tool filled with the accent.

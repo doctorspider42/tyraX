@@ -981,6 +981,7 @@ void App::drawUI() {
 
     drawMenuBar();
     drawStatusBar();
+    drawRail();
     drawViewportWindow();
     drawProjectWindow();
     drawPropertiesWindow();
@@ -4922,12 +4923,33 @@ void App::drawProjectWindow() {
     // The project's name, location, terrain and target, and the scene list,
     // live in the top bar's breadcrumb (shell_ui.cpp: the project name's
     // tooltip and the scene picker) - on screen whatever this panel is doing.
-    drawSceneSection();
-    drawLayersSection();
-    drawAssetsSection();
-    drawMusicSection();
-    drawSoundsSection();
-    drawScriptsSection();
+    //
+    // One page at a time, picked on the left rail (drawRail): a stack of
+    // collapsing headers made every section share 600 px, and the object list
+    // - the one that wants the height - got 130 of them.
+    {
+        static const char* const kTitles[] = {"Outliner", "Layers", "Assets", "Audio", "Scripts"};
+        const int page = leftPage_ >= 0 && leftPage_ < 5 ? leftPage_ : 0;
+        ui::FontScope bold(ui::boldFont());
+        ImGui::TextUnformatted(kTitles[page]);
+        if (page == 0) {
+            ImGui::SameLine();
+            ui::FontScope plain(nullptr);
+            ImGui::TextDisabled("%d", (int)project_.objects().size());
+        }
+        ImGui::Spacing();
+        switch (page) {
+            default:
+            case 0: drawSceneSection(); break;
+            case 1: drawLayersSection(); break;
+            case 2: drawAssetsSection(); break;
+            case 3:
+                drawMusicSection();
+                drawSoundsSection();
+                break;
+            case 4: drawScriptsSection(); break;
+        }
+    }
 
     // Build state is NOT mirrored here any more - it is the toolbar's BUILDING /
     // BUILD FAILED chip (drawToolbar), which is on screen whether or not this
@@ -8172,7 +8194,7 @@ void App::drawAssetSizeButton(const std::string& assetRel) {
 // filters, reference-safe moves. What stays here is the summary an artist wants
 // while working in the Project panel, plus the import entry points.
 void App::drawAssetsSection() {
-    if (!ImGui::CollapsingHeader("Assets", ImGuiTreeNodeFlags_DefaultOpen)) return;
+    // A page of its own on the left rail (drawProjectWindow) - no header.
 
     if (ImGui::Button("Browse assets...")) {
         showAssetBrowser_ = true;
@@ -8386,7 +8408,6 @@ void App::drawAddObjectMenu() {
 }
 
 void App::drawSceneSection() {
-    if (!ImGui::CollapsingHeader("Scene objects", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
     if (ImGui::Button("+ Add object"))
         ImGui::OpenPopup("##add_object");
@@ -8481,10 +8502,57 @@ void App::drawSceneSection() {
                                 (tag ? "  [" + o.prefabSource + "]" : "") +
                                 (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
-            if (hidden)
-                ImGui::PushStyleColor(ImGuiCol_Text,
-                                      ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-            if (ImGui::Selectable(label.c_str(), isSelected(i))) {
+            // The row's text is drawn by hand - a type icon, the name, the type
+            // dim on the right - but the Selectable keeps the full
+            // "name  (type)" label: it is the ID and what scripts name a row
+            // by. Its own text is pushed transparent instead.
+            const float rowH = ImGui::GetFrameHeight() * 0.92f;
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
+            const bool rowClicked =
+                ImGui::Selectable(label.c_str(), isSelected(i), 0, ImVec2(0.0f, rowH));
+            ImGui::PopStyleColor();
+            {
+                const theme::Semantics& sem = theme::semantics();
+                ImDrawList* rdl = ImGui::GetWindowDrawList();
+                const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
+                const float cy = (r0.y + r1.y) * 0.5f;
+                const float ic = ImGui::GetFontSize();
+                ui::Glyph g = ui::Glyph::Box;
+                ImVec4 gc = sem.textDim;
+                switch (o.type) {
+                    case PrimitiveType::Player: g = ui::Glyph::Person; gc = sem.accent; break;
+                    case PrimitiveType::SpawnPoint: g = ui::Glyph::Flag; gc = sem.accent; break;
+                    case PrimitiveType::PointLight: g = ui::Glyph::Bulb; gc = sem.warn; break;
+                    case PrimitiveType::Camera: g = ui::Glyph::Camera; gc = sem.text; break;
+                    case PrimitiveType::SoundEmitter: g = ui::Glyph::Speaker; gc = sem.ok; break;
+                    case PrimitiveType::Emitter: g = ui::Glyph::Sparkle; gc = sem.warn; break;
+                    case PrimitiveType::Area: g = ui::Glyph::Area; gc = sem.special; break;
+                    case PrimitiveType::Comment: g = ui::Glyph::Comment; gc = sem.textDim; break;
+                    case PrimitiveType::Model: g = ui::Glyph::Box; gc = sem.textDim; break;
+                    default:
+                        g = ui::Glyph::Box;
+                        gc = ImVec4(o.color[0], o.color[1], o.color[2], 1.0f);
+                        break;
+                }
+                if (hidden) gc.w *= 0.45f;
+                const float x0 = r0.x + scaled(2.0f);
+                ui::DrawGlyph(rdl, g, ImVec2(x0 + ic * 0.5f, cy), ic * 0.86f, ImGui::GetColorU32(gc));
+                const ImU32 nameCol = ImGui::GetColorU32(hidden ? sem.textDim : sem.text);
+                const float ty = cy - ImGui::GetTextLineHeight() * 0.5f;
+                std::string shown = o.name;
+                if (tag) shown += "  [" + o.prefabSource + "]";
+                if (hidden) shown += "  [hidden]";
+                const char* typeTxt = primitiveTypeName(o.type);
+                const float typeW = ImGui::CalcTextSize(typeTxt).x;
+                const float typeX = r1.x - typeW - scaled(6.0f);
+                rdl->PushClipRect(r0, ImVec2(typeX - scaled(6.0f), r1.y), true);
+                rdl->AddText(ImVec2(x0 + ic + scaled(8.0f), ty), nameCol, shown.c_str());
+                rdl->PopClipRect();
+                ImVec4 tc = sem.textDim;
+                tc.w *= 0.75f;
+                rdl->AddText(ImVec2(typeX, ty), ImGui::GetColorU32(tc), typeTxt);
+            }
+            if (rowClicked) {
                 if (inPrefabGroup && !o.editorGroup.empty()) selectOnly(i, false);
                 else if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
                 else selectOnly(i);
@@ -8493,7 +8561,6 @@ void App::drawSceneSection() {
             // by (`expect-checked "Project/<name>  (<type>)"`); a Selectable
             // reports none of it on its own.
             uiscript::markLastItemChecked(isSelected(i));
-            if (hidden) ImGui::PopStyleColor();
             // Session presence: a colored dot per participant who has this
             // object selected (their peer color), right-aligned on the row.
             if (!peerPresence_.empty()) {
@@ -8618,8 +8685,12 @@ void App::drawSceneSection() {
             return out;
         };
 
-        ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
-                          ImGuiChildFlags_Borders);
+        // The list takes the page's height, less the hint lines under it.
+        const int footLines = (filtering ? 1 : 0) + (grouped ? 1 : 0) + 1;
+        const float listH = ImMax(scaled(grouped ? 220.0f : 130.0f),
+                                  ImGui::GetContentRegionAvail().y -
+                                      footLines * ImGui::GetFrameHeightWithSpacing());
+        ImGui::BeginChild("##objects", ImVec2(0, listH), ImGuiChildFlags_None);
         if (!grouped) {
             const std::vector<int> rows =
                 indicesWhere([](const SceneObject&) { return true; });
@@ -8793,10 +8864,7 @@ double App::layerAssetMB(const std::string& layerName) {
 // The eye checkbox hides a layer in the editor only; "start" marks it
 // resident when the scene starts.
 void App::drawLayersSection() {
-    // starts open once the scene actually uses layers
-    const ImGuiTreeNodeFlags flags =
-        project_.active().layers.empty() ? 0 : ImGuiTreeNodeFlags_DefaultOpen;
-    if (!ImGui::CollapsingHeader("Layers", flags)) return;
+    // A page of its own on the left rail (drawProjectWindow) - no header.
 
     SceneData& sc = project_.active();
     if (ImGui::SmallButton("+ Layer")) {
@@ -9242,7 +9310,7 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
 }
 
 void App::drawMusicSection() {
-    if (!ImGui::CollapsingHeader("Music")) return;
+    if (!ui::Section("Music", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
     if (ImGui::SmallButton("Import WAV...##music")) importMusicTrack();
     ImGui::SameLine();
@@ -9421,7 +9489,7 @@ void App::importSoundEffect() {
 }
 
 void App::drawSoundsSection() {
-    if (!ImGui::CollapsingHeader("Sounds")) return;
+    if (!ui::Section("Sounds", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
     if (ImGui::SmallButton("Import WAV...##sfx")) importSoundEffect();
     ImGui::SameLine();
@@ -12517,7 +12585,7 @@ void App::drawMenusWindow() {
 }
 
 void App::drawScriptsSection() {
-    if (!ImGui::CollapsingHeader("Scripts")) return;
+    // A page of its own on the left rail (drawProjectWindow) - no header.
 
     if (ImGui::SmallButton("New script...")) {
         openNewScriptPopup_ = true;

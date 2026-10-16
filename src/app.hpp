@@ -154,6 +154,12 @@ private:
     // Make scene i the active one (clears the selection, reapplies terrain and
     // lighting). No-op for the active scene or an out-of-range index.
     void selectScene(int i);
+    // The icon rail along the window's left edge: picks which page the
+    // Project panel shows (leftPage_), plus AI Assistant / Project Preferences.
+    void drawRail();
+    // The Project panel's page: 0 Outliner, 1 Layers, 2 Assets, 3 Audio,
+    // 4 Scripts (kLeftPageCount). View state, not saved.
+    int leftPage_ = 0;
     // Which machine the toolbar's Run/Stop pair drives: false = the emulator
     // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
     // `runOnPs2`) - which console is on this desk is not project data. The Play

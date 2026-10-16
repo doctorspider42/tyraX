@@ -20,8 +20,8 @@ you walk through.
 
 ## Creating layers
 
-Open the **Layers** section in the Project panel (collapsed until the scene
-has layers):
+Open the **Layers** page of the Project panel (the stacked-diamonds icon on the
+left rail):
 
 - **+ Layer** adds a layer. Names are per scene and must be unique.
 - The **eye checkbox** (leftmost) shows/hides the layer's objects in the

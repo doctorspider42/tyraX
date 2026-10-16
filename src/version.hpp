@@ -5533,6 +5533,9 @@
 // OverlayTextButton replace the SmallButton rows, same labels as IDs.
 // Properties: object header (colour tile, borderless "Name", type subtitle),
 // ui::Section for its sections, ui::Switch for all 53 of its checkboxes.
+// Left rail (App::drawRail, ##Rail side bar) picks leftPage_; the Project
+// panel draws one page; Outliner rows hand-draw icon/name/type over a
+// transparent-text Selectable that keeps the "name  (type)" label.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto
