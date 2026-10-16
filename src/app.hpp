@@ -2337,6 +2337,16 @@ private:
     // over a node, and an open popup is exactly such a frame - sharing them made
     // the menu close on the frame after it opened, i.e. right-click did nothing.
     int procCtxNode_ = -1;
+    int procInspectNode_ = 0;     // the node the inspector edits (selected on the canvas)
+    int procFramePending_ = 0;    // >0: frame all nodes (fit zoom, then centre)
+    std::string procFrameVolume_; // the volume last framed (a switch frames again)
+    ImVec2 procAddAt_ = ImVec2(0, 0);  // where the Add node menu puts its node
+    std::map<std::string, int> procVolState_;      // per volume: 0 baked 1 stale 2 frozen 3 runtime
+    std::map<std::string, double> procStaleSince_; // ImGui time a volume went stale (session)
+    bool drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vector<std::string>& models);
+    int drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& changed,
+                          const std::vector<std::string>& models);
+    void procAutoArrange(ProcGraph& g, float canvasW);
     ProcGraph procClipboard_;
     void* procEditorCtx_ = nullptr;  // ImNodesEditorContext (own canvas state)
     // Evaluation. One cache per volume id (keyed so switching volumes keeps
