@@ -15,6 +15,87 @@ bed and I am not going to compose one in a DAW". You will not write Bach with
 it. You can absolutely craft a piece you are happy to loop for twenty minutes
 under a level.
 
+## Simple and Detailed
+
+![The Simple view on the showcase example: the hero with the rendered waveform, the playhead and the dashed arc, Play/Stop and the meters; Over the track and the mood tiles on the left; the six Sound sliders, Feeling, Track and In the game on the right; Save to project in the footer.](img/drone-simple.png)
+
+The window opens on the **Simple** view; **Detailed** is everything below this
+section (the project rail and presets, the transport with Record, the seven
+tabs). The `Simple | Detailed` switch sits at the right of the title row in
+Simple and of the tab row in Detailed, and is remembered per machine
+(`droneDetailed` in `editor.ini`), not per project. Both views edit the SAME
+patch, transport and file: switching never stops playback, and Simple adds no
+saved field - every control reads its value back from the patch and writes by
+rescaling the fields the Detailed knobs edit, so a `.drone` file is the same
+whichever view made it.
+
+- **Track bar**: the track picker (the project's `.drone` files, *New track*,
+  *Open file...*; the same unsaved-changes question as the rail), "Plays in
+  scene X" when a scene plays it (click = jump to *In the game*), the state
+  (*Not saved* / *Changed since last save* / *Saved*) and `...` (new, open,
+  the file name, *Duplicate*).
+- **The hero** is what you hear: the title (click to rename), one sentence
+  (the mood and the arc in words), the rendered WAV's waveform - or, after an
+  edit, the live output as it plays - with the playhead (click or drag to
+  seek), the arc as a dashed amber line when an Arc row drives something,
+  **Play / Stop** (**Space** while the window has focus; always the looping
+  Sound design mode), the time, "Loops forever in the game, no gap" and the
+  output meters.
+- **Start from a mood**: eight recipes named after uses - *Dark cave*, *Calm
+  wind*, *Tense*, *Deep space*, *Underwater*, *Temple*, *Frozen*,
+  *Machinery*. A mood replaces the whole sound (automation lanes included);
+  the length, format, file name and mastering stay, and the chords are
+  stretched to whole passes of the length. Picking one starts playback, and
+  **Undo** appears under the tiles until the next edit (10 s at most). A
+  title you typed is kept; an empty one or another mood's name follows the
+  mood. **Another take** keeps the mood and the sliders and re-rolls the
+  details: a new seed, and the free LFO rates, bell density and air motion
+  nudged from a stream seeded by it (so a take is reproducible from the file).
+  Every recipe's chord pass is exactly 60 s.
+- **Sound**, six sliders, each moving several fields at once:
+
+  | Slider | Reads | Also moves |
+  |---|---|---|
+  | Brightness | filter cutoff, 200 Hz - 8 kHz (log) | out high cut, tilt, every layer's tone, the air bed's cutoff, bell brightness |
+  | Pitch | root note, A0 - E3 | (chords are offsets, so they follow) |
+  | Movement | the LFO/Random mod rows' amounts x LFO depth | free LFO rates, air motion, layer drift; from still it adds LFO1 -> cutoff and LFO2 -> layer 1 |
+  | Space | reverb decay, 2 - 30 s (log) | reverb mix, size, predelay, delay mix - and the loop tail (0.8 x decay) |
+  | Wind | air bed level | air on/off, motion depth, stereo |
+  | Chimes | bell density, 0 - 40 a minute (log) | bells on/off (density kept when off) |
+
+  A drag rescales from a snapshot taken when it starts, so dragging back
+  restores the patch exactly; double-click returns to the mood's value (or
+  the value at load). A field driven by a timeline lane is shifted lane and
+  all (an amber dot by the label says so). Movement is disabled when it would
+  need a mod row and all six are in use.
+- **Feeling** writes the chords: *Calm* (major), *Open* (fifths, pentatonic),
+  *Mysterious* (dorian), *Uneasy* (phrygian), *Dread* - chord A on odd steps,
+  B on even ones, the bars untouched, the bells' scale with them. Chords
+  spelled by hand show the nearest feeling outlined ("Close to Uneasy").
+- **Over the track** shapes the arc: *Steady*, *Swell*, *Two waves*, *Build
+  up* (the last does not loop cleanly - for a scene that plays it once). A
+  shape adds Arc -> cutoff (and Arc -> reverb mix) rows when none exist.
+- **Track**: *Length* 30 s / 1 / 2 / 3 min stretches the chords so the track
+  is a whole number of passes (the "chords never heard" trap cannot happen
+  here) and shows the size on disc; *Loudness* Soft / Normal / Full sets the
+  normalize target (0.45 / 0.65 / 0.89).
+- **In the game** lists every Play Music node that plays this track: the
+  scene, how it starts ("starts with the level", "on Enter Area"...), loop
+  and volume, and **Open in Flow** (switches to that scene, selects the
+  object and shows its graph with the node selected). **+ Play in another
+  scene...** adds *On Start -> Play Music* (volume 80, loop on) to the
+  scene's player - or the first object that already runs something On Start,
+  or a new "Level music" empty after asking - and asks before replacing a
+  track that scene already plays on start. One undo step. It needs the WAV
+  saved first.
+- **Save to project** is Detailed's *Render WAV*: it writes
+  `res/audio/<name>.wav` and the `.drone` patch beside it, adds the track to
+  the Music list and asks before replacing a file. There is no separate
+  "Save patch" in Simple.
+
+A narrow window (a docked column) stacks the same sections in one scrolling
+column, moods first, with a shorter hero.
+
 ## What it costs on the PS2: nothing new
 
 The generator is a **host-only module** (`src/dronegen.cpp` — the
@@ -441,6 +522,7 @@ wide, costs less than you would think (the low end is mono anyway).
 |---|---|
 | `src/dronegen.hpp/.cpp` | `Params`, the `Synth` (live, block-based), `LiveSynth` (thread hand-off), the offline `render()` + mastering, the WAV writer, the presets and the `.drone` text format. Host-only, no GL, no `Project`. |
 | `src/audiopreview.hpp/.cpp` | The editor's only audio *output* path: a miniaudio playback device pulling from a callback. The only TU that includes miniaudio. |
+| `src/drone_simple_ui.cpp` | The Simple view (`App::drawDroneSimple`): moods, sliders, In the game. The math behind it (moods, `simple::read/write`, feelings, shapes, length) is in `dronegen.cpp`, host-only. |
 | `src/droneui.cpp` | The window: the track/preset rail, the rotary knob widget, the arc editor, the chord cards, the mod matrix, the meters, the timeline (position bar + waveform + chord strip, lane editors, the write hook), and the render + patch I/O footer. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
 
 Everything DSP is harness-testable without the GUI — link `dronegen.cpp` alone

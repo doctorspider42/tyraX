@@ -1,6 +1,7 @@
 #include "toolkit.hpp"
 
 #include "theme.hpp"
+#include "uiscript.hpp"
 
 #include <imgui_internal.h>
 
@@ -1608,6 +1609,140 @@ bool RangeSlider(const char* label, float* lo, float* hi, float vmin, float vmax
     return changed;
 }
 // --- end content ---
+
+// --- drone ---
+void RowLabel(const char* text, const char* tip, float labelW) {
+    const theme::Semantics& sem = theme::semantics();
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+    if (tip) {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (float x = a.x; x < b.x; x += 3.0f)
+            dl->AddRectFilled(ImVec2(x, b.y - 1.0f), ImVec2(x + 1.0f, b.y), c32(sem.textDim));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    }
+    ImGui::SameLine(labelW);
+}
+
+bool TrackSlider(const char* id, float* v, float lo, float hi, const std::string& shown, ImU32 fromCol,
+                 ImU32 toCol, const char* detail, float valueW, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    const float fs = ImGui::GetFontSize();
+    ImGui::BeginDisabled(!enabled);
+    ImGui::InvisibleButton(id, ImVec2(w, h));
+    ImGui::EndDisabled();
+    float textW, detailW = 0.0f, gap = 0.0f;
+    if (detail) {
+        textW = ImGui::CalcTextSize(shown.c_str()).x;
+        if (*detail) {
+            ui::FontScope mono(ui::monoFont());
+            detailW = ImGui::CalcTextSize(detail).x * 0.85f;
+            gap = fs * 0.35f;
+        }
+    } else {
+        ui::FontScope mono(ui::monoFont());
+        textW = ImGui::CalcTextSize(shown.c_str()).x;
+        valueW = ImMax(valueW, ImGui::CalcTextSize("00:00-00:00").x * 0.6f);
+    }
+    const float tw = ImMax(valueW, textW + gap + detailW) + 10.0f;
+    const float x0 = p.x + 7.0f, x1 = p.x + w - tw - 7.0f;
+    bool changed = false;
+    if (enabled && ImGui::IsItemActive() && x1 > x0) {
+        const float t = ImClamp((ImGui::GetIO().MousePos.x - x0) / (x1 - x0), 0.0f, 1.0f);
+        const float nv = lo + (hi - lo) * t;
+        if (nv != *v) *v = nv, changed = true;
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float cy = p.y + h * 0.5f;
+    const float t = hi > lo ? ImClamp((*v - lo) / (hi - lo), 0.0f, 1.0f) : 0.0f;
+    const float kx = x0 + (x1 - x0) * t;
+    const float alpha = enabled ? 1.0f : 0.4f;
+    if (fromCol || toCol) {
+        auto fade = [alpha](ImU32 c) {
+            return (c & ~IM_COL32_A_MASK) | ((ImU32)(((c >> IM_COL32_A_SHIFT) & 0xFF) * alpha) << IM_COL32_A_SHIFT);
+        };
+        dl->AddRectFilledMultiColor(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), fade(fromCol), fade(toCol), fade(toCol),
+                                    fade(fromCol));
+    } else {
+        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), ImGui::GetColorU32(ImGuiCol_FrameBg), 2.0f);
+        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(kx, cy + 2), c32(sem.accent, alpha), 2.0f);
+    }
+    const bool hot = enabled && (ImGui::IsItemHovered() || ImGui::IsItemActive());
+    dl->AddCircleFilled(ImVec2(kx, cy), hot ? 8.0f : 7.0f, c32(sem.text, 0.96f * alpha), 20);
+    if (detail) {
+        const float right = p.x + w;
+        if (detailW > 0.0f) {
+            ui::FontScope mono(ui::monoFont());
+            const float dfs = ImGui::GetFontSize() * 0.85f;
+            dl->AddText(ImGui::GetFont(), dfs, ImVec2(right - detailW, cy - dfs * 0.5f), c32(sem.textDim, alpha),
+                        detail);
+        }
+        dl->AddText(ImVec2(right - detailW - gap - textW, cy - fs * 0.5f), c32(sem.text, alpha), shown.c_str());
+    } else {
+        ui::FontScope mono(ui::monoFont());
+        const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
+        dl->AddText(ImVec2(p.x + w - ts.x, cy - ts.y * 0.5f), c32(sem.text, alpha), shown.c_str());
+    }
+    return changed;
+}
+
+bool SegmentedApprox(const char* id, const char* const* labels, int count, int* selected, int approx, float width,
+                     bool enabled, bool* hovered) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float h = ImGui::GetFrameHeight();
+    const float pad = 3.0f;
+    float natural = pad * 2.0f;
+    for (int i = 0; i < count; ++i)
+        natural += ImGui::CalcTextSize(labels[i], ImGui::FindRenderedTextEnd(labels[i])).x + st.FramePadding.x * 2.0f;
+    const float w = width > 0.0f ? width : (width < 0.0f ? ImGui::GetContentRegionAvail().x : natural);
+    const float scale = (w - pad * 2.0f) / (natural - pad * 2.0f);
+    ImGui::PushID(id);
+    const ImVec2 base = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = st.FrameRounding;
+    const float alpha = enabled ? 1.0f : 0.45f;
+    dl->AddRectFilled(base, ImVec2(base.x + w, base.y + h), c32(sem.field), r);
+    dl->AddRect(base, ImVec2(base.x + w, base.y + h), c32(sem.border), r);
+    bool clicked = false, hov = false;
+    float x = base.x + pad;
+    ImGui::BeginDisabled(!enabled);
+    for (int i = 0; i < count; ++i) {
+        const char* end = ImGui::FindRenderedTextEnd(labels[i]);
+        const float sw = (ImGui::CalcTextSize(labels[i], end).x + st.FramePadding.x * 2.0f) * scale;
+        ImGui::SetCursorScreenPos(ImVec2(x, base.y + pad));
+        if (ImGui::InvisibleButton(labels[i], ImVec2(sw, h - pad * 2.0f))) {
+            *selected = i;
+            clicked = true;
+        }
+        hov |= ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+        const bool on = *selected == i;
+        const bool near = !on && approx == i;
+        uiscript::markLastItemChecked(on);
+        const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered() && !on, 12.0f);
+        const ImVec2 a(x, base.y + pad), b(x + sw, base.y + h - pad);
+        if (on || t > 0.0f) dl->AddRectFilled(a, b, c32(sem.surface, on ? 1.0f : 0.5f * t), r - pad * 0.5f);
+        if (near) dl->AddRect(ImVec2(a.x + 0.5f, a.y + 0.5f), ImVec2(b.x - 0.5f, b.y - 0.5f), c32(sem.accent, 0.8f),
+                              r - pad * 0.5f, 0, 1.0f);
+        const ImVec2 ts = ImGui::CalcTextSize(labels[i], end);
+        const ImU32 tc = near ? c32(sem.accent, alpha) : on ? c32(sem.text, alpha) : c32(sem.textDim, alpha);
+        dl->AddText(ImVec2(x + (sw - ts.x) * 0.5f, base.y + (h - ts.y) * 0.5f), tc, labels[i], end);
+        x += sw;
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+    ImGui::SetCursorScreenPos(base);
+    ImGui::Dummy(ImVec2(w, h));
+    if (hovered) *hovered = hov;
+    return clicked;
+}
+// --- end drone ---
 
 }  // namespace ui
 // --- end screens-c ---

@@ -339,6 +339,7 @@ add_executable(tyrax-editor
     src/reflscenery.cpp
     src/decalproj.cpp
     src/dronegen.cpp
+    src/drone_simple_ui.cpp
     src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp

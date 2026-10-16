@@ -1334,6 +1334,19 @@ private:
     // and the Timeline tab (one editable lane per automated parameter).
     void drawDroneTimelineBar();
     void drawDroneTimelineTab();
+    // The Simple view (drone_simple_ui.cpp, the default; Detailed is the rest
+    // of drawDroneGeneratorWindow). Edits set `dirty` like the Detailed knobs;
+    // a track switch that needs the unsaved-changes question sets openNewAsk.
+    void drawDroneSimple(bool& dirty, bool& openNewAsk);
+    void drawDroneDetailed(bool& dirty, bool& openNewAsk);
+    // Simple | Detailed (##drone_view), drawn with its right end at `right`
+    // (window coords) on row `y`. Returns its width; draw = false only
+    // measures.
+    float drawDroneViewSwitch(float right, float y, bool draw = true);
+    // Adds On Start -> Play Music(<wav>) to a scene (Simple > In the game).
+    // `replaceNode` >= 0 retargets that existing Play Music instead. One
+    // commitChange.
+    void droneUseInScene(int scene, int object, int replaceNode, bool createObject);
     // The playhead: the live transport while auditioning, the scrubbed position
     // otherwise. droneSeek moves both.
     double droneHeadTime() const;
@@ -2899,6 +2912,36 @@ private:
     std::string dronePendingLoad_;  // a rail click waiting on the unsaved-patch question
     int droneChordSel_ = 0;         // Harmony: the chord card being edited
     char droneTitleBuf_[96] = "";
+    // The Simple view (editor.ini droneDetailed flips to the Detailed one -
+    // how much machinery a person wants to see is theirs, not the project's).
+    // Nothing below is saved: the mood a patch came from (session only), the
+    // one-step undo a mood pick / Another take offers, a slider drag's
+    // snapshot (every frame rewrites from it, so a drag never accumulates),
+    // the live waveform history and the In the game questions.
+    bool droneDetailed_ = false;
+    int droneMoodFrom_ = -1;
+    struct DroneMoodUndo {
+        bool valid = false;
+        dronegen::Params params;
+        std::string title, what;
+        int moodFrom = -1;
+        bool wasDirty = false;
+        double until = 0.0;
+        uint64_t serial = 0;
+    } droneMoodUndo_;
+    uint64_t droneEditSerial_ = 0;  // bumped by every edit of the patch
+    int droneDragSlider_ = -1;
+    dronegen::Params droneDragP0_;
+    float droneDragR0_ = 0.0f;
+    float droneLoadR_[6] = {};      // slider values at the last load (double-click)
+    std::string droneLoadRFor_;     // which document droneLoadR_ belongs to
+    std::vector<float> droneLiveHist_;  // peak per column while playing
+    bool droneScrollToGame_ = false;
+    struct DroneUseAsk {
+        int scene = -1, object = -1, replaceNode = -1;
+        bool create = false;
+        std::string text;
+    } droneUseAsk_;
     void droneScanTracks();
     std::string droneUniqueTrackName(const std::string& base) const;
 
