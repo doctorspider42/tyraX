@@ -31,14 +31,21 @@ transport.
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
 4. Open *Tools > Remote Pad*.
 
-The panel is a drawn DualShock: shoulders on top, the d-pad on the left, the
-four face buttons on the right, Select / Start between them and two round
-sticks. Click and *hold* a button and the game sees it held — the state is
-announced for as long as the widget is down (and at least 0.12 s, so a quick
-click is still a press and a release). Held buttons glow.
+The panel is a drawn DualShock 2 — the same drawing the Input Map and every
+pad-button picker use: L2/L1 and R1/R2 as two stacked tabs above each lobe, the
+four-key d-pad on the left, the four face buttons on the right in their real
+colours, Select / Start / Analog with its LED between them, and the two sticks
+with their ridged caps. The P1 / P2 badge on the bridge says which port the
+panel drives. Click and *hold* a button and the game sees it held — the state
+is announced for as long as the mouse is down (and at least 0.12 s, so a quick
+click is still a press and a release). A pressed button fills and gets an
+accent halo, whatever pressed it: the mouse, a key, a `--pad` script or the AI
+Assistant's `press_pad` (while a script plays it owns the pad and the panel only
+shows it). The card's footer lists what is held as chips (*Held  Cross  L stick*).
 
-The **sticks** are dragged in two dimensions, the value shown under each as
-`-0.71, -0.42`. Released, a stick springs back to the centre like a real one —
+The **sticks** are dragged in two dimensions; each shows its gauge — a
+crosshair, the project's deadzone as a dashed ring, a dot and the vector — and
+the value sits under the pad, aligned to its stick, as `L -0.71, -0.42`. Released, a stick springs back to the centre like a real one —
 hold **Shift** while letting go and it stays where it is (the generated walker
 reads the **analog sticks** and never the D-pad, so a parked left stick is a
 player who keeps walking while you watch PCSX2); double-click centres it. A
@@ -46,11 +53,13 @@ click on a stick without dragging presses **L3** / **R3**.
 
 **Shift-click holds a button** (a switch under the controller) makes Shift-click
 latch a button until you click it again — for charge moves and menus; a latched
-button carries an amber dot. **Release all** drops everything, latches included.
+button carries an amber pin. **Release all** drops everything, latches included.
 
 The header says whether anything is listening: **Game listening · pad 1 · 25 Hz**
-(green) while the Live Debugger reports a running game, **No game running** with
-a *Run (F5)* button, **Writing · 25 Hz** when the Live Debugger is off (the
+(green, the pad's analog LED lit) while the Live Debugger reports a running
+game, **No game running** with a *Run (F5)* button (the pad dims to 45% and its
+LED goes out, but stays clickable and scriptable — the state is still written
+for a game that is about to boot), **Writing · 25 Hz** when the Live Debugger is off (the
 editor then cannot tell), **Write failed** (red, the reason in the hover). A
 release profile or the preference off shows a card with the fix (*Switch to
 debug profile*, *Turn on Remote Pad*) instead of the controller.
@@ -72,11 +81,12 @@ The footer shows the current moment as the equivalent `--pad` command line
 
 The keys are read only while the Remote Pad window is **focused**, so typing
 anywhere else in the editor is unaffected. While they are captured the
-controller has a blue focus ring and says *Keys go to the game*; each button
-shows its key, and **Esc** gives the focus back. Focus that window, look at
+controller has a blue focus ring and says *Keys go to the game*; a small
+keycap sits next to each button it drives, and **Esc** gives the focus back. Focus that window, look at
 PCSX2, and play.
 
-*Pad 2* only does something in a multiplayer project (the segment is
+*Pad 2* (each port with its colour dot — blue P1, teal P2, the badge colours)
+only does something in a multiplayer project (the segment is
 disabled in a single-player one, with the reason in its hover) (*Project > Preferences >
 Multiplayer*) — that is where the generated game opens the second connector.
 Start on pad 2 is what hot-joins player two, which makes the join path testable

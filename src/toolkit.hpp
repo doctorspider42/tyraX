@@ -353,4 +353,88 @@ bool SegmentedApprox(const char* id, const char* const* labels, int count, int* 
                      float width = 0.0f, bool enabled = true, bool* hovered = nullptr);
 // --- end drone ---
 
+// --- pad ---------------------------------------------------------------------
+// THE controller drawing (docs/editor-theme.md, "Controller"): one DualShock 2
+// for every place the editor shows or picks a pad button - Remote Pad
+// (Interactive), Input Map (Annotated), button pickers and AI tool cards
+// (Compact), table cells and combo previews (glyph). Implemented in
+// pad_widget.cpp. Buttons are indexed by kPadButtonNames (input.hpp: Cross,
+// Square, Triangle, Circle, DpadUp, DpadDown, DpadLeft, DpadRight, L1, L2, L3,
+// R1, R2, R3, Start, Select) - NOT livelogic::padButtons() order.
+//
+// Items: in Interactive and Annotated mode (and the Compact picker) every
+// element is an InvisibleButton named EXACTLY L2 L1 R1 R2 Up Left Right Down
+// Triangle Square Circle Cross Select Start L3 R3, with no PushID around them,
+// reported to --ui-script as checkable with "pressed" - so
+// `click "Remote Pad/Cross"` and `expect-checked "Remote Pad/Cross"` work. One
+// item-submitting diagram per window.
+
+/** What the drawing shows. Bit i = kPadButtonNames[i]. The widget owns NO pad
+ * logic (latching, spring-back, key maps): the caller keeps that and feeds
+ * the result back in here. */
+struct PadState {
+    unsigned pressed = 0;    // pressed now (mouse, key, script, AI, the game)
+    unsigned latched = 0;    // held until clicked again (amber pin)
+    unsigned bound = 0;      // Annotated: full strength (others at 40%)
+    unsigned selected = 0;   // accent ring (the action picked in a list)
+    unsigned conflict = 0;   // dashed warn ring
+    ImVec2 stick[2] = {};    // -1..1, y down (livepad axes / 127)
+    float deadzone[2] = {0.2f, 0.2f};  // gauge ring per stick
+    int port = 0;            // 0 = no badge, 1 / 2
+    bool disabled = false;   // 45% + LED off; items still named (scripts)
+    ImVec4 backdrop = {};    // what the pad sits on (w 0 = the window bg):
+                             // the disabled veil, halos and keycaps use it
+    bool capture = false;    // "Press to set": pulsing outline
+    bool led = true;         // analog LED lit (a game listens)
+    bool gauge = false;      // force the stick gauge (Interactive: always on)
+    bool picker = false;     // Compact: submit one item per element
+    const char* keycaps[16] = {};  // Interactive: the key that drives it
+};
+enum class PadMode { Interactive, Annotated, Compact };
+/** One Annotated callout pill. Several actions on one button: join them with
+ * " / " in ONE callout; a stick reads "<axis role> · <L3 action>". */
+struct PadCallout {
+    int button = -1;         // kPadButtonNames index
+    const char* text = "";
+    enum Kind { Normal, Selected, Conflict, Role } kind = Normal;
+};
+struct PadDiagramOut {
+    int hovered = -1;              // element under the mouse
+    int clicked = -1;              // released on it this frame (sticks: no drag)
+    int held = -1;                 // mouse down on it now (not the sticks)
+    bool shiftClicked = false;     // `clicked` came with Shift
+    int stickActive = -1;          // 0 / 1 being dragged
+    ImVec2 stickValue[2] = {};     // where the drag puts it, inside the unit disc
+    bool stickClicked[2] = {};     // released without a drag = L3 / R3
+    bool stickReleased[2] = {};    // a drag ended this frame
+    bool stickDoubleClicked[2] = {};
+    ImVec2 rectMin, rectMax;       // the drawn pad (not the callouts)
+};
+/** The item name of a button ("Up" for DpadUp); null when out of range. */
+const char* PadItemName(int button);
+/** Draws the pad `width` px wide (Annotated: the whole pad + callout columns)
+ * at the cursor and advances it. `focus` (Compact) is the one button drawn at
+ * full strength. Returns true when something was clicked. */
+bool PadDiagram(const char* id, PadMode mode, float width, const PadState& s,
+                PadDiagramOut* out = nullptr, const PadCallout* callouts = nullptr,
+                int calloutCount = 0, int focus = -1);
+/** Height PadDiagram takes for `width` in `mode`. */
+float PadDiagramHeight(PadMode mode, float width);
+/** The inline button token (table cells, combo previews, chips), `height` px
+ * tall, at the cursor as a Dummy. Returns its width. */
+float PadButtonGlyph(int button, float height, bool selected = false);
+/** The same drawn into `dl` at `p` (top-left); null `dl` only measures. */
+float PadButtonGlyphAt(ImDrawList* dl, ImVec2 p, int button, float height, bool selected = false);
+/** A combo for a pad button by NAME (kPadButtonNames): the glyph + name as the
+ * preview, a Compact pad picker over the 16 names in the popup. `allowNone`
+ * puts `noneLabel` ("<none>" when null) first, meaning "". `popupFontSize` > 0
+ * pushes that size inside the popup (the zoomed Flow Graph canvas). Works
+ * inside ui::InspectorRows. Returns true when *name changed. */
+bool PadButtonCombo(const char* label, std::string* name, bool allowNone, const char* tip = nullptr,
+                    const char* noneLabel = nullptr, float popupFontSize = 0.0f);
+/** The Pad 1 / Pad 2 segmented control with each port's colour dot (the P1/P2
+ * badge colours). Options are named "Pad 1" / "Pad 2". Returns changed. */
+bool PadPortSegmented(const char* id, int* port, float width, bool enabled = true);
+// --- end pad -----------------------------------------------------------------
+
 }  // namespace ui
