@@ -32,6 +32,9 @@ driven on macOS only. Open:
     and `asset-browser.png` predate the Near | Far and orbit controls;
   - the import preview and the Animation Editor share one anim-preview
     framebuffer (both visible while a clip plays = the same pose);
+  - Drone Generator Simple view: in a short window the mood tiles' captions
+    clip at the bottom of the left column; the narrow one-column layout was
+    only seen through a temporary threshold build;
   - Properties: the Player's Walk/Run/Sprint rows draw their caption right of
     the field (clipped); AxisDrag3 tags touch their values in a narrow panel.
 
