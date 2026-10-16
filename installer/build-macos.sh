@@ -167,7 +167,7 @@ if [ -n "$NOTARY_PROFILE" ]; then
 elif [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ]; then
     NOTARY=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
 fi
-notarize() {  # notarize <file to submit> <file to staple>
+notarize() {  # notarize <file to submit> <file to staple> [dmg-may-stay-unstapled]
     echo "== Notarizing $(basename "$1") (this waits for Apple) =="
     xcrun notarytool submit "$1" "${NOTARY[@]}" --wait --timeout 1h --output-format json \
         > "$WORK/notary.json"
@@ -179,17 +179,26 @@ notarize() {  # notarize <file to submit> <file to staple>
         echo "Notarization failed." >&2
         exit 1
     fi
-    # Stapling fetches the ticket from Apple's CloudKit, a separate service
-    # whose connection drops now and then ("The network connection was lost",
-    # Error 68) - after the notarization above was already accepted. Retry the
-    # fetch; never resubmit.
+    # Stapling fetches the ticket from Apple's CloudKit, a separate service.
+    # Right after an accepted submission that lookup can fail for minutes
+    # ("The network connection was lost", Error 68) - every Intel release run
+    # of 1.172.1 hit it on the dmg, while the app inside stapled fine. Retry
+    # the fetch with a growing pause (~5 min in all); never resubmit.
     local attempt
-    for attempt in 1 2 3 4; do
+    for attempt in 1 2 3 4 5 6; do
         xcrun stapler staple "$2" && return 0
-        [ "$attempt" -lt 4 ] || break
-        echo "stapler failed (attempt $attempt of 4), retrying in $((attempt * 15))s" >&2
-        sleep $((attempt * 15))
+        [ "$attempt" -lt 6 ] || break
+        echo "stapler failed (attempt $attempt of 6), retrying in $((attempt * 20))s" >&2
+        sleep $((attempt * 20))
     done
+    # The disk image is the one place an unstapled ticket is acceptable: it IS
+    # notarized (Accepted above), so Gatekeeper finds the ticket online when
+    # it is opened, and the app it carries has its own stapled ticket and
+    # works offline once dragged out. The app itself must never ship unstapled.
+    if [ "${3-}" = dmg-may-stay-unstapled ]; then
+        echo "WARNING: $(basename "$2") is notarized but its ticket is not stapled (TyraX.app inside is)." >&2
+        return 0
+    fi
     echo "Stapling $(basename "$2") failed; it IS notarized, so a re-run only has to staple." >&2
     exit 1
 }
@@ -220,7 +229,7 @@ rm -f "$DMG"
 if [ "$SIGN" != "-" ]; then
     codesign --force --timestamp --sign "$SIGN" "$DMG"
     if [ ${#NOTARY[@]} -gt 0 ]; then
-        notarize "$DMG" "$DMG"
+        notarize "$DMG" "$DMG" dmg-may-stay-unstapled
     fi
 fi
 

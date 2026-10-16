@@ -302,12 +302,14 @@ keychain that the job deletes at the end.
 
 Notarizing is two calls to Apple: `notarytool submit --wait` (the verdict),
 then `stapler staple`, which fetches the ticket from a separate CloudKit
-service and writes it into the app and the image so they verify offline.
-That second connection drops now and then ("The network connection was
-lost", Error 68) after the submission was already accepted, so
-`build-macos.sh` retries the staple four times with a growing pause and never
-resubmits. If all four fail, the image is notarized but unstapled: re-run the
-failed job (above).
+service and writes it into the file so it verifies offline. Right after an
+accepted submission that fetch can fail for minutes ("The network connection
+was lost", Error 68 - both Intel runs of 1.172.1 hit it on the image), so
+`build-macos.sh` retries it six times over about five minutes and never
+resubmits. If the **app** still cannot be stapled the job fails: re-run the
+failed job (above). The **image** may then ship unstapled, with a warning in
+the log: it is notarized, so Gatekeeper fetches its ticket online when it is
+opened, and the app inside carries its own stapled ticket.
 
 ### Building packages yourself
 
