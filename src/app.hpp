@@ -1201,6 +1201,7 @@ private:
     void drawWorldFactsWindow();
     void drawFactCatalogTab();
     void drawFactUsedBy(const facts::Fact& f);
+    void factJumpTo(int tab, int index);  // a Used-by click: select + bring the tab forward
     void drawFactQueriesTab();
     void drawFactRulesTab();
     void drawFactScenariosTab();
@@ -2272,6 +2273,9 @@ private:
     int factTabJump_ = -1;     // a Used-by click selects that tab next frame
     int factKeepFilter_ = -1;  // catalog chip: -1 all, a Persist, 100 = computed
     float factListW_ = 0.0f;   // catalog list | detail splitter (0 = default share)
+    float factSideW_ = 0.0f;   // Queries/Rules/Scenarios list | detail splitter
+    std::string factSideFilter_;   // their list filter (one, shared by the three)
+    std::string factBoardFilter_;  // Blackboard filter
     std::string factFilter_;  // catalog search box
     // The name a rename is being typed over, so renameFactRefs can retarget
     // every reference when the field commits - the objRenameFrom_ idiom.
