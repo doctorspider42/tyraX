@@ -2787,6 +2787,7 @@ private:
     dronegen::Params droneParams_;
     int dronePreset_ = 0;
     int droneTab_ = 0;
+    int droneLayerTab_ = 0;  // Layers tab: the layer being edited (pill tabs)
     char droneTrackName_[64] = "ambient";
     std::unique_ptr<dronegen::LiveSynth> droneLive_;
     std::unique_ptr<audiopreview::Device> droneDevice_;
