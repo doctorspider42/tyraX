@@ -33,6 +33,28 @@ void caret(ImDrawList* dl, float cx, float cy, float s, ImU32 c) {
                           ImVec2(cx, cy + s * 0.6f), c);
 }
 
+// One of the four face-button glyphs centred on c, half-extent r: 0 cross,
+// 1 circle, 2 triangle, 3 square - the workspace switcher's marks.
+void faceGlyph(ImDrawList* dl, int kind, ImVec2 c, float r, ImU32 col, float th) {
+    switch (kind) {
+        case 0:
+            dl->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, th);
+            dl->AddLine(ImVec2(c.x + r, c.y - r), ImVec2(c.x - r, c.y + r), col, th);
+            break;
+        case 1: dl->AddCircle(c, r, col, 16, th); break;
+        case 2: {
+            const ImVec2 t[3] = {ImVec2(c.x, c.y - r * 1.05f), ImVec2(c.x + r * 1.1f, c.y + r * 0.85f),
+                                 ImVec2(c.x - r * 1.1f, c.y + r * 0.85f)};
+            dl->AddPolyline(t, 3, col, ImDrawFlags_Closed, th);
+            break;
+        }
+        default:
+            dl->AddRect(ImVec2(c.x - r * 0.9f, c.y - r * 0.9f), ImVec2(c.x + r * 0.9f, c.y + r * 0.9f), col,
+                        r * 0.15f, 0, th);
+            break;
+    }
+}
+
 }  // namespace
 
 void App::selectScene(int i) {
@@ -200,7 +222,7 @@ void App::drawToolbar() {
         }
     }
 
-    // --- right cluster: profile, target, build, run, stop --------------------
+    // --- right cluster widths (needed first: the workspaces fit around them) --
     const char* runKey = runOnPs2_ ? "F6" : "F5";
     const char* runLabel = busy ? "Building" : "Run";
     const float dotD = scaled(6.0f);
@@ -214,7 +236,79 @@ void App::drawToolbar() {
     const float runW = padX * 1.3f + glyph + gapS + ImGui::CalcTextSize(runLabel).x +
                        (busy ? 0.0f : gapS + ImGui::CalcTextSize(runKey).x) + padX * 1.3f;
     const float runCaretW = h * 0.62f;
-    const float clusterW = profW + gap + segW + gap + h + gap + runW + runCaretW + gap + h;
+    const float clusterW = h + gap + profW + gap + segW + gap + h + gap + runW + runCaretW + gap + h;
+    const float clusterX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f) - clusterW;
+
+    // --- workspaces: Scene / Logic / Cinema / UI & HUD -------------------------
+    // Each is one of the project's window layouts (the Layout menu), picked by
+    // its built-in recipe, so a project's own arrangement of each survives.
+    // The four face-button marks tell them apart; with too little room the
+    // labels go and the marks stay, with less still the switcher goes (the
+    // Layout menu has the same thing).
+    {
+        struct Ws {
+            const char* id;
+            const char* label;
+            LayoutRecipe recipe;
+            int glyph;
+            ImVec4 col;
+        };
+        const Ws ws[4] = {{"Scene##ws", "Scene", LayoutRecipe::Default, 0, sem.accent},
+                          {"Logic##ws", "Logic", LayoutRecipe::Debugger, 1, sem.danger},
+                          {"Cinema##ws", "Cinema", LayoutRecipe::Director, 2, sem.ok},
+                          {"UI & HUD##ws", "UI & HUD", LayoutRecipe::MenuDesigner, 3, sem.special}};
+        const int activeRecipe = project_.windowLayouts.empty()
+                                     ? -1
+                                     : project_.windowLayouts[project_.activeLayout].recipe;
+        const float gr = h * 0.17f;
+        const float segPadW = scaled(3.0f);
+        float fullW = segPadW * 2.0f, iconW = segPadW * 2.0f;
+        for (const Ws& w : ws) {
+            fullW += padX * 1.6f + gr * 2.0f + gapS + ImGui::CalcTextSize(w.label).x;
+            iconW += h;
+        }
+        ImGui::SameLine(0.0f, 0.0f);
+        const float curX = ImGui::GetCursorScreenPos().x + gapGroup;
+        const float room = clusterX - gapGroup - curX;
+        const bool labels = room >= fullW, show = room >= iconW;
+        if (show) {
+            const ImVec2 base = place(gapGroup);
+            const float totalW = labels ? fullW : iconW;
+            dl->AddRectFilled(base, ImVec2(base.x + totalW, base.y + h), col(sem.field), round);
+            dl->AddRect(base, ImVec2(base.x + totalW, base.y + h), col(sem.border), round);
+            float x = base.x + segPadW;
+            const float ih = h - segPadW * 2.0f;
+            for (const Ws& w : ws) {
+                const float sw = labels ? padX * 1.6f + gr * 2.0f + gapS + ImGui::CalcTextSize(w.label).x : h - 0.0f;
+                int layout = -1;
+                for (int i = 0; i < (int)project_.windowLayouts.size(); ++i)
+                    if (project_.windowLayouts[i].recipe == (int)w.recipe) {
+                        layout = i;
+                        break;
+                    }
+                const bool on = activeRecipe == (int)w.recipe;
+                ImGui::SetCursorScreenPos(ImVec2(x, base.y + segPadW));
+                if (ImGui::InvisibleButton(w.id, ImVec2(sw, ih)) && layout >= 0) switchLayout(layout);
+                const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered() && !on, 12.0f);
+                if (on || t > 0.0f)
+                    dl->AddRectFilled(ImVec2(x, base.y + segPadW), ImVec2(x + sw, base.y + segPadW + ih),
+                                      col(sem.surface, on ? 1.0f : 0.5f * t), round - segPadW * 0.5f);
+                const float gx = labels ? x + padX * 0.8f + gr : x + sw * 0.5f;
+                faceGlyph(dl, w.glyph, ImVec2(gx, base.y + h * 0.5f), gr, on ? col(w.col) : col(sem.textDim, 0.8f),
+                          ImMax(1.3f, h * 0.06f));
+                if (labels)
+                    dl->AddText(ImVec2(gx + gr + gapS, base.y + textDy), on ? col(sem.text) : col(sem.textDim),
+                                w.label);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s workspace - the \"%s\" window layout%s", w.label,
+                                      layout >= 0 ? project_.windowLayouts[layout].name.c_str() : "?",
+                                      layout >= 0 ? "" : " was deleted (Layout menu)");
+                x += sw;
+            }
+            ImGui::SetCursorScreenPos(base);
+            ImGui::Dummy(ImVec2(totalW, h));
+        }
+    }
     {
         // Right-aligned, unless the menus and breadcrumb already reach there:
         // then it simply follows them (and the window edge clips it). In SCREEN
@@ -224,6 +318,25 @@ void App::drawToolbar() {
         const float endX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f);
         ImGui::SetCursorScreenPos(ImVec2(ImMax(endX - clusterW, curX + gapGroup),
                                          ImGui::GetWindowPos().y + y0));
+    }
+
+    // Search: opens the command palette (palette_ui.cpp).
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("Search##tb_palette", ImVec2(h, h))) {
+            paletteOpen_ = true;
+            paletteFocus_ = true;
+            paletteQuery_[0] = '\0';
+            paletteSel_ = 0;
+        }
+        hoverFill(p, h, true);
+        const ImVec2 c(p.x + h * 0.46f, p.y + h * 0.46f);
+        dl->AddCircle(c, h * 0.2f, col(sem.text), 16, stroke);
+        dl->AddLine(ImVec2(c.x + h * 0.14f, c.y + h * 0.14f), ImVec2(c.x + h * 0.28f, c.y + h * 0.28f),
+                    col(sem.text), stroke);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Search commands, objects, windows, docs (Ctrl+K)");
+        ImGui::SameLine(0.0f, gap);
+        ImGui::SetCursorPosY(y0);
     }
 
     // Build profile pill. The one control on the bar whose CURRENT VALUE must

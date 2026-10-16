@@ -5538,6 +5538,11 @@
 // transparent-text Selectable that keeps the "name  (type)" label.
 // Logs: pill level chips, gutter marks for error/warning lines (lines indented
 // by the gutter; the child has no padding), switches in the Debug window.
+// Workspaces (Scene/Logic/Cinema/UI & HUD = layouts by recipe) in the top bar;
+// command palette (palette_ui.cpp, Ctrl/Cmd+K). The Debugger recipe docks
+// Project on the left. --ui-script `key ctrl+X` now sends Super on macOS
+// (ImGui swaps Ctrl/Cmd under ConfigMacOSXBehaviors), so it reaches Ctrl
+// shortcuts there.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

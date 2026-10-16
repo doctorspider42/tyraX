@@ -51,6 +51,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
 | `shell_ui.cpp` | 700 | Window frame: top-bar breadcrumb + run controls (`drawToolbar`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
+| `palette_ui.cpp` | 330 | Command palette (Ctrl/Cmd+K): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |

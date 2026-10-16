@@ -3499,15 +3499,19 @@ void App::uiScriptTick() {
                 failStep(s, "cannot parse the key chord '" + s.arg + "'");
                 break;
             }
+            // "ctrl" means the editor's Ctrl shortcuts (Ctrl+S, Ctrl+K...). With
+            // ConfigMacOSXBehaviors ImGui swaps Ctrl and Cmd as events arrive,
+            // so on macOS the chord is sent as Super to land on ImGuiMod_Ctrl.
+            const ImGuiKey ctrlMod = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
             if (uiStepPhase_ == 0) {
-                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                if (ctrl) io.AddKeyEvent(ctrlMod, true);
                 if (shift) io.AddKeyEvent(ImGuiMod_Shift, true);
                 if (alt) io.AddKeyEvent(ImGuiMod_Alt, true);
                 io.AddKeyEvent((ImGuiKey)key, true);
                 uiStepPhase_ = 1;
             } else if (uiStepPhase_ == 1) {
                 io.AddKeyEvent((ImGuiKey)key, false);
-                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                if (ctrl) io.AddKeyEvent(ctrlMod, false);
                 if (shift) io.AddKeyEvent(ImGuiMod_Shift, false);
                 if (alt) io.AddKeyEvent(ImGuiMod_Alt, false);
                 uiStepPhase_ = 2;

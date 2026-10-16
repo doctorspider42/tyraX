@@ -47,6 +47,8 @@ The editor runs for real and holds its own mouse/keyboard, naming WIDGETS. No fo
 - The automatic startup update check is skipped while a UI script runs (`uiScriptActive_`).
 - Hermetic runs: set `XDG_CONFIG_HOME` (or `LOCALAPPDATA`) to a scratch dir — `editor.ini` and history persist toggles (e.g. `chatAllowEdits_`) into the next run; a scripted checkbox click is a toggle, so `expect-checked` right after.
 
+- **`key ctrl+X` on macOS** is sent as `ImGuiMod_Super`: with `io.ConfigMacOSXBehaviors` ImGui swaps Ctrl and Cmd as events arrive, so a literal Ctrl never reached the editor's Ctrl shortcuts on a Mac (fixed in 1.173.0; before that `key ctrl+s` silently did nothing there).
+
 ## Wheel, zoom, node canvases
 
 - `wheel <target> <notches>` drives canvas ZOOM; it's the only step that may resolve a bare WINDOW name (`wheel "Flow Graph" -6` = middle of canvas). Verify zoom with `dump` at two levels — node widgets are ordinary items: rects give the scale factor and offsets show self-similarity (PROGRESS 233: both under 0.1%).

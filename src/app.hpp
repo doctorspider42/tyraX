@@ -160,6 +160,13 @@ private:
     // The Project panel's page: 0 Outliner, 1 Layers, 2 Assets, 3 Audio,
     // 4 Scripts (kLeftPageCount). View state, not saved.
     int leftPage_ = 0;
+    // The command palette (palette_ui.cpp): Ctrl/Cmd+K or the top bar's
+    // search button. Draws nothing while closed.
+    void drawCommandPalette();
+    bool paletteOpen_ = false;
+    bool paletteFocus_ = false;  // put the caret in the query on the next frame
+    char paletteQuery_[128] = "";
+    int paletteSel_ = 0;
     // Which machine the toolbar's Run/Stop pair drives: false = the emulator
     // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
     // `runOnPs2`) - which console is on this desk is not project data. The Play

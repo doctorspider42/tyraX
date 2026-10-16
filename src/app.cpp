@@ -982,6 +982,7 @@ void App::drawUI() {
     drawMenuBar();
     drawStatusBar();
     drawRail();
+    drawCommandPalette();
     drawViewportWindow();
     drawProjectWindow();
     drawPropertiesWindow();
@@ -5138,11 +5139,16 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         // Debugger (state, watch, timeline, breakpoints) owns the right column,
         // and the Viewport sits behind the graph so a glance at the scene is one
         // tab away. Output/Debug logs along the bottom - a crashed game shows up
-        // there, not in the graph.
+        // there, not in the graph. The Project panel keeps a narrow left
+        // column (it used to be left out and came up floating over the graph -
+        // the Logic workspace in the top bar is this layout).
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
         ImGuiID right =
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
         ImGuiID bottom =
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.24f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Debugger", right);
         ImGui::DockBuilderDockWindow("Properties", right);
         ImGui::DockBuilderDockWindow("Output", bottom);
