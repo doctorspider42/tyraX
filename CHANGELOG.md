@@ -17,6 +17,7 @@ history.
 - **The viewport's buttons became floating tool cards**: a vertical tool palette with icons (Move, Rotate, Scale, Sculpt, Paint, Measure, Surface snap) and their shortcut keys at the top left, the camera controls on a card at the bottom left and the World | Camera switch at the bottom right.
 - **Properties reads as a card for the object**: its colour tile, its name in large type and its type under it at the top; sections are quiet titles instead of blue bands; every on/off option is a switch.
 - **An icon rail on the left** switches the Project panel between Outliner, Layers, Assets, Audio and Scripts - one page at a time, so the object list gets the panel's full height - with the AI Assistant and Project Preferences at the bottom. Object rows show an icon per type.
+- **The Output and Debug logs** mark error and warning lines in a gutter, their level filters are coloured pills, and their on/off options are switches.
 - **A status bar** along the bottom: the BUILDING / BUILD FAILED, LIVE, DBG, LOGIC and SESSION chips moved there from the top, with the scene's object and selection counts on the right. The Project panel no longer repeats the project's details and scene list - they are in the top bar.
 
 ## 1.172.0 - 2026-10-12

@@ -5536,6 +5536,8 @@
 // Left rail (App::drawRail, ##Rail side bar) picks leftPage_; the Project
 // panel draws one page; Outliner rows hand-draw icon/name/type over a
 // transparent-text Selectable that keeps the "name  (type)" label.
+// Logs: pill level chips, gutter marks for error/warning lines (lines indented
+// by the gutter; the child has no padding), switches in the Debug window.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

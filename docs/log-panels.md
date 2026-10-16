@@ -23,7 +23,9 @@ of entries in it**, and the lines are drawn in the level's colour:
 | **info** | normal text | what the **editor** says about a build — `=== Build OK ===`, *Compiling (PS2DEV toolchain)…*, *Launching PCSX2* (the `[editor]` channel, when the line carries no diagnostic) |
 | **verbose** | dim text | everything else: the `> …` command echoes, raw docker/rsync/compiler output, and the game's own `LOG:` commentary |
 
-Click a chip to hide or show that level; the choice is remembered per panel in
+Errors and warnings also carry a mark in the left gutter in their colour (a
+fainter one on their continuation lines), so problem lines are found by
+scanning one column. Click a chip to hide or show that level; the choice is remembered per panel in
 `editor.ini` (`logMaskOutput`, `logMaskDebug`) because which noise you want
 hidden is a property of how you work, not of the project. Nothing is hidden by
 default. **Copy** copies the lines currently shown — the filter applies.
@@ -61,7 +63,7 @@ Clicking either brings this panel to the front.
 ## Select text
 
 ImGui's editable text is one colour, so the coloured view cannot be selected
-with the mouse. The **Select text** checkbox swaps in a read-only text box over
+with the mouse. The **Select text** switch swaps in a read-only text box over
 the *same filtered lines* — colouring for selection, with the filter still
 working. It is remembered too (`logSelectOutput` / `logSelectDebug`).
 

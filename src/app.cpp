@@ -13233,12 +13233,20 @@ static bool logLevelChip(logview::Level l, int count, bool on) {
     // otherwise every appended line gives the chip a new id and drops its hover.
     snprintf(label, sizeof(label), "%d %s##logchip%d", count,
              logview::label(l, count != 1), (int)l);
+    // A pill tinted with its own level's colour while shown, a bare outline
+    // while hidden - the state reads from across the panel.
+    const ImVec4 base = logLevelColor(l);
     ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::PushStyleColor(ImGuiCol_Button,
-                          ImGui::GetStyleColorVec4(on ? ImGuiCol_FrameBgActive
-                                                      : ImGuiCol_FrameBg));
-    const bool clicked = ImGui::SmallButton(label);
-    ImGui::PopStyleColor(2);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(base.x, base.y, base.z, on ? 0.14f : 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(base.x, base.y, base.z, on ? 0.24f : 0.10f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(base.x, base.y, base.z, 0.32f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(base.x, base.y, base.z, on ? 0.0f : 0.28f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize());
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(ImGui::GetFontSize() * 0.6f, ImGui::GetStyle().FramePadding.y * 0.5f));
+    const bool clicked = ImGui::Button(label);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(5);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(on ? "Showing these lines - click to hide them"
                              : "These lines are hidden - click to show them");
@@ -13333,7 +13341,7 @@ void App::drawLogPanel(const char* id, LogView& v) {
         }
     }
     ImGui::SameLine();
-    if (ImGui::Checkbox("Select text", &v.selectText)) {
+    if (ui::Switch("Select text", &v.selectText)) {
         v.dirty = true;
         v.scrollBottom = true;  // the two modes measure their content differently
         saveGlobalConfig();
@@ -13350,7 +13358,7 @@ void App::drawLogPanel(const char* id, LogView& v) {
     // autoscroll note below).
     if (!v.selectText)
         ImGui::SetNextWindowContentSize(
-            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f, 0.0f));
+            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(10.0f), 0.0f));
     ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
     // A log is read in columns (timestamps, paths, counts): fixed-width.
@@ -13381,6 +13389,20 @@ void App::drawLogPanel(const char* id, LogView& v) {
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
                 const logview::Line& ln = v.lines[v.visible[i]];
+                // Errors and warnings get a gutter mark in their colour, so a
+                // problem line is found by scanning one column, not by reading.
+                // (The child has no padding, so every line is indented by the
+                // gutter's width and the mark sits in it.)
+                const float gutter = scaled(10.0f);
+                if (ln.level == logview::Level::Error || ln.level == logview::Level::Warning) {
+                    const ImVec2 p = ImGui::GetCursorScreenPos();
+                    const ImVec4 c = logLevelColor(ln.level);
+                    ImGui::GetWindowDrawList()->AddRectFilled(
+                        ImVec2(p.x + scaled(1.0f), p.y + 1.0f),
+                        ImVec2(p.x + scaled(3.5f), p.y + ImGui::GetTextLineHeight() - 1.0f),
+                        ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, ln.cont ? 0.4f : 1.0f)), scaled(1.0f));
+                }
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gutter);
                 ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
                 ImGui::TextUnformatted(v.text.c_str() + ln.begin, v.text.c_str() + ln.end);
                 ImGui::PopStyleColor();
@@ -13407,10 +13429,13 @@ void App::drawOutputWindow() {
     ImGui::Begin("Output");
     logSetText(logOut_, runner_.log());
 
+    // Text-only actions: the level chips next to them are the bar's content.
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     if (ImGui::SmallButton("Clear")) runner_.clearLog();
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy"))
         ImGui::SetClipboardText(logview::join(logOut_.text, logOut_.lines, logOut_.mask).c_str());
+    ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
     ImGui::SameLine();
@@ -13487,7 +13512,7 @@ void App::drawDebugWindow() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Reload")) debugReloadNow_ = true;
     ImGui::SameLine();
-    ImGui::Checkbox("Auto", &debugAutoReload_);
+    ui::Switch("Auto", &debugAutoReload_);
     ImGui::SameLine();
     if (ImGui::SmallButton("Copy"))
         ImGui::SetClipboardText(logview::join(logDbg_.text, logDbg_.lines, logDbg_.mask).c_str());
@@ -13503,7 +13528,7 @@ void App::drawDebugWindow() {
     // Debug option: pop a copyable dialog when the game hits an assertion.
     // Off -> errors go only here / to the console (the game logs them either
     // way). Persisted machine-wide in editor.ini.
-    if (ImGui::Checkbox("Pop up on errors", &errorPopupEnabled_)) saveGlobalConfig();
+    if (ui::Switch("Pop up on errors", &errorPopupEnabled_)) saveGlobalConfig();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "When the running game hits a fatal error (a failed assertion, e.g.\n"
