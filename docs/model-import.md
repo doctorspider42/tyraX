@@ -20,9 +20,14 @@ triangles, objects, textures) and offers **Choose another file**.
   surfaces, so a broken import is visible before it reaches the project.
   Selecting a row of the model list outlines that model in orange, and in a
   split import a left click on a piece selects its row (scrolling the list to
-  it). An animated file shows a clip bar at the bottom: the clips it brings
-  (the preview itself is the bind pose - clips play in the
-  [Animation Editor](animated-models.md) after the import).
+  it). An animated file shows a clip bar at the bottom: **Play clip** /
+  **Pause clip**, the clip picker, a scrub bar (`1.31 / 1.50 s`) and how many
+  clips come along. Playing or scrubbing shows the SOURCE file as it animates
+  (read straight from the picked file - nothing is written); paused at 0 the
+  preview is the planned bind pose again, the one *Keep tris*, the pivot and
+  the size shape (the height ruler and click-to-select only work there).
+  Trimming and renaming clips happen in the
+  [Animation Editor](animated-models.md) after the import.
 - **Folder** — where the model goes, e.g. `res/models/terrain/rocks`: type a
   path (missing folders are created; a bare `terrain/rocks` lands under
   `res/models`) or pick an existing folder from the arrow. It is remembered for

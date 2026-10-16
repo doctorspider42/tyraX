@@ -141,6 +141,9 @@ void App::importModelFile(const std::string& path, const std::string& targetFold
         modelImportSel_ = -1;
         modelImportZoom_ = 1.0f;
         modelImportPanX_ = modelImportPanY_ = 0.0f;
+        modelImportClip_ = 0;
+        modelImportClipPlay_ = false;
+        modelImportClipTime_ = 0.0f;
         modelImportAddToScene_ = modelImportFor_ == ModelImportFor::NewStatic ||
                                  modelImportFor_ == ModelImportFor::NewAnimated;
         const std::string stem =
@@ -453,7 +456,44 @@ void App::drawModelImportModal() {
         d.panY = modelImportPanY_;
         d.wireframe = modelImportWire_;
         const int pw = std::max(1, (int)avail.x), ph = std::max(1, (int)avail.y);
-        const uint32_t tex = viewport_.renderImportPreview(pw, ph, d);
+        // Clip playback: the SOURCE file posed by the Animation Editor's
+        // preview (bake keyed by the absolute path, so nothing is written and
+        // the project's caches are not touched). The bake runs in the
+        // background; until it lands the planned bind pose stays on screen.
+        if (modelImportClip_ >= (int)src.clips.size()) modelImportClip_ = 0;
+        std::string bakedClip;
+        float clipDur = 0.0f;
+        bool clipReady = false;
+        if (!src.clips.empty()) {
+            const std::vector<std::string> names = viewport_.animClipNames(modelImportFile_, "");
+            if (!names.empty()) {
+                clipReady = true;
+                bakedClip = names[(size_t)std::min(modelImportClip_, (int)names.size() - 1)];
+                clipDur = viewport_.animClipDuration(modelImportFile_, "", bakedClip);
+            }
+        }
+        if (modelImportClipPlay_ && clipDur > 0.0f) {
+            modelImportClipTime_ += ImGui::GetIO().DeltaTime;
+            if (modelImportClipTime_ > clipDur)
+                modelImportClipTime_ = std::fmod(modelImportClipTime_, clipDur);
+        }
+        const bool posed = clipReady && (modelImportClipPlay_ || modelImportClipTime_ > 0.0f);
+        uint32_t tex = 0;
+        if (posed) {
+            Viewport::AnimPreviewDesc ad;
+            ad.modelRel = modelImportFile_;
+            ad.clip = bakedClip;
+            ad.time = modelImportClipTime_;
+            ad.angleDeg = modelImportAngle_;
+            ad.pitchDeg = modelImportPitch_;
+            ad.zoom = modelImportZoom_;
+            ad.panX = modelImportPanX_;
+            ad.panY = modelImportPanY_;
+            ad.wireframe = modelImportWire_;
+            tex = viewport_.renderAnimPreview(pw, ph, ad);
+        } else {
+            tex = viewport_.renderImportPreview(pw, ph, d);
+        }
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const ImVec2 bt(at.x + pw, at.y + ph);
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -469,7 +509,7 @@ void App::drawModelImportModal() {
         // Left click picks the planned model under the cursor (split imports):
         // the nearest triangle hit selects its row in the list, empty space
         // clears the selection.
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && modelImportPlan_.size() > 1) {
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && modelImportPlan_.size() > 1 && !posed) {
             const ImVec2 mp = ImGui::GetIO().MousePos;
             float ro[3], rd[3];
             if (viewport_.importPreviewRay((mp.x - at.x) / (float)pw,
@@ -514,7 +554,7 @@ void App::drawModelImportModal() {
             float ua = 0, va = 0, ub = 0, vb = 0;
             bool found = false;
             float r0[3], d0[3], r1[3], d1[3];
-            if (!modelImportPlan_.empty() && bmx[1] > bmn[1] &&
+            if (!posed && !modelImportPlan_.empty() && bmx[1] > bmn[1] &&
                 viewport_.importPreviewRay(0.5f, 0.5f, r0, d0) &&
                 viewport_.importPreviewRay(0.6f, 0.5f, r1, d1)) {
                 float right[3] = {d1[0] - d0[0], 0.0f, d1[2] - d0[2]};
@@ -598,32 +638,61 @@ void App::drawModelImportModal() {
                             ImGui::GetColorU32(sem.textDim), hint);
             }
         }
-        // Clip bar (bottom) for animated sources: what clips come along.
-        // The preview shows the bind pose - clips play in the Animation
-        // Editor once imported.
+        // Clip bar (bottom) for animated sources: play / pause, the clip,
+        // a scrub bar and what comes along. Paused at 0 = the planned bind
+        // pose (what the options shape); playing or scrubbed = the source
+        // file as it animates.
         if (!src.clips.empty() || src.skinned) {
             char line[96];
-            std::snprintf(line, sizeof line, "%zu clip%s%s - bind pose shown", src.clips.size(),
+            std::snprintf(line, sizeof line, "%zu clip%s%s", src.clips.size(),
                           src.clips.size() == 1 ? "" : "s", src.skinned ? " - skinned" : "");
             const float h = ImGui::GetFrameHeight() + fs * 0.6f;
             const ImVec2 pa(at.x + m, bt.y - m - h), pb(bt.x - m, bt.y - m);
             ui::OverlayPanel(dl, pa, pb);
             ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            const ImVec2 ts = ImGui::CalcTextSize(line);
             if (!src.clips.empty()) {
-                static int clipSel = 0;
-                if (clipSel >= (int)src.clips.size()) clipSel = 0;
-                ImGui::SetNextItemWidth(std::min(scaled(260), (pb.x - pa.x) * 0.5f));
-                if (ImGui::BeginCombo("##importclips", src.clips[(size_t)clipSel].c_str())) {
+                if (modelImportClipPlay_) {
+                    if (ui::ToolIconButton("Pause clip", ui::ToolIcon::Pause))
+                        modelImportClipPlay_ = false;
+                } else if (ui::ToolIconButton("Play clip", ui::ToolIcon::Play)) {
+                    modelImportClipPlay_ = true;
+                }
+                ImGui::SameLine(0, fs * 0.4f);
+                ImGui::SetNextItemWidth(std::min(scaled(230), (pb.x - pa.x) * 0.34f));
+                if (ImGui::BeginCombo("##importclips", src.clips[(size_t)modelImportClip_].c_str())) {
                     for (int i = 0; i < (int)src.clips.size(); ++i)
-                        if (ImGui::Selectable(src.clips[(size_t)i].c_str(), i == clipSel)) clipSel = i;
+                        if (ImGui::Selectable(src.clips[(size_t)i].c_str(), i == modelImportClip_)) {
+                            modelImportClip_ = i;
+                            modelImportClipTime_ = 0.0f;
+                        }
                     ImGui::EndCombo();
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                    ImGui::SetTooltip("The clips this file brings. Trim, rename and preview them\n"
-                                      "in Tools > Animation Editor after the import.");
-                ImGui::SameLine();
+                    ImGui::SetTooltip("The clips this file brings. Trim and rename them in\n"
+                                      "Tools > Animation Editor after the import.");
+                ImGui::SameLine(0, fs * 0.6f);
+                const float sw = pb.x - ImGui::GetCursorScreenPos().x - ts.x - fs * 1.4f;
+                if (sw > fs * 4.0f) {
+                    char fmt[48];
+                    if (clipReady)
+                        std::snprintf(fmt, sizeof fmt, "%%.2f / %.2f s", clipDur);
+                    else
+                        std::snprintf(fmt, sizeof fmt, "%s",
+                                      modelImportClipPlay_ ? "loading clip..." : "bind pose");
+                    ImGui::SetNextItemWidth(sw);
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::BeginDisabled(!clipReady);
+                    // Scrubbing pauses: the bar is where the pose is.
+                    if (ImGui::SliderFloat("##cliptime", &modelImportClipTime_, 0.0f,
+                                           std::max(clipDur, 0.001f), fmt))
+                        modelImportClipPlay_ = false;
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Drag to scrub. Back to 0 shows the bind pose the\n"
+                                          "options above shape (Keep tris, pivot, size).");
+                }
             }
-            const ImVec2 ts = ImGui::CalcTextSize(line);
             dl->AddText(ImVec2(pb.x - ts.x - fs * 0.7f, pa.y + (h - ts.y) * 0.5f),
                         ImGui::GetColorU32(sem.textDim), line);
         }

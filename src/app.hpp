@@ -453,7 +453,13 @@ private:
     float modelImportZoom_ = 1.0f;
     float modelImportPanX_ = 0.0f, modelImportPanY_ = 0.0f;
     bool modelImportWire_ = false;
-    int modelImportUnit_ = 0;          // kUnitPresetMeters index, 3 = custom
+    // Clip playback in the import preview: the source file posed through the
+    // Animation Editor's preview path (by absolute path - nothing is written).
+    // Playing or a time past 0 shows the pose; 0 and paused = the planned model.
+    int modelImportClip_ = 0;
+    bool modelImportClipPlay_ = false;
+    float modelImportClipTime_ = 0.0f;
+    int modelImportUnit_ = 0;         // kUnitPresetMeters index, 3 = custom
     float modelImportMeters_ = 1.0f;   // meters per file unit
     bool modelImportAddToScene_ = false;
     bool modelImportLayout_ = true;    // split: place at the source layout
