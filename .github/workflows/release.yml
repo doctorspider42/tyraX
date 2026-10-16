@@ -450,14 +450,26 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          dmgs=(dist/tyrax-${{ needs.version.outputs.version }}-macos-*.dmg)
-          gh release create "v${{ needs.version.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --title "TyraX ${{ needs.version.outputs.version }}" \
-            --generate-notes \
-            --target "${{ needs.version.outputs.sha }}" \
-            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe \
-            dist/tyrax-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz \
-            dist/tyrax_${{ needs.version.outputs.version }}_amd64.deb \
-            dist/tyrax-${{ needs.version.outputs.version }}-1.x86_64.rpm \
+          v='${{ needs.version.outputs.version }}'
+          dmgs=(dist/tyrax-$v-macos-*.dmg)
+          assets=(
+            dist/TyraX-Setup-$v.exe
+            dist/tyrax-$v-linux-x86_64.tar.gz
+            dist/tyrax_${v}_amd64.deb
+            dist/tyrax-$v-1.x86_64.rpm
             "${dmgs[@]}"
+          )
+          # A re-run of a failed job (`gh run rerun --failed`, e.g. one macOS
+          # image that missed the release) re-runs this job too, and the tag
+          # already exists then: add what is missing instead of failing.
+          if gh release view "v$v" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "v$v is already released - uploading its packages again (--clobber)"
+            gh release upload "v$v" --repo "${{ github.repository }}" --clobber "${assets[@]}"
+          else
+            gh release create "v$v" \
+              --repo "${{ github.repository }}" \
+              --title "TyraX $v" \
+              --generate-notes \
+              --target "${{ needs.version.outputs.sha }}" \
+              "${assets[@]}"
+          fi

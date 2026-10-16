@@ -61,8 +61,9 @@ tools/ps2link/*
 # ...and the VS Code extension for .flownode/.screenfx files (see
 # tools/vscode-tyrax/README.md; its own .gitignore drops *.vsix + node_modules).
 !tools/vscode-tyrax/
-# Docker-free PS2 toolchain bootstrap/build scripts and the vendored historical
-# bin2s source. Downloaded compilers live in the user cache, never here.
+# Docker-free PS2 toolchain bootstrap/build scripts, the macOS dylib relinker
+# (machorelink.c) and the vendored historical bin2s source. Downloaded
+# compilers live in the user cache, never here.
 !tools/toolchain/
 tools/toolchain/*
 !tools/toolchain/setup.ps1
@@ -71,6 +72,7 @@ tools/toolchain/*
 !tools/toolchain/prepare-host.sh
 !tools/toolchain/native-build.ps1
 !tools/toolchain/native-build.sh
+!tools/toolchain/machorelink.c
 !tools/toolchain/bin2s/
 !tools/toolchain/bin2s/bin2s.c
 !tools/toolchain/bin2s/LICENSE

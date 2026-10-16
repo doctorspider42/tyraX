@@ -42,6 +42,18 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - **Static Batches**: summary tiles, batch | detail, one-click fixes for objects drawn solo. **World Facts** opens in front with "used by and how". **VU Programs**: the micro-memory budget always on top. **Procedural**: per-node point counts, Auto-arrange, a bake-state card; canvas zoom now scales node text. **Neural Upscaler**: the verdict and its action first, the three checks as cards.
 - **Live session**: one Host | Join dialog with a copyable invite that fills Join when pasted, the right firewall note per OS, and a panel showing who is where. **Update dialog**: rendered notes, what installing does, a real download bar.
 - The showcase example's *Neon Dusk* drone now fits all its chords in its one minute.
+## 1.172.2 - 2026-10-16
+
+### Releases
+
+- A brief network drop at Apple while the macOS image is finished (stapling the notarization ticket) no longer costs a release its `.dmg`: the step retries for a few minutes, an image whose ticket still cannot be attached ships anyway (it is notarized, and the app inside carries its ticket), and re-running a failed macOS job now adds its image to the release that already went out.
+
+## 1.172.1 - 2026-10-16
+
+### macOS
+
+- **The macOS download is here**: 1.172.0 went out without its `.dmg` (the packaging step missed a source file); this release carries both `tyrax-1.172.1-macos-arm64.dmg` and `-macos-x86_64.dmg`.
+- From source on a Mac, the first Build & Run no longer stops at the toolchain setup with `machorelink.c: No such file or directory`.
 
 ## 1.172.0 - 2026-10-12
 
