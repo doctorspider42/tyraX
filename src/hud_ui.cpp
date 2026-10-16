@@ -6713,192 +6713,99 @@ bool App::drawAnimBoneMapWindow() {
     return applied;
 }
 
+// The inspector of one "Borrowed from other files" row (animEdImport_): the
+// donor file's match, Map bones, and the retarget knobs. Returns true when the
+// row changed (the caller re-derives the model's clips).
 bool App::drawAnimImportSection(const std::string& modelRel) {
+    if (animEdImport_ < 0 || animEdImport_ >= (int)project_.animImports.size() ||
+        project_.animImports[(size_t)animEdImport_].model != modelRel) {
+        animEdImport_ = -1;
+        return false;
+    }
+    const theme::Semantics& sem = theme::semantics();
     bool changed = false;
-    int rows = 0;
-    for (const AnimImport& a : project_.animImports)
-        if (a.model == modelRel) ++rows;
+    const int i = animEdImport_;
+    AnimImport& a = project_.animImports[(size_t)i];
+    ImGui::PushID(i);
 
-    const std::string header =
-        rows ? "Imported clips (" + std::to_string(rows) + ")###animimp"
-             : std::string("Imported clips###animimp");
-    // Interface text stays terse (the skill rule): facts in the panel, the
-    // explanation - short - in tooltips. The old version opened with a
-    // three-line paragraph nobody came here to read.
-    const bool open = ImGui::CollapsingHeader(header.c_str());
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Borrow clips from another rigged file.");
-    if (!open) return false;
-
-    std::vector<std::string> candidates;
-    for (const std::string& m : listAnimatedModelFiles()) {
-        const std::string rel = "res/models/" + m;
-        if (rel != modelRel) candidates.push_back(rel);
+    ui::Caption("Borrowed clips");
+    {
+        ui::FontScope bold(ui::boldFont());
+        ImGui::TextUnformatted(std::filesystem::path(a.source).filename().string().c_str());
     }
-    ImGui::SetNextItemWidth(scaled(280));
-    const char* preview =
-        animImpSource_.empty() ? "Pick a file..." : animImpSource_.c_str();
-    if (ImGui::BeginCombo("##impsrc", preview)) {
-        for (const std::string& c : candidates)
-            if (ImGui::Selectable(c.c_str(), c == animImpSource_))
-                animImpSource_ = c;
-        if (candidates.empty())
-            ImGui::TextDisabled("No other animated model in the project.");
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Import file...")) {
-        const size_t before = listAnimatedModelFiles().size();
-        importModelAsset();
-        const std::vector<std::string> after = listAnimatedModelFiles();
-        if (after.size() > before) {
-            for (const std::string& m : after) {
-                const std::string rel = "res/models/" + m;
-                if (rel == modelRel) continue;
-                bool known = false;
-                for (const std::string& c : candidates)
-                    if (c == rel) known = true;
-                if (!known) animImpSource_ = rel;
-            }
-        }
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Copy a .glb/.fbx into res/models/ and select it.");
-
-    if (!animImpSource_.empty()) {
-        const AnimImportProbe& probe =
-            animImportProbe(modelRel, animImpSource_, {});
-        if (!probe.ok) {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable: %s",
-                               probe.error.c_str());
-        } else {
-            ImGui::SameLine();
-            if (ImGui::Button("Add clips")) {
-                AnimImport a;
-                a.model = modelRel;
-                a.source = animImpSource_;
-                project_.animImports.push_back(std::move(a));
-                // A poor name match is exactly what the mapper is for - open
-                // it on the fresh row instead of leaving a red number.
-                if (probe.bonesMapped < probe.bonesTotal)
-                    openAnimBoneMap((int)project_.animImports.size() - 1);
-                animImpSource_.clear();
-                changed = true;
-            }
-            ImGui::SameLine();
-            const float match = probe.match;
-            const ImVec4 col = match > 0.85f ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
-                               : match > 0.4f ? ImVec4(0.95f, 0.8f, 0.3f, 1.0f)
-                                              : ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
-            ImGui::TextColored(col, "%d/%d bones", probe.bonesMapped,
-                               probe.bonesTotal);
-            ImGui::SameLine();
-            ImGui::TextDisabled("- %d clip%s", probe.clipCount,
-                                probe.clipCount == 1 ? "" : "s");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Bones matched by name. Fix the rest in Map bones.");
-        }
-    }
-
-    if (rows) ImGui::Separator();
-    int removeAt = -1;
-    for (size_t i = 0; i < project_.animImports.size(); ++i) {
-        AnimImport& a = project_.animImports[i];
-        if (a.model != modelRel) continue;
-        ImGui::PushID((int)i);
-        ImGui::Bullet();
-        ImGui::SameLine();
+    {
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
         ImGui::TextUnformatted(a.source.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::Spacing();
+    const AnimImportProbe& probe = animImportProbe(a.model, a.source, a.boneMap);
+    if (!probe.ok) {
+        ui::StatusLine(2, ("Unusable: " + probe.error).c_str());
+    } else {
+        const bool full = probe.bonesMapped == probe.bonesTotal;
+        char line[96];
+        std::snprintf(line, sizeof line, "%d / %d bones mapped \xC2\xB7 %d clip%s", probe.bonesMapped,
+                      probe.bonesTotal, probe.clipCount, probe.clipCount == 1 ? "" : "s");
+        ui::StatusLine(full ? 0 : 1, line);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Donor bones with a home on this model - by name, or\n"
+                              "by the pairs you set in Map bones.");
         ImGui::SameLine();
-        {
-            const AnimImportProbe& probe =
-                animImportProbe(a.model, a.source, a.boneMap);
-            if (probe.ok) {
-                const bool full = probe.bonesMapped == probe.bonesTotal;
-                ImGui::TextColored(full ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
-                                        : ImVec4(0.95f, 0.8f, 0.3f, 1.0f),
-                                   "%d/%d", probe.bonesMapped, probe.bonesTotal);
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bones mapped.");
-                ImGui::SameLine();
-                ImGui::TextDisabled(probe.retarget.full ? "retarget" : "copy");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        probe.retarget.full
-                            ? "Bind poses differ %.0f deg (facing %.0f) - "
-                              "clips are resampled through the full "
-                              "retargeter."
-                            : "Identical binds - channels copy verbatim.",
-                        probe.retarget.bindGapDeg, probe.retarget.facingDeg);
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "!");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", probe.error.c_str());
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Map bones...")) openAnimBoneMap((int)i);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Remove")) removeAt = (int)i;
-
-        ImGui::Indent();
+        ui::Badge(probe.retarget.full ? "full retarget" : "copy", 4);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(probe.retarget.full
+                                  ? "Bind poses differ %.0f deg (facing %.0f) - clips are\n"
+                                    "resampled through the full retargeter."
+                                  : "Identical binds - channels copy verbatim.",
+                              probe.retarget.bindGapDeg, probe.retarget.facingDeg);
+        ImGui::Spacing();
+        // A partial match is the reason to open the mapper, so it leads.
+        if (full ? ImGui::Button("Map bones...") : ui::PrimaryButton("Map bones..."))
+            openAnimBoneMap(i);
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        const float capW = std::clamp(ImGui::GetContentRegionAvail().x * 0.38f, scaled(90.0f),
+                                      scaled(130.0f));
+        ui::InspectorRows rows(capW, capW);
         // Prefix is STAGED and committed when the edit ends - a committed
         // change re-parses, re-merges and re-bakes the model, and doing that
         // per keystroke stalled the editor once per character.
-        const bool editingThis = animImpEditRow_ == (int)i;
+        const bool editingThis = animImpEditRow_ == i;
         char prefix[64];
-        snprintf(prefix, sizeof prefix, "%s",
-                 editingThis ? animImpPrefix_ : a.prefix.c_str());
-        ImGui::SetNextItemWidth(scaled(110));
-        if (ImGui::InputText("Prefix", prefix, sizeof prefix)) {
-            animImpEditRow_ = (int)i;
+        snprintf(prefix, sizeof prefix, "%s", editingThis ? animImpPrefix_ : a.prefix.c_str());
+        if (ui::InputText("Prefix", prefix, sizeof prefix)) {
+            animImpEditRow_ = i;
             snprintf(animImpPrefix_, sizeof animImpPrefix_, "%s", prefix);
         }
-        if (ImGui::IsItemDeactivatedAfterEdit() && animImpEditRow_ == (int)i) {
+        if (ImGui::IsItemDeactivatedAfterEdit() && animImpEditRow_ == i) {
             if (a.prefix != animImpPrefix_) {
                 a.prefix = animImpPrefix_;
                 changed = true;
             }
             animImpEditRow_ = -1;
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Prepended to the imported clip names.");
-        ImGui::SameLine();
-        const char* modes[] = {"Root bones only", "Only where animated",
-                               "Copy everything"};
-        ImGui::SetNextItemWidth(scaled(150));
-        const int tSel =
-            a.translation >= 0 && a.translation < 3 ? a.translation : 0;
-        if (ImGui::BeginCombo("Translation", modes[tSel])) {
+        ui::RowHelp("Prepended to the imported clip names.");
+        const char* modes[] = {"Root bones only", "Only where animated", "Copy everything"};
+        const int tSel = a.translation >= 0 && a.translation < 3 ? a.translation : 0;
+        if (ui::BeginCombo("Translation", modes[tSel])) {
             for (int m = 0; m < 3; ++m)
-                if (ImGui::Selectable(modes[m], m == a.translation) &&
-                    m != a.translation) {
+                if (ImGui::Selectable(modes[m], m == a.translation) && m != a.translation) {
                     a.translation = m;
                     changed = true;
                 }
             ImGui::EndCombo();
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Which bones keep the source's positions.\n"
-                "Root only = keep this model's own proportions (default).");
-        if (ImGui::Checkbox("Retarget root motion", &a.retargetRoot))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Scale hip travel to this rig's hip height.");
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Ignore scale", &a.ignoreScale)) changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Drop the source's scale tracks (export noise).");
-        ImGui::SameLine();
+        ui::RowHelp("Which bones keep the source's positions.\n"
+                    "Root only = keep this model's own proportions (default).");
         {
             const char* faces[] = {"Auto", "0", "90", "180", "270"};
-            const int fi = a.facing < 0 ? 0
-                           : a.facing < 45 ? 1
-                           : a.facing < 135 ? 2
-                           : a.facing < 225 ? 3 : 4;
-            ImGui::SetNextItemWidth(scaled(70));
-            if (ImGui::BeginCombo("Facing", faces[fi])) {
+            const int fi = a.facing < 0 ? 0 : a.facing < 45 ? 1 : a.facing < 135 ? 2 : a.facing < 225 ? 3 : 4;
+            if (ui::BeginCombo("Facing", faces[fi])) {
                 for (int m = 0; m < 5; ++m)
                     if (ImGui::Selectable(faces[m], m == fi) && m != fi) {
                         a.facing = m == 0 ? -1 : (m - 1) * 90;
@@ -6906,52 +6813,53 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
                     }
                 ImGui::EndCombo();
             }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "World yaw of the source rig, degrees. Auto reads both\n"
-                    "rigs' facing from their feet (ankles -> toes).");
+            ui::RowHelp("World yaw of the source rig, degrees. Auto reads both\n"
+                        "rigs' facing from their feet (ankles -> toes).");
         }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Mirror", &a.mirror)) changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Import the clips mirrored left<->right - walk_right out\n"
-                "of walk_left.");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(80));
-        ImGui::DragFloat("Lean", &a.lean, 0.2f, -30.0f, 30.0f, "%.1f deg");
+        ui::DragFloat("Lean", &a.lean, 0.2f, -30.0f, 30.0f, "%.1f deg");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Posture fine-tune: + leans the torso forward, - back.\n"
-                "For a retarget that walks well but stands a bit off.");
-        ImGui::Unindent();
-        ImGui::PopID();
+        ui::RowHelp("Posture fine-tune: + leans the torso forward, - back.\n"
+                    "For a retarget that walks well but stands a bit off.");
+        if (ui::Switch("Retarget root motion (Scale hip travel to this rig's hip height)", &a.retargetRoot))
+            changed = true;
+        if (ui::Switch("Ignore scale (Drop the source's scale tracks - export noise)", &a.ignoreScale))
+            changed = true;
+        if (ui::Switch("Mirror (Import left<->right - walk_right out of walk_left)", &a.mirror))
+            changed = true;
     }
-    if (removeAt >= 0) {
-        project_.animImports.erase(project_.animImports.begin() + removeAt);
-        if (animMapRow_ == removeAt) animMapRow_ = -1;
+    ImGui::Spacing();
+    if (ui::DangerButton("Remove")) {
+        project_.animImports.erase(project_.animImports.begin() + i);
+        if (animMapRow_ == i) animMapRow_ = -1;
+        animEdImport_ = -1;
         changed = true;
     }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Stop borrowing this file's clips. Objects playing them\n"
+                          "fall back to their model's own clips.");
+    ImGui::PopID();
     return changed;
 }
+
+namespace {
+// Who plays a clip: one entry per (object, slot) that resolves to it.
+struct ClipUse {
+    int scene = 0, object = 0;
+    std::string objName, role;  // role: "idle", "walk", "start clip", "Animation node"...
+    bool player = false;
+    bool byDefault = false;  // an empty slot falling back to the first clip
+};
+}  // namespace
 
 void App::drawAnimEditorWindow() {
     if (!showAnimEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(920), scaled(620)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200), scaled(800)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Animation Editor", &showAnimEditor_)) {
         ImGui::End();
         return;
     }
-
-    // Dimmed "(?)" on the current line (the Preferences idiom - prefHelp is
-    // defined further down the file, next to the dialog that introduced it).
-    auto helpMarker = [](const char* tip) {
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-    };
+    const theme::Semantics& sem = theme::semantics();
 
     bool changed = false;
     // Belt and braces: `changed` is set by hand at each widget, so a newly
@@ -6959,21 +6867,18 @@ void App::drawAnimEditorWindow() {
     // the save icon dark). Comparing the section's serialized form across the
     // whole body cannot be forgotten. Clip renames also retarget references in
     // the SCENES, which the undo snapshot covers on its own.
-    // Two sections are owned by this window now, so the guard covers both -
-    // concatenated, which is the documented answer for a panel that spans more
-    // than one (app.hpp rule 1).
+    // Two sections are owned by this window, so the guard covers both -
+    // concatenated, the documented answer for a panel that spans more than one.
     const std::string beforeSection =
         project::sectionJson(project_, project::Section::AnimEdits) +
         project::sectionJson(project_, project::Section::AnimImports);
     // This window has early returns (an unusable model, a model with no clips
-    // of its own), and the import block above them can edit - so the commit
-    // has to be reachable from every exit, not only the bottom. The
-    // drawCreditsWindow / drawGradingWindow idiom.
+    // of its own), and the import inspector can edit - so the commit has to
+    // be reachable from every exit, not only the bottom.
     auto commitIfEdited = [&] {
         if (changed ||
             project::sectionJson(project_, project::Section::AnimEdits) +
-                    project::sectionJson(project_,
-                                         project::Section::AnimImports) !=
+                    project::sectionJson(project_, project::Section::AnimImports) !=
                 beforeSection)
             commitChange();
     };
@@ -6981,167 +6886,437 @@ void App::drawAnimEditorWindow() {
     // API here (glbInfo, the viewport cache, AnimClipEdit::model) speaks
     // project-relative paths, which is also what SceneObject::modelPath holds.
     std::vector<std::string> models;
-    for (const std::string& m : listAnimatedModelFiles())
-        models.push_back("res/models/" + m);
+    for (const std::string& m : listAnimatedModelFiles()) models.push_back("res/models/" + m);
     if (models.empty()) {
-        ImGui::TextDisabled(
-            "No animated models in this project.\n\n"
-            "Project > Assets > Import model... and pick a .glb or .fbx.");
+        ui::EmptyState(ui::Glyph::Film, "No animated models yet",
+                       "Import a .glb or .fbx with Project > Assets > Import model... - "
+                       "its clips show up here to trim, rename and retime.");
         commitIfEdited();
         ImGui::End();
         return;
     }
-    if (animEdModel_.empty() ||
-        std::find(models.begin(), models.end(), animEdModel_) == models.end()) {
+    if (animEdModel_.empty() || std::find(models.begin(), models.end(), animEdModel_) == models.end()) {
         animEdModel_ = models.front();
         animEdClip_.clear();
+        animEdImport_ = -1;
     }
+    const std::string modelFile = std::filesystem::path(animEdModel_).filename().string();
 
-    // --- header: model picker + the project-wide fps ratio ------------------
-    ImGui::SetNextItemWidth(scaled(280));
-    if (ImGui::BeginCombo("Model", animEdModel_.c_str())) {
-        for (const std::string& m : models)
-            if (ImGui::Selectable(m.c_str(), m == animEdModel_) &&
-                m != animEdModel_) {
-                animEdModel_ = m;
-                animEdClip_.clear();
-                animEdTime_ = 0.0f;
-            }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    // Background preview bakes in flight (the async viewport rebake). The
-    // work is off the UI thread now, so the panel STAYS interactive - this
-    // is the "it is still working" signal, not a stall.
-    if (viewport_.animBakesPending() > 0) {
-        ImGui::TextColored(
-            ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%c baking preview",
-            "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
+    // --- header: the model, the project fps, what this tool never does ------
+    {
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize(modelFile.c_str()).x + ImGui::GetFrameHeight() +
+                                ImGui::GetStyle().FramePadding.x * 3.0f);
+        if (ImGui::BeginCombo("##aemodel", modelFile.c_str())) {
+            for (const std::string& m : models)
+                if (ImGui::Selectable(m.c_str(), m == animEdModel_) && m != animEdModel_) {
+                    animEdModel_ = m;
+                    animEdClip_.clear();
+                    animEdImport_ = -1;
+                    animEdTime_ = 0.0f;
+                }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", animEdModel_.c_str());
         ImGui::SameLine();
+        const float projScaleH = animedit::projectTimeScale(project_.settings);
+        char fps[48];
+        std::snprintf(fps, sizeof fps, "%.0f \xE2\x86\x92 %.0f fps", project_.settings.animSourceFps,
+                      project_.settings.animPlayFps);
+        ui::Badge(fps, std::fabs(projScaleH - 1.0f) > 0.001f ? 3 : 4);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Source fps -> play fps (Project > Preferences > Rendering >\n"
+                              "Animation fps). Multiplies every clip of every model; a\n"
+                              "clip's own Time scale stacks on top (%.3fx now).",
+                              projScaleH);
+        // Background preview bakes in flight (the async viewport rebake): the
+        // panel stays interactive - this is "still working", not a stall.
+        if (viewport_.animBakesPending() > 0) {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.warn, "%c baking preview", "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
+        }
+        const char* note = "Edits are non-destructive - the source file is never rewritten";
+        const float nw = ImGui::CalcTextSize(note).x;
+        ImGui::SameLine();
+        const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+        if (right - nw > ImGui::GetCursorPosX()) {
+            ImGui::SetCursorPosX(right - nw);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", note);
+        } else {
+            ImGui::NewLine();
+        }
     }
-    const float projScale = animedit::projectTimeScale(project_.settings);
-    if (std::fabs(projScale - 1.0f) > 0.001f)
-        ImGui::TextDisabled("project fps: %.0f -> %.0f (%.3fx)",
-                            project_.settings.animSourceFps,
-                            project_.settings.animPlayFps, projScale);
-    else
-        ImGui::TextDisabled("project fps: 1:1");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Project > Preferences > Rendering > Animation fps.\n"
-            "Multiplies every clip of every model; the per-clip time\n"
-            "scale below stacks on top of it.");
+    ImGui::Separator();
 
-    // Imported clips, BEFORE the parse below and before its early returns: an
-    // import changes what clips this model has, and a character with none of
-    // its own - a bare rigged T-pose plus a folder of downloaded moves - is
-    // precisely the case this feature exists for. Drawn first, so that model
-    // can still reach the picker instead of hitting "no animation clips".
-    if (drawAnimImportSection(animEdModel_)) {
-        invalidateAnimCaches(animEdModel_);
-        changed = true;
-    }
     // The bone-mapping window is a satellite of this one and commits through
-    // the same section guard. Its rows all belong to the current model, so
-    // the targeted invalidation is correct for it too.
+    // the same section guard. Its rows all belong to the current model, so the
+    // targeted invalidation is correct for it too.
     if (drawAnimBoneMapWindow()) {
         invalidateAnimCaches(animEdModel_);
         changed = true;
     }
-    ImGui::Separator();
 
     const GlbInfo& info = glbInfo(animEdModel_);
     if (!info.ok) {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable model: %s",
-                           info.error.c_str());
+        ui::StatusLine(2, ("Unusable model: " + info.error).c_str());
         commitIfEdited();
         ImGui::End();
         return;
     }
     if (info.clips.empty()) {
-        ImGui::TextDisabled("This model has no animation clips.");
-        commitIfEdited();
-        ImGui::End();
-        return;
+        ui::EmptyState(ui::Glyph::Film, "This model has no animation clips",
+                       "Borrow clips from another rigged file below - a Mixamo move fits "
+                       "a rigged T-pose.");
     }
-    if (animEdClip_.empty() ||
-        std::find(info.clips.begin(), info.clips.end(), animEdClip_) ==
-            info.clips.end()) {
+    if (!info.clips.empty() &&
+        (animEdClip_.empty() || std::find(info.clips.begin(), info.clips.end(), animEdClip_) == info.clips.end())) {
         animEdClip_ = info.clips.front();
         animEdTime_ = 0.0f;
         snprintf(animEdRename_, sizeof(animEdRename_), "%s",
-                 animedit::effectiveName(project_, animEdModel_, animEdClip_)
-                     .c_str());
+                 animedit::effectiveName(project_, animEdModel_, animEdClip_).c_str());
     }
 
-    const AnimClipEdit* cur =
-        animedit::findEdit(project_, animEdModel_, animEdClip_);
+    // The model's own skeleton (cached parse): which clips are its own, how
+    // many joints, and the key times the timeline ticks.
+    std::string skErr;
+    const glbparser::Skel* ownSkel = skelCache_.get(project_.filePath(animEdModel_), skErr);
+    std::set<std::string> ownClips;
+    int jointCount = 0;
+    const glbparser::SkelClip* ownClip = nullptr;
+    if (ownSkel) {
+        jointCount = (int)ownSkel->palette.size();
+        for (const glbparser::SkelClip& c : ownSkel->clips) {
+            ownClips.insert(c.name);
+            if (c.name == animEdClip_) ownClip = &c;
+        }
+    }
+    const bool hasClip = !info.clips.empty() && !animEdClip_.empty();
+
+    // --- who plays what (players' slots, start clips, Animation nodes) -------
+    // An empty Idle/Walk/start slot means "the model's first clip" - counted as
+    // that clip, which is what the game does.
+    std::map<std::string, std::vector<ClipUse>> uses;  // keyed by EFFECTIVE name
+    const std::string firstEff =
+        info.clips.empty() ? std::string() : animedit::effectiveName(project_, animEdModel_, info.clips.front());
+    for (size_t si = 0; si < project_.scenes.size(); ++si) {
+        const SceneData& sc = project_.scenes[si];
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const SceneObject& o = sc.objects[oi];
+            if (o.modelPath != animEdModel_) continue;
+            auto add = [&](const std::string& stored, bool firstIfEmpty, const char* role, bool player) {
+                const std::string eff = stored.empty() ? (firstIfEmpty ? firstEff : std::string()) : stored;
+                if (eff.empty()) return;
+                ClipUse u;
+                u.scene = (int)si;
+                u.object = (int)oi;
+                u.objName = o.name;
+                u.role = role;
+                u.player = player;
+                u.byDefault = stored.empty();
+                uses[eff].push_back(u);
+            };
+            if (o.type == PrimitiveType::Player) {
+                add(o.playerIdleClip, true, "idle", true);
+                add(o.playerWalkClip, true, "walk", true);
+                add(o.playerRunClip, false, "run", true);
+                add(o.playerSprintClip, false, "sprint", true);
+                add(o.playerJumpClip, false, "jump", true);
+                add(o.playerBackClip, false, "back", true);
+                add(o.playerStrafeLeftClip, false, "strafe left", true);
+                add(o.playerStrafeRightClip, false, "strafe right", true);
+            } else {
+                add(o.animClip, true, "start clip", false);
+            }
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "Animation" && !n.str.empty()) add(n.str, false, "Animation node", false);
+        }
+    }
+    auto usageBadge = [&](const std::string& eff, std::string& text) -> int {
+        auto it = uses.find(eff);
+        if (it == uses.end() || it->second.empty()) {
+            text = "not used";
+            return 1;
+        }
+        std::set<int> who;
+        bool players = true;
+        for (const ClipUse& u : it->second) {
+            who.insert(u.scene * 100000 + u.object);
+            players &= u.player;
+        }
+        const int n = (int)who.size();
+        text = it->second.front().role + " \xC2\xB7 " + std::to_string(n) +
+               (players ? (n == 1 ? " player" : " players") : (n == 1 ? " object" : " objects"));
+        return 3;
+    };
+
+    const AnimClipEdit* cur = hasClip ? animedit::findEdit(project_, animEdModel_, animEdClip_) : nullptr;
     // Snapshot the staged values before any widget can append/prune the vector
     // and invalidate `cur` during this frame.
     const float curTimeScale = cur ? cur->timeScale : 1.0f;
     const bool curInPlace = cur && cur->inPlace;
     const bool curLoop = cur ? cur->loop : true;
-    const float srcDur =
-        viewport_.animClipDuration(animEdModel_, std::string(), animEdClip_);
+    const float projScale = animedit::projectTimeScale(project_.settings);
+    const float srcDur = hasClip ? viewport_.animClipDuration(animEdModel_, std::string(), animEdClip_) : 0.0f;
     float trimA = 0.0f, trimB = srcDur;
     animedit::trimWindow(cur, srcDur, trimA, trimB);
-    const float clipScale =
-        projScale * ((cur && cur->timeScale > 0.001f) ? cur->timeScale : 1.0f);
+    const float clipScale = projScale * ((cur && cur->timeScale > 0.001f) ? cur->timeScale : 1.0f);
     const float outDur = clipScale > 0.001f ? (trimB - trimA) / clipScale : 0.0f;
+    const std::string curEff = hasClip ? animedit::effectiveName(project_, animEdModel_, animEdClip_) : "";
 
-    ImGui::Separator();
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float listW = scaled(250.0f), inspW = scaled(320.0f);
+    auto vline = [&]() {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(b.x, a.y), ImVec2(b.x, b.y), ImGui::GetColorU32(sem.border));
+    };
 
-    // --- left: the model's clips -------------------------------------------
-    ImGui::BeginChild("##ae_clips", ImVec2(scaled(210), -scaled(4)),
-                      ImGuiChildFlags_Borders);
+    // --- left: the clips, then what is borrowed ----------------------------
+    ImGui::BeginChild("##ae_clips", ImVec2(listW, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##ae_filter", "Filter", animEdFilter_,
-                             sizeof animEdFilter_);
+    ImGui::InputTextWithHint("##ae_filter", "Filter clips", animEdFilter_, sizeof animEdFilter_);
     auto passesFilter = [&](const std::string& name) {
         if (!animEdFilter_[0]) return true;
-        // case-insensitive substring
-        std::string a = name, b = animEdFilter_;
+        std::string a = name, b = animEdFilter_;  // case-insensitive substring
         for (char& ch : a) ch = (char)std::tolower((unsigned char)ch);
         for (char& ch : b) ch = (char)std::tolower((unsigned char)ch);
         return a.find(b) != std::string::npos;
     };
-    for (const std::string& c : info.clips) {
-        if (!passesFilter(animedit::effectiveName(project_, animEdModel_, c)))
-            continue;
+    // One clip row: game name, duration, the source name, the usage badge.
+    auto clipRow = [&](const std::string& c) {
+        const std::string eff = animedit::effectiveName(project_, animEdModel_, c);
+        if (!passesFilter(eff) && !passesFilter(c)) return;
         const AnimClipEdit* e = animedit::findEdit(project_, animEdModel_, c);
-        std::string label = animedit::effectiveName(project_, animEdModel_, c);
-        if (e && !e->isDefault()) label += "  *";
-        if (ImGui::Selectable(label.c_str(), c == animEdClip_) &&
-            c != animEdClip_) {
+        const bool sel = animEdImport_ < 0 && c == animEdClip_;
+        const float fs = ImGui::GetFontSize();
+        const float h = fs * 3.9f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        // The label is the effective name (+ "  *" when edited): the ID and
+        // what scripts click.
+        const std::string label = eff + (e && !e->isDefault() ? "  *" : "") + "##clip_" + c;
+        if (ImGui::InvisibleButton(label.c_str(), ImVec2(w, h)) && (c != animEdClip_ || animEdImport_ >= 0)) {
             animEdClip_ = c;
+            animEdImport_ = -1;
             animEdTime_ = 0.0f;
-            snprintf(animEdRename_, sizeof(animEdRename_), "%s",
-                     animedit::effectiveName(project_, animEdModel_, c).c_str());
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s", eff.c_str());
         }
+        uiscript::markLastItemChecked(sel);
+        const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
         if (ImGui::IsItemHovered() && e && !e->rename.empty())
             ImGui::SetTooltip("source clip: %s", c.c_str());
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 q(p.x + w, p.y + h);
+        const float rr = ImGui::GetStyle().FrameRounding + 2.0f;
+        if (sel)
+            dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.14f)), rr);
+        else if (t > 0.0f)
+            dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, 0.8f * t)), rr);
+        const float x0 = p.x + fs * 0.5f;
+        // play mark on the selected clip
+        if (sel)
+            dl->AddTriangleFilled(ImVec2(x0, p.y + fs * 0.45f), ImVec2(x0, p.y + fs * 1.15f),
+                                  ImVec2(x0 + fs * 0.55f, p.y + fs * 0.8f), ImGui::GetColorU32(sem.accent));
+        const float tx = x0 + fs * 1.0f;
+        char dur[24];
+        const float d = viewport_.animClipDuration(animEdModel_, std::string(), c);
+        std::snprintf(dur, sizeof dur, "%.2f s", d);
+        float durW = 0.0f;
+        {
+            ui::FontScope mono(ui::monoFont());
+            durW = ImGui::CalcTextSize(dur).x;
+            dl->AddText(ImVec2(q.x - durW - fs * 0.5f, p.y + fs * 0.3f), ImGui::GetColorU32(sem.textDim), dur);
+        }
+        dl->PushClipRect(ImVec2(tx, p.y), ImVec2(q.x - durW - fs, q.y), true);
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(tx, p.y + fs * 0.3f), ImGui::GetColorU32(sem.text), eff.c_str());
+        }
+        dl->PopClipRect();
+        dl->PushClipRect(ImVec2(tx, p.y), ImVec2(q.x - fs * 0.4f, q.y), true);
+        {
+            ui::FontScope mono(ui::monoFont());
+            dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(tx, p.y + fs * 1.45f), ImGui::GetColorU32(sem.textDim),
+                        c.c_str());
+        }
+        dl->PopClipRect();
+        std::string badge;
+        const int kind = usageBadge(eff, badge);
+        const ImVec2 save = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(tx, p.y + fs * 2.45f));
+        ui::Badge(badge.c_str(), kind);
+        ImGui::SetCursorScreenPos(save);
+    };
+    if (!info.clips.empty()) {
+        const std::string capTxt = "In " + modelFile;
+        int own = 0;
+        for (const std::string& c : info.clips) own += ownClips.count(c) || !ownSkel ? 1 : 0;
+        ui::Caption(capTxt.c_str(), std::to_string(own).c_str());
+        for (const std::string& c : info.clips)
+            if (ownClips.count(c) || !ownSkel) clipRow(c);
+    }
+
+    // Borrowed: one row per donor file, its clips under it.
+    ImGui::Spacing();
+    int importRows = 0;
+    for (const AnimImport& a : project_.animImports) importRows += a.model == animEdModel_ ? 1 : 0;
+    ui::Caption("Borrowed from other files", std::to_string(importRows).c_str());
+    std::set<std::string> attributed;
+    for (size_t i = 0; i < project_.animImports.size(); ++i) {
+        const AnimImport& a = project_.animImports[i];
+        if (a.model != animEdModel_) continue;
+        ImGui::PushID((int)i);
+        const AnimImportProbe& probe = animImportProbe(a.model, a.source, a.boneMap);
+        char sub[48] = "";
+        if (probe.ok) std::snprintf(sub, sizeof sub, "%d/%d bones", probe.bonesMapped, probe.bonesTotal);
+        const std::string label = std::filesystem::path(a.source).filename().string();
+        const bool partial = probe.ok && probe.bonesMapped < probe.bonesTotal;
+        if (ui::ListRow(label.c_str(), probe.ok ? sub : "!", animEdImport_ == (int)i, ui::Glyph::Folder,
+                        ImGui::GetColorU32(!probe.ok ? sem.danger : partial ? sem.warn : sem.textDim)))
+            animEdImport_ = (int)i;
+        uiscript::markLastItemChecked(animEdImport_ == (int)i);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\nClick for its retarget settings and Map bones.", a.source.c_str());
+        // Its clips: the donor's names with the row's prefix (the merge may
+        // add a numeric suffix on a clash).
+        std::string err;
+        if (const glbparser::Skel* donor = skelCache_.get(project_.filePath(a.source), err)) {
+            ImGui::Indent(ImGui::GetFontSize() * 0.8f);
+            for (const glbparser::SkelClip& dc : donor->clips) {
+                const std::string want = a.prefix + dc.name;
+                for (const std::string& c : info.clips) {
+                    if (ownClips.count(c) || attributed.count(c)) continue;
+                    if (c == want || c.rfind(want, 0) == 0) {
+                        attributed.insert(c);
+                        clipRow(c);
+                        break;
+                    }
+                }
+            }
+            ImGui::Unindent(ImGui::GetFontSize() * 0.8f);
+        }
+        ImGui::PopID();
+    }
+    if (ownSkel) {
+        bool header = false;
+        for (const std::string& c : info.clips)
+            if (!ownClips.count(c) && !attributed.count(c)) {
+                if (!header) ImGui::TextDisabled("other borrowed clips");
+                header = true;
+                clipRow(c);
+            }
+    }
+    // Borrow: the project's other rigged files, or a new one from disk.
+    std::vector<std::string> candidates;
+    for (const std::string& m : models)
+        if (m != animEdModel_) candidates.push_back(m);
+    auto borrowPopup = [&]() {
+        if (!ImGui::BeginPopup("##ae_borrow")) return;
+        ImGui::TextDisabled("Rigged files in this project");
+        for (const std::string& c : candidates) {
+            const AnimImportProbe& probe = animImportProbe(animEdModel_, c, {});
+            char sub[64];
+            if (probe.ok)
+                std::snprintf(sub, sizeof sub, "%d/%d bones \xC2\xB7 %d clip%s", probe.bonesMapped, probe.bonesTotal,
+                              probe.clipCount, probe.clipCount == 1 ? "" : "s");
+            else
+                std::snprintf(sub, sizeof sub, "unusable");
+            ImGui::BeginDisabled(!probe.ok);
+            if (ImGui::Selectable((c + "##borrow").c_str())) {
+                AnimImport a;
+                a.model = animEdModel_;
+                a.source = c;
+                project_.animImports.push_back(std::move(a));
+                animEdImport_ = (int)project_.animImports.size() - 1;
+                // A poor name match is exactly what the mapper is for - open
+                // it on the fresh row instead of leaving a red number.
+                if (probe.bonesMapped < probe.bonesTotal) openAnimBoneMap(animEdImport_);
+                invalidateAnimCaches(animEdModel_);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", sub);
+        }
+        if (candidates.empty()) ImGui::TextDisabled("  none yet");
+        ImGui::Separator();
+        if (ImGui::Selectable("Import a file...")) {
+            const size_t before = listAnimatedModelFiles().size();
+            importModelAsset();
+            const std::vector<std::string> after = listAnimatedModelFiles();
+            if (after.size() > before)
+                for (const std::string& m : after) {
+                    const std::string rel = "res/models/" + m;
+                    if (rel == animEdModel_ ||
+                        std::find(candidates.begin(), candidates.end(), rel) != candidates.end())
+                        continue;
+                    AnimImport a;
+                    a.model = animEdModel_;
+                    a.source = rel;
+                    project_.animImports.push_back(std::move(a));
+                    animEdImport_ = (int)project_.animImports.size() - 1;
+                    const AnimImportProbe& probe = animImportProbe(animEdModel_, rel, {});
+                    if (probe.ok && probe.bonesMapped < probe.bonesTotal) openAnimBoneMap(animEdImport_);
+                    invalidateAnimCaches(animEdModel_);
+                    changed = true;
+                    break;
+                }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Copy a .glb/.fbx into res/models/ and borrow its clips.");
+        ImGui::EndPopup();
+    };
+    if (importRows == 0) {
+        if (ui::BeginCard("##ae_borrowcard", ImVec2(0, 0))) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            const std::string stem = std::filesystem::path(animEdModel_).stem().string();
+            ImGui::TextWrapped("Put a Mixamo move or another rig's clips on the %s - bones match by name, "
+                               "the %s keeps its proportions.",
+                               stem.c_str(), stem.c_str());
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            if (ImGui::Button("+ Borrow clips from a file", ImVec2(-FLT_MIN, 0))) ImGui::OpenPopup("##ae_borrow");
+            borrowPopup();
+        }
+        ui::EndCard();
+    } else {
+        if (ui::GhostButton("+ Borrow clips from a file")) ImGui::OpenPopup("##ae_borrow");
+        borrowPopup();
     }
     ImGui::EndChild();
-    ImGui::SameLine();
+    vline();
+    ImGui::SameLine(0.0f, 0.0f);
 
-    ImGui::BeginChild("##ae_right", ImVec2(0, -scaled(4)));
-
-    // --- live preview -------------------------------------------------------
-    {
+    // --- centre: the preview (hero) and the transport + timeline -----------
+    const float midW = ImGui::GetContentRegionAvail().x - inspW;
+    ImGui::BeginChild("##ae_right", ImVec2(midW > 1 ? midW : 1, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+    if (hasClip) {
+        const float transportH = ImGui::GetFrameHeight() * 2.0f + scaled(64.0f);
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const int pw = (int)std::max(scaled(240), avail.x);
+        const int ph = (int)std::max(scaled(160), avail.y - transportH - ImGui::GetStyle().ItemSpacing.y);
+        ImGuiIO& io = ImGui::GetIO();
         const double now = ImGui::GetTime();
-        const float dt =
-            animEdClock_ > 0.0 ? (float)(now - animEdClock_) : 0.0f;
+        const float dt = animEdClock_ > 0.0 ? (float)(now - animEdClock_) : 0.0f;
         animEdClock_ = now;
-        if (animEdPlaying_ && outDur > 0.0001f) {
+        static const float kSpeeds[] = {0.5f, 1.0f, 2.0f};
+        if (animEdPlaying_ && outDur > 0.0001f && animEdTimelineDrag_ == 0) {
             // The playhead runs in OUTPUT seconds - what the game will show -
             // so the timeline length is the retimed length and dragging Time
             // scale visibly speeds the preview up.
-            animEdTime_ = std::fmod(animEdTime_ + dt, outDur);
+            const float next = animEdTime_ + dt * kSpeeds[std::clamp(animEdSpeed_, 0, 2)];
+            if (animEdLoopPreview_) {
+                animEdTime_ = std::fmod(next, outDur);
+            } else if (next >= outDur) {
+                animEdTime_ = outDur;
+                animEdPlaying_ = false;
+            } else {
+                animEdTime_ = next;
+            }
         }
-        if (outDur > 0.0001f)
-            animEdTime_ = std::clamp(animEdTime_, 0.0f, outDur);
-        else
-            animEdTime_ = 0.0f;
+        animEdTime_ = outDur > 0.0001f ? std::clamp(animEdTime_, 0.0f, outDur) : 0.0f;
 
         Viewport::AnimPreviewDesc d;
         d.modelRel = animEdModel_;
@@ -7159,226 +7334,533 @@ void App::drawAnimEditorWindow() {
         d.wireframe = animEdWireframe_;
         d.inPlace = curInPlace;
         d.light = previewLight(animEdLight_);
-        const int pw = (int)std::max(scaled(240), ImGui::GetContentRegionAvail().x);
-        const int ph = (int)scaled(300);
-        const uint32_t tex = viewport_.renderAnimPreview(pw, ph, d);
-        if (tex) {
-            const ImVec2 origin = ImGui::GetCursorScreenPos();
-            ImGui::Image((ImTextureID)(intptr_t)tex,
-                         ImVec2((float)pw, (float)ph), ImVec2(0, 1),
-                         ImVec2(1, 0));
-            // Image() is display-only and does not reliably become active on
-            // a drag. Put a real input item over it, as the Material Editor
-            // does, so every mouse button has a deterministic owner.
-            ImGui::SetCursorScreenPos(origin);
-            ImGui::InvisibleButton(
-                "Animation preview##ae_view", ImVec2((float)pw, (float)ph),
-                ImGuiButtonFlags_MouseButtonRight |
-                    ImGuiButtonFlags_MouseButtonMiddle);
-            const bool hovered = ImGui::IsItemHovered();
-            const bool active = ImGui::IsItemActive();
-            ImGuiIO& io = ImGui::GetIO();
-
-            if (hovered && io.MouseWheel != 0.0f) {
-                animEdZoom_ *= std::pow(1.15f, io.MouseWheel);
-                animEdZoom_ = std::clamp(animEdZoom_, 0.1f, 8.0f);
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const ImVec2 omax(origin.x + pw, origin.y + ph);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rr = ImGui::GetStyle().FrameRounding + 4.0f;
+        if (const uint32_t tex = viewport_.renderAnimPreview(pw, ph, d))
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, origin, omax, ImVec2(0, 1), ImVec2(1, 0),
+                                IM_COL32_WHITE, rr);
+        dl->AddRect(origin, omax, ImGui::GetColorU32(sem.border), rr);
+        // Image() is display-only and does not reliably become active on a
+        // drag: a real input item over it gives every mouse button an owner.
+        ImGui::SetCursorScreenPos(origin);
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("Animation preview##ae_view", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                                   ImGuiButtonFlags_MouseButtonMiddle);
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active = ImGui::IsItemActive();
+        if (hovered && io.MouseWheel != 0.0f)
+            animEdZoom_ = std::clamp(animEdZoom_ * std::pow(1.15f, io.MouseWheel), 0.1f, 8.0f);
+        if (active) {
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                animEdYaw_ += io.MouseDelta.x * 0.4f;
+                animEdPitch_ = std::clamp(animEdPitch_ - io.MouseDelta.y * 0.3f, -30.0f, 85.0f);
+            } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+                // Keep the visual travel per pixel stable as zoom changes.
+                const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
+                animEdPanX_ = std::clamp(animEdPanX_ - io.MouseDelta.x * s, -5.0f, 5.0f);
+                animEdPanY_ = std::clamp(animEdPanY_ + io.MouseDelta.y * s, -5.0f, 5.0f);
             }
+        }
+        if (hovered)
+            ImGui::SetItemTooltip("Drag to orbit \xC2\xB7 middle-drag to pan \xC2\xB7 wheel to zoom");
 
-            if (active) {
-                if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-                    animEdYaw_ += io.MouseDelta.x * 0.4f;
-                    animEdPitch_ = std::clamp(
-                        animEdPitch_ - io.MouseDelta.y * 0.3f, -30.0f, 85.0f);
-                } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-                    // Keep the visual travel per pixel stable as zoom changes.
-                    const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
-                    animEdPanX_ = std::clamp(animEdPanX_ - io.MouseDelta.x * s,
-                                             -5.0f, 5.0f);
-                    animEdPanY_ = std::clamp(animEdPanY_ + io.MouseDelta.y * s,
-                                             -5.0f, 5.0f);
+        // Overlays: view pill top-left, reset top-right, identity bottom-left.
+        const float m = scaled(12.0f);
+        const char* lightTxt = animEdLight_.empty()  ? "Scene ambience"
+                               : animEdLight_ == "*" ? "Neutral studio"
+                                                     : animEdLight_.c_str();
+        const OverlayPillItem pill[] = {
+            {"Shaded", "Shaded", !animEdWireframe_},
+            {"Wireframe", "Wireframe", animEdWireframe_},
+        };
+        ImVec2 pillMax;
+        switch (overlayPill(ImVec2(origin.x + m, origin.y + m), pill, 2, &pillMax)) {
+            case 0: animEdWireframe_ = false; break;
+            case 1: animEdWireframe_ = true; break;
+            default: break;
+        }
+        {
+            const float pad = ui::OverlayPad();
+            const float w = ui::OverlayMenuButtonWidth(lightTxt) + pad * 2.0f;
+            const ImVec2 a(pillMax.x + scaled(6.0f), origin.y + m);
+            ui::OverlayPanel(dl, a, ImVec2(a.x + w, pillMax.y));
+            ImGui::SetCursorScreenPos(ImVec2(a.x + pad, a.y + pad));
+            if (ui::OverlayMenuButton("Preview light##ae", lightTxt, false)) ImGui::OpenPopup("##ae_light");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Light this preview with the scene's ambience (what ships),\n"
+                                  "a neutral studio, or any ambience preset.");
+            if (ImGui::BeginPopup("##ae_light")) {
+                std::string sel = animEdLight_;
+                if (ImGui::Selectable("Scene ambience", sel.empty())) sel.clear();
+                if (ImGui::Selectable("Neutral studio", sel == "*")) sel = "*";
+                if (!project_.ambiencePresets.empty()) ImGui::Separator();
+                for (const AmbiencePreset& ap : project_.ambiencePresets)
+                    if (ImGui::Selectable(ap.name.c_str(), sel == ap.name)) sel = ap.name;
+                if (sel != animEdLight_) {
+                    animEdLight_ = sel;
+                    saveGlobalConfig();
+                }
+                ImGui::EndPopup();
+            }
+        }
+        {
+            const float pad = ui::OverlayPad();
+            const float w = ui::OverlayTextWidth("Reset view") + pad * 2.0f;
+            const ImVec2 a(omax.x - m - w, origin.y + m);
+            ui::OverlayPanel(dl, a, ImVec2(a.x + w, a.y + ui::OverlayRowHeight() + pad * 2.0f));
+            ImGui::SetCursorScreenPos(ImVec2(a.x + pad, a.y + pad));
+            if (ui::OverlayTextButton("Reset view", "Reset view", false)) {
+                animEdYaw_ = 40.0f;
+                animEdPitch_ = 15.0f;
+                animEdZoom_ = 1.0f;
+                animEdPanX_ = animEdPanY_ = 0.0f;
+            }
+        }
+        {
+            char idt[160];
+            std::snprintf(idt, sizeof idt, "%s \xC2\xB7 %d joints \xC2\xB7 %d clips", curEff.c_str(), jointCount,
+                          (int)info.clips.size());
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(idt);
+            const float pad = scaled(8.0f);
+            const ImVec2 a(origin.x + m, omax.y - m - ts.y - pad);
+            ui::OverlayPanel(dl, a, ImVec2(a.x + ts.x + pad * 2.0f, a.y + ts.y + pad));
+            dl->AddText(ImVec2(a.x + pad, a.y + pad * 0.5f), ImGui::GetColorU32(sem.textDim), idt);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(origin.x, omax.y + ImGui::GetStyle().ItemSpacing.y));
+
+        // --- transport + timeline card --------------------------------------
+        if (ui::BeginCard("##ae_transport", ImVec2(0, 0))) {
+            ImDrawList* cdl = ImGui::GetWindowDrawList();
+            const float bh = ImGui::GetFrameHeight();
+            const ImU32 ink = ImGui::GetColorU32(sem.text);
+            auto iconButton = [&](const char* label, float size, bool on, int icon) {
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size));
+                const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+                const ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
+                if (icon == 1) {  // the big round play/pause
+                    cdl->AddCircleFilled(c, size * 0.5f, ImGui::GetColorU32(sem.text), 32);
+                } else if (on || t > 0.0f) {
+                    cdl->AddRectFilled(p, ImVec2(p.x + size, p.y + size),
+                                       ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z,
+                                                                 on ? 0.22f : 0.12f * t)),
+                                       ImGui::GetStyle().FrameRounding);
+                }
+                const float s = size * 0.22f;
+                const ImU32 gl = icon == 1 ? ImGui::GetColorU32(sem.ground) : (on ? ImGui::GetColorU32(sem.accent) : ink);
+                switch (icon) {
+                    case 0:  // back to start: bar + triangle
+                        cdl->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x - s, c.y + s), gl, 2.0f);
+                        cdl->AddTriangleFilled(ImVec2(c.x + s, c.y - s), ImVec2(c.x + s, c.y + s),
+                                               ImVec2(c.x - s * 0.6f, c.y), gl);
+                        break;
+                    case 1:
+                        if (animEdPlaying_) {
+                            cdl->AddRectFilled(ImVec2(c.x - s * 0.8f, c.y - s), ImVec2(c.x - s * 0.25f, c.y + s), gl);
+                            cdl->AddRectFilled(ImVec2(c.x + s * 0.25f, c.y - s), ImVec2(c.x + s * 0.8f, c.y + s), gl);
+                        } else {
+                            cdl->AddTriangleFilled(ImVec2(c.x - s * 0.6f, c.y - s), ImVec2(c.x - s * 0.6f, c.y + s),
+                                                   ImVec2(c.x + s, c.y), gl);
+                        }
+                        break;
+                    default:  // loop: a ring with an arrow head
+                        cdl->PathArcTo(c, s * 1.1f, 0.4f, 5.6f, 16);
+                        cdl->PathStroke(gl, 0, 1.6f);
+                        cdl->AddTriangleFilled(ImVec2(c.x + s * 1.1f, c.y - s * 0.1f),
+                                               ImVec2(c.x + s * 1.6f, c.y - s * 0.7f),
+                                               ImVec2(c.x + s * 0.5f, c.y - s * 0.7f), gl);
+                        break;
+                }
+                return pressed;
+            };
+            const float bigS = bh * 1.35f;
+            const float yMid = ImGui::GetCursorPosY() + (bigS - bh) * 0.5f;
+            ImGui::SetCursorPosY(yMid);
+            if (iconButton("Back to start", bh, false, 0)) animEdTime_ = 0.0f;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to start");
+            ImGui::SameLine();
+            ImGui::SetCursorPosY(yMid - (bigS - bh) * 0.5f);
+            if (iconButton(animEdPlaying_ ? "Pause" : "Play", bigS, false, 1)) {
+                if (!animEdPlaying_ && !animEdLoopPreview_ && animEdTime_ >= outDur - 1e-4f) animEdTime_ = 0.0f;
+                animEdPlaying_ = !animEdPlaying_;
+            }
+            ImGui::SameLine();
+            ImGui::SetCursorPosY(yMid);
+            if (iconButton("Loop preview", bh, animEdLoopPreview_, 2)) animEdLoopPreview_ = !animEdLoopPreview_;
+            uiscript::markLastItemChecked(animEdLoopPreview_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Loop the preview (the clip's own Loop by default is in the inspector).");
+            ImGui::SameLine();
+            ImGui::SetCursorPosY(yMid);
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::AlignTextToFramePadding();
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    ImGui::Text("%.3f", animEdTime_);
+                }
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled(" / %.3f s", outDur);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Seconds as the game plays it: authored %.3f s, trimmed and\n"
+                                  "retimed (%.2fx) to %.3f s.",
+                                  srcDur, clipScale, outDur);
+            static const char* kSpeedLbl[] = {"0.5\xC3\x97", "1\xC3\x97", "2\xC3\x97"};
+            float segW = ImGui::GetStyle().FramePadding.x * 6.0f + 6.0f;
+            for (const char* l : kSpeedLbl) segW += ImGui::CalcTextSize(l).x;
+            const char* hint = "Drag the green handles to trim";
+            ImGui::SameLine();
+            const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+            const float hintW = ImGui::CalcTextSize(hint).x + ImGui::GetStyle().ItemSpacing.x;
+            if (right - segW - hintW > ImGui::GetCursorPosX()) {
+                ImGui::SetCursorPosX(right - segW - hintW);
+                ImGui::SetCursorPosY(yMid);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", hint);
+                ImGui::SameLine();
+            }
+            ImGui::SetCursorPosX(right - segW);
+            ImGui::SetCursorPosY(yMid);
+            ui::Segmented("##ae_speed", kSpeedLbl, 3, &animEdSpeed_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Preview speed only - the clip's Time scale is what ships.");
+
+            // The timeline in SOURCE seconds: trim handles, cut regions,
+            // key ticks, the playhead.
+            ImGui::Spacing();
+            const float fs = ImGui::GetFontSize();
+            const ImVec2 t0 = ImGui::GetCursorScreenPos();
+            const float tw = ImGui::GetContentRegionAvail().x;
+            const float rulerH = fs * 1.1f, barH = fs * 1.5f;
+            const float th = rulerH + barH;
+            const float pad = fs * 0.6f;  // room for the handles at the ends
+            const float x0 = t0.x + pad, x1 = t0.x + tw - pad;
+            const float span = srcDur > 1e-4f ? srcDur : 1.0f;
+            auto xOf = [&](float s) { return x0 + (x1 - x0) * (s / span); };
+            auto sOf = [&](float x) { return std::clamp((x - x0) / (x1 - x0) * span, 0.0f, span); };
+            ImGui::InvisibleButton("Timeline##ae", ImVec2(tw, th));
+            const bool tlHover = ImGui::IsItemHovered();
+            const float by0 = t0.y + rulerH, by1 = by0 + barH;
+            // ruler
+            {
+                float step = 0.25f;
+                while ((x1 - x0) / (span / step) < fs * 3.5f) step *= 2.0f;
+                ui::FontScope mono(ui::monoFont());
+                for (float s = 0.0f; s <= span + 1e-4f; s += step) {
+                    char lb[16];
+                    std::snprintf(lb, sizeof lb, step < 1.0f ? "%.2f" : "%.1f", s);
+                    const float x = xOf(s);
+                    cdl->AddText(ImGui::GetFont(), fs * 0.8f, ImVec2(x - fs * 0.6f, t0.y),
+                                 ImGui::GetColorU32(sem.textDim), lb);
+                    cdl->AddLine(ImVec2(x, by0 - fs * 0.15f), ImVec2(x, by0), ImGui::GetColorU32(sem.border));
                 }
             }
+            cdl->AddRectFilled(ImVec2(x0, by0), ImVec2(x1, by1), ImGui::GetColorU32(sem.field), 3.0f);
+            // the kept window, and hatched cuts outside it
+            const float ka = xOf(trimA), kb = xOf(trimB);
+            cdl->AddRectFilled(ImVec2(ka, by0), ImVec2(kb, by1),
+                               ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.22f)));
+            cdl->AddRect(ImVec2(ka, by0), ImVec2(kb, by1), ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.6f)));
+            auto hatch = [&](float a, float b) {
+                if (b - a < 1.0f) return;
+                cdl->PushClipRect(ImVec2(a, by0), ImVec2(b, by1), true);
+                for (float x = a - barH; x < b; x += fs * 0.5f)
+                    cdl->AddLine(ImVec2(x, by1), ImVec2(x + barH, by0), ImGui::GetColorU32(sem.border), 1.0f);
+                cdl->PopClipRect();
+            };
+            hatch(x0, ka);
+            hatch(kb, x1);
+            // key ticks (the model's own clips; borrowed ones are merged at bake)
+            if (ownClip) {
+                std::set<int> ticks;
+                for (const glbparser::SkelChannel& ch : ownClip->channels)
+                    for (float kt : ch.times) ticks.insert((int)std::lround(xOf(kt)));
+                for (int x : ticks)
+                    cdl->AddLine(ImVec2((float)x, by1 - barH * 0.3f), ImVec2((float)x, by1),
+                                 ImGui::GetColorU32(ImVec4(sem.text.x, sem.text.y, sem.text.z, 0.35f)));
+            }
+            // handles
+            const ImU32 hcol = ImGui::GetColorU32(sem.ok);
+            for (float hx : {ka, kb})
+                cdl->AddRectFilled(ImVec2(hx - fs * 0.22f, by0 - 2.0f), ImVec2(hx + fs * 0.22f, by1 + 2.0f), hcol, 3.0f);
+            // playhead (source time)
+            const float phS = trimA + animEdTime_ * clipScale;
+            const float phx = xOf(phS);
+            cdl->AddLine(ImVec2(phx, by0 - fs * 0.35f), ImVec2(phx, by1), ImGui::GetColorU32(sem.accent), 2.0f);
+            cdl->AddNgonFilled(ImVec2(phx, by0 - fs * 0.35f), fs * 0.32f, ImGui::GetColorU32(sem.accent), 4);
 
-            ImGui::GetWindowDrawList()->AddText(
-                ImVec2(origin.x + scaled(8), origin.y + scaled(8)),
-                ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                "RMB rotate  |  MMB pan  |  wheel zoom");
+            // input: grab the nearest handle, else scrub
+            const ImVec2 mp = io.MousePos;
+            if (ImGui::IsItemActivated() && srcDur > 1e-4f) {
+                const float grab = fs * 0.6f;
+                if (std::fabs(mp.x - ka) < grab && std::fabs(mp.x - ka) <= std::fabs(mp.x - kb)) animEdTimelineDrag_ = 1;
+                else if (std::fabs(mp.x - kb) < grab) animEdTimelineDrag_ = 2;
+                else animEdTimelineDrag_ = 3;
+            }
+            if (ImGui::IsItemActive() && srcDur > 1e-4f) {
+                const float s = sOf(mp.x);
+                if (animEdTimelineDrag_ == 1) {
+                    animEditFor(animEdModel_, animEdClip_).trimStart = std::clamp(s, 0.0f, std::max(0.0f, trimB - 0.01f));
+                } else if (animEdTimelineDrag_ == 2) {
+                    const float b = std::clamp(s, trimA + 0.01f, srcDur);
+                    // The stored 0 means "to the end", which keeps following a
+                    // re-exported longer clip - only store a real cut.
+                    animEditFor(animEdModel_, animEdClip_).trimEnd = (b >= srcDur - 1e-4f) ? 0.0f : b;
+                } else if (animEdTimelineDrag_ == 3) {
+                    animEdPlaying_ = false;
+                    animEdTime_ = clipScale > 0.001f ? std::clamp((s - trimA) / clipScale, 0.0f, outDur) : 0.0f;
+                }
+            }
+            if (ImGui::IsItemDeactivated()) {
+                if (animEdTimelineDrag_ == 1 || animEdTimelineDrag_ == 2) {
+                    pruneAnimEdits();
+                    changed = true;
+                }
+                animEdTimelineDrag_ = 0;
+            }
+            if (tlHover && !ImGui::IsItemActive()) {
+                const float grab = fs * 0.6f;
+                if (std::fabs(mp.x - ka) < grab || std::fabs(mp.x - kb) < grab)
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            }
         }
+        ui::EndCard();
+    } else {
+        ui::EmptyState(ui::Glyph::Film, "No clip to preview", "Borrow clips from a file on the left.");
     }
+    ImGui::EndChild();
+    vline();
+    ImGui::SameLine(0.0f, 0.0f);
 
-    // --- transport + timeline ----------------------------------------------
-    if (ImGui::Button(animEdPlaying_ ? "Pause" : "Play", ImVec2(scaled(70), 0)))
-        animEdPlaying_ = !animEdPlaying_;
-    ImGui::SameLine();
-    if (ImGui::Button("|<", ImVec2(scaled(34), 0))) animEdTime_ = 0.0f;
-    ImGui::SameLine();
-    // Room on the same line for the Wireframe box + the preview-light combo.
-    ImGui::SetNextItemWidth(-scaled(340));
-    if (ImGui::SliderFloat("##ae_time", &animEdTime_, 0.0f,
-                           outDur > 0.0001f ? outDur : 1.0f, "%.3f s"))
-        animEdPlaying_ = false;
-    ImGui::SameLine();
-    ImGui::Checkbox("Wireframe", &animEdWireframe_);
-    ImGui::SameLine();
-    if (previewLightCombo("##ae_light", animEdLight_)) saveGlobalConfig();
-
-    if (ImGui::SmallButton("Reset view")) {
-        animEdYaw_ = 40.0f;
-        animEdPitch_ = 15.0f;
-        animEdZoom_ = 1.0f;
-        animEdPanX_ = animEdPanY_ = 0.0f;
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("RMB rotate; MMB pan; wheel zoom");
-
-    // --- the edit itself ----------------------------------------------------
-    ImGui::SeparatorText("Clip");
-    ImGui::TextDisabled("source: %s", animEdClip_.c_str());
-
-    ImGui::SetNextItemWidth(scaled(240));
-    ImGui::InputText("Name in game", animEdRename_, sizeof(animEdRename_));
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        std::string want = animEdRename_;
-        // Trim blanks: a name of spaces would be impossible to type into a
-        // flow node's Clip field.
-        while (!want.empty() && want.front() == ' ') want.erase(want.begin());
-        while (!want.empty() && want.back() == ' ') want.pop_back();
-        const std::string before =
-            animedit::effectiveName(project_, animEdModel_, animEdClip_);
-        // Empty (or back to the source name) means "no rename" - drop the
-        // field rather than storing a redundant one.
-        const std::string after = want.empty() ? animEdClip_ : want;
-        bool clash = false;
-        for (const std::string& c : info.clips)
-            if (c != animEdClip_ &&
-                animedit::effectiveName(project_, animEdModel_, c) == after)
-                clash = true;
-        if (clash) {
-            statusMessage_ =
-                "A clip of this model is already called \"" + after + "\"";
-            snprintf(animEdRename_, sizeof(animEdRename_), "%s", before.c_str());
-        } else if (after != before) {
-            AnimClipEdit& e = animEditFor(animEdModel_, animEdClip_);
-            e.rename = (after == animEdClip_) ? std::string() : after;
-            renameAnimClipRefs(animEdModel_, before, after);
-            pruneAnimEdits();
-            changed = true;
-            snprintf(animEdRename_, sizeof(animEdRename_), "%s", after.c_str());
-        }
-    }
-    ImGui::SameLine();
-    helpMarker(
-        "The name the game (and every script / flow node) uses for this clip.\n"
-        "Empty = the name authored in the file. Renaming retargets the clip\n"
-        "references of objects using this model, including Animation nodes in\n"
-        "their own graphs; a node that drives another object through an\n"
-        "object link keeps its text and may need updating by hand.");
-
-    float timeScale = curTimeScale;
-    ImGui::SetNextItemWidth(scaled(240));
-    if (ImGui::DragFloat("Time scale", &timeScale, 0.01f, 0.05f, 10.0f,
-                         "%.2fx")) {
-        timeScale = std::clamp(timeScale, 0.05f, 10.0f);
-        animEditFor(animEdModel_, animEdClip_).timeScale = timeScale;
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        pruneAnimEdits();
-        changed = true;
-    }
-    ImGui::SameLine();
-    helpMarker(
-        "Playback speed of THIS clip, on top of the project's animation fps.\n"
-        "2.00x plays it twice as fast (half as long). The object's own Speed\n"
-        "property and a flow node's Speed param multiply on top at runtime.");
-
-    if (srcDur > 0.0001f) {
-        float a = trimA, b = trimB;
-        ImGui::SetNextItemWidth(scaled(240));
-        if (ImGui::SliderFloat("Trim start", &a, 0.0f, srcDur, "%.3f s")) {
-            a = std::clamp(a, 0.0f, std::max(0.0f, b - 0.01f));
-            animEditFor(animEdModel_, animEdClip_).trimStart = a;
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            pruneAnimEdits();
+    // --- right: the inspector (the clip, or the selected borrowed file) ----
+    ImGui::BeginChild("##ae_insp", ImVec2(0, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+    if (animEdImport_ >= 0) {
+        if (drawAnimImportSection(animEdModel_)) {
+            invalidateAnimCaches(animEdModel_);
             changed = true;
         }
-        ImGui::SetNextItemWidth(scaled(240));
-        if (ImGui::SliderFloat("Trim end", &b, 0.0f, srcDur, "%.3f s")) {
-            b = std::clamp(b, a + 0.01f, srcDur);
-            // The stored 0 means "to the end", which keeps following a
-            // re-exported longer clip - only store a real cut.
-            animEditFor(animEdModel_, animEdClip_).trimEnd =
-                (b >= srcDur - 1e-4f) ? 0.0f : b;
+    } else if (hasClip) {
+        const float footH = ImGui::GetFrameHeightWithSpacing() + scaled(14.0f);
+        ImGui::BeginChild("##ae_inspbody", ImVec2(0, -footH));
+        ui::Caption("Clip");
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextWrapped("source: %s", animEdClip_.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
         }
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            pruneAnimEdits();
-            changed = true;
+        ImGui::Spacing();
+        const float capW = std::clamp(ImGui::GetContentRegionAvail().x * 0.36f, scaled(90.0f), scaled(120.0f));
+        auto helpUnder = [&](const char* text) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + capW);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.9f);
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+        };
+        {
+            ui::InspectorRows rows(capW, capW);
+            ui::InputText("Name in game", animEdRename_, sizeof(animEdRename_));
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                std::string want = animEdRename_;
+                // Trim blanks: a name of spaces would be impossible to type
+                // into a flow node's Clip field.
+                while (!want.empty() && want.front() == ' ') want.erase(want.begin());
+                while (!want.empty() && want.back() == ' ') want.pop_back();
+                const std::string before = animedit::effectiveName(project_, animEdModel_, animEdClip_);
+                // Empty (or back to the source name) means "no rename" - drop
+                // the field rather than storing a redundant one.
+                const std::string after = want.empty() ? animEdClip_ : want;
+                bool clash = false;
+                for (const std::string& c : info.clips)
+                    if (c != animEdClip_ && animedit::effectiveName(project_, animEdModel_, c) == after) clash = true;
+                if (clash) {
+                    statusMessage_ = "A clip of this model is already called \"" + after + "\"";
+                    snprintf(animEdRename_, sizeof(animEdRename_), "%s", before.c_str());
+                } else if (after != before) {
+                    AnimClipEdit& e = animEditFor(animEdModel_, animEdClip_);
+                    e.rename = (after == animEdClip_) ? std::string() : after;
+                    renameAnimClipRefs(animEdModel_, before, after);
+                    pruneAnimEdits();
+                    changed = true;
+                    snprintf(animEdRename_, sizeof(animEdRename_), "%s", after.c_str());
+                }
+            }
+            ui::RowHelp("Empty = the name authored in the file. Renaming retargets the clip\n"
+                        "references of objects using this model, including Animation nodes in\n"
+                        "their own graphs; a node that drives another object through an\n"
+                        "object link keeps its text and may need updating by hand.");
+            helpUnder("What flow graphs and scripts call it. Renames follow.");
+
+            float timeScale = curTimeScale;
+            if (ui::DragFloat("Time scale", &timeScale, 0.01f, 0.05f, 10.0f, "%.2fx")) {
+                timeScale = std::clamp(timeScale, 0.05f, 10.0f);
+                animEditFor(animEdModel_, animEdClip_).timeScale = timeScale;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                pruneAnimEdits();
+                changed = true;
+            }
+            ui::RowHelp("Playback speed of THIS clip, on top of the project's animation fps.\n"
+                        "2.00x plays it twice as fast (half as long). The object's own Speed\n"
+                        "property and a flow node's Speed param multiply on top at runtime.");
+
+            if (srcDur > 0.0001f) {
+                // Mirrors of the timeline's green handles, in SOURCE seconds
+                // (changing the speed never moves them).
+                float a = trimA, b = trimB;
+                if (ui::DragFloat("Trim start", &a, 0.005f, 0.0f, srcDur, "%.3f s")) {
+                    a = std::clamp(a, 0.0f, std::max(0.0f, b - 0.01f));
+                    animEditFor(animEdModel_, animEdClip_).trimStart = a;
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    pruneAnimEdits();
+                    changed = true;
+                }
+                if (ui::DragFloat("Trim end", &b, 0.005f, 0.0f, srcDur, "%.3f s")) {
+                    b = std::clamp(b, a + 0.01f, srcDur);
+                    animEditFor(animEdModel_, animEdClip_).trimEnd = (b >= srcDur - 1e-4f) ? 0.0f : b;
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    pruneAnimEdits();
+                    changed = true;
+                }
+                ui::RowHelp("Cut the clip to a range of the SOURCE animation. The trimmed clip\n"
+                            "is rebased to start at 0 with interpolated boundary poses, so it\n"
+                            "starts and ends exactly where you cut.");
+                char ships[96];
+                std::snprintf(ships, sizeof ships, "authored %.3f s \xE2\x86\x92 ships as %.3f s", srcDur, outDur);
+                helpUnder(ships);
+            } else {
+                helpUnder("static clip (no motion to retime)");
+            }
         }
-        ImGui::SameLine();
-        helpMarker(
-            "Cut the clip down to a range of the SOURCE animation (seconds as\n"
-            "authored, so changing the speed never moves these handles). The\n"
-            "trimmed clip is rebased to start at 0 and gets interpolated\n"
-            "boundary poses, so it starts and ends exactly where you cut.");
-    }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        {
+            ui::InspectorRows rows(capW, capW);
+            bool inPlace = curInPlace;
+            if (ui::Switch("In place (Removes root travel - for walk and run cycles)", &inPlace)) {
+                animEditFor(animEdModel_, animEdClip_).inPlace = inPlace;
+                pruneAnimEdits();
+                changed = true;
+            }
+            ui::RowHelp("Pins the character to its position at the trimmed start while keeping\n"
+                        "vertical bob and all limb animation - for a Player whose object\n"
+                        "already moves the avatar. Rebuild before testing in the game.");
+            bool loop = curLoop;
+            if (ui::Switch("Loop by default (How a placed object starts playing it)", &loop)) {
+                animEditFor(animEdModel_, animEdClip_).loop = loop;
+                pruneAnimEdits();
+                changed = true;
+            }
+            ui::RowHelp("Seeds the Loop switch of objects that pick this clip as their Start\n"
+                        "clip. Objects already placed keep theirs; a flow node's own Loop\n"
+                        "param always wins at runtime.");
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ui::Caption("Used by");
+        {
+            auto it = uses.find(curEff);
+            if (it == uses.end() || it->second.empty()) {
+                // The consequence, next to its cause: nothing plays this clip.
+                std::vector<std::pair<int, int>> where;
+                for (size_t si = 0; si < project_.scenes.size(); ++si)
+                    for (size_t oi = 0; oi < project_.scenes[si].objects.size(); ++oi) {
+                        const SceneObject& o = project_.scenes[si].objects[oi];
+                        if (o.type == PrimitiveType::Player && o.modelPath == animEdModel_)
+                            where.emplace_back((int)si, (int)oi);
+                    }
+                if (ui::BeginCard("##ae_unused", ImVec2(0, 0))) {
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextColored(sem.warn, "No player or object plays %s.", curEff.c_str());
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::TextWrapped(where.empty() ? "Pick it as an object's Start clip, a Player's locomotion "
+                                                       "clip, or in an Animation node."
+                                                     : "Unused clips still ship in the model's .tskl.");
+                    ImGui::PopStyleColor();
+                    ImGui::PopTextWrapPos();
+                }
+                ui::EndCard();
+                if (!where.empty()) {
+                    SceneObject& pl = project_.scenes[(size_t)where[0].first].objects[(size_t)where[0].second];
+                    const std::string lbl = "Set as Walk on " + pl.name + "##ae_setwalk";
+                    if (ImGui::Button(lbl.c_str())) {
+                        pl.playerWalkClip = curEff;
+                        commitChange();
+                        statusMessage_ = pl.name + " now walks with " + curEff;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Writes this clip into %s's Walk slot (Properties > Player).\n"
+                                          "Undo puts the old one back.",
+                                          pl.name.c_str());
+                }
+            } else {
+                for (size_t k = 0; k < it->second.size(); ++k) {
+                    const ClipUse& u = it->second[k];
+                    ImGui::PushID((int)k);
+                    const bool here = u.scene == project_.activeScene;
+                    std::string row = u.objName + "##use";
+                    std::string sub = u.role + (u.byDefault ? " (first clip)" : "");
+                    if (!here && u.scene >= 0 && u.scene < (int)project_.scenes.size())
+                        sub += " \xC2\xB7 " + project_.scenes[(size_t)u.scene].name;
+                    if (ui::ListRow(row.c_str(), sub.c_str(), false, u.player ? ui::Glyph::Person : ui::Glyph::Box) &&
+                        here)
+                        selectOnly(u.object);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(here ? "Select it in the scene." : "In another scene.");
+                    ImGui::PopID();
+                }
+            }
+        }
+        ImGui::EndChild();
 
-    bool inPlace = curInPlace;
-    if (ImGui::Checkbox("In place", &inPlace)) {
-        animEditFor(animEdModel_, animEdClip_).inPlace = inPlace;
-        pruneAnimEdits();
-        changed = true;
-    }
-    ImGui::SameLine();
-    helpMarker(
-        "Removes horizontal root motion from this clip, pinning the character\n"
-        "to its position at the trimmed start while keeping vertical bob and\n"
-        "all limb animation. This is per clip: an object playing a different\n"
-        "Start clip is unaffected. Use it when the Player object already moves\n"
-        "the avatar through the world; rebuild before testing in the game.");
-
-    bool loop = curLoop;
-    if (ImGui::Checkbox("Loop by default", &loop)) {
-        animEditFor(animEdModel_, animEdClip_).loop = loop;
-        pruneAnimEdits();
-        changed = true;
-    }
-    ImGui::SameLine();
-    helpMarker(
-        "Seeds the Loop checkbox of objects that pick this clip as their\n"
-        "Start clip. Objects already placed keep whatever they were set to,\n"
-        "and a flow node's own Loop param always wins at runtime.");
-
-    ImGui::Spacing();
-    if (srcDur > 0.0001f)
-        ImGui::TextDisabled("authored %.3f s  ->  ships as %.3f s  (%.2fx)",
-                            srcDur, outDur, clipScale);
-    else
-        ImGui::TextDisabled("static clip (no motion to retime)");
-
-    const AnimClipEdit* finalEdit =
-        animedit::findEdit(project_, animEdModel_, animEdClip_);
-    if (finalEdit && !finalEdit->isDefault()) {
-        if (ImGui::Button("Reset this clip")) {
-            const std::string before =
-                animedit::effectiveName(project_, animEdModel_, animEdClip_);
+        // Footer: what the clip is made of, and the way back.
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, scaled(4.0f)));
+        if (ownClip) {
+            int keys = 0;
+            for (const glbparser::SkelChannel& ch : ownClip->channels) keys = std::max(keys, (int)ch.times.size());
+            ui::FontScope mono(ui::monoFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%d keys \xC2\xB7 %d channels", keys, (int)ownClip->channels.size());
+            ImGui::SameLine();
+        }
+        const AnimClipEdit* finalEdit = animedit::findEdit(project_, animEdModel_, animEdClip_);
+        const bool edited = finalEdit && !finalEdit->isDefault();
+        const float rw = ImGui::CalcTextSize("Reset clip").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - rw);
+        if (ui::GhostButton("Reset clip", rw, edited)) {
+            const std::string before = animedit::effectiveName(project_, animEdModel_, animEdClip_);
             renameAnimClipRefs(animEdModel_, before, animEdClip_);
             auto& v = project_.animClipEdits;
             v.erase(std::remove_if(v.begin(), v.end(),
                                    [&](const AnimClipEdit& e) {
-                                       return e.model == animEdModel_ &&
-                                              e.clip == animEdClip_;
+                                       return e.model == animEdModel_ && e.clip == animEdClip_;
                                    }),
                     v.end());
-            snprintf(animEdRename_, sizeof(animEdRename_), "%s",
-                     animEdClip_.c_str());
+            snprintf(animEdRename_, sizeof(animEdRename_), "%s", animEdClip_.c_str());
             animEdTime_ = 0.0f;
             changed = true;
         }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(back to exactly what the file contains)");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(edited ? "Back to exactly what the file contains." : "Nothing edited on this clip.");
     }
-
-    ImGui::EndChild();  // ae_right
+    ImGui::EndChild();
 
     commitIfEdited();
     ImGui::End();

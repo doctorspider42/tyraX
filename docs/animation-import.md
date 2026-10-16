@@ -2,7 +2,7 @@
 
 A character is rigged once, but its animation usually arrives separately — one
 `.fbx` per move from Mixamo, or a second export from an animator. *Tools >
-Animation Editor > **Imported clips*** borrows those clips onto a model that
+Animation Editor > **Borrowed from other files*** borrows those clips onto a model that
 already lives in your project, so you do not have to merge the files in Blender
 and re-export the character every time a move is added.
 
@@ -13,19 +13,22 @@ the model is parsed — for the editor's preview and again on the way into the
 and reversible, re-exporting either asset picks the change up, and the console
 pays nothing at runtime.
 
-![An import row on a real cross-rig pair: 49/51 bones matched, the retarget mode chip, and the imported clip already in the model's clip list.](img/animation-import.png)
+![A borrowed file selected under Borrowed from other files: its bone match and mode chip, Map bones as the primary action while bones are unmatched, and the retarget settings.](img/animation-import.png)
 
 ## Using it
 
-1. **Get the clip file into the project.** *Import file…* copies a `.glb`/`.fbx`
-   into `res/models/` like any other asset, or pick one already there. A
+1. **Borrow clips from a file.** The button (under the clip list) lists the
+   project's other rigged files with their bone match and clip count, and
+   *Import a file...* copies a new `.glb`/`.fbx` into `res/models/` first. A
    clip-only download has no useful mesh, but it still has to be a project asset
    — the build opens it.
-2. **Read the skeleton match.** The percentage is how many of the source's
-   animated bones have a bone of the same name on your model. Green (>85%) is
-   fine. A low number means the two rigs do not share bone names, and the clip
-   will play with the unmatched bones simply not moving.
-3. **Add all clips.** They appear in the clip list immediately and animate in the
+2. **Read the skeleton match.** Picking a file adds it as a row under
+   *Borrowed from other files* with its clips under it; selecting the row shows
+   its settings in the inspector, led by `mapped / total bones` - how many of
+   the source's animated bones have a home on your model. When some do not,
+   **Map bones...** opens on its own (and is the inspector's primary button);
+   unmatched bones simply do not move.
+3. **Use them.** The clips appear in the list immediately and animate in the
    preview.
 
 An imported clip is an **ordinary clip of that model** from then on. It can be

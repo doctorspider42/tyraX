@@ -1309,8 +1309,8 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
-    // The "Imported clips" block of that window (docs/animation-import.md):
-    // borrow clips from another model file. Returns true when it changed
+    // The inspector of the import row selected under "Borrowed from other
+    // files" (animEdImport_, docs/animation-import.md). Returns true when it changed
     // something, which the caller turns into a commit + a cache drop - an
     // import alters what clips a model HAS, so every parse of it is stale.
     bool drawAnimImportSection(const std::string& modelRel);
@@ -2711,6 +2711,12 @@ private:
     float animEdPanX_ = 0.0f, animEdPanY_ = 0.0f;  // radius-relative target
     double animEdClock_ = 0.0;  // wall clock of the previous frame
     char animEdRename_[64] = {};  // rename field buffer for the selected clip
+    // The inspector shows the selected clip, or (>= 0) the import row picked
+    // under "Borrowed from other files" - index into Project::animImports.
+    int animEdImport_ = -1;
+    bool animEdLoopPreview_ = true;  // preview wraps (off: stops at the end)
+    int animEdSpeed_ = 1;            // preview speed: 0 = 0.5x, 1 = 1x, 2 = 2x
+    int animEdTimelineDrag_ = 0;     // 1 trim start, 2 trim end, 3 playhead
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
