@@ -177,7 +177,7 @@ are baked and before the sources are refreshed: only the
 everything fresh pays for one signature pass and nothing else; a build with three
 moved objects pays one scene solve plus three gathers and says so in the status
 bar and the build log. In the editor it lands as one undoable edit. GI has the
-same opt-in switch of its own beside it (*Re-bake stale global illumination*,
+same opt-in switch of its own beside it (*Re-bake stale global illumination before every build*,
 [global-illumination.md](global-illumination.md)); model AO is always automatic.
 
 ## Things that will catch you

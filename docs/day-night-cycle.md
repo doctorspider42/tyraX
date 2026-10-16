@@ -1,7 +1,7 @@
 # Day and night cycle
 
 The day/night cycle controls the sky, sun, moon, stars, fog and scene lighting
-from one time-of-day track. Open **Tools > Ambience Editor > Day / night**.
+from one time-of-day track. Open **Tools > Ambience Editor > Sky & time**.
 
 ![A running day/night cycle moving from daylight through sunset and dusk into night.](img/day-night-runtime.png)
 
@@ -10,22 +10,56 @@ The example project shows the same scene at four authored times:
 
 ![The day-night example at dawn, noon, sunset and night.](img/day-night-example.png)
 
+## The Sky & time tab
+
+The Ambience Editor opens docked beside the viewport. Its **Sky & time** tab is
+one split: the **presets** (each with a thumbnail of its sky at its own hour,
+the hour, *static* or *clock runs*, and *default* / *live* badges), a drawn
+**sky** in the middle, and an **inspector** on the right. In a narrow dock the
+preset list folds into a picker in the sky's header and the inspector moves
+under the sky. The top line says which preset the current scene uses.
+
+The sky preview draws the preset at the preview hour: the gradient, the sun and
+moon on their arcs with their elevations ("Sun +10°", "Moon -7°, below the
+horizon") and who lights the scene. **Play** runs the day in the preview at game
+speed (the clock's day length, or 24 seconds a day) - only the preview moves,
+not the preset's hour or the viewport.
+
+Under it, the **24-hour track**: the horizon colour through the day, one diamond
+per key (click to select it, drag to move it in time), the sunrise-sunset bar,
+the preview hour as a white playhead and - while the clock runs - the **bake
+hour** as a dashed marker. Drag on the track to scrub the hour; double-click it
+to add a key there (continuing the curve). **Seed a default day** writes a
+nine-key starting track. When the clock runs and the preview hour is two hours
+or more from the bake hour, a warning says the baked bounce light will disagree
+with the moving sun, with **Bake at HH:MM** to move the bake hour there.
+
 ## Set it up
 
 A cycle belongs to an ambience preset. Select the preset used by the current
-scene, enable the cycle and set:
+scene and turn on **Day/night cycle** (the *Cycle* section of the inspector's
+first tab). The inspector then has four tabs:
 
-- sunrise and sunset;
-- the sun's azimuth and tilt;
-- the moon's offset, azimuth and tilt;
-- sun and moon disc size;
-- time-of-day keyframes;
-- optional live clock speed.
+- **Key HH:MM** - the selected key's hour and colours (sky horizon and zenith,
+  light, fog), ambient, diffuse, brightness and stars, plus the *Sky dome*
+  settings and the *Cycle* switches;
+- **Sun & moon** - sunrise and sunset, the sun's bearing and tilt, the moon's
+  bearing, tilt and hours behind the sun, disc sizes, phase, opacity and the
+  moon texture;
+- **Fog & stars** - distance fog (its colour comes from the keys) and the
+  night sky;
+- **Clock** - the time of day, and with the clock running its day length and
+  bake hour.
 
-The viewport previews the selected preset while the Ambience Editor is open.
-If it is not the scene's preset, the tab says so and offers **Use for this
-scene**. Closing the window returns the viewport to the scene's preset; it does
-not discard your edit.
+With the cycle off the first tab is **Look** - the static sky, light and fog -
+because those values only apply then: with a cycle the keys own the sky, the
+light and the fog colour, so the static fields are not shown.
+
+The viewport previews the selected preset while the Ambience Editor is open
+(*Preview in viewport*). If it is not the scene's preset, the sky's header
+offers **Use for scene <name>**. Closing the window returns the viewport to the
+scene's preset; it does not discard your edit. The "..." menu holds the
+preset's name, *Default at game start*, Duplicate and Delete.
 
 ## Keyframes
 
@@ -82,7 +116,7 @@ move.
 
 ## Static or live
 
-With **Let the clock run** off, the chosen hour is baked and stays fixed. This
+With **Clock runs in game** off, the chosen hour is baked and stays fixed. This
 is the cheapest and most accurate mode.
 
 With it on, the game advances time. Cheap values update continuously:
@@ -99,7 +133,8 @@ Expensive lighting stays baked at its authored hour:
 - light probes;
 - baked point and emissive light.
 
-The editor shows both the live hour and the bake hour. Keep them reasonably
+The editor shows both the live hour and the bake hour on the track, and warns
+when they are far apart. Keep them reasonably
 close or the moving light will disagree with baked shadows and bounce colour.
 For a full-day game, bake several ambience presets and switch scenes or lighting
 sets at planned times instead of stretching one bake across 24 hours.

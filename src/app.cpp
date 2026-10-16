@@ -5908,8 +5908,9 @@ std::vector<std::string> App::captureOpenWindows() const {
 
 // The tools that change what the Viewport shows open BESIDE it: a floating
 // window over the picture it previews hides the thing it changes. Only a
-// window with no place in the loaded layout is docked (no ImGui settings, not
-// alive) - once the user moves it, ImGui remembers that and this leaves it be.
+// window with no dock place in the loaded layout is docked (no ImGui settings
+// or floating ones, not alive yet this session) - once the user docks it
+// elsewhere, ImGui remembers that and this leaves it be.
 // Window names are the layout keys and never change; this only decides the
 // first dock node, with the same DockBuilder calls a recipe makes.
 void App::dockToolWindows(unsigned int dockspace) {
@@ -5930,8 +5931,14 @@ void App::dockToolWindows(unsigned int dockspace) {
         was = *t.open;
         if (!justOpened) continue;
         toolFocusPending_.insert(t.name);
-        if (ImGui::FindWindowByName(t.name) || ImGui::FindWindowSettingsByID(ImHashStr(t.name)))
-            continue;  // it has a place already
+        // Docked somewhere already (or alive this session): leave it. A FLOATING
+        // saved position is not treated as a choice - every one of these
+        // windows used to open floating, so that is what old layouts hold -
+        // and is docked on the first open of a session; float it again and it
+        // stays floating until the editor restarts.
+        if (ImGui::FindWindowByName(t.name)) continue;
+        if (const ImGuiWindowSettings* ws = ImGui::FindWindowSettingsByID(ImHashStr(t.name)))
+            if (ws->DockId != 0) continue;
         ImGuiID target = 0;
         if (t.side) {
             if (ImGuiWindow* props = ImGui::FindWindowByName("Properties"))
@@ -12521,453 +12528,968 @@ void App::drawGradingWindow() {
 // is a scene's "mood" bundle; scenes pick one in Scene > Preferences (empty =
 // the default), and the Set Ambience flow node repaints the sky at runtime.
 // These controls used to live in Project Preferences.
+// "HH:MM" for an hour in [0, 24).
+static std::string ambHourText(float hour) {
+    const float h = ambience::wrap24(hour);
+    int hh = (int)h, mm = (int)((h - (float)hh) * 60.0f + 0.5f);
+    if (mm >= 60) mm -= 60, hh = (hh + 1) % 24;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d", hh, mm);
+    return buf;
+}
+
+// The name a key's hour reads as, for the inspector's heading.
+static const char* ambKeyName(float hour) {
+    const float h = ambience::wrap24(hour);
+    if (h < 4.5f) return "Night";
+    if (h < 7.5f) return "Dawn";
+    if (h < 11.0f) return "Morning";
+    if (h < 14.0f) return "Noon";
+    if (h < 17.0f) return "Afternoon";
+    if (h < 19.5f) return "Sunset";
+    if (h < 21.5f) return "Dusk";
+    return "Night";
+}
+
+static ImU32 ambRgb(const float* c, float a = 1.0f) {
+    auto ch = [](float v) { return (int)(ImClamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+    return IM_COL32(ch(c[0]), ch(c[1]), ch(c[2]), (int)(a * 255.0f));
+}
+
+// Hours between two times of day, the short way round the clock.
+static float ambHourGap(float a, float b) {
+    const float d = std::fabs(ambience::wrap24(a) - ambience::wrap24(b));
+    return d > 12.0f ? 24.0f - d : d;
+}
+
+// Ambience Editor (Tools > Ambience Editor; docs/day-night-cycle.md,
+// docs/global-illumination.md). Three window tabs: Sky & time (the presets, a
+// drawn sky with the 24 h track, and an inspector), Global illumination and
+// Baked lighting. showGiBake_ / showBakedLighting_ are tab REQUESTS (the Tools
+// menu items and old layouts that had standalone windows).
 void App::drawAmbienceWindow() {
     if (!showAmbienceEditor_ || !hasProject_) return;
+    if (!toolDockReady("Ambience Editor")) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(540)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1000), scaled(700)), ImGuiCond_FirstUseEver);
+    if (takeToolFocus("Ambience Editor")) ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("Ambience Editor", &showAmbienceEditor_)) {
         ImGui::End();
         return;
     }
 
-    // Two jobs, one window: authoring a scene's mood, and baking the light it
-    // implies. showGiBake_ is no longer a window flag - it is "show me the GI
-    // tab", set by the Tools menu item and by a saved layout that had the old
-    // standalone window open.
-    const bool wantGi = showGiBake_;
-    showGiBake_ = false;
-    const bool wantBaked = showBakedLighting_;
-    showBakedLighting_ = false;
+    if (showGiBake_) ambienceTab_ = 1;
+    if (showBakedLighting_) ambienceTab_ = 2;
+    const bool wantGi = showGiBake_, wantBaked = showBakedLighting_;
+    showGiBake_ = showBakedLighting_ = false;
     bool changed = false;
-    // Belt and braces: the presets and the day/night cycle both hand their
-    // edits back through the `changed` out-param, which any new control in
-    // either tab can forget to set. The section comparison cannot be forgotten.
-    const std::string beforeSection =
-        project::sectionJson(project_, project::Section::Ambience);
+    // Belt and braces: every control hands its edit back through `changed`,
+    // which a new control can forget. The section comparison cannot be.
+    const std::string beforeSection = project::sectionJson(project_, project::Section::Ambience);
+    const theme::Semantics& sem = theme::semantics();
 
-    if (ImGui::BeginTabBar("##ambience_tabs")) {
-        if (ImGui::BeginTabItem("Presets")) {
-            drawAmbiencePresets(changed);
-            ImGui::EndTabItem();
+    // --- window tabs, and which preset the current scene uses ---------------
+    refreshGiStates(false);
+    int giStale = 0;
+    for (const GiSceneState& s : giStates_) giStale += project_.settings.giEnabled && !s.fresh;
+    {
+        const ImVec2 rowStart = ImGui::GetCursorPos();
+        if (ui::BeginQuietTabBar("##ambience_tabs")) {
+            if (ui::QuietTab("Sky & time", ambienceTab_ == 0)) ambienceTab_ = 0;
+            // The stale state is visible from every tab: the label carries it
+            // (same ID - the ### part - so scripts still name the tab).
+            const char* giLabel = giStale > 0 ? "Global illumination  · stale###gitab"
+                                              : "Global illumination###gitab";
+            if (ui::QuietTab(giLabel, ambienceTab_ == 1, wantGi ? ImGuiTabItemFlags_SetSelected : 0))
+                ambienceTab_ = 1;
+            if (giStale > 0 && ImGui::IsItemHovered())
+                ImGui::SetTooltip("%d scene(s) need a GI bake", giStale);
+            if (ui::QuietTab("Baked lighting", ambienceTab_ == 2,
+                             wantBaked ? ImGuiTabItemFlags_SetSelected : 0))
+                ambienceTab_ = 2;
+            ui::EndQuietTabBar();
         }
-        if (ImGui::BeginTabItem("Day / night")) {
-            drawAmbienceDayCycle(changed);
-            ImGui::EndTabItem();
+        const ImVec2 after = ImGui::GetCursorPos();
+        // Right end of the tab row: "Scene dusk uses noon (project default)".
+        const SceneData& scn = project_.active();
+        const int idx = project::ambienceIndexFor(project_, scn);
+        std::string uses = "Scene " + scn.name + " uses " +
+                           (idx >= 0 && idx < (int)project_.ambiencePresets.size()
+                                ? project_.ambiencePresets[idx].name
+                                : std::string("no preset")) +
+                           (scn.ambiencePreset.empty() ? " (project default)" : "");
+        const float tw = ImGui::CalcTextSize(uses.c_str()).x;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        if (right - tw > rowStart.x + ImGui::GetFontSize() * 30.0f) {
+            ImGui::SetCursorPos(ImVec2(right - tw, rowStart.y + ImGui::GetStyle().FramePadding.y));
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted(uses.c_str());
+            ImGui::PopStyleColor();
         }
-        if (ImGui::BeginTabItem("Global illumination", nullptr,
-                                wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
-            drawGiBakeSection();
-            ImGui::EndTabItem();
-        }
-        // The light that is computed on the host and ships as PIXELS rather
-        // than as a scene table - model AO today, and whatever else joins it.
-        if (ImGui::BeginTabItem("Baked lighting", nullptr,
-                                wantBaked ? ImGuiTabItemFlags_SetSelected : 0)) {
-            drawBakedLightingSection();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+        ImGui::SetCursorPos(after);
+    }
+
+    if (ambienceTab_ == 0) {
+        drawAmbienceSkyTime(changed);
+    } else if (ambienceTab_ == 1) {
+        ImGui::BeginChild("##gi_tab", ImVec2(0, 0));
+        drawGiBakeSection();
+        ImGui::EndChild();
+    } else {
+        // The light computed on the host that ships as PIXELS rather than as a
+        // scene table - model AO today, and whatever else joins it.
+        ImGui::BeginChild("##baked_tab", ImVec2(0, 0));
+        drawBakedLightingSection();
+        ImGui::EndChild();
     }
     ImGui::End();
-    if (changed ||
-        project::sectionJson(project_, project::Section::Ambience) != beforeSection)
+    if (changed || project::sectionJson(project_, project::Section::Ambience) != beforeSection)
         commitChange();
 }
 
-// The preset half of the Ambience Editor (see drawAmbienceWindow).
-void App::drawAmbiencePresets(bool& changed) {
-    // --- left: preset list -------------------------------------------------
-    ImGui::BeginChild("##ambience_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
-    if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
+// Sky & time: presets | sky preview + 24 h track | inspector. One split, so
+// "which preset" and "which time" are never on different tabs.
+void App::drawAmbienceSkyTime(bool& changed) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    // Docked beside the viewport the window is often narrower than the three
+    // panes want: the preset list then folds into a picker in the sky's header.
+    const bool narrow = avail.x < scaled(860);
+    const float listW = narrow ? 0.0f : ImClamp(avail.x * 0.2f, scaled(170), scaled(230));
+    const float inspW = ImClamp(avail.x * (narrow ? 0.42f : 0.3f), scaled(240), scaled(340));
+    // Nothing picked yet: open on the preset the current scene is lit by.
+    if ((selectedAmbience_ < 0 || selectedAmbience_ >= (int)project_.ambiencePresets.size()) &&
+        !project_.ambiencePresets.empty()) {
+        const int idx = project::ambienceIndexFor(project_, project_.active());
+        selectedAmbience_ = idx >= 0 && idx < (int)project_.ambiencePresets.size() ? idx : 0;
+    }
+    int deleteIdx = -1;
+    bool wantNewPreset = false;  // from the folded picker: applied after the panes
+    auto newPreset = [&] {
         int counter = 0;
         std::string name;
         for (;;) {
             name = "ambience-" + std::to_string(++counter);
             bool taken = false;
-            for (const auto& a : project_.ambiencePresets) taken |= (a.name == name);
+            for (const auto& o : project_.ambiencePresets) taken |= (o.name == name);
             if (!taken) break;
         }
-        AmbiencePreset a;
-        a.name = name;
-        project_.ambiencePresets.push_back(std::move(a));
+        AmbiencePreset np;
+        np.name = name;
+        project_.ambiencePresets.push_back(std::move(np));
         selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
         changed = true;
-    }
-    ImGui::Separator();
-    for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
-        ImGui::PushID(i);
-        std::string tag = project_.ambiencePresets[i].name;
-        if (project_.defaultAmbience == i) tag += "  [default]";
-        if (ImGui::Selectable(tag.c_str(), selectedAmbience_ == i))
-            selectedAmbience_ = i;
-        ImGui::PopID();
-    }
-    if (project_.ambiencePresets.empty())
-        ImGui::TextDisabled("No presets yet.\nA preset bundles the\n"
-                            "sky, lighting and fog\ninto one reusable mood.");
-    ImGui::EndChild();
+    };
 
-    ImGui::SameLine();
-
-    // --- right: selected preset editor -------------------------------------
-    ImGui::BeginChild("##ambience_edit", ImVec2(0, 0));
-    if (selectedAmbience_ < 0 ||
-        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
-        ImGui::TextDisabled("Select a preset on the left (or create one).");
-        ImGui::TextDisabled("\nUse presets by:");
-        ImGui::BulletText("marking one \"Default at game start\"");
-        ImGui::BulletText("picking one per scene in Scene > Preferences");
-        ImGui::BulletText("the Set Ambience flow node (category \"Scene\")");
-        ImGui::EndChild();
-        return;
-    }
-    AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
-
-    char nameBuf[64];
-    std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-        // keep scene references and Set Ambience flow nodes pointing here
-        for (SceneData& sc : project_.scenes) {
-            if (sc.ambiencePreset == a.name) sc.ambiencePreset = nameBuf;
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
-                    const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::AmbienceName &&
-                        fn.str == a.name)
-                        fn.str = nameBuf;
-                }
-        }
-        a.name = nameBuf;
-    }
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Duplicate")) {
-        AmbiencePreset copy = a;
-        std::string base = copy.name;
-        for (int n = 2;; ++n) {
-            copy.name = base + "-" + std::to_string(n);
-            bool taken = false;
-            for (const auto& other : project_.ambiencePresets)
-                taken |= (other.name == copy.name);
-            if (!taken) break;
-        }
-        project_.ambiencePresets.push_back(std::move(copy));
-        selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Delete")) {
-        const std::string gone = a.name;
-        for (SceneData& sc : project_.scenes) {
-            if (sc.ambiencePreset == gone) sc.ambiencePreset.clear();
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
-                    const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::AmbienceName &&
-                        fn.str == gone)
-                        fn.str.clear();
-                }
-        }
-        if (project_.defaultAmbience == selectedAmbience_)
-            project_.defaultAmbience = -1;
-        else if (project_.defaultAmbience > selectedAmbience_)
-            --project_.defaultAmbience;
-        project_.ambiencePresets.erase(project_.ambiencePresets.begin() +
-                                       selectedAmbience_);
-        selectedAmbience_ = -1;
-        commitChange();
-        ImGui::EndChild();
-        ImGui::End();
-        return;
-    }
-
-    bool isDefault = project_.defaultAmbience == selectedAmbience_;
-    if (ImGui::Checkbox("Default at game start", &isDefault)) {
-        project_.defaultAmbience = isDefault ? selectedAmbience_ : -1;
-        changed = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
-    ImGui::SameLine(0.0f, scaled(24.0f));
-    ImGui::Checkbox("Preview in viewport", &ambiencePreview_);
-
-    ImGui::SeparatorText("Sky");
-    ImGui::ColorEdit3("Sky horizon color", a.skyColor);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    // A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit. It activates on
-    // mouse-down and both edits and deactivates on mouse-up, so the
-    // "was edited while active in a PREVIOUS frame" test it runs can never
-    // be true - the edit silently never reached the project, and the change
-    // survived only until the next reload. Use the return value.
-    if (ImGui::Checkbox("Gradient sky dome", &a.skyDome)) changed = true;
-    ImGui::BeginDisabled(!a.skyDome);
-    ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How much of the sky the zenith color fills.\n"
-                          "0.5 = linear; higher spreads the zenith color down\n"
-                          "toward the horizon, lower keeps it near the top.");
-    // Painted sky (docs/sky-texture.md): an equirectangular panorama copied
-    // into res/sky/ (a folder that never ships - only its baked crop does).
-    if (ImGui::Button(a.skyTexture.empty() ? "Sky texture (PNG)..."
-                                           : "Replace sky texture...")) {
-        const std::string src = pickPngFile();
-        if (!src.empty()) {
-            const std::filesystem::path srcPath(src);
-            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-            const std::filesystem::path destDir =
-                std::filesystem::path(project_.dir) / "res" / "sky";
-            std::error_code ec;
-            std::filesystem::create_directories(destDir, ec);
-            if (std::filesystem::absolute(srcPath, ec) !=
-                std::filesystem::absolute(destDir / fileName, ec))
-                std::filesystem::copy_file(
-                    srcPath, destDir / fileName,
-                    std::filesystem::copy_options::overwrite_existing, ec);
-            if (!ec) {
-                a.skyTexture = "res/sky/" + fileName;
-                changed = true;
-            } else {
-                statusMessage_ = "Sky texture import failed: " + ec.message();
+    // --- presets ----------------------------------------------------------------
+    if (!narrow) {
+    ui::BeginCard("##amb_list", ImVec2(listW, avail.y));
+    {
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "%d", (int)project_.ambiencePresets.size());
+        ui::Caption("Presets", cnt);
+        if (ui::GhostButton("+ New preset", -1.0f)) newPreset();
+        const float footH = ImGui::GetTextLineHeightWithSpacing() * 3.2f;
+        ImGui::BeginChild("##amb_rows", ImVec2(0, -footH));
+        const float rowH = scaled(46);
+        for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
+            const AmbiencePreset& a = project_.ambiencePresets[i];
+            const DayCycle& c = a.cycle;
+            ImGui::PushID(i);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const std::string id = a.name + "##amb";
+            if (ImGui::InvisibleButton(id.c_str(), ImVec2(w, rowH))) {
+                selectedAmbience_ = i;
+                ambiencePlayHour_ = -1.0f;
             }
+            const bool sel = selectedAmbience_ == i, hov = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            if (sel) {
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.14f)), 8.0f);
+                dl->AddRect(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.35f)), 8.0f);
+            } else if (hov) {
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(sem.surface), 8.0f);
+            }
+            // Thumbnail: the preset's sky at its own hour.
+            const float th = rowH - scaled(12);
+            const ImVec2 t0(p.x + scaled(6), p.y + scaled(6)), t1(t0.x + th, t0.y + th);
+            const float *top = a.skyTopColor, *hor = a.skyColor;
+            ambience::Resolved r{};
+            if (c.enabled) {
+                r = ambience::evaluate(c, c.time);
+                top = r.skyTopColor;
+                hor = r.skyColor;
+            }
+            dl->AddRectFilledMultiColor(t0, t1, ambRgb(top), ambRgb(top), ambRgb(hor), ambRgb(hor));
+            dl->AddRect(t0, t1, ImGui::GetColorU32(sem.border), 4.0f);
+            const float x = t1.x + scaled(8);
+            const char* badge = project_.defaultAmbience == i ? "default" : (c.enabled && c.runtime ? "live" : nullptr);
+            const float bw = badge ? ImGui::CalcTextSize(badge).x + fs : 0.0f;
+            dl->PushClipRect(ImVec2(x, p.y), ImVec2(p.x + w - bw - 4.0f, p.y + rowH), true);
+            dl->AddText(ImVec2(x, p.y + rowH * 0.5f - fs * 1.05f), ImGui::GetColorU32(sem.text), a.name.c_str());
+            {
+                ui::FontScope mono(ui::monoFont());
+                const std::string meta = c.enabled ? ambHourText(c.time) + (c.runtime ? " · clock runs" : " · static")
+                                                   : std::string("no cycle");
+                dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(x, p.y + rowH * 0.5f + fs * 0.1f),
+                            ImGui::GetColorU32(sem.textDim), meta.c_str());
+            }
+            dl->PopClipRect();
+            if (badge) {
+                ImGui::SetCursorScreenPos(ImVec2(p.x + w - bw, p.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f));
+                ui::Badge(badge, badge[0] == 'l' ? 0 : 4);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + 2.0f));
+            ImGui::Dummy(ImVec2(1, 1));
+            ImGui::PopID();
         }
+        ImGui::EndChild();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("A scene uses the project default unless it picks one. Flow: Set Ambience "
+                           "switches at runtime.");
+        ImGui::PopStyleColor();
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("A 360-degree equirectangular panorama. The build keeps\n"
-                          "its upper part as a 256x128 texture; the colors above\n"
-                          "then only tint it (darker at night).");
-    if (!a.skyTexture.empty()) {
-        ImGui::SameLine();
-        if (ImGui::Button("Remove##skytex")) {
-            a.skyTexture.clear();
-            changed = true;
+    ui::EndCard();
+    ImGui::SameLine(0.0f, gap);
+    }
+
+    const bool haveSel = selectedAmbience_ >= 0 && selectedAmbience_ < (int)project_.ambiencePresets.size();
+    if (!haveSel) {
+        ImGui::BeginChild("##amb_empty", ImVec2(0, avail.y));
+        if (project_.ambiencePresets.empty()) {
+            if (ui::EmptyState(ui::Glyph::Sparkle, "No ambience presets yet",
+                               "A preset bundles the sky, the sun light and the fog into one mood "
+                               "a scene can use - optionally as a 24-hour day.",
+                               "Create a preset")) {
+                AmbiencePreset a;
+                a.name = "ambience-1";
+                project_.ambiencePresets.push_back(std::move(a));
+                selectedAmbience_ = 0;
+                changed = true;
+            }
+        } else {
+            ui::EmptyState(ui::Glyph::Sparkle, "Pick a preset",
+                           "Select a preset on the left to see its sky and edit it.");
         }
-        ImGui::TextDisabled("%s", a.skyTexture.c_str());
-        ImGui::SliderFloat("Sky rotation", &a.skyTextureYaw, -180.0f, 180.0f,
-                           "%.0f deg");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Turns the panorama around you - line its sun up\n"
-                              "with the scene's light direction.");
-    }
-    ImGui::EndDisabled();
-
-    ImGui::SeparatorText("Lighting");
-    ImGui::TextDisabled("Baked into vertex colors at build (per scene). The Set "
-                        "Ambience flow node repaints only the sky.");
-    ImGui::DragFloat3("Light direction", a.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::ColorEdit3("Light color", a.lightColor);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Brightness", &a.brightness, 0.0f, 2.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Ambient", &a.ambient, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    // Scene AO lives in the Baked lighting tab now, beside model AO and
-    // pre-lit - moved, not mirrored. A read-only echo of a setting that is
-    // edited elsewhere is a second place to look for one answer.
-    ImGui::SeparatorText("Distance fog");
-    if (ImGui::Checkbox("Fog enabled", &a.fogEnabled)) changed = true;
-    if (a.fogEnabled) {
-        ImGui::ColorEdit3("Fog color", a.fogColor);
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Fog start", &a.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Fog end", &a.fogEnd, 0.5f, 0.0f, 1000.0f, "%.1f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (a.fogEnd <= a.fogStart + 1.0f) a.fogEnd = a.fogStart + 1.0f;
-    }
-
-    ImGui::EndChild();
-}
-
-// The day/night half of the Ambience Editor (docs/day-night-cycle.md). Edits
-// the SELECTED preset's cycle: a preset is a scene's mood bundle, so "which
-// preset" doubles as "which time of day", and a scene picks one already.
-void App::drawAmbienceDayCycle(bool& changed) {
-    if (selectedAmbience_ < 0 ||
-        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
-        ImGui::TextDisabled("Select a preset on the Presets tab first.");
-        ImGui::TextDisabled(
-            "\nA day/night cycle belongs to a preset: the sun and moon arcs,\n"
-            "the colours through the day, and the hour the scene is built at.");
+        ImGui::EndChild();
         return;
     }
     AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
     DayCycle& c = a.cycle;
 
-    ImGui::Text("Preset: %s", a.name.c_str());
-    // Which preset the ACTIVE SCENE actually resolves to. Without this line the
-    // tab is genuinely misleading: the viewport previews whatever preset is
-    // selected here, and closing the window puts the SCENE's preset back - which
-    // reads exactly like the edit having been thrown away when the two differ.
+    // --- hero: the sky, the day ------------------------------------------------
+    // Narrower still (a side column): the inspector goes under the sky.
+    // One scrolling column then, so neither half is squeezed.
+    const bool stacked = avail.x < scaled(620);
+    if (stacked) ImGui::BeginChild("##amb_stack", ImVec2(0, avail.y));
+    const float colW = stacked ? ImGui::GetContentRegionAvail().x : avail.x;
+    const float heroW = stacked ? colW : ImMax(scaled(200), avail.x - listW - inspW - gap * 2.0f);
+    const float heroH = stacked ? ImClamp(colW * 0.45f, scaled(150), scaled(300)) + ImGui::GetFontSize() * 21.0f
+                                : avail.y;
+    ui::BeginCard("##amb_hero", ImVec2(heroW, heroH));
     {
-        const int sceneIdx = project::ambienceIndexFor(project_, project_.active());
-        if (sceneIdx != selectedAmbience_) {
-            ImGui::SameLine(0.0f, scaled(12.0f));
-            ImGui::TextColored(theme::semantics().warn, "(not this scene's)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Scene \"%s\" is lit by %s, so the viewport goes back to that\n"
-                    "when this window closes. Edits here are NOT lost - the title\n"
-                    "bar shows the project unsaved until you save - they just are\n"
-                    "not what this scene uses.",
-                    project_.active().name.c_str(),
-                    sceneIdx >= 0 && sceneIdx < (int)project_.ambiencePresets.size()
-                        ? project_.ambiencePresets[sceneIdx].name.c_str()
-                        : "no preset");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Use for this scene")) {
+        // Header: name, kind, "use for this scene", viewport preview, more.
+        if (narrow) {
+            // The list, folded: pick a preset (or make one) from the title.
+            ImGui::SetNextItemWidth(ImMin(scaled(170), ImGui::GetContentRegionAvail().x * 0.35f));
+            if (ImGui::BeginCombo("##amb_pick", a.name.c_str())) {
+                for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
+                    const AmbiencePreset& o = project_.ambiencePresets[i];
+                    std::string row = o.name + (project_.defaultAmbience == i ? "  (default)" : "") +
+                                      (o.cycle.enabled && o.cycle.runtime ? "  (live)" : "") + "##pick";
+                    if (ImGui::Selectable(row.c_str(), i == selectedAmbience_)) {
+                        selectedAmbience_ = i;
+                        ambiencePlayHour_ = -1.0f;
+                    }
+                }
+                ImGui::Separator();
+                if (ImGui::Selectable("+ New preset")) wantNewPreset = true;
+                ImGui::EndCombo();
+            }
+        } else {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(a.name.c_str());
+        }
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted(c.enabled ? "· day/night cycle" : "· static look");
+        ImGui::PopStyleColor();
+        const SceneData& scn = project_.active();
+        const bool isScenes = project::ambienceIndexFor(project_, scn) == selectedAmbience_;
+        const std::string useLabel = "Use for scene " + scn.name + "##usescene";
+        const float moreS = ImGui::GetFrameHeight();
+        const float swW = ImGui::CalcTextSize("Preview in viewport").x + fs * 2.6f;
+        const float useW = isScenes ? 0.0f : ImGui::CalcTextSize(useLabel.c_str(), nullptr, true).x + fs * 1.4f;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        const float need = moreS + swW + useW + gap * 3.0f;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() + need > right) ImGui::NewLine();  // no room: actions on their own row
+        ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), right - need + gap));
+        if (!isScenes) {
+            if (ui::GhostButton(useLabel.c_str())) {
                 project_.active().ambiencePreset = a.name;
                 changed = true;
             }
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Point scene \"%s\" at this preset, so what you\n"
-                                  "author here is what it is lit by.",
-                                  project_.active().name.c_str());
+                ImGui::SetTooltip("Point scene \"%s\" at this preset, so what you author here is what\n"
+                                  "it is lit by. The viewport previews the selected preset while this\n"
+                                  "window is open and goes back to the scene's own when it closes.",
+                                  scn.name.c_str());
+            ImGui::SameLine(0.0f, gap);
         }
+        ui::Switch("Preview in viewport", &ambiencePreview_);
+        ImGui::SameLine(0.0f, gap);
+        if (ui::MoreButton("Preset actions", moreS)) ImGui::OpenPopup("##amb_more");
+        if (ImGui::BeginPopup("##amb_more")) {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", a.name.c_str());
+            ImGui::SetNextItemWidth(scaled(180));
+            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                // keep scene references and Set Ambience flow nodes pointing here
+                for (SceneData& sc : project_.scenes) {
+                    if (sc.ambiencePreset == a.name) sc.ambiencePreset = nameBuf;
+                    for (SceneObject& o : sc.objects)
+                        for (FlowNode& fn : o.flowGraph.nodes) {
+                            const FlowNodeType* ft = flowNodeType(fn.type);
+                            if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == a.name)
+                                fn.str = nameBuf;
+                        }
+                }
+                a.name = nameBuf;
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            bool isDefault = project_.defaultAmbience == selectedAmbience_;
+            if (ImGui::Checkbox("Default at game start", &isDefault)) {
+                project_.defaultAmbience = isDefault ? selectedAmbience_ : -1;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Scenes that don't pick a preset use this one.");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Duplicate")) {
+                AmbiencePreset copy = a;
+                const std::string base = copy.name;
+                for (int n = 2;; ++n) {
+                    copy.name = base + "-" + std::to_string(n);
+                    bool taken = false;
+                    for (const auto& other : project_.ambiencePresets) taken |= (other.name == copy.name);
+                    if (!taken) break;
+                }
+                project_.ambiencePresets.push_back(std::move(copy));
+                selectedAmbience_ = (int)project_.ambiencePresets.size() - 1;
+                changed = true;
+            }
+            if (ImGui::MenuItem("Delete")) deleteIdx = selectedAmbience_;
+            ImGui::EndPopup();
+        }
+        ImGui::Spacing();
+        // The preset may have just been duplicated (vector grew): re-fetch.
+        AmbiencePreset& A = project_.ambiencePresets[ImClamp(selectedAmbience_, 0, (int)project_.ambiencePresets.size() - 1)];
+        drawAmbienceSkyHero(A, changed);
     }
-    ImGui::SameLine(0.0f, scaled(24.0f));
-    if (ImGui::Checkbox("Enable day/night cycle", &c.enabled)) {
-        // First enable with nothing authored would resolve every hour to one
-        // default key, i.e. a flat sky - seed a real day instead.
-        if (c.enabled && c.keys.empty()) c.keys = ambience::defaultKeys();
+    ui::EndCard();
+    if (!stacked) ImGui::SameLine(0.0f, gap);
+
+    // --- inspector --------------------------------------------------------------
+    ui::BeginCard("##amb_insp", ImVec2(0, stacked ? ImMax(scaled(440), avail.y - heroH) : avail.y));
+    {
+        AmbiencePreset& A = project_.ambiencePresets[ImClamp(selectedAmbience_, 0, (int)project_.ambiencePresets.size() - 1)];
+        drawAmbienceInspector(A, changed);
+    }
+    ui::EndCard();
+    if (stacked) ImGui::EndChild();
+
+    if (deleteIdx >= 0 && deleteIdx < (int)project_.ambiencePresets.size()) {
+        const std::string gone = project_.ambiencePresets[deleteIdx].name;
+        for (SceneData& sc : project_.scenes) {
+            if (sc.ambiencePreset == gone) sc.ambiencePreset.clear();
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::AmbienceName && fn.str == gone) fn.str.clear();
+                }
+        }
+        if (project_.defaultAmbience == deleteIdx) project_.defaultAmbience = -1;
+        else if (project_.defaultAmbience > deleteIdx) --project_.defaultAmbience;
+        project_.ambiencePresets.erase(project_.ambiencePresets.begin() + deleteIdx);
+        selectedAmbience_ = -1;
         changed = true;
     }
-    prefHelp(
-        "Replaces this preset's sky, light direction/colour and fog colour with\n"
-        "whatever the cycle resolves to at the hour below.\n\n"
-        "It is not a screen tint: the resolved direction is what the vertex\n"
-        "shading, the AO bake, the GI bake and the runtime projected shadows,\n"
-        "lens flare and god rays are all built from.");
+    if (wantNewPreset) newPreset();
+}
+
+// The drawn sky at the preview hour (sun and moon on their arcs, elevations,
+// Play), then the 24 h track: key colours, keys, sunrise/sunset, the preview
+// playhead and - while the clock runs - the bake hour.
+void App::drawAmbienceSkyHero(AmbiencePreset& a, bool& changed) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    DayCycle& c = a.cycle;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    auto col = [](ImVec4 v, float al = 1.0f) {
+        v.w *= al;
+        return ImGui::GetColorU32(v);
+    };
+
+    // Play the day: the HERO's hour moves (24 s a day, or the clock's own day
+    // length); the preset's authored hour and the viewport stay where they are.
+    if (ambiencePlayHour_ >= 0.0f) {
+        const float dayLen = c.enabled && c.runtime ? c.dayLength : 24.0f;
+        ambiencePlayHour_ = ambience::wrap24(ambiencePlayHour_ + ImGui::GetIO().DeltaTime * 24.0f / ImMax(1.0f, dayLen));
+    }
+    const bool playing = ambiencePlayHour_ >= 0.0f && c.enabled;
+    const float hour = playing ? ambiencePlayHour_ : c.time;
+
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float trackBlock = c.enabled ? fs * 7.5f : 0.0f;
+    const float h = ImClamp(ImGui::GetContentRegionAvail().y - trackBlock - fs * 6.0f, scaled(150), scaled(340));
+    const ImVec2 p = ImGui::GetCursorScreenPos(), q(p.x + w, p.y + h);
+    const float horizonY = p.y + h * 0.76f;
+
+    float top[3], hor[3], sunDir[3], moonDir[3] = {0, -1, 0};
+    bool haveMoon = false;
+    if (c.enabled) {
+        const ambience::Resolved r = ambience::evaluate(c, hour);
+        for (int i = 0; i < 3; ++i) {
+            top[i] = r.skyTopColor[i], hor[i] = r.skyColor[i];
+            sunDir[i] = r.sunDir[i], moonDir[i] = r.moonDir[i];
+        }
+        haveMoon = true;
+    } else {
+        float len = std::sqrt(a.lightDir[0] * a.lightDir[0] + a.lightDir[1] * a.lightDir[1] +
+                              a.lightDir[2] * a.lightDir[2]);
+        if (len < 1e-5f) len = 1.0f;
+        for (int i = 0; i < 3; ++i) {
+            top[i] = a.skyTopColor[i], hor[i] = a.skyColor[i];
+            sunDir[i] = a.lightDir[i] / len;
+        }
+    }
+    auto azOf = [](const float* d) { return std::atan2(d[0], d[2]) * 57.29578f; };
+    auto elOf = [](const float* d) { return std::asin(ImClamp(d[1], -1.0f, 1.0f)) * 57.29578f; };
+    // A panorama centred on the sun's midday bearing: x = bearing, y = elevation.
+    float centreAz = azOf(sunDir);
+    if (c.enabled) {
+        float mid[3];
+        const float noon = c.sunrise + ambience::wrap24(c.sunset - c.sunrise) * 0.5f;
+        ambience::arcDirection(c.sunAzimuth, c.sunTilt, c.sunrise, c.sunset, noon, mid);
+        centreAz = azOf(mid);
+    }
+    const float skyH = horizonY - p.y;
+    auto toScreen = [&](const float* d) {
+        float da = azOf(d) - centreAz;
+        while (da > 180.0f) da -= 360.0f;
+        while (da < -180.0f) da += 360.0f;
+        return ImVec2(p.x + w * 0.5f + da / 180.0f * w * 0.48f, horizonY - elOf(d) / 90.0f * skyH * 0.92f);
+    };
+
+    dl->AddRectFilledMultiColor(p, ImVec2(q.x, horizonY), ambRgb(top), ambRgb(top), ambRgb(hor), ambRgb(hor));
+    dl->AddRectFilled(ImVec2(p.x, horizonY), q, col(sem.field), 10.0f, ImDrawFlags_RoundCornersBottom);
+    dl->AddLine(ImVec2(p.x, horizonY), ImVec2(q.x, horizonY), IM_COL32(255, 255, 255, 64));
+    dl->PushClipRect(p, ImVec2(q.x, horizonY), true);
+    auto arc = [&](float az, float tilt, float rise, float set, ImU32 ac) {
+        const float span = ambience::wrap24(set - rise);
+        ImVec2 prev;
+        for (int k = 0; k <= 48; ++k) {
+            float d[3];
+            ambience::arcDirection(az, tilt, rise, set, rise + span * k / 48.0f, d);
+            const ImVec2 s = toScreen(d);
+            if (k > 0 && (k & 1) && std::fabs(s.x - prev.x) < w * 0.5f) dl->AddLine(prev, s, ac, 1.2f);
+            prev = s;
+        }
+    };
+    if (c.enabled) {
+        arc(c.sunAzimuth, c.sunTilt, c.sunrise, c.sunset, IM_COL32(255, 226, 176, 140));
+        float mr = 0, ms = 0;
+        ambience::moonRiseSet(c, mr, ms);
+        arc(c.moonAzimuth, c.moonTilt, mr, ms, IM_COL32(200, 212, 255, 80));
+    }
+    const float sunEl = elOf(sunDir), moonEl = elOf(moonDir);
+    const ImVec2 sunP = toScreen(sunDir);
+    if (sunEl > -6.0f) {
+        for (int k = 4; k >= 1; --k)
+            dl->AddCircleFilled(sunP, fs * 0.9f * k, IM_COL32(255, 196, 138, 22), 32);
+        dl->AddCircleFilled(sunP, fs * 0.45f, IM_COL32(255, 230, 192, 255), 24);
+        char lab[32];
+        std::snprintf(lab, sizeof(lab), "Sun %+.0f°", sunEl);
+        dl->AddText(ImVec2(sunP.x + fs * 0.8f, sunP.y - fs * 1.4f), col(sem.text), lab);
+    }
+    if (haveMoon && moonEl > -6.0f) {
+        const ImVec2 mp = toScreen(moonDir);
+        dl->AddCircleFilled(mp, fs * 0.4f, IM_COL32(220, 226, 240, (int)(220 * c.moonOpacity)), 24);
+    }
+    dl->PopClipRect();
+    // Corner readouts.
+    {
+        char buf[64];
+        const float by = horizonY + (q.y - horizonY - fs) * 0.5f;
+        static const char* kDirs[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+        const float ca = ambience::wrap24(centreAz / 15.0f) * 15.0f;  // 0..360
+        char moon[64] = "";
+        if (haveMoon)
+            std::snprintf(moon, sizeof(moon), moonEl >= 0.0f ? "Moon %+.0f°" : "Moon %+.0f°, below the horizon", moonEl);
+        std::snprintf(buf, sizeof(buf), "facing %s %.0f°", kDirs[((int)((ca + 22.5f) / 45.0f)) & 7], ca);
+        const float mw = ImGui::CalcTextSize(moon).x, fw = ImGui::CalcTextSize(buf).x;
+        if (fw + mw + fs * 3.0f < w) dl->AddText(ImVec2(p.x + fs * 0.7f, by), col(sem.textDim), buf);
+        if (haveMoon) dl->AddText(ImVec2(q.x - mw - fs * 0.7f, by), col(sem.textDim), moon);
+    }
+    // Floating chip: the hour and who lights the scene.
+    {
+        const std::string hh = c.enabled ? ambHourText(hour) : std::string("Static");
+        const char* who = !c.enabled ? "one fixed light" : (sunEl >= moonEl ? "sun lights the scene" : "moon lights the scene");
+        ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const float hw = mono->CalcTextSizeA(fs * 1.15f, FLT_MAX, 0.0f, hh.c_str()).x;
+        const float ww = ImGui::CalcTextSize(who).x;
+        const ImVec2 c0(p.x + fs * 0.7f, p.y + fs * 0.7f), c1(c0.x + hw + ww + fs * 2.0f, c0.y + fs * 2.0f);
+        dl->AddRectFilled(c0, c1, IM_COL32(12, 14, 19, 200), 8.0f);
+        dl->AddRect(c0, c1, IM_COL32(255, 255, 255, 30), 8.0f);
+        dl->AddText(mono, fs * 1.15f, ImVec2(c0.x + fs * 0.6f, c0.y + fs * 0.4f), col(sem.text), hh.c_str());
+        dl->AddText(ImVec2(c0.x + fs * 1.4f + hw, c0.y + fs * 0.5f), col(sem.textDim), who);
+    }
+    ImGui::Dummy(ImVec2(w, h));
+    if (c.enabled) {
+        // Play button over the sky's top-right corner.
+        const float bs = fs * 2.0f;
+        const ImVec2 back = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(q.x - bs - fs * 0.7f, p.y + fs * 0.7f));
+        if (ImGui::InvisibleButton("Play the day", ImVec2(bs, bs)))
+            ambiencePlayHour_ = playing ? -1.0f : c.time;
+        const ImVec2 b0 = ImGui::GetItemRectMin(), b1 = ImGui::GetItemRectMax();
+        dl->AddRectFilled(b0, b1, IM_COL32(12, 14, 19, ImGui::IsItemHovered() ? 235 : 200), 8.0f);
+        const ImVec2 bc((b0.x + b1.x) * 0.5f, (b0.y + b1.y) * 0.5f);
+        if (playing) {
+            dl->AddRectFilled(ImVec2(bc.x - fs * 0.35f, bc.y - fs * 0.35f), ImVec2(bc.x - fs * 0.1f, bc.y + fs * 0.35f), col(sem.text));
+            dl->AddRectFilled(ImVec2(bc.x + fs * 0.1f, bc.y - fs * 0.35f), ImVec2(bc.x + fs * 0.35f, bc.y + fs * 0.35f), col(sem.text));
+        } else {
+            dl->AddTriangleFilled(ImVec2(bc.x - fs * 0.3f, bc.y - fs * 0.4f), ImVec2(bc.x - fs * 0.3f, bc.y + fs * 0.4f),
+                                  ImVec2(bc.x + fs * 0.4f, bc.y), col(sem.text));
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(playing ? "Stop (the preview goes back to %s)"
+                                      : "Play the day here - the preset's hour (%s) and the viewport stay put",
+                              ambHourText(c.time).c_str());
+        ImGui::SetCursorScreenPos(back);
+    }
+    ImGui::Spacing();
+
     if (!c.enabled) {
-        ImGui::TextDisabled(
-            "\nOff - the preset's own sky/lighting/fog on the Presets tab is used.");
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("One fixed look: the sky, light and fog in the inspector are what the scene is "
+                           "built with. Turn on Day/night cycle there to author a 24-hour day.");
+        ImGui::PopStyleColor();
         return;
     }
 
-    // --- the slider --------------------------------------------------------
-    ImGui::SeparatorText("Time of day");
-    const ambience::Resolved now = ambience::evaluate(c, c.time);
+    // --- the 24 h track ---------------------------------------------------------
     {
-        char label[32];
-        std::snprintf(label, sizeof(label), "%02d:%02d", (int)c.time,
-                      (int)((c.time - (float)(int)c.time) * 60.0f));
-        ImGui::SetNextItemWidth(-scaled(120.0f));
-        ImGui::SliderFloat("##tod", &c.time, 0.0f, 24.0f, label);
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        char cnt[48];
+        std::snprintf(cnt, sizeof(cnt), "%d keys", (int)c.keys.size());
+        const char* seed = "Seed a default day";
+        const float sw = ImGui::CalcTextSize(seed).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        const float y0 = ImGui::GetCursorPosY();
+        ui::Caption("Day", cnt);
+        ImVec2 after = ImGui::GetCursorPos();
+        const bool room = ImGui::CalcTextSize("DAY  00 keys").x * 1.2f + sw + fs * 2.0f < ImGui::GetContentRegionAvail().x;
+        if (room)
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - sw, y0 - ImGui::GetStyle().FramePadding.y));
+        else
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - sw, after.y));
+        if (ui::GhostButton(seed)) {
+            c.keys = ambience::defaultKeys();
+            selectedDayKey_ = -1;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replaces the key list with a night/dawn/day/dusk/night set.");
+        if (!room) after.y = ImGui::GetCursorPosY();
+        ImGui::SetCursorPos(after);
     }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Noon")) { c.time = 12.0f; changed = true; }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Midnight")) { c.time = 0.0f; changed = true; }
-
-    // A 24-hour strip of the horizon colour, with the current hour marked. It
-    // is the fastest way to see that a key list has a hole in it.
+    const float tw = ImGui::GetContentRegionAvail().x;
+    const float badgeH = fs * 1.3f;
+    const ImVec2 tp(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + badgeH + 2.0f);
+    const float th = scaled(30);
+    auto hx = [&](float hr) { return tp.x + tw * (ambience::wrap24(hr) / 24.0f); };
+    // The track is one button: drag scrubs the preset's hour, double-click adds
+    // a key there (continuing the curve). The keys sit on top as their own items.
+    ImGui::SetCursorScreenPos(tp);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("Day track", ImVec2(tw, th));
+    if (ImGui::IsItemHovered() && !ImGui::IsItemActive())
+        ImGui::SetTooltip("Drag to scrub the hour, double-click to add a key there.");
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
+        c.time = ImClamp((ImGui::GetIO().MousePos.x - tp.x) / tw * 24.0f, 0.0f, 24.0f);
+        ambiencePlayHour_ = -1.0f;
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemDeactivated() && ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left, 2.0f)))
+        changed = true;
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        const float at = ImClamp((ImGui::GetIO().MousePos.x - tp.x) / tw * 24.0f, 0.0f, 23.99f);
+        DayKey k = ambience::sampleKeys(c, at);
+        k.hour = at;
+        c.keys.push_back(k);
+        project::sortDayKeys(c);
+        for (int i = 0; i < (int)c.keys.size(); ++i)
+            if (c.keys[i].hour == at) selectedDayKey_ = i;
+        changed = true;
+    } else if (ImGui::IsItemClicked() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        c.time = ImClamp((ImGui::GetIO().MousePos.x - tp.x) / tw * 24.0f, 0.0f, 24.0f);
+        ambiencePlayHour_ = -1.0f;
+        changed = true;
+    }
     {
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        const float w = ImGui::GetContentRegionAvail().x;
-        const float h = scaled(22.0f);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
         const int steps = 96;
         for (int i = 0; i < steps; ++i) {
             const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
             const DayKey k = ambience::sampleKeys(c, t0 * 24.0f);
-            dl->AddRectFilled(
-                ImVec2(p0.x + w * t0, p0.y), ImVec2(p0.x + w * t1 + 1.0f, p0.y + h),
-                IM_COL32((int)(k.skyColor[0] * 255), (int)(k.skyColor[1] * 255),
-                         (int)(k.skyColor[2] * 255), 255));
+            dl->AddRectFilled(ImVec2(tp.x + tw * t0, tp.y), ImVec2(tp.x + tw * t1 + 1.0f, tp.y + th), ambRgb(k.skyColor),
+                              i == 0 ? 6.0f : (i == steps - 1 ? 6.0f : 0.0f),
+                              i == 0 ? ImDrawFlags_RoundCornersLeft : ImDrawFlags_RoundCornersRight);
         }
-        const theme::Semantics& sem = theme::semantics();
-        for (const DayKey& k : c.keys) {
-            const float x = p0.x + w * (k.hour / 24.0f);
-            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + h * 0.35f),
-                        ImGui::GetColorU32(sem.textDim), 1.0f);
-        }
-        const float sx = p0.x + w * (ambience::wrap24(c.time) / 24.0f);
-        dl->AddLine(ImVec2(sx, p0.y), ImVec2(sx, p0.y + h),
-                    ImGui::GetColorU32(sem.accent), scaled(2.0f));
-        ImGui::Dummy(ImVec2(w, h));
     }
-    ImGui::TextDisabled(
-        "Sun %+.0f deg, moon %+.0f deg above the horizon - %s is lighting the "
-        "scene.",
-        now.sunElevation, now.moonElevation,
-        now.sunElevation >= now.moonElevation ? "the sun" : "the moon");
-    prefHelp(
-        "The baked light direction never dips below +5 degrees, whichever body\n"
-        "is up: a light at the horizon gives flat ground no diffuse at all, and\n"
-        "one below it lights the world from underneath. Night gets dark from\n"
-        "the key colours, not from aiming the sun into the floor.");
-
-    // --- sun ---------------------------------------------------------------
-    ImGui::SeparatorText("Sun");
-    ImGui::SliderFloat("Rises at (bearing)", &c.sunAzimuth, 0.0f, 360.0f, "%.0f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    prefHelp("Compass bearing of sunrise: 0 = +Z, 90 = +X.");
-    ImGui::SliderFloat("Arc tilt", &c.sunTilt, -89.0f, 89.0f, "%.0f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    prefHelp("How far the arc leans off the zenith. 0 puts the sun straight\n"
-             "overhead at midday; 60 is a low winter sun with long shadows.");
-    ImGui::SliderFloat("Sunrise", &c.sunrise, 0.0f, 24.0f, "%.1f h");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Sunset", &c.sunset, 0.0f, 24.0f, "%.1f h");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Sun size", &c.sunSize, 0.25f, 30.0f, "%.1f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    prefHelp("Apparent diameter of the disc. The real sun is about 0.5 deg,\n"
-             "which is almost invisible on a 512x448 frame - 3 reads better.");
-
-    // --- moon --------------------------------------------------------------
-    ImGui::SeparatorText("Moon");
-    ImGui::SliderFloat("Moon bearing", &c.moonAzimuth, 0.0f, 360.0f, "%.0f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Moon arc tilt", &c.moonTilt, -89.0f, 89.0f, "%.0f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Hours behind the sun", &c.moonOffset, 0.0f, 24.0f, "%.1f h");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    prefHelp("12 puts the moon up exactly while the sun is down, which is what\n"
-             "you want unless you are after a moon visible in daylight.");
-    ImGui::SliderFloat("Moon size", &c.moonSize, 0.25f, 30.0f, "%.1f deg");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Opacity", &c.moonOpacity, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    prefHelp(
-        "How solid the disc is. Applied when it is DRAWN, not baked into the\n"
-        "texture, so dragging this needs no re-bake and one texture serves\n"
-        "every value.\n\n"
-        "Below 1 the sky shows through - which is what a moon behind thin cloud\n"
-        "or a daytime moon actually looks like. 0 draws nothing at all.");
-    prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a\n"
-             "terminator, so it costs the console nothing.");
+    // Keys: diamonds you can click (select) and drag (move in time).
     {
-        ImGui::Text("Moon texture: %s",
-                    c.moonTexture.empty() ? "built-in (NASA LRO colour map)"
-                                          : c.moonTexture.c_str());
-        if (ImGui::Button("Import moon texture...")) {
-            // Same import shape as the HUD image pickers: copy into res/ and
-            // store the project-relative path.
+        int moved = -1;
+        for (int i = 0; i < (int)c.keys.size(); ++i) {
+            DayKey& k = c.keys[i];
+            const float x = hx(k.hour), y = tp.y + th * 0.5f, r = fs * 0.5f;
+            char id[48];
+            std::snprintf(id, sizeof(id), "Key %s##dk%d", ambHourText(k.hour).c_str(), i);
+            ImGui::SetCursorScreenPos(ImVec2(x - r, y - r));
+            if (ImGui::InvisibleButton(id, ImVec2(r * 2.0f, r * 2.0f))) {
+                selectedDayKey_ = i;
+                ambienceInspTab_ = 0;
+            }
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
+                k.hour = ImClamp(k.hour + ImGui::GetIO().MouseDelta.x / tw * 24.0f, 0.0f, 23.99f);
+                selectedDayKey_ = i;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsItemDeactivated() && ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left, 2.0f)))
+                moved = i;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s - drag to move it", ambHourText(k.hour).c_str());
+            const bool sel = selectedDayKey_ == i;
+            const ImVec2 pts[4] = {ImVec2(x, y - r), ImVec2(x + r, y), ImVec2(x, y + r), ImVec2(x - r, y)};
+            dl->AddConvexPolyFilled(pts, 4, ambRgb(k.skyColor));
+            dl->AddPolyline(pts, 4, sel ? col(sem.accent) : IM_COL32(255, 255, 255, 220), ImDrawFlags_Closed, sel ? 2.5f : 1.5f);
+        }
+        if (moved >= 0) {
+            const float hr = c.keys[moved].hour;
+            project::sortDayKeys(c);
+            for (int i = 0; i < (int)c.keys.size(); ++i)
+                if (c.keys[i].hour == hr) selectedDayKey_ = i;
+            changed = true;
+        }
+    }
+    // Sunrise..sunset bar, the bake hour and the playhead.
+    const float by = tp.y + th + fs * 0.3f;
+    {
+        const float x0 = hx(c.sunrise), x1 = hx(c.sunset);
+        const ImU32 sunC = col(sem.warn, 0.55f);
+        if (x1 >= x0) dl->AddRectFilled(ImVec2(x0, by), ImVec2(x1, by + 3.0f), sunC, 2.0f);
+        else {
+            dl->AddRectFilled(ImVec2(x0, by), ImVec2(tp.x + tw, by + 3.0f), sunC, 2.0f);
+            dl->AddRectFilled(ImVec2(tp.x, by), ImVec2(x1, by + 3.0f), sunC, 2.0f);
+        }
+        ui::FontScope mono(ui::monoFont());
+        const float lfs = fs * 0.82f;
+        const std::string sr = ambHourText(c.sunrise), ss = ambHourText(c.sunset);
+        dl->AddText(ImGui::GetFont(), lfs, ImVec2(x0 - ImGui::CalcTextSize(sr.c_str()).x * 0.41f, by + 5.0f), col(sem.warn), sr.c_str());
+        dl->AddText(ImGui::GetFont(), lfs, ImVec2(x1 - ImGui::CalcTextSize(ss.c_str()).x * 0.41f, by + 5.0f), col(sem.warn), ss.c_str());
+    }
+    auto badgeAt = [&](float x, const char* text, ImU32 bg, ImU32 ink) {
+        ui::FontScope mono(ui::monoFont());
+        const float lfs = fs * 0.82f;
+        const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(lfs, FLT_MAX, 0.0f, text);
+        const float bx = ImClamp(x - ts.x * 0.5f - 5.0f, tp.x, tp.x + tw - ts.x - 10.0f);
+        const ImVec2 b0(bx, tp.y - badgeH - 1.0f), b1(bx + ts.x + 10.0f, tp.y - 2.0f);
+        dl->AddRectFilled(b0, b1, bg, 5.0f);
+        dl->AddText(ImGui::GetFont(), lfs, ImVec2(b0.x + 5.0f, b0.y + (badgeH - 1.0f - ts.y) * 0.5f), ink, text);
+    };
+    if (c.runtime) {
+        const float bx = hx(c.bakeHour);
+        for (float y = tp.y - 2.0f; y < tp.y + th + 4.0f; y += 6.0f)
+            dl->AddLine(ImVec2(bx, y), ImVec2(bx, ImMin(y + 3.0f, tp.y + th + 4.0f)), col(sem.accent), 2.0f);
+        badgeAt(bx, ("bake " + ambHourText(c.bakeHour)).c_str(), col(sem.accent, 0.25f), col(sem.accent));
+    }
+    {
+        const float px = hx(hour);
+        dl->AddRectFilled(ImVec2(px - 1.0f, tp.y - 3.0f), ImVec2(px + 1.0f, tp.y + th + 3.0f), IM_COL32(255, 255, 255, 255), 1.0f);
+        badgeAt(px, ambHourText(hour).c_str(), IM_COL32(255, 255, 255, 255), IM_COL32(10, 20, 48, 255));
+    }
+    {
+        ui::FontScope mono(ui::monoFont());
+        const float ly = by + fs * 1.3f;
+        const char* ticks[] = {"00", "06", "12", "18", "24"};
+        for (int i = 0; i < 5; ++i) {
+            const float tx = tp.x + tw * i / 4.0f - (i == 0 ? 0.0f : (i == 4 ? ImGui::CalcTextSize(ticks[i]).x : ImGui::CalcTextSize(ticks[i]).x * 0.5f));
+            dl->AddText(ImVec2(tx, ly), col(sem.textDim, 0.8f), ticks[i]);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(tp.x, ly + fs * 1.4f));
+    }
+    ImGui::Dummy(ImVec2(1, 1));
+
+    // The bake-hour warning: baked light is frozen at the bake hour while the
+    // clock walks away from it.
+    if (c.runtime && ambHourGap(c.time, c.bakeHour) >= 2.0f) {
+        char note[320];
+        std::snprintf(note, sizeof(note),
+                      "The clock runs in game, but GI, AO and probes are baked at %s - %.0f hours away from "
+                      "the %s start. Baked bounce light will disagree with the moving sun.",
+                      ambHourText(c.bakeHour).c_str(), ambHourGap(c.time, c.bakeHour), ambHourText(c.time).c_str());
+        const std::string act = "Bake at " + ambHourText(c.time);
+        if (ui::Note(1, note, act.c_str())) {
+            c.bakeHour = ambience::wrap24(c.time);
+            changed = true;
+        }
+    }
+}
+
+// The inspector: Key / Sun & moon / Fog & stars / Clock with a cycle; Look /
+// Fog with none. Static values are only on screen when they apply - with the
+// cycle on, the keys own the sky, the light and the fog colour.
+void App::drawAmbienceInspector(AmbiencePreset& a, bool& changed) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    DayCycle& c = a.cycle;
+    if (selectedDayKey_ >= (int)c.keys.size()) selectedDayKey_ = -1;
+    if (c.enabled && selectedDayKey_ < 0 && !c.keys.empty()) {
+        // Start on the key nearest the preview hour.
+        float best = 99.0f;
+        for (int i = 0; i < (int)c.keys.size(); ++i)
+            if (ambHourGap(c.keys[i].hour, c.time) < best) best = ambHourGap(c.keys[i].hour, c.time), selectedDayKey_ = i;
+    }
+    const int tabCount = c.enabled ? 4 : 2;
+    if (ambienceInspTab_ >= tabCount) ambienceInspTab_ = 0;
+    if (ui::BeginQuietTabBar("##amb_insp_tabs")) {
+        std::string first = c.enabled ? (selectedDayKey_ >= 0 ? "Key " + ambHourText(c.keys[selectedDayKey_].hour) : std::string("Key"))
+                                      : std::string("Look");
+        first += "###insp0";
+        if (ui::QuietTab(first.c_str(), ambienceInspTab_ == 0)) ambienceInspTab_ = 0;
+        if (c.enabled) {
+            if (ui::QuietTab("Sun & moon", ambienceInspTab_ == 1)) ambienceInspTab_ = 1;
+            if (ui::QuietTab("Fog & stars###insp2", ambienceInspTab_ == 2)) ambienceInspTab_ = 2;
+            if (ui::QuietTab("Clock", ambienceInspTab_ == 3)) ambienceInspTab_ = 3;
+        } else {
+            if (ui::QuietTab("Fog###insp2", ambienceInspTab_ == 1)) ambienceInspTab_ = 1;
+        }
+        ui::EndQuietTabBar();
+    }
+    ImGui::BeginChild("##amb_insp_body", ImVec2(0, 0));
+    ui::InspectorRows rows(scaled(92), scaled(120));
+    auto edited = [&] { changed |= ImGui::IsItemDeactivatedAfterEdit(); };
+    const int tab = ambienceInspTab_;
+    const bool fogTab = c.enabled ? tab == 2 : tab == 1;
+
+    auto skyDome = [&] {
+        if (ui::Switch("Gradient sky dome", &a.skyDome)) changed = true;
+        ImGui::BeginDisabled(!a.skyDome);
+        ui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
+        edited();
+        prefHelp("How much of the sky the zenith colour fills. 0.5 = linear; higher spreads\n"
+                 "the zenith colour down toward the horizon.");
+        // Painted sky (docs/sky-texture.md): an equirectangular panorama copied
+        // into res/sky/ (a folder that never ships - only its baked crop does).
+        if (ui::GhostButton(a.skyTexture.empty() ? "Sky texture (PNG)..." : "Replace sky texture...")) {
             const std::string src = pickPngFile();
             if (!src.empty()) {
                 const std::filesystem::path srcPath(src);
-                const std::string fileName =
-                    sanitizeAssetName(srcPath.filename().string());
-                const std::filesystem::path destDir =
-                    std::filesystem::path(project_.dir) / "res" / "textures";
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "sky";
                 std::error_code ec;
                 std::filesystem::create_directories(destDir, ec);
-                std::filesystem::copy_file(
-                    srcPath, destDir / fileName,
-                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (std::filesystem::absolute(srcPath, ec) != std::filesystem::absolute(destDir / fileName, ec))
+                    std::filesystem::copy_file(srcPath, destDir / fileName,
+                                               std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    a.skyTexture = "res/sky/" + fileName;
+                    changed = true;
+                } else {
+                    statusMessage_ = "Sky texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A 360-degree equirectangular panorama. The build keeps its upper part\n"
+                              "as a 256x128 texture; the colours only tint it (darker at night).");
+        if (!a.skyTexture.empty()) {
+            ImGui::SameLine();
+            if (ui::GhostButton("Remove##skytex")) {
+                a.skyTexture.clear();
+                changed = true;
+            }
+            ImGui::TextDisabled("%s", a.skyTexture.c_str());
+            ui::SliderFloat("Sky rotation", &a.skyTextureYaw, -180.0f, 180.0f, "%.0f deg");
+            edited();
+            prefHelp("Turns the panorama around you - line its sun up with the scene's light.");
+        }
+        ImGui::EndDisabled();
+    };
+    auto cycleSwitches = [&] {
+        ImGui::Spacing();
+        ui::Caption("Cycle");
+        if (ui::Switch("Day/night cycle (keys own the sky, light and fog)", &c.enabled)) {
+            // First enable with nothing authored would resolve every hour to
+            // one default key - seed a real day instead.
+            if (c.enabled && c.keys.empty()) c.keys = ambience::defaultKeys();
+            ambienceInspTab_ = 0;
+            changed = true;
+        }
+        if (!c.enabled) return;
+        char runDesc[96];
+        std::snprintf(runDesc, sizeof(runDesc), "Clock runs in game (%.0f s per day, bakes stay at %s)", c.dayLength,
+                      ambHourText(ambience::bakedHour(c)).c_str());
+        bool run = c.runtime;
+        if (ui::Switch((std::string(runDesc) + "###clockruns").c_str(), &run)) {
+            c.runtime = run;
+            changed = true;
+        }
+        prefHelp("The cheap half of the cycle follows a live clock: sun, moon, sky, fog,\n"
+                 "shadows, flare, god rays and stars. The BAKED half (vertex shading, AO,\n"
+                 "GI) stays at the bake hour - re-baking is ~170 ms of EE work.");
+        if (c.runtime) {
+            if (ui::Switch("Drift a colour grade (the grade follows the clock)", &c.runtimeGrade)) changed = true;
+            prefHelp("Without it, geometry baked at noon stays brightly lit under a midnight sky.\n"
+                     "One postFx call per frame, identity at the bake hour.");
+        }
+    };
+
+    if (c.enabled && tab == 0) {
+        if (selectedDayKey_ < 0) {
+            ImGui::TextDisabled("No keys - every hour is the same neutral sky.");
+            if (ui::GhostButton("Seed a default day##insp")) {
+                c.keys = ambience::defaultKeys();
+                changed = true;
+            }
+        } else {
+            DayKey& k = c.keys[selectedDayKey_];
+            {
+                char cap[48];
+                std::snprintf(cap, sizeof(cap), "%s key", ambKeyName(k.hour));
+                const float dw = ImGui::CalcTextSize("Delete key").x;
+                const float y0 = ImGui::GetCursorPosY();
+                ui::Caption(cap);
+                const ImVec2 after = ImGui::GetCursorPos();
+                ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - dw, y0));
+                ImGui::PushStyleColor(ImGuiCol_TextLink, sem.danger);
+                if (ImGui::TextLink("Delete key")) {
+                    c.keys.erase(c.keys.begin() + selectedDayKey_);
+                    selectedDayKey_ = -1;
+                    changed = true;
+                }
+                ImGui::PopStyleColor();
+                ImGui::SetCursorPos(after);
+            }
+            if (selectedDayKey_ >= 0) {
+                if (ui::DragFloat("Hour", &k.hour, 0.05f, 0.0f, 23.99f, "%.2f h")) {}
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    const float hr = k.hour;
+                    project::sortDayKeys(c);
+                    for (int i = 0; i < (int)c.keys.size(); ++i)
+                        if (c.keys[i].hour == hr) selectedDayKey_ = i;
+                    changed = true;
+                }
+            }
+            if (selectedDayKey_ >= 0) {
+                DayKey& K = c.keys[selectedDayKey_];
+                ui::ColorHex("Sky horizon", K.skyColor);
+                edited();
+                ui::ColorHex("Sky zenith", K.skyTopColor);
+                edited();
+                ui::ColorHex("Light color", K.lightColor);
+                edited();
+                ui::ColorHex("Fog color", K.fogColor);
+                edited();
+                ui::SliderFloat("Ambient", &K.ambient, 0.0f, 1.0f, "%.2f");
+                edited();
+                ui::SliderFloat("Diffuse", &K.diffuse, 0.0f, 1.0f, "%.2f");
+                edited();
+                ui::SliderFloat("Brightness", &K.brightness, 0.0f, 2.0f, "%.2f");
+                edited();
+                ui::SliderFloat("Stars", &K.stars, 0.0f, 1.0f, "%.2f");
+                edited();
+                prefHelp("Night-sky brightness at this hour (needs Night sky on Fog & stars).");
+            }
+        }
+        ImGui::Spacing();
+        ui::Caption("Sky dome");
+        skyDome();
+        cycleSwitches();
+    } else if (!c.enabled && tab == 0) {
+        ui::Caption("Sky");
+        ui::ColorHex("Sky horizon", a.skyColor);
+        edited();
+        ui::ColorHex("Sky zenith", a.skyTopColor);
+        edited();
+        skyDome();
+        ImGui::Spacing();
+        ui::Caption("Light", "baked into vertex colours");
+        ui::AxisDrag3("Light direction", a.lightDir, 0.02f, -1.0f, 1.0f, "%.2f");
+        edited();
+        {
+            float len = std::sqrt(a.lightDir[0] * a.lightDir[0] + a.lightDir[1] * a.lightDir[1] + a.lightDir[2] * a.lightDir[2]);
+            if (len < 1e-5f) len = 1.0f;
+            float az = std::atan2(a.lightDir[0], a.lightDir[2]) * 57.29578f;
+            if (az < 0.0f) az += 360.0f;
+            ImGui::TextDisabled("bearing %.0f°, %.0f° above the horizon", az,
+                                std::asin(ImClamp(a.lightDir[1] / len, -1.0f, 1.0f)) * 57.29578f);
+        }
+        ui::ColorHex("Light color", a.lightColor);
+        edited();
+        ui::SliderFloat("Brightness", &a.brightness, 0.0f, 2.0f, "%.2f");
+        edited();
+        ui::SliderFloat("Ambient", &a.ambient, 0.0f, 1.0f, "%.2f");
+        edited();
+        ui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
+        edited();
+        cycleSwitches();
+    } else if (c.enabled && tab == 1) {
+        ui::Caption("Sun");
+        ui::SliderFloat("Rises at", &c.sunAzimuth, 0.0f, 360.0f, "%.0f deg");
+        edited();
+        prefHelp("Compass bearing of sunrise: 0 = +Z, 90 = +X.");
+        ui::SliderFloat("Arc tilt", &c.sunTilt, -89.0f, 89.0f, "%.0f deg");
+        edited();
+        prefHelp("How far the arc leans off the zenith. 0 = straight overhead at midday;\n"
+                 "60 = a low winter sun with long shadows.");
+        ui::SliderFloat("Sunrise", &c.sunrise, 0.0f, 24.0f, "%.1f h");
+        edited();
+        ui::SliderFloat("Sunset", &c.sunset, 0.0f, 24.0f, "%.1f h");
+        edited();
+        ui::SliderFloat("Sun size", &c.sunSize, 0.25f, 30.0f, "%.1f deg");
+        edited();
+        prefHelp("Apparent diameter. The real sun is ~0.5 deg - almost invisible on a 512x448\n"
+                 "frame; 3 reads better.");
+        ImGui::Spacing();
+        ui::Caption("Moon");
+        ui::SliderFloat("Moon bearing", &c.moonAzimuth, 0.0f, 360.0f, "%.0f deg");
+        edited();
+        ui::SliderFloat("Moon arc tilt", &c.moonTilt, -89.0f, 89.0f, "%.0f deg");
+        edited();
+        ui::SliderFloat("Hours behind the sun", &c.moonOffset, 0.0f, 24.0f, "%.1f h");
+        edited();
+        prefHelp("12 puts the moon up exactly while the sun is down.");
+        ui::SliderFloat("Moon size", &c.moonSize, 0.25f, 30.0f, "%.1f deg");
+        edited();
+        ui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
+        edited();
+        prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a terminator,\n"
+                 "so it costs the console nothing.");
+        ui::SliderFloat("Opacity", &c.moonOpacity, 0.0f, 1.0f, "%.2f");
+        edited();
+        prefHelp("How solid the disc is, applied when it is DRAWN (no re-bake). Below 1 the\n"
+                 "sky shows through - a moon behind thin cloud. 0 draws nothing.");
+        ImGui::TextDisabled("Texture: %s", c.moonTexture.empty() ? "built-in (NASA LRO colour map)" : c.moonTexture.c_str());
+        if (ui::GhostButton("Import moon texture...")) {
+            // Same import shape as the HUD image pickers: copy into res/.
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(srcPath, destDir / fileName,
+                                           std::filesystem::copy_options::overwrite_existing, ec);
                 if (!ec) {
                     c.moonTexture = "res/textures/" + fileName;
                     skyBodyMoonSig_.clear();  // force a re-bake
@@ -12977,206 +13499,97 @@ void App::drawAmbienceDayCycle(bool& changed) {
                 }
             }
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Empty = NASA's LRO colour map, built in. A 2:1 image is projected as a\n"
+                              "sphere map; anything else is the disc face. Only the baked disc ships.");
         if (!c.moonTexture.empty()) {
             ImGui::SameLine();
-            if (ImGui::Button("Reset to built-in")) {
+            if (ui::GhostButton("Reset to built-in")) {
                 c.moonTexture.clear();
                 skyBodyMoonSig_.clear();
                 changed = true;
             }
         }
-        prefHelp(
-            "Empty = NASA's Lunar Reconnaissance Orbiter colour map, built into\n"
-            "the editor. A 2:1 image is treated as an equirectangular map of the\n"
-            "sphere and projected; anything else is used as the disc face.\n\n"
-            "The map itself never ships - only the small baked disc does.");
-    }
-    // The disc as it will be baked, at the size it is baked (the preview and
-    // the shipped texture are the same pixels - see menubake::bakeMoonRGBA).
-    if (uint32_t t = viewport_.moonDiscTexture())
-        ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
-
-    // --- the runtime half ----------------------------------------------------
-    ImGui::SeparatorText("Let the clock run (hybrid)");
-    if (ImGui::Checkbox("Advance the time in game", &c.runtime)) changed = true;
-    prefHelp(
-        "The half of the cycle that costs nothing per frame follows a live\n"
-        "clock: the sun and moon move, the sky dome and the fog retint, the\n"
-        "projected shadows swing, the flare and god rays track the sun and the\n"
-        "stars fade in.\n\n"
-        "What does NOT follow is the BAKED half - vertex shading, the AO\n"
-        "lightmap, any GI. Those stay at the hour above, because re-baking them\n"
-        "is ~170 ms of EE work. That is what the colour grade below is for.");
-    if (c.runtime) {
-        ImGui::SliderFloat("Day length", &c.dayLength, 8.0f, 1800.0f, "%.0f s");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        prefHelp("Real seconds for a whole 24 hours. The time above is where\n"
-                 "the clock STARTS (and still the hour everything bakes at).");
-        ImGui::TextDisabled("%.1f s per in-game hour; sunrise to sunset takes %.0f s.",
-                            c.dayLength / 24.0f,
-                            c.dayLength * ambience::wrap24(c.sunset - c.sunrise) / 24.0f);
-        if (ImGui::Checkbox("Drift a colour grade with the clock", &c.runtimeGrade))
-            changed = true;
-        prefHelp(
-            "Without this, geometry baked at noon stays brightly lit under a\n"
-            "midnight sky. The grade carries the world's overall level and\n"
-            "warmth per frame - one postFx call, no re-bake - and is identity\n"
-            "when the clock sits on the hour the scene was baked at.\n\n"
-            "Turn it off if the project drives its own grading and you would\n"
-            "rather bake several times of day as separate scenes.");
-        ImGui::SliderFloat("Bake lighting at", &c.bakeHour, 0.0f, 24.0f, "%.1f h");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        prefHelp(
-            "The hour shadows, AO and GI are baked at - a separate question from\n"
-            "where the clock starts, once it moves. Noon is usually the right\n"
-            "answer: it is the most neutral light for a lightmap, and the drift\n"
-            "grade measures every other hour against it.");
-        ImGui::TextDisabled("Clock starts %02d:%02d, geometry baked %02d:%02d.",
-                            (int)c.time,
-                            (int)((c.time - (float)(int)c.time) * 60.0f),
-                            (int)c.bakeHour,
-                            (int)((c.bakeHour - (float)(int)c.bakeHour) * 60.0f));
-    }
-
-    // --- stars ---------------------------------------------------------------
-    ImGui::SeparatorText("Stars");
-    if (ImGui::Checkbox("Night sky", &c.starsEnabled)) changed = true;
-    prefHelp(
-        "Real glowing points, not a sky texture: the field is drawn through\n"
-        "ADDITIVE bags, so each star ADDS its colour to the sky behind it and a\n"
-        "bright one saturates and blooms.\n\n"
-        "One bag per magnitude tier = 3 submits for the whole sky, and the\n"
-        "brightness rides the bags' additive FIX - so fading the stars in at\n"
-        "dusk costs three bytes a frame, not a rebuild. How bright they get at\n"
-        "each hour is the Stars column in the key table below.");
-    if (c.starsEnabled) {
-        starfield::Params& sp = c.starField;
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        if (ImGui::InputInt("Seed", &sp.seed)) changed = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Reroll")) {
-            sp.seed = (int)(ImGui::GetTime() * 1000.0) & 0x7fffffff;
-            changed = true;
-        }
-        prefHelp("The same seed is the same sky, always - so nudging a slider\n"
-                 "adjusts the sky instead of reshuffling it.");
-        ImGui::SliderInt("Star count", &sp.count, 0, starfield::kMaxStars);
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SliderFloat("Magnitude spread", &sp.magnitudeSpread, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        prefHelp("0 = every star equally bright; 1 = a realistic long tail of\n"
-                 "faint stars under a handful of bright ones.");
-        ImGui::SliderFloat("Milky Way", &sp.milkyWay, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        prefHelp("Density along a band. Without it a random sky reads as\n"
-                 "uniform noise rather than as a sky.");
-        ImGui::SliderFloat("Band tilt", &sp.milkyWayTilt, -89.0f, 89.0f, "%.0f deg");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SliderFloat("Star size", &sp.sizeScale, 0.25f, 4.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SliderFloat("Twinkle", &c.starTwinkle, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        prefHelp("Each magnitude tier shimmers at its own rate. Per BAG, not\n"
-                 "per star - three multiplies a frame for the whole sky.");
-        ImGui::TextDisabled("%d stars = %d vertices in %d submits (the sky dome "
-                            "next to it is 504).",
-                            sp.count, sp.count * 6, starfield::kTiers);
-    }
-
-    // --- keys --------------------------------------------------------------
-    ImGui::SeparatorText("Colours through the day");
-    if (ImGui::Button("Seed a default day")) {
-        c.keys = ambience::defaultKeys();
-        selectedDayKey_ = -1;
-        changed = true;
-    }
-    prefHelp("Replaces the key list with a night/dawn/day/dusk/night set.");
-    ImGui::SameLine();
-    if (ImGui::Button("+ Key at current time")) {
-        DayKey k = ambience::sampleKeys(c, c.time);  // continue the curve
-        k.hour = ambience::wrap24(c.time);
-        c.keys.push_back(k);
-        project::sortDayKeys(c);
-        selectedDayKey_ = -1;
-        changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(selectedDayKey_ < 0 || selectedDayKey_ >= (int)c.keys.size());
-    if (ImGui::Button("Remove key")) {
-        c.keys.erase(c.keys.begin() + selectedDayKey_);
-        selectedDayKey_ = -1;
-        changed = true;
-    }
-    ImGui::EndDisabled();
-
-    if (c.keys.empty()) {
-        ImGui::TextDisabled("No keys - every hour resolves to the same neutral sky.");
-        return;
-    }
-    if (ImGui::BeginTable("##daykeys", 8,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                              ImGuiTableFlags_SizingFixedFit |
-                              ImGuiTableFlags_ScrollY,
-                          ImVec2(0, scaled(200)))) {
-        ImGui::TableSetupColumn("Hour");
-        ImGui::TableSetupColumn("Horizon");
-        ImGui::TableSetupColumn("Zenith");
-        ImGui::TableSetupColumn("Light");
-        ImGui::TableSetupColumn("Fog");
-        ImGui::TableSetupColumn("Amb");
-        ImGui::TableSetupColumn("Diff");
-        ImGui::TableSetupColumn("Stars");
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-        bool resort = false;
-        for (int i = 0; i < (int)c.keys.size(); ++i) {
-            DayKey& k = c.keys[i];
-            ImGui::PushID(i);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(scaled(64));
-            if (ImGui::DragFloat("##h", &k.hour, 0.05f, 0.0f, 24.0f, "%.2f"))
-                selectedDayKey_ = i;
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                resort = true;
-                changed = true;
+        // The disc as it will be baked (the preview and the shipped texture are
+        // the same pixels - menubake::bakeMoonRGBA).
+        if (uint32_t t = viewport_.moonDiscTexture())
+            ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(72), scaled(72)));
+    } else if (fogTab) {
+        ui::Caption("Distance fog");
+        if (ui::Switch("Fog enabled", &a.fogEnabled)) changed = true;
+        if (a.fogEnabled) {
+            if (!c.enabled) {
+                ui::ColorHex("Fog color", a.fogColor);
+                edited();
             }
-            if (ImGui::IsItemActivated()) selectedDayKey_ = i;
-            const ImGuiColorEditFlags cf =
-                ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
-            auto colCell = [&](const char* id, float* rgb) {
-                ImGui::TableNextColumn();
-                if (ImGui::ColorEdit3(id, rgb, cf)) selectedDayKey_ = i;
-                changed |= ImGui::IsItemDeactivatedAfterEdit();
-            };
-            colCell("##sky", k.skyColor);
-            colCell("##top", k.skyTopColor);
-            colCell("##lit", k.lightColor);
-            colCell("##fog", k.fogColor);
-            auto numCell = [&](const char* id, float* v, float hi) {
-                ImGui::TableNextColumn();
-                ImGui::SetNextItemWidth(scaled(52));
-                if (ImGui::DragFloat(id, v, 0.01f, 0.0f, hi, "%.2f"))
-                    selectedDayKey_ = i;
-                changed |= ImGui::IsItemDeactivatedAfterEdit();
-            };
-            numCell("##amb", &k.ambient, 1.0f);
-            numCell("##dif", &k.diffuse, 1.0f);
-            numCell("##str", &k.stars, 1.0f);
-            ImGui::PopID();
+            ui::DragFloat("Fog start", &a.fogStart, 0.5f, 0.0f, 1000.0f, "%.1f u");
+            edited();
+            ui::DragFloat("Fog end", &a.fogEnd, 0.5f, 0.0f, 1000.0f, "%.1f u");
+            edited();
+            if (a.fogEnd <= a.fogStart + 1.0f) a.fogEnd = a.fogStart + 1.0f;
+            if (c.enabled) ImGui::TextDisabled("The fog colour comes from the keys.");
         }
-        ImGui::EndTable();
-        if (resort) {
-            project::sortDayKeys(c);
-            selectedDayKey_ = -1;
+        if (c.enabled) {
+            ImGui::Spacing();
+            ui::Caption("Stars");
+            if (ui::Switch("Night sky (additive points, faded in by each key's Stars)", &c.starsEnabled)) changed = true;
+            if (c.starsEnabled) {
+                starfield::Params& sp = c.starField;
+                if (ui::DragInt("Seed", &sp.seed, 1.0f, 0, 0x7fffffff)) {}
+                edited();
+                prefHelp("The same seed is the same sky - nudging a slider adjusts it instead of\n"
+                         "reshuffling it.");
+                if (ui::GhostButton("Reroll")) {
+                    sp.seed = (int)(ImGui::GetTime() * 1000.0) & 0x7fffffff;
+                    changed = true;
+                }
+                ui::SliderInt("Star count", &sp.count, 0, starfield::kMaxStars);
+                edited();
+                ui::SliderFloat("Magnitude spread", &sp.magnitudeSpread, 0.0f, 1.0f, "%.2f");
+                edited();
+                prefHelp("0 = every star equally bright; 1 = a realistic long tail of faint stars.");
+                ui::SliderFloat("Milky Way", &sp.milkyWay, 0.0f, 1.0f, "%.2f");
+                edited();
+                ui::SliderFloat("Band tilt", &sp.milkyWayTilt, -89.0f, 89.0f, "%.0f deg");
+                edited();
+                ui::SliderFloat("Star size", &sp.sizeScale, 0.25f, 4.0f, "%.2f");
+                edited();
+                ui::SliderFloat("Twinkle", &c.starTwinkle, 0.0f, 1.0f, "%.2f");
+                edited();
+                ImGui::TextDisabled("%d stars = %d vertices in %d submits", sp.count, sp.count * 6, starfield::kTiers);
+            }
         }
+    } else if (c.enabled && tab == 3) {
+        ui::Caption("Clock");
+        {
+            const std::string fmt = ambHourText(c.time);
+            ui::SliderFloat("Time of day", &c.time, 0.0f, 24.0f, fmt.c_str());
+            edited();
+            prefHelp("The hour the scene is built at - and where the clock starts when it runs.");
+        }
+        if (ui::GhostButton("Noon")) c.time = 12.0f, changed = true;
+        ImGui::SameLine();
+        if (ui::GhostButton("Midnight")) c.time = 0.0f, changed = true;
+        if (c.runtime) {
+            ui::SliderFloat("Day length", &c.dayLength, 8.0f, 1800.0f, "%.0f s");
+            edited();
+            prefHelp("Real seconds for a whole 24 hours.");
+            ImGui::TextDisabled("%.1f s per in-game hour; sunrise to sunset takes %.0f s.", c.dayLength / 24.0f,
+                                c.dayLength * ambience::wrap24(c.sunset - c.sunrise) / 24.0f);
+            {
+                const std::string fmt = ambHourText(c.bakeHour);
+                ui::SliderFloat("Bake lighting at", &c.bakeHour, 0.0f, 24.0f, fmt.c_str());
+                edited();
+                prefHelp("The hour shadows, AO and GI are baked at. Noon is usually right: the most\n"
+                         "neutral light for a lightmap, and the drift grade measures against it.");
+            }
+        } else {
+            ImGui::TextDisabled("The clock is still: everything bakes at %s.", ambHourText(c.time).c_str());
+        }
+        cycleSwitches();
     }
-    ImGui::TextDisabled(
-        "Keys interpolate cyclically, so the last key of the day carries "
-        "through\nmidnight into the first. Two keys holding the same colour "
-        "are how you\nkeep night looking like night instead of ramping into "
-        "dawn from 00:00.");
-
+    (void)fs;
+    ImGui::EndChild();
     if (changed) project::clampDayCycle(c);
 }
 
@@ -18476,7 +18889,7 @@ void App::drawPreferencesWindow() {
 
     ImGui::SeparatorText("Bakes before a build");
     ImGui::BeginDisabled(!prefSettings_.giEnabled);
-    ImGui::Checkbox("Re-bake stale global illumination", &prefSettings_.giAutoBake);
+    ImGui::Checkbox("Re-bake stale global illumination before every build", &prefSettings_.giAutoBake);
     ImGui::EndDisabled();
     prefHelp(
         "Before every build, re-bake every scene whose GI cache no longer\n"

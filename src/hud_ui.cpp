@@ -1937,208 +1937,364 @@ void App::giBakerPoll() {
     }
 }
 
+// Per-scene GI cache state for the Ambience Editor (the GI tab's scene list
+// and the "stale" mark on its window tab, visible from every tab). Reading a
+// cache parses the file and the signature walks the scene, so this is
+// recomputed when the project or the baker moved, and at most once a second
+// otherwise - not every frame.
+void App::refreshGiStates(bool force) {
+    const double now = ImGui::GetTime();
+    const uint64_t ver = giBaker_.version();
+    if (!force && giStatesSerial_ == modelEditSerial_ && giStatesVersion_ == ver &&
+        giStates_.size() == project_.scenes.size() && now - giStatesAt_ < 1.0)
+        return;
+    if (!force && giBaker_.running() && giStates_.size() == project_.scenes.size() && now - giStatesAt_ < 1.0)
+        return;
+    giStatesAt_ = now;
+    giStatesSerial_ = modelEditSerial_;
+    giStatesVersion_ = ver;
+    const ProjectSettings& st = project_.settings;
+    const gibake::Settings gst = gibake::settingsOf(st);
+    giStates_.assign(project_.scenes.size(), GiSceneState{});
+    for (int si = 0; si < (int)project_.scenes.size(); ++si) {
+        gibake::Bake b;
+        GiSceneState& s = giStates_[si];
+        s.present = gibake::read(gibake::cachePath(project_, si), b);
+        s.fresh = s.present && st.giEnabled &&
+                  b.signature == gibake::signature(project_, project_.scenes[si], gst);
+        if (s.present) {
+            s.atlas = b.atlas.size;
+            s.ground = b.terrain.size;
+            for (int k = 0; k < 3; ++k) s.dim[k] = b.probes.dim[k];
+        }
+    }
+}
+
 // The "Global illumination" tab of the Ambience Editor (drawAmbienceWindow).
-// It lives there because that window is already where a scene's light is
-// authored - the AO settings, the sky, the sun - and the bake is the last step
-// of the same job. Not inside the PRESET editor beside it: these are
-// project-wide settings plus a per-scene cache, not part of a mood bundle.
+// Two columns: the settings (quality preset + label-left sliders with their
+// meaning written under each, probes with what the grid costs) and a Bake
+// column that never scrolls away - the state card with the one primary action
+// or the running bake's stage, elapsed time and Cancel, the scenes with their
+// state, and the two bake options pinned to the bottom.
 void App::drawGiBakeSection() {
     ProjectSettings& st = project_.settings;
-    bool changed = false;
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    bool changed = false, giSwitched = false;
+    refreshGiStates(false);
 
-    bool giSwitched = false;
-    if (ImGui::Checkbox("Enable baked global illumination", &st.giEnabled))
-        changed = giSwitched = true;
-    prefHelp(
-        "Static geometry gets a baked multi-bounce lightmap; everything that "
-        "moves gets its light from a probe grid. Off = the classic ambient + "
-        "directional lighting, unchanged.");
-    ImGui::TextDisabled(
-        "Sky, sun, emissive materials and baked point lights become one\n"
-        "integrator with bounces. Costs the PS2 nothing at runtime.");
-    ImGui::Separator();
-
-    ImGui::BeginDisabled(!st.giEnabled || giBaker_.running());
-    ImGui::SeparatorText("Quality");
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderInt("Rays per texel", &st.giRays, 16, 512)) changed = true;
-    prefHelp("Hemisphere rays per lightmap texel and per probe. More = less "
-             "noise in the bounce, linearly more bake time.");
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderInt("Bounces", &st.giBounces, 0, 6)) changed = true;
-    prefHelp("0 = direct light + sky only. 1 already gives colour bleeding; "
-             "2 is the useful default.");
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderFloat("Sky light", &st.giSkyLight, 0.0f, 3.0f, "%.2f"))
-        changed = true;
-    prefHelp("How strongly the sky dome lights the scene. At 1.0 an open "
-             "surface receives about what the flat Ambient used to give it.");
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderFloat("Sun light", &st.giSunLight, 0.0f, 3.0f, "%.2f"))
-        changed = true;
-    prefHelp("Multiplier on the scene's directional light - which GI shadows "
-             "for the first time.");
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderFloat("Ambient floor", &st.giAmbientFloor, 0.0f, 0.3f,
-                           "%.3f"))
-        changed = true;
-    prefHelp("A constant added everywhere. Real GI makes a sealed room with no "
-             "light source pitch black; this keeps it readable.");
-
-    ImGui::SeparatorText("Light probes");
-    if (ImGui::Checkbox("Bake a probe grid", &st.giProbes)) changed = true;
-    prefHelp("What lights the player, NPCs, animated models, physics bodies, "
-             "imported models and textured surfaces. Without it those keep the "
-             "flat ambient while the static half gets GI - which shows.");
-    ImGui::BeginDisabled(!st.giProbes);
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderFloat("Spacing", &st.giProbeSpacing, 1.0f, 12.0f, "%.1f u"))
-        changed = true;
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderFloat("Level height", &st.giProbeHeight, 0.5f, 8.0f,
-                           "%.1f u"))
-        changed = true;
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::SliderInt("Levels", &st.giProbeLevels, 1, 12)) changed = true;
-    prefHelp("Vertical layers above the lowest ground. 12 bytes per probe in "
-             "EE RAM.");
-    ImGui::EndDisabled();
-    ImGui::EndDisabled();
-
-    if (changed) commitChange();
-    // The switch is the one setting here that changes the PICTURE rather than
-    // the next bake, and commitChange does not touch the viewport - so
-    // unticking the box used to leave the baked light on screen until the
-    // scene changed, which reads as the preference doing nothing at all. The
-    // rays/bounces sliders deliberately do not refresh: they alter what a
-    // re-bake would produce, not what is on screen now.
-    if (giSwitched) applyProjectToViewport();
-
-    ImGui::SeparatorText("Scenes");
-    const gibake::Settings gst = gibake::settingsOf(st);
-    int staleCount = 0;
-    if (ImGui::BeginTable("giscenes", 3,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                              ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Scene");
-        ImGui::TableSetupColumn("Bake");
-        ImGui::TableSetupColumn("Contents");
-        ImGui::TableHeadersRow();
-        for (int si = 0; si < (int)project_.scenes.size(); ++si) {
-            gibake::Bake b;
-            const bool present =
-                gibake::read(gibake::cachePath(project_, si), b);
-            const bool fresh =
-                present && st.giEnabled &&
-                b.signature == gibake::signature(project_, project_.scenes[si],
-                                                 gst);
-            if (!fresh) ++staleCount;
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(project_.scenes[si].name.c_str());
-            ImGui::TableNextColumn();
-            if (fresh)
-                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
-            else if (present)
-                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
-            else
-                ImGui::TextDisabled("not baked");
-            ImGui::TableNextColumn();
-            if (present)
-                ImGui::Text("lightmap %d, ground %d, probes %dx%dx%d",
-                            b.atlas.size, b.terrain.size, b.probes.dim[0],
-                            b.probes.dim[1], b.probes.dim[2]);
-            else
-                ImGui::TextDisabled("-");
-        }
-        ImGui::EndTable();
+    // A bake that just finished: remember how long it took.
+    if (giBaker_.running()) {
+        if (!giWasRunning_) giBakeStartedAt_ = ImGui::GetTime();
+        giWasRunning_ = true;
+    } else if (giWasRunning_) {
+        giWasRunning_ = false;
+        giLastBakeSecs_ = (float)(ImGui::GetTime() - giBakeStartedAt_);
+        refreshGiStates(true);
     }
 
-    ImGui::Spacing();
-    if (giBaker_.running()) {
-        ImGui::ProgressBar(giBaker_.progress(),
-                           ImVec2(-FLT_MIN, 0.0f));
-        ImGui::TextUnformatted(giBaker_.status().c_str());
-        if (ImGui::Button("Cancel", ImVec2(scaled(140.0f), 0)))
-            giBaker_.cancel();
-    } else {
-        // Which engine will gather the light. RESOLVED before the buttons and
-        // DRAWN after them, so the two Bake buttons keep the exact position
-        // they had before this switch existed - a widget inserted above them
-        // moves everything below, and the panel is already at the bottom of its
-        // window. gigpu::available() is cached after its first call and must be
-        // reached from the main thread, which a window body is.
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float bakeW = ImClamp(avail.x * 0.38f, scaled(280), scaled(380));
+    // In a side column the Bake column goes under the settings and the two
+    // scroll as one page.
+    const bool stacked = avail.x < scaled(640);
+    if (stacked) {
+        ImGui::BeginChild("##gi_stack", ImVec2(0, avail.y));
+        avail.x = ImGui::GetContentRegionAvail().x;
+    }
+    const float settingsH = stacked ? fs * 44.0f : avail.y;
+    const float bakeH = stacked ? fs * 24.0f : avail.y;
+
+    auto drawSettings = [&] {
+    // --- settings -----------------------------------------------------------------
+    ui::BeginCard("##gi_settings", ImVec2(stacked ? avail.x : ImMax(scaled(240), avail.x - bakeW - gap), settingsH));
+    {
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Baked global illumination");
+        }
+        // The master switch, at the header's right end (its old label = ID).
+        const float sw = IM_TRUNC(IM_TRUNC(fs * 1.05f) * 1.8f);
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - sw);
+        if (ui::Switch("##Enable baked global illumination", &st.giEnabled)) changed = giSwitched = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Static geometry gets a baked multi-bounce lightmap; everything that moves\n"
+                              "gets its light from a probe grid. Off = the classic ambient + directional.");
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("Sky, sun, emissive materials and baked point lights become one integrator with "
+                           "bounces. Costs the PS2 nothing at runtime - it ships as pixels.");
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+
+        ImGui::BeginChild("##gi_settings_body", ImVec2(0, 0));
+        ImGui::BeginDisabled(!st.giEnabled || giBaker_.running());
+        const float labelW = scaled(110);
+        ui::InspectorRows rows(labelW, labelW);
+        // One dim line of meaning under a slider, aligned with the field.
+        auto meaning = [&](const char* text) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + labelW + gap);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+            ImGui::PushFont(nullptr, fs * 0.88f);
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopFont();
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(1.0f, fs * 0.25f));
+        };
+        {
+            // Quality presets: Draft for blocking out, Final for the shipped bake;
+            // any other ray/bounce pair reads as Custom. Derived from the values,
+            // so nothing new is stored.
+            const float y0 = ImGui::GetCursorPosY();
+            ui::Caption("Quality");
+            const ImVec2 after = ImGui::GetCursorPos();
+            int q = st.giRays == 32 && st.giBounces == 1 ? 0 : (st.giRays == 128 && st.giBounces == 2 ? 1 : 2);
+            const char* qs[] = {"Draft", "Final", "Custom"};
+            const float segW = ImMin(scaled(230), ImGui::GetContentRegionAvail().x * 0.55f);
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - segW, y0 - ImGui::GetStyle().FramePadding.y));
+            if (ui::Segmented("##giquality", qs, 3, &q, segW)) {
+                if (q == 0) st.giRays = 32, st.giBounces = 1;
+                if (q == 1) st.giRays = 128, st.giBounces = 2;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Draft = 32 rays, 1 bounce (fast, noisy). Final = 128 rays, 2 bounces.");
+            ImGui::SetCursorPos(ImVec2(after.x, ImMax(after.y, ImGui::GetCursorPosY())));
+        }
+        if (ui::SliderInt("Rays per texel", &st.giRays, 16, 512)) changed = true;
+        meaning("More = less noise in the bounce, linearly more bake time.");
+        if (ui::SliderInt("Bounces", &st.giBounces, 0, 6)) changed = true;
+        meaning("0 = direct + sky only · 1 already bleeds colour · 2 is the useful default.");
+        if (ui::SliderFloat("Sky light", &st.giSkyLight, 0.0f, 3.0f, "%.2f")) changed = true;
+        meaning("At 1.0 an open surface gets about what the flat Ambient gave it.");
+        if (ui::SliderFloat("Sun light", &st.giSunLight, 0.0f, 3.0f, "%.2f")) changed = true;
+        meaning("Multiplier on the scene light, which GI shadows.");
+        if (ui::SliderFloat("Ambient floor", &st.giAmbientFloor, 0.0f, 0.3f, "%.3f")) changed = true;
+        meaning("Keeps a sealed room with no light readable.");
+
+        ImGui::Spacing();
+        {
+            const float y0 = ImGui::GetCursorPosY();
+            ui::Caption("Light probes");
+            const ImVec2 after = ImGui::GetCursorPos();
+            const float sw2 = IM_TRUNC(IM_TRUNC(fs * 1.05f) * 1.8f);
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - sw2, y0 - ImGui::GetStyle().FramePadding.y));
+            // A child window's own position: InspectorRows' row layout does not
+            // apply after a SetCursorPos on the caption line (it is a SameLine-
+            // like placement), so this draws as the bare switch.
+            if (ui::Switch("##Bake a probe grid", &st.giProbes)) changed = true;
+            ImGui::SetCursorPos(after);
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("What lights the player, NPCs, animated and physics objects. Without probes they "
+                           "keep the flat ambient while the static world gets GI.");
+        ImGui::PopStyleColor();
+        ImGui::BeginDisabled(!st.giProbes);
+        if (ui::SliderFloat("Spacing", &st.giProbeSpacing, 1.0f, 12.0f, "%.1f u")) changed = true;
+        if (ui::SliderFloat("Level height", &st.giProbeHeight, 0.5f, 8.0f, "%.1f u")) changed = true;
+        if (ui::SliderInt("Levels", &st.giProbeLevels, 1, 12)) changed = true;
+        prefHelp("Vertical layers above the lowest ground; raised automatically where the\n"
+                 "terrain climbs higher than they reach.");
+        {
+            // What the grid costs, for the active scene: the same sizing the
+            // bake uses (gibake::bakeProbes) before its relief top-up and cap.
+            const TerrainConfig& t = project_.active().terrain;
+            const float sp = ImMax(0.1f, st.giProbeSpacing);
+            const int nx = (int)std::ceil((float)t.width / sp) + 1, nz = (int)std::ceil((float)t.depth / sp) + 1;
+            const long long n = (long long)nx * st.giProbeLevels * nz;
+            char grid[48], cnt[32], ram[32];
+            std::snprintf(grid, sizeof(grid), "%d × %d × %d", nx, st.giProbeLevels, nz);
+            std::snprintf(cnt, sizeof(cnt), "%lld", n);
+            std::snprintf(ram, sizeof(ram), "%.1f KB", n * 13.0 / 1024.0);
+            const float tw = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
+            ImGui::Spacing();
+            ui::StatTile("Grid", grid, 4, tw);
+            ImGui::SameLine(0.0f, gap);
+            ui::StatTile("Probes", cnt, n > 24000 ? 1 : 4, tw);
+            if (ImGui::IsItemHovered() && n > 24000)
+                ImGui::SetTooltip("Over the 24 000-probe cap - the bake halves the grid until it fits.");
+            ImGui::SameLine(0.0f, gap);
+            ui::StatTile("EE RAM", ram, 4, tw);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("12 bytes + 1 per probe, compiled into the game.");
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        ImGui::EndChild();
+    }
+    ui::EndCard();
+    if (changed) commitChange();
+    // The switch changes the PICTURE rather than the next bake, and
+    // commitChange does not touch the viewport - unticking it must take the
+    // baked light off screen now. The sliders only alter a future bake.
+    if (giSwitched) {
+        applyProjectToViewport();
+        refreshGiStates(true);
+    }
+    };
+    auto drawBake = [&] {
+    // --- bake column ----------------------------------------------------------------
+    ui::BeginCard("##gi_bake", ImVec2(0, bakeH));
+    {
         std::string gpuWhy;
         const bool gpuHere = gigpu::available(&gpuWhy);
         const bool useGpu = giGpuBake_ && gpuHere;
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Bake");
+        }
+        const char* eng = useGpu ? "GPU" : "CPU";
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(eng).x - fs);
+        ui::Badge(eng, useGpu ? 3 : 4);
 
-        ImGui::BeginDisabled(!st.giEnabled);
-        if (ImGui::Button("Bake this scene", ImVec2(scaled(140.0f), 0))) {
-            saveProject();  // the bake reads the project from disk-backed state
-            giBaker_.start(project_, {project_.activeScene}, useGpu);
+        const float footH = ImGui::GetFrameHeightWithSpacing() * 2.0f + fs * 2.6f;
+        ImGui::BeginChild("##gi_bake_body", ImVec2(0, -footH));
+        const int cur = project_.activeScene;
+        const bool haveCur = cur >= 0 && cur < (int)giStates_.size();
+        int staleCount = 0;
+        for (const GiSceneState& s : giStates_) staleCount += st.giEnabled && !s.fresh;
+
+        // State card.
+        ui::BeginCard("##gi_state", ImVec2(0, 0));
+        if (giBaker_.running()) {
+            const float pr = giBaker_.progress();
+            const std::string status = giBaker_.status();  // "Baking main (1/2)"
+            int idx = 1, total = 1;
+            const size_t lp = status.rfind('(');
+            if (lp != std::string::npos) std::sscanf(status.c_str() + lp, "(%d/%d)", &idx, &total);
+            // Stage from the bake's own phase layout (gibake::bakeScene: prepare
+            // 0-5%, bounces 5-40%, lightmap + ground 40-70%, probes 70-100% of
+            // each scene). The fraction is all the worker reports.
+            const float local = ImClamp(pr * (float)ImMax(1, total) - (float)(idx - 1), 0.0f, 1.0f);
+            char stage[64];
+            if (local < 0.05f) std::snprintf(stage, sizeof(stage), "preparing");
+            else if (local < 0.40f) {
+                const int nb = ImMax(1, st.giBounces);
+                const int b = ImClamp((int)((local - 0.05f) / 0.35f * nb) + 1, 1, nb);
+                std::snprintf(stage, sizeof(stage), "bounce %d of %d", b, nb);
+            } else if (local < 0.70f) std::snprintf(stage, sizeof(stage), "lightmap");
+            else std::snprintf(stage, sizeof(stage), "probes");
+            char pct[16], el[32];
+            std::snprintf(pct, sizeof(pct), "%d%%", (int)(pr * 100.0f));
+            std::snprintf(el, sizeof(el), "%.1f s elapsed", ImGui::GetTime() - giBakeStartedAt_);
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted(status.c_str());
+            }
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(pct).x);
+            ImGui::TextColored(sem.accent, "%s", pct);
+            ui::ProgressInline(pr, nullptr, nullptr);
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextDisabled("%s", stage);
+                ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(el).x);
+                ImGui::TextDisabled("%s", el);
+            }
+            if (ImGui::Button("Cancel", ImVec2(-FLT_MIN, 0))) giBaker_.cancel();
+        } else {
+            const GiSceneState* s = haveCur ? &giStates_[cur] : nullptr;
+            const std::string nm = project_.active().name;
+            if (!st.giEnabled) ui::StatusLine(4, "GI is off - the scenes use the classic lighting");
+            else if (s && s->fresh) ui::StatusLine(0, (nm + " - baked, up to date").c_str());
+            else if (s && s->present) ui::StatusLine(1, (nm + " - stale, the scene or settings changed").c_str());
+            else ui::StatusLine(1, (nm + " - not baked yet").c_str());
+            ImGui::Spacing();
+            ImGui::BeginDisabled(!st.giEnabled);
+            const float bw = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+            if (ui::PrimaryButton("Bake this scene", bw)) {
+                saveProject();  // the bake reads the project from disk-backed state
+                giBaker_.start(project_, {project_.activeScene}, useGpu);
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (ui::GhostButton("Bake all scenes", bw)) {
+                saveProject();
+                giBaker_.start(project_, {}, useGpu);
+            }
+            ImGui::EndDisabled();
+            if (st.giEnabled && staleCount > 0) ImGui::TextDisabled("%d scene(s) need a bake", staleCount);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Bake all scenes", ImVec2(scaled(140.0f), 0))) {
-            saveProject();
-            giBaker_.start(project_, {}, useGpu);
+        ui::EndCard();
+
+        ImGui::Spacing();
+        ui::Caption("Scenes");
+        for (int si = 0; si < (int)giStates_.size() && si < (int)project_.scenes.size(); ++si) {
+            const GiSceneState& s = giStates_[si];
+            ImGui::PushID(si);
+            const bool baking = giBaker_.running() &&
+                                giBaker_.status().find(project_.scenes[si].name) != std::string::npos;
+            const int kind = baking ? 3 : (!st.giEnabled ? 4 : (s.fresh ? 0 : 1));
+            ui::StatusLine(kind, project_.scenes[si].name.c_str());
+            if (si == cur) {
+                ImGui::SameLine(0.0f, fs * 0.3f);
+                ImGui::TextDisabled("· current");
+            }
+            const char* badge = baking ? "baking" : (s.fresh ? "baked" : (s.present ? "stale" : "not baked"));
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(badge).x - fs);
+            ui::Badge(badge, kind);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fs * 0.9f);
+            ui::FontScope mono(ui::monoFont());
+            if (s.present)
+                ImGui::TextDisabled("%slightmap %d · ground %d · probes %dx%dx%d", baking ? "was: " : "", s.atlas,
+                                    s.ground, s.dim[0], s.dim[1], s.dim[2]);
+            else
+                ImGui::TextDisabled("-");
+            ImGui::PopID();
         }
-        ImGui::EndDisabled();
-        // ON THE SAME LINE as the buttons, and that is not cosmetic: this panel
-        // already ends within a few pixels of its window's bottom edge, so a
-        // widget that adds a ROW pushes the one below it OUTSIDE the window -
-        // where ImGui still submits it and --ui-script still reports a rect for
-        // it, but no label arrives and a click at those coordinates goes
-        // through to whatever is behind. That is what an added row did to the
-        // two Bake buttons here, and it is invisible until something tries to
-        // press them.
-        //
-        // Asked here rather than in the Preferences modal because this is where
-        // a person is standing when the question matters - the errorPopup
-        // precedent: still a machine-global setting, still saved through
-        // saveGlobalConfig().
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!gpuHere);
+        if (giBaker_.running()) {
+            ImGui::Spacing();
+            char note[160];
+            if (giLastBakeSecs_ > 0.0f)
+                std::snprintf(note, sizeof(note),
+                              "The viewport keeps showing the previous bake until this one finishes. Last bake: %.1f s.",
+                              giLastBakeSecs_);
+            else
+                std::snprintf(note, sizeof(note), "The viewport keeps showing the previous bake until this one finishes.");
+            ui::Note(3, note);
+        }
+        ImGui::EndChild();
+
+        // Pinned options.
+        ImGui::Separator();
+        ui::InspectorRows rows(scaled(80), scaled(120));
+        ImGui::BeginDisabled(!gpuHere || giBaker_.running());
         bool wantGpu = useGpu;
-        if (ImGui::Checkbox("Bake on the GPU", &wantGpu)) {
+        if (ui::Switch("Bake on the GPU (8-10x faster lightmap passes, matches the CPU within 2/255)", &wantGpu)) {
             giGpuBake_ = wantGpu;
             saveGlobalConfig();
         }
         ImGui::EndDisabled();
-        prefHelp(
-            gpuHere
-                ? "Gathers the light on a GL 4.3 compute shader instead of the "
-                  "CPU cores. The two lightmap passes run about 8-10x faster; "
-                  "the totals gain less, because starting the backend costs "
-                  "~0.9s once per session.\n\n"
-                  "The two engines agree to a tolerance, not exactly - the "
-                  "light channels differ by at most 2 levels out of 255, and "
-                  "the atlas layout and the occlusion are identical. Off by "
-                  "default so a re-bake does not rewrite a cache that is "
-                  "checked into a repository."
-                : ("No GPU bake on this machine: " + gpuWhy +
-                   "\n\nThe CPU integrator is the reference and bakes "
-                   "everything the GPU would - this only costs wall clock.")
-                      .c_str());
-        if (st.giEnabled && staleCount > 0)
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                               "%d scene(s) need a bake", staleCount);
-
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", gpuHere ? "A GL 4.3 compute gather instead of the CPU cores. Starting the backend\n"
+                                              "costs ~0.9 s once per session. Off by default so a re-bake does not\n"
+                                              "rewrite a cache checked into a repository. Machine-wide setting."
+                                            : ("No GPU bake on this machine: " + gpuWhy).c_str());
+        // ONE name for giAutoBake everywhere (Project Preferences > Build says
+        // the same and links here).
+        ImGui::BeginDisabled(!st.giEnabled);
+        if (ui::Switch("Re-bake stale global illumination before every build (only scenes whose cache no "
+                       "longer matches)",
+                       &st.giAutoBake))
+            commitChange();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("A changed big scene can cost minutes. Also in Project Preferences > Build.");
     }
-    // The same switch Project Preferences > Build carries, offered where the
-    // staleness it answers is on screen. Only stale scenes, so a build with
-    // everything fresh costs one signature pass.
-    ImGui::BeginDisabled(!st.giEnabled);
-    if (ImGui::Checkbox("Re-bake stale scenes before every build",
-                        &st.giAutoBake))
-        commitChange();
-    ImGui::EndDisabled();
-    prefHelp("Only the scenes whose cache no longer matches them; a changed big "
-             "scene can cost minutes. Also in Project > Preferences > Build.");
-
-    // No "what this does not do" wall here. It was five lines of routing
-    // caveats in a settings tab, it went stale the moment the ground's route
-    // changed, and docs/global-illumination.md is where that story belongs -
-    // the in-editor assistant reads it from there.
+    ui::EndCard();
+    };
+    // Stacked, the Bake card comes FIRST: the tool's one action must not be
+    // the thing below the fold.
+    if (stacked) {
+        drawBake();
+        drawSettings();
+    } else {
+        drawSettings();
+        ImGui::SameLine(0.0f, gap);
+        drawBake();
+    }
+    if (stacked) ImGui::EndChild();
 }
 
 // --- Baked lighting tab ------------------------------------------------------

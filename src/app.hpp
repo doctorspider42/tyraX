@@ -1483,8 +1483,9 @@ private:
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
-    void drawAmbiencePresets(bool& changed);
-    void drawAmbienceDayCycle(bool& changed);
+    void drawAmbienceSkyTime(bool& changed);  // Sky & time: presets | sky | inspector
+    void drawAmbienceSkyHero(AmbiencePreset& a, bool& changed);
+    void drawAmbienceInspector(AmbiencePreset& a, bool& changed);
     // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
     // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
     // its phase or texture changed.
@@ -3065,6 +3066,26 @@ private:
     float skyBodyComp_[3] = {1.0f, 1.0f, 1.0f};
     // Which key row the cycle tab has selected (-1 = none).
     int selectedDayKey_ = -1;
+    // Ambience Editor view state: the window tab (0 Sky & time, 1 Global
+    // illumination, 2 Baked lighting), the inspector tab, and the hero's
+    // Play-the-day hour (-1 = not playing; it never edits the preset).
+    int ambienceTab_ = 0;
+    int ambienceInspTab_ = 0;
+    float ambiencePlayHour_ = -1.0f;
+    // Per-scene GI cache state (refreshGiStates, hud_ui.cpp): the GI tab's
+    // scene list and the "stale" mark on its window tab. Throttled - reading a
+    // cache parses the file and the signature walks the scene.
+    struct GiSceneState {
+        bool present = false, fresh = false;
+        int atlas = 0, ground = 0, dim[3] = {0, 0, 0};
+    };
+    std::vector<GiSceneState> giStates_;
+    double giStatesAt_ = -10.0;
+    uint64_t giStatesSerial_ = ~0ull, giStatesVersion_ = ~0ull;
+    void refreshGiStates(bool force);
+    double giBakeStartedAt_ = 0.0;  // for the running bake's elapsed time
+    float giLastBakeSecs_ = 0.0f;
+    bool giWasRunning_ = false;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
     // element within it (lsSelKind_: 0 image / 1 text / 2 bar / 3 the screen
