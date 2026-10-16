@@ -103,14 +103,24 @@ matching names, and an exact match always wins over a normalised one.
 
 ## Mapping bones by hand
 
-![The bone mapper on a Mixamo source and a differently rigged target: both skeletons, the mode line, and the pair list.](img/bone-mapper.png)
+![Map bones on wobbler.glb -> cat.glb: the mode badge, the matched / suggested / unmatched bar, each rig framed in its own card (the cat from the side), a hovered suggestion linked across the cards, and the suggestion list.](img/bone-mapper.png)
 
-When the two rigs' names genuinely differ, **Map bones…** (on each import row;
-it also opens itself when *Add clips* lands a partial match) shows both
-skeletons drawn from their bind poses, side by side. Green joints matched by
-name; **amber** ones carry a suggestion; **red** ones matched nothing. Click a
-red or amber joint, then the joint on the right it should drive; right-click
-removes a pair; *Accept suggestions* takes every amber guess at once.
+When the two rigs' names genuinely differ, **Map bones…** (the borrowed
+file's inspector; it also opens itself when borrowing lands a partial match)
+shows both skeletons drawn from their bind poses. The title says what goes onto
+what (`wobbler.glb -> cat.glb`) and how - *copy path* or *full retarget* with
+the bind gap - and a bar counts the source joints **matched**, **suggested**
+and **unmatched**. Each rig has its own card, framed to itself: the source on
+whichever plane shows it wide (a chain seen end-on used to be one dot), this
+model from the **Side** or the **Front** (picked for you when the window opens;
+**Frame** resets the zoom). Green joints matched; **amber** ones carry a
+suggestion; **red** ones matched nothing. Click a red or amber joint, then the
+joint on the right it should drive; right-click removes a pair; hovering a
+joint or a list row draws its pair as a dashed link across the cards. The
+right column lists the **Suggestions** (one line each, with a score and an
+accept button, and *Accept all N*), the **Unmatched** joints, *Ask AI for
+pairs*, and the **Pairs** you made. **Apply N pairs** writes them to the import
+row - it stays disabled, with the reason on hover, while nothing changed.
 Suggestions are never applied on their own — a wrong guess bends the wrong
 limb, so a person confirms them.
 
@@ -124,16 +134,16 @@ pair you ever accepted lands in a machine-global alias book, so the next file
 from the same pack suggests itself). A left token or a clearly-left position
 still never pairs with a right one.
 
-![The test pose mid-walk: both rigs posed through the mapping - a wrong pair would show as a folded limb.](img/bone-mapper-pose.png)
+![The test pose: wobbler.glb's Wiggle playing through the mapping onto the cat's tail - a wrong pair would show as a folded limb.](img/bone-mapper-pose.png)
 
 Two shortcuts sit above the fuzzy scores. When the rigs differ by one rename
 pattern, an **Apply rule** button appears — `strip 'rigX:'+'X' (34)` — one
-reviewable transformation instead of thirty scores. And **Test pose** poses
-both skeletons through the current mapping with a clip of the source (slider +
-Play): a wrong pair shows as a folded limb in a quarter of a second, which
+reviewable transformation instead of thirty scores. And **Test pose**, pinned
+under the list, poses both skeletons through the current mapping with a clip of
+the source (pick the clip, Play/Pause, scrub): a wrong pair shows as a folded limb in a quarter of a second, which
 beats every percentage this window prints.
 
-**Ask AI** (optional — uses the backend from *Edit > Preferences*) sends both
+**Ask AI for pairs** (optional — uses the backend from *Edit > Preferences*) sends both
 hierarchies with bind positions to the model and lands its proposals in the
 list as one more suggestion group, blue, each with its own accept button.
 Nothing it says is applied on its own, exactly like the local suggestions.

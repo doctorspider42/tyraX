@@ -1366,6 +1366,10 @@ private:
     // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
     // finger and toe joints of a real rig are unclickable. Reset on open.
     float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
+    // Projection of the target rig: 0 side (z, y), 1 front (x, y) - picked
+    // at open by which plane shows the rig wider; the source rig always
+    // gets its own widest plane (a chain seen end-on was one dot).
+    int animMapTargetView_ = 0;
     // Test pose: both rigs posed through the CURRENT mapping - the check
     // that beats every percentage (docs/animation-import.md).
     int animMapPoseClip_ = -1;  // donor clip index, -1 = off

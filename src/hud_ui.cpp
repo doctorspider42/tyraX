@@ -6063,6 +6063,8 @@ static void upsertPair(
     pairs.emplace_back(from, to);
 }
 
+static float rigExtent(const std::vector<float>& pos, const glbparser::Skel& sk, int ax);
+
 void App::openAnimBoneMap(int importRow) {
     if (importRow < 0 || importRow >= (int)project_.animImports.size()) return;
     const AnimImport& a = project_.animImports[(size_t)importRow];
@@ -6093,6 +6095,12 @@ void App::openAnimBoneMap(int importRow) {
     if (animMapParsed_) {
         animmerge::bindGlobals(animMapTarget_, animMapTPos_);
         animmerge::bindGlobals(animMapDonor_, animMapDPos_);
+        // Side or front for the target: whichever shows the rig wider (a
+        // quadruped from the side, a biped from the front).
+        animMapTargetView_ = rigExtent(animMapTPos_, animMapTarget_, 0) >=
+                                     rigExtent(animMapTPos_, animMapTarget_, 2)
+                                 ? 1
+                                 : 0;
     }
     // Replay the stored pairs through the hygiene rule, so duplicates from
     // sessions before it existed collapse to the LATEST intent.
@@ -6104,6 +6112,33 @@ void App::openAnimBoneMap(int importRow) {
     ImGui::SetWindowFocus("Map bones");
 }
 
+// Horizontal extent of a rig's bones along world axis `ax` (0 x, 2 z): which
+// plane shows the rig wide rather than end-on.
+static float rigExtent(const std::vector<float>& pos, const glbparser::Skel& sk, int ax) {
+    float lo = 0.0f, hi = 0.0f;
+    bool first = true;
+    for (const glbparser::SkelJoint& j : sk.palette) {
+        const int n = j.node;
+        if (n < 0 || (size_t)(n * 3 + 2) >= pos.size()) continue;
+        const float v = pos[(size_t)n * 3 + ax];
+        if (first || v < lo) lo = v;
+        if (first || v > hi) hi = v;
+        first = false;
+    }
+    return hi - lo;
+}
+
+// A dashed line (the pair link that crosses from one rig's card to the other).
+static void dashedLine(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float thick, float dash) {
+    const float len = std::hypot(b.x - a.x, b.y - a.y);
+    if (len < 1.0f) return;
+    const ImVec2 d((b.x - a.x) / len, (b.y - a.y) / len);
+    for (float t = 0.0f; t < len; t += dash * 2.0f) {
+        const float e = std::min(len, t + dash);
+        dl->AddLine(ImVec2(a.x + d.x * t, a.y + d.y * t), ImVec2(a.x + d.x * e, a.y + d.y * e), col, thick);
+    }
+}
+
 bool App::drawAnimBoneMapWindow() {
     if (animMapRow_ < 0 || !hasProject_) return false;
     if (animMapRow_ >= (int)project_.animImports.size()) {
@@ -6113,16 +6148,16 @@ bool App::drawAnimBoneMapWindow() {
     AnimImport& row = project_.animImports[(size_t)animMapRow_];
 
     bool openFlag = true;
-    ImGui::SetNextWindowSize(ImVec2(scaled(760), scaled(560)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1100), scaled(720)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Map bones", &openFlag)) {
         ImGui::End();
         if (!openFlag) animMapRow_ = -1;
         return false;
     }
+    const theme::Semantics& sem = theme::semantics();
     if (!animMapParsed_) {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                           "A file would not parse.");
+        ui::EmptyState(ui::Glyph::Person, "A file would not parse",
+                       "Both the source and this model must load as rigged .glb/.fbx files.");
         ImGui::End();
         if (!openFlag) animMapRow_ = -1;
         return false;
@@ -6134,17 +6169,15 @@ bool App::drawAnimBoneMapWindow() {
     // Per-frame state derived from the staged pairs. Cheap (name lookups over
     // <100 bones), so recomputing beats caching + invalidation here. The
     // row's own switches ride along, so the test pose shows what the BAKE
-    // will do with them (facing, mirror, lean - it used to ignore them).
+    // will do with them (facing, mirror, lean).
     animmerge::MergeOptions opts;
     opts.boneMap = animMapPairs_;
     opts.facingOverride = row.facing;
     opts.mirror = row.mirror;
     opts.tuneLean = row.lean;
-    opts.translation = row.translation == 2
-                           ? animmerge::TranslationMode::CopyAll
-                       : row.translation == 1
-                           ? animmerge::TranslationMode::AnimatedOnly
-                           : animmerge::TranslationMode::RootBonesOnly;
+    opts.translation = row.translation == 2   ? animmerge::TranslationMode::CopyAll
+                       : row.translation == 1 ? animmerge::TranslationMode::AnimatedOnly
+                                              : animmerge::TranslationMode::RootBonesOnly;
     opts.ignoreScale = row.ignoreScale;
     opts.retargetRoot = row.retargetRoot;
     // Which donor nodes are bones, and where each resolves.
@@ -6166,16 +6199,13 @@ bool App::drawAnimBoneMapWindow() {
     }
     if (!animMapSuggValid_ || animMapSuggFor_ != animMapPairs_) {
         animMapSugg_ = animmerge::suggestBoneMap(tgt, don, opts, &boneAliases_);
-        animMapAffixOk_ = animmerge::detectAffixRule(tgt, don, opts,
-                                                     animMapAffix_);
+        animMapAffixOk_ = animmerge::detectAffixRule(tgt, don, opts, animMapAffix_);
         // AI proposals for donors that got resolved meanwhile drop out.
-        animMapAiSugg_.erase(
-            std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
-                           [&](const auto& pr) {
-                               return animmerge::resolveBoneName(
-                                          tgt, pr.first, opts) >= 0;
-                           }),
-            animMapAiSugg_.end());
+        animMapAiSugg_.erase(std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
+                                            [&](const auto& pr) {
+                                                return animmerge::resolveBoneName(tgt, pr.first, opts) >= 0;
+                                            }),
+                             animMapAiSugg_.end());
         animMapSuggFor_ = animMapPairs_;
         animMapSuggValid_ = true;
     }
@@ -6185,382 +6215,326 @@ bool App::drawAnimBoneMapWindow() {
             if (don.nodes[(size_t)n].name == sg.donor)
                 for (size_t t = 0; t < tgt.nodes.size(); ++t)
                     if (tgt.nodes[t].name == sg.target) suggested[n] = (int)t;
+    int nSugg = 0, nUnmatched = 0;
+    for (int n : donorBones) {
+        if (!resolved.count(n) || resolved[n] >= 0) continue;
+        if (suggested.count(n)) ++nSugg;
+        else ++nUnmatched;
+    }
+    const int nDonor = (int)donorBones.size();
+    const ImU32 cGreen = ImGui::GetColorU32(sem.ok);
+    const ImU32 cAmber = ImGui::GetColorU32(sem.warn);
+    const ImU32 cRed = ImGui::GetColorU32(sem.danger);
 
-    // --- header: the numbers and the verbs, one line ------------------------
-    ImGui::Text("%d/%d bones", mapped, (int)donorBones.size());
-    ImGui::SameLine();
-    if (!animMapSugg_.empty()) {
-        char lbl[48];
-        snprintf(lbl, sizeof lbl, "Accept %d suggestion%s",
-                 (int)animMapSugg_.size(),
-                 animMapSugg_.size() == 1 ? "" : "s");
-        if (ImGui::SmallButton(lbl))
-            for (const animmerge::BoneSuggestion& sg : animMapSugg_)
-                upsertPair(animMapPairs_, sg.donor, sg.target);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Turn the amber guesses into real pairs.");
-        ImGui::SameLine();
-    }
-    if (!animMapPairs_.empty()) {
-        if (ImGui::SmallButton("Clear pairs")) animMapPairs_.clear();
-        ImGui::SameLine();
-    }
-    if (animMapAffixOk_) {
-        char lbl[96];
-        snprintf(lbl, sizeof lbl, "Apply rule: %s (%d)",
-                 animMapAffix_.describe().c_str(), animMapAffix_.matches);
-        if (ImGui::SmallButton(lbl))
-            for (const auto& pr :
-                 animmerge::applyAffixRule(tgt, don, opts, animMapAffix_))
-                upsertPair(animMapPairs_, pr.first, pr.second);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "One rename rule covers these bones - the two rigs are\n"
-                "identical modulo this prefix/suffix.");
-        ImGui::SameLine();
+    // --- header: what goes onto what, and how ---------------------------------
+    const std::string donorFile = std::filesystem::path(row.source).filename().string();
+    const std::string targetFile = std::filesystem::path(row.model).filename().string();
+    {
+        ui::FontScope bold(ui::boldFont());
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("%s \xE2\x86\x92 %s", donorFile.c_str(), targetFile.c_str());
     }
     {
-        const animmerge::RetargetInfo ri =
-            animmerge::retargetInfo(tgt, don, opts);
-        ImGui::TextDisabled(ri.full ? "full retarget (%.0f deg)" : "copy",
-                            ri.bindGapDeg);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                ri.full ? "Bind poses differ - clips resample through the\n"
-                          "retargeter; the test pose shows exactly that."
-                        : "Identical binds - channels copy verbatim.");
+        const animmerge::RetargetInfo ri = animmerge::retargetInfo(tgt, don, opts);
+        char mode[96];
+        if (ri.full)
+            std::snprintf(mode, sizeof mode, "full retarget \xC2\xB7 %.0f deg bind gap", ri.bindGapDeg);
+        else
+            std::snprintf(mode, sizeof mode, "copy path \xC2\xB7 not a full retarget");
         ImGui::SameLine();
+        ui::Badge(mode, ri.full ? 3 : 4);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(ri.full ? "Bind poses differ - clips resample through the\n"
+                                        "retargeter; the test pose shows exactly that."
+                                      : "Identical binds - channels copy verbatim.");
     }
-    // Legend - the canvas colors, named once, tersely.
-    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "matched");
-    ImGui::SameLine();
-    ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "suggested");
-    ImGui::SameLine();
-    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unmatched");
-    ImGui::SameLine();
-    ImGui::TextDisabled("- click a joint, then its match on the right");
 
-    // The list pane's hover from LAST frame - the canvas draws before the
-    // list is laid out, so it highlights with one frame of lag.
+    // --- progress: matched / suggested / unmatched ------------------------------
+    {
+        char lead[64];
+        std::snprintf(lead, sizeof lead, "%d / %d source joints mapped", mapped, nDonor);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(lead);
+        ImGui::SameLine();
+        const char* legend[3] = {"matched", "suggested", "unmatched"};
+        const int counts[3] = {mapped, nSugg, nUnmatched};
+        const ImU32 cols[3] = {cGreen, cAmber, cRed};
+        float legW = 0.0f;
+        char lbuf[3][32];
+        for (int k = 0; k < 3; ++k) {
+            std::snprintf(lbuf[k], sizeof lbuf[k], "%s %d", legend[k], counts[k]);
+            legW += ImGui::CalcTextSize(lbuf[k]).x + ImGui::GetFontSize() * 1.6f;
+        }
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float barW = std::max(scaled(60.0f), ImGui::GetContentRegionAvail().x - legW - scaled(16.0f));
+        const float bh = scaled(6.0f);
+        const float by = p.y + ImGui::GetFrameHeight() * 0.5f - bh * 0.5f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(p.x, by), ImVec2(p.x + barW, by + bh), ImGui::GetColorU32(sem.field), bh);
+        float x = p.x;
+        for (int k = 0; k < 3; ++k) {
+            const float w = nDonor > 0 ? barW * counts[k] / (float)nDonor : 0.0f;
+            if (w > 0.0f) dl->AddRectFilled(ImVec2(x, by), ImVec2(x + w, by + bh), cols[k], k == 0 && x == p.x ? bh : 0.0f);
+            x += w;
+        }
+        ImGui::Dummy(ImVec2(barW, ImGui::GetFrameHeight()));
+        for (int k = 0; k < 3; ++k) {
+            ImGui::SameLine(0.0f, scaled(14.0f));
+            const ImVec2 q = ImGui::GetCursorScreenPos();
+            dl->AddCircleFilled(ImVec2(q.x + ImGui::GetFontSize() * 0.3f, q.y + ImGui::GetFrameHeight() * 0.5f),
+                                ImGui::GetFontSize() * 0.25f, cols[k]);
+            ImGui::SetCursorScreenPos(ImVec2(q.x + ImGui::GetFontSize() * 0.75f, q.y));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", lbuf[k]);
+        }
+    }
+    ImGui::Separator();
+
+    // The list's hover from LAST frame - the canvas draws before the list is
+    // laid out, so it highlights with one frame of lag.
     const int hiD = animMapHiD_, hiT = animMapHiT_;
     animMapHiD_ = animMapHiT_ = -1;
 
-    // --- row 2: the test pose and the AI assist ----------------------------
-    ImGui::SetNextItemWidth(scaled(170));
-    const char* poseLbl = animMapPoseClip_ >= 0 &&
-                                  animMapPoseClip_ < (int)don.clips.size()
-                              ? don.clips[(size_t)animMapPoseClip_].name.c_str()
-                              : "Test pose: off";
-    if (ImGui::BeginCombo("##posec", poseLbl)) {
-        if (ImGui::Selectable("off", animMapPoseClip_ < 0))
-            animMapPoseClip_ = -1;
-        for (size_t c = 0; c < don.clips.size(); ++c)
-            if (ImGui::Selectable(don.clips[c].name.c_str(),
-                                  (int)c == animMapPoseClip_)) {
-                animMapPoseClip_ = (int)c;
-                animMapPoseT_ = 0.0f;
-            }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Pose both rigs through the current mapping. A wrong pair\n"
-            "shows as a folded limb long before any percentage does.");
-    const bool poseOn =
-        animMapPoseClip_ >= 0 && animMapPoseClip_ < (int)don.clips.size();
+    const float footerH = ImGui::GetFrameHeightWithSpacing() + scaled(12);
+    const float listW = scaled(330);
+    const float bodyH = ImGui::GetContentRegionAvail().y - footerH;
+
+    // The test pose (clip + time) drives both rigs; computed before drawing.
+    const bool poseOn = animMapPoseClip_ >= 0 && animMapPoseClip_ < (int)don.clips.size();
     if (poseOn) {
-        const float dur =
-            don.clips[(size_t)animMapPoseClip_].duration;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(140));
-        ImGui::SliderFloat("##poset", &animMapPoseT_, 0.0f,
-                           dur > 0.01f ? dur : 0.01f, "%.2fs");
-        ImGui::SameLine();
-        ImGui::Checkbox("Play", &animMapPosePlay_);
+        const float dur = don.clips[(size_t)animMapPoseClip_].duration;
         if (animMapPosePlay_ && dur > 0.01f) {
             animMapPoseT_ += ImGui::GetIO().DeltaTime;
             while (animMapPoseT_ > dur) animMapPoseT_ -= dur;
         }
-        animmerge::posedPreview(tgt, don, opts, animMapPoseClip_,
-                                animMapPoseT_, animMapDPosed_, animMapTPosed_);
-    }
-    ImGui::SameLine();
-    if (animMapAiGen_ && animMapAiGen_->busy()) {
-        ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%c AI...",
-                           "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Cancel")) animMapAiGen_->cancel();
-    } else {
-        if (ImGui::SmallButton("Ask AI")) {
-            animMapAiErr_.clear();
-            animMapAiGen_ = std::make_unique<aigen::Generator>();
-            animMapAiGen_->start(
-                globalAi_, animmerge::aiMapPrompt(tgt, don, opts),
-                "Map the bones now. Reply with the JSON only.");
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Send both skeletons (hierarchy + bind positions) to the\n"
-                "AI backend from Edit > Preferences. Proposals land below\n"
-                "for you to accept - nothing is applied on its own.");
-    }
-    if (animMapAiGen_ && !animMapAiGen_->busy()) {
-        if (animMapAiGen_->state() == aigen::Generator::State::Success) {
-            animMapAiSugg_ =
-                animmerge::parseAiBoneMap(animMapAiGen_->reply(), tgt, don);
-            animMapAiSugg_.erase(
-                std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
-                               [&](const auto& pr) {
-                                   return animmerge::resolveBoneName(
-                                              tgt, pr.first, opts) >= 0;
-                               }),
-                animMapAiSugg_.end());
-            if (animMapAiSugg_.empty())
-                animMapAiErr_ = "AI proposed nothing usable.";
-        } else if (animMapAiGen_->state() == aigen::Generator::State::Failed) {
-            animMapAiErr_ = animMapAiGen_->error();
-        }
-        animMapAiGen_.reset();
-    }
-    if (!animMapAiErr_.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", animMapAiErr_.c_str());
+        animmerge::posedPreview(tgt, don, opts, animMapPoseClip_, animMapPoseT_, animMapDPosed_, animMapTPosed_);
     }
 
-    // --- the canvas ---------------------------------------------------------
-    const float footerH = ImGui::GetFrameHeightWithSpacing() + scaled(8);
-    const float listW = scaled(230);
-    ImGui::BeginChild("##bonecanvas", ImVec2(-listW, -footerH),
-                      ImGuiChildFlags_Borders);
+    // --- the canvas: two cards, each framed to its own rig ------------------
+    ImGui::BeginChild("##bonecanvas", ImVec2(ImGui::GetContentRegionAvail().x - listW, bodyH));
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 cMin = ImGui::GetCursorScreenPos();
     const ImVec2 cSize = ImGui::GetContentRegionAvail();
     // The child must claim its input region or clicks fall through to
     // whatever is under the canvas.
-    ImGui::InvisibleButton("##bonehit", ImVec2(cSize.x > 1 ? cSize.x : 1,
-                                               cSize.y > 1 ? cSize.y : 1));
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("Bone canvas##bonehit", ImVec2(cSize.x > 1 ? cSize.x : 1, cSize.y > 1 ? cSize.y : 1),
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                               ImGuiButtonFlags_MouseButtonMiddle);
     const bool canvasHover = ImGui::IsItemHovered();
     // The canvas owns the wheel while hovered - without this the same wheel
     // that zooms the skeletons also scrolled the window around them.
     ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
-    // View input first, so this frame already draws the moved view: wheel
-    // zooms around the cursor, middle-drag pans (the viewport's gestures).
-    const ImVec2 cCenter(cMin.x + cSize.x * 0.5f, cMin.y + cSize.y * 0.5f);
-    if (canvasHover) {
+    const float gap = scaled(8.0f);
+    const float srcW = std::clamp(cSize.x * 0.3f, scaled(150.0f), scaled(300.0f));
+    const ImVec2 sMin = cMin, sMax(cMin.x + srcW, cMin.y + cSize.y);
+    const ImVec2 tMin(cMin.x + srcW + gap, cMin.y), tMax(cMin.x + cSize.x, cMin.y + cSize.y);
+    const float rr = ImGui::GetStyle().FrameRounding + 4.0f;
+    for (const auto& [a, b] : {std::pair<ImVec2, ImVec2>{sMin, sMax}, std::pair<ImVec2, ImVec2>{tMin, tMax}}) {
+        dl->AddRectFilled(a, b, ImGui::GetColorU32(sem.ground), rr);
+        dl->AddRect(a, b, ImGui::GetColorU32(sem.border), rr);
+    }
+    const ImVec2 tCenter((tMin.x + tMax.x) * 0.5f, (tMin.y + tMax.y) * 0.5f);
+    const bool overTarget = canvasHover && mouse.x >= tMin.x;
+    // View input on the target card: wheel zooms around the cursor,
+    // middle-drag pans (the viewport's gestures). The source card always fits.
+    if (overTarget) {
         const float wheel = ImGui::GetIO().MouseWheel;
         if (wheel != 0.0f) {
             const float oldZoom = animMapZoom_;
-            animMapZoom_ = std::clamp(animMapZoom_ * std::pow(1.15f, wheel),
-                                      0.5f, 12.0f);
+            animMapZoom_ = std::clamp(animMapZoom_ * std::pow(1.15f, wheel), 0.5f, 12.0f);
             const float k = animMapZoom_ / oldZoom;
-            animMapPanX_ = mouse.x - cCenter.x - (mouse.x - cCenter.x - animMapPanX_) * k;
-            animMapPanY_ = mouse.y - cCenter.y - (mouse.y - cCenter.y - animMapPanY_) * k;
+            animMapPanX_ = mouse.x - tCenter.x - (mouse.x - tCenter.x - animMapPanX_) * k;
+            animMapPanY_ = mouse.y - tCenter.y - (mouse.y - tCenter.y - animMapPanY_) * k;
+        }
+        if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
+            const ImVec2 d = ImGui::GetIO().MouseDelta;
+            animMapPanX_ += d.x;
+            animMapPanY_ += d.y;
+        }
+        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Middle)) {
+            animMapZoom_ = 1.0f;
+            animMapPanX_ = animMapPanY_ = 0.0f;
         }
     }
-    if (canvasHover && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
-        const ImVec2 d = ImGui::GetIO().MouseDelta;
-        animMapPanX_ += d.x;
-        animMapPanY_ += d.y;
-    }
-    if (canvasHover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Middle)) {
-        animMapZoom_ = 1.0f;
-        animMapPanX_ = animMapPanY_ = 0.0f;
-    }
-    auto view = [&](ImVec2 pt) {
-        return ImVec2(cCenter.x + (pt.x - cCenter.x) * animMapZoom_ + animMapPanX_,
-                      cCenter.y + (pt.y - cCenter.y) * animMapZoom_ + animMapPanY_);
+    auto tview = [&](ImVec2 pt) {
+        return ImVec2(tCenter.x + (pt.x - tCenter.x) * animMapZoom_ + animMapPanX_,
+                      tCenter.y + (pt.y - tCenter.y) * animMapZoom_ + animMapPanY_);
     };
 
-    // Fit each skeleton into its half: front view (x right, y up).
+    // Each rig in its own card, projected on its own plane: the source on
+    // whichever of front/side shows it wider, the target as the toggle says.
+    const int srcAx = rigExtent(animMapDPos_, don, 0) >= rigExtent(animMapDPos_, don, 2) ? 0 : 2;
+    const int tgtAx = animMapTargetView_ == 1 ? 0 : 2;
     struct Fit {
-        float minX = 0, maxX = 0, minY = 0, maxY = 0;
-        ImVec2 org;  // screen-space origin
+        float minH = 0, maxH = 0, minY = 0, maxY = 0;
+        ImVec2 org;
         float scale = 1.0f;
+        int ax = 0;
     };
-    auto fitOf = [&](const std::vector<float>& pos, const std::set<int>& bones,
-                     float x0, float x1) {
+    const float headH = scaled(46.0f), footH = scaled(40.0f);
+    auto fitOf = [&](const std::vector<float>& pos, const std::set<int>& bones, int ax, ImVec2 a, ImVec2 b) {
         Fit f;
+        f.ax = ax;
         bool first = true;
         for (int n : bones) {
             if (n < 0 || (size_t)(n * 3 + 2) >= pos.size()) continue;
-            const float x = pos[(size_t)n * 3], y = pos[(size_t)n * 3 + 1];
-            if (first || x < f.minX) f.minX = x;
-            if (first || x > f.maxX) f.maxX = x;
+            const float h = pos[(size_t)n * 3 + ax] * (ax == 2 ? -1.0f : 1.0f), y = pos[(size_t)n * 3 + 1];
+            if (first || h < f.minH) f.minH = h;
+            if (first || h > f.maxH) f.maxH = h;
             if (first || y < f.minY) f.minY = y;
             if (first || y > f.maxY) f.maxY = y;
             first = false;
         }
-        const float w = f.maxX - f.minX, h = f.maxY - f.minY;
-        const float availW = (x1 - x0) - scaled(40);
-        const float availH = cSize.y - scaled(56);
-        const float sx = w > 1e-6f ? availW / w : 1.0f;
-        const float sy = h > 1e-6f ? availH / h : 1.0f;
-        f.scale = sx < sy ? sx : sy;
-        // center the box in its half; y flipped (screen y grows down)
-        f.org.x = cMin.x + x0 + ((x1 - x0) - w * f.scale) * 0.5f -
-                  f.minX * f.scale;
-        f.org.y = cMin.y + scaled(36) + (availH - h * f.scale) * 0.5f +
-                  f.maxY * f.scale;
+        const float w = f.maxH - f.minH, hgt = f.maxY - f.minY;
+        const float availW = (b.x - a.x) - scaled(56), availH = (b.y - a.y) - headH - footH;
+        const float sx = w > 1e-6f ? availW / w : 1e6f;
+        const float sy = hgt > 1e-6f ? availH / hgt : 1e6f;
+        f.scale = std::min(sx, sy);
+        if (f.scale > 1e5f) f.scale = 1.0f;
+        f.org.x = a.x + ((b.x - a.x) - w * f.scale) * 0.5f - f.minH * f.scale;
+        f.org.y = a.y + headH + (availH - hgt * f.scale) * 0.5f + f.maxY * f.scale;
         return f;
     };
-    const float half = cSize.x * 0.5f;
     // Framing always comes from the BIND pose (stable), the drawn points from
     // the test pose when one is on - so the figures move inside a calm frame.
-    const Fit dFit = fitOf(animMapDPos_, donorBones, scaled(8), half - scaled(8));
-    const Fit tFit = fitOf(animMapTPos_, targetBones, half + scaled(8),
-                           cSize.x - scaled(8));
+    const Fit dFit = fitOf(animMapDPos_, donorBones, srcAx, sMin, sMax);
+    const Fit tFit = fitOf(animMapTPos_, targetBones, tgtAx, tMin, tMax);
     const std::vector<float>& dCur =
-        poseOn && animMapDPosed_.size() == animMapDPos_.size() ? animMapDPosed_
-                                                               : animMapDPos_;
+        poseOn && animMapDPosed_.size() == animMapDPos_.size() ? animMapDPosed_ : animMapDPos_;
     const std::vector<float>& tCur =
-        poseOn && animMapTPosed_.size() == animMapTPos_.size() ? animMapTPosed_
-                                                               : animMapTPos_;
-    auto place = [&](const Fit& f, const std::vector<float>& pos, int n) {
-        return view(ImVec2(f.org.x + pos[(size_t)n * 3] * f.scale,
-                           f.org.y - pos[(size_t)n * 3 + 1] * f.scale));
+        poseOn && animMapTPosed_.size() == animMapTPos_.size() ? animMapTPosed_ : animMapTPos_;
+    auto rawPlace = [&](const Fit& f, const std::vector<float>& pos, int n) {
+        const float h = pos[(size_t)n * 3 + f.ax] * (f.ax == 2 ? -1.0f : 1.0f);
+        return ImVec2(f.org.x + h * f.scale, f.org.y - pos[(size_t)n * 3 + 1] * f.scale);
     };
+    auto dPlace = [&](int n) { return rawPlace(dFit, dCur, n); };
+    auto tPlace = [&](int n) { return tview(rawPlace(tFit, tCur, n)); };
 
-    const theme::Semantics& sem = theme::semantics();
-    dl->AddText(ImVec2(cMin.x + scaled(8), cMin.y + scaled(8)),
-                ImGui::GetColorU32(sem.textDim), "source");
-    dl->AddText(ImVec2(cMin.x + half + scaled(8), cMin.y + scaled(8)),
-                ImGui::GetColorU32(sem.textDim), "this model");
-    dl->AddLine(ImVec2(cMin.x + half, cMin.y),
-                ImVec2(cMin.x + half, cMin.y + cSize.y),
-                ImGui::GetColorU32(sem.border));
+    // card captions
+    {
+        const float fs = ImGui::GetFontSize();
+        auto caption = [&](ImVec2 a, const char* title, const std::string& sub) {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImGui::GetFont(), fs * 0.8f, ImVec2(a.x + fs * 0.7f, a.y + fs * 0.6f),
+                        ImGui::GetColorU32(sem.textDim), title);
+            ui::FontScope mono(ui::monoFont());
+            dl->AddText(ImGui::GetFont(), fs * 0.8f, ImVec2(a.x + fs * 0.7f, a.y + fs * 1.6f),
+                        ImGui::GetColorU32(sem.textDim), sub.c_str());
+        };
+        std::string clipNames;
+        for (size_t c = 0; c < don.clips.size() && c < 3; ++c)
+            clipNames += (c ? ", " : "") + don.clips[c].name;
+        caption(sMin, "SOURCE", donorFile + " \xC2\xB7 " + std::to_string(nDonor) + " joints" +
+                                     (clipNames.empty() ? "" : " \xC2\xB7 " + clipNames));
+        caption(tMin, "THIS MODEL", targetFile + " \xC2\xB7 " + std::to_string(targetBones.size()) + " joints");
+    }
 
     // Bone lines: to the nearest BONE ancestor, so helper nodes between two
     // bones do not break the figure apart.
-    auto boneParent = [](const glbparser::Skel& sk, const std::set<int>& bones,
-                         int n) {
+    auto boneParent = [](const glbparser::Skel& sk, const std::set<int>& bones, int n) {
         int p = sk.nodes[(size_t)n].parent;
         while (p >= 0 && p < (int)sk.nodes.size() && !bones.count(p))
             p = sk.nodes[(size_t)p].parent == p ? -1 : sk.nodes[(size_t)p].parent;
         return p >= 0 && p < (int)sk.nodes.size() ? p : -1;
     };
+    const ImU32 boneCol = ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.7f));
+    dl->PushClipRect(sMin, sMax, true);
     for (int n : donorBones)
-        if (int p = boneParent(don, donorBones, n); p >= 0)
-            dl->AddLine(place(dFit, dCur, n), place(dFit, dCur, p),
-                        ImGui::GetColorU32(sem.border), 1.5f);
+        if (int p = boneParent(don, donorBones, n); p >= 0) dl->AddLine(dPlace(n), dPlace(p), boneCol, 2.0f);
+    dl->PopClipRect();
+    dl->PushClipRect(tMin, tMax, true);
     for (int n : targetBones)
-        if (int p = boneParent(tgt, targetBones, n); p >= 0)
-            dl->AddLine(place(tFit, tCur, n), place(tFit, tCur, p),
-                        ImGui::GetColorU32(sem.border), 1.5f);
+        if (int p = boneParent(tgt, targetBones, n); p >= 0) dl->AddLine(tPlace(n), tPlace(p), boneCol, 2.0f);
+    dl->PopClipRect();
 
-    // Selection line: the selected donor joint to its current home.
-    if (animMapSelDonor_ >= 0 && resolved.count(animMapSelDonor_) &&
-        resolved[animMapSelDonor_] >= 0)
-        dl->AddLine(place(dFit, dCur, animMapSelDonor_),
-                    place(tFit, tCur, resolved[animMapSelDonor_]),
-                    ImGui::GetColorU32(sem.accentMuted), 1.0f);
-
-    // Joints + hit test. Donor colors: green = matched by name, cyan ring =
-    // explicit pair, amber = suggested, red = unmatched.
-    const float R = scaled(4.0f);
+    // Hit test: donor joints first, then target joints.
+    const float R = scaled(4.5f);
     int hoverDonor = -1, hoverTarget = -1;
     float bestD = R * 2.5f;
-    for (int n : donorBones) {
-        const ImVec2 pt = place(dFit, dCur, n);
-        const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
-        if (canvasHover && d < bestD) bestD = d, hoverDonor = n;
-    }
-    if (hoverDonor < 0) {
+    if (canvasHover && mouse.x < sMax.x)
+        for (int n : donorBones) {
+            const ImVec2 pt = dPlace(n);
+            const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
+            if (d < bestD) bestD = d, hoverDonor = n;
+        }
+    if (overTarget) {
         bestD = R * 2.5f;
         for (int n : targetBones) {
-            const ImVec2 pt = place(tFit, tCur, n);
+            const ImVec2 pt = tPlace(n);
             const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
-            if (canvasHover && d < bestD) bestD = d, hoverTarget = n;
+            if (d < bestD) bestD = d, hoverTarget = n;
         }
     }
-    const ImU32 cGreen = IM_COL32(90, 210, 110, 255);
-    const ImU32 cAmber = IM_COL32(235, 190, 80, 255);
-    const ImU32 cRed = IM_COL32(240, 90, 70, 255);
-    for (int n : donorBones) {
-        const ImVec2 pt = place(dFit, dCur, n);
-        ImU32 col = cRed;
-        if (resolved[n] >= 0) col = cGreen;
-        else if (suggested.count(n)) col = cAmber;
-        dl->AddCircleFilled(pt, R, col);
-        if (explicitPair[n])
-            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.accent), 0, 2.0f);
-        if (n == animMapSelDonor_)
-            dl->AddCircle(pt, R + scaled(4), ImGui::GetColorU32(sem.text), 0, 2.0f);
-        if (n == hoverDonor)
-            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
-    }
-    // Target joints: used ones dim green, free ones gray; amber when it is
+
+    // The link that crosses the cards: the hovered (or selected, or list-
+    // hovered) donor joint to its home - accent for a real mapping, amber
+    // for a pending suggestion, dashed.
+    auto linkFor = [&](int dn, int forcedT) {
+        if (dn < 0 || !donorBones.count(dn)) return;
+        int tn = forcedT >= 0 ? forcedT : (resolved.count(dn) ? resolved[dn] : -1);
+        // A forced target (a list row) is a pending suggestion unless the
+        // donor already resolves.
+        bool sugg = forcedT >= 0 && (!resolved.count(dn) || resolved[dn] < 0);
+        if (tn < 0 && suggested.count(dn)) tn = suggested[dn], sugg = true;
+        const ImVec2 dp = dPlace(dn);
+        dl->AddCircle(dp, R + scaled(3), sugg ? cAmber : ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (tn < 0 || !targetBones.count(tn)) return;
+        const ImVec2 tp = tPlace(tn);
+        const ImU32 col = sugg ? cAmber : ImGui::GetColorU32(sem.accent);
+        dashedLine(dl, dp, tp, col, 1.6f, scaled(5.0f));
+        dl->AddCircle(tp, R + scaled(4), col, 0, 2.0f);
+    };
+    // Target joints: used ones dim green, free ones grey; amber when it is
     // the suggestion for the selected donor joint.
     std::set<int> usedTargets;
     for (auto& [dn, tn] : resolved)
         if (tn >= 0) usedTargets.insert(tn);
+    dl->PushClipRect(tMin, tMax, true);
     for (int n : targetBones) {
-        const ImVec2 pt = place(tFit, tCur, n);
-        ImU32 col = usedTargets.count(n) ? IM_COL32(80, 140, 90, 255)
+        const ImVec2 pt = tPlace(n);
+        ImU32 col = usedTargets.count(n) ? ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.6f))
                                          : ImGui::GetColorU32(sem.textDim);
-        if (animMapSelDonor_ >= 0 && suggested.count(animMapSelDonor_) &&
-            suggested[animMapSelDonor_] == n)
+        if (animMapSelDonor_ >= 0 && suggested.count(animMapSelDonor_) && suggested[animMapSelDonor_] == n)
             col = cAmber;
         dl->AddCircleFilled(pt, R, col);
-        if (n == hoverTarget)
-            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+        if (n == hoverTarget) dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
     }
-
-    // Hovering a JOINT shows its link at once: ring the other end and tie
-    // them with a line - accent for a real mapping (by name or by hand),
-    // amber for a pending suggestion. Same for hovering a target joint,
-    // which points back at whatever lands on it.
-    if (hoverDonor >= 0) {
-        const ImVec2 dp = place(dFit, dCur, hoverDonor);
-        int tn = resolved.count(hoverDonor) ? resolved[hoverDonor] : -1;
-        bool isSugg = false;
-        if (tn < 0 && suggested.count(hoverDonor)) {
-            tn = suggested[hoverDonor];
-            isSugg = true;
-        }
-        if (tn >= 0 && targetBones.count(tn)) {
-            const ImVec2 tp = place(tFit, tCur, tn);
-            const ImU32 col =
-                isSugg ? cAmber : ImGui::GetColorU32(sem.accent);
-            dl->AddCircle(tp, R + scaled(3), col, 0, 2.0f);
-            dl->AddLine(dp, tp, col, 1.5f);
-        }
-    } else if (hoverTarget >= 0) {
-        const ImVec2 tp = place(tFit, tCur, hoverTarget);
-        for (auto& [dn, tn] : resolved) {
-            if (tn != hoverTarget) continue;
-            const ImVec2 dp = place(dFit, dCur, dn);
-            dl->AddCircle(dp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
-                          2.0f);
-            dl->AddLine(dp, tp, ImGui::GetColorU32(sem.accent), 1.5f);
-        }
-        for (auto& [dn, tn] : suggested) {
-            if (tn != hoverTarget) continue;
-            const ImVec2 dp = place(dFit, dCur, dn);
-            dl->AddCircle(dp, R + scaled(3), cAmber, 0, 2.0f);
-            dl->AddLine(dp, tp, cAmber, 1.5f);
-        }
+    dl->PopClipRect();
+    // Donor joints: green matched, amber suggested, red unmatched; accent ring
+    // = an explicit pair, white ring = selected. Names beside them (few).
+    dl->PushClipRect(sMin, sMax, true);
+    for (int n : donorBones) {
+        const ImVec2 pt = dPlace(n);
+        ImU32 col = cRed;
+        if (resolved[n] >= 0) col = cGreen;
+        else if (suggested.count(n)) col = cAmber;
+        dl->AddCircleFilled(pt, R, col);
+        if (explicitPair[n]) dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (n == animMapSelDonor_) dl->AddCircle(pt, R + scaled(5), ImGui::GetColorU32(sem.text), 0, 2.0f);
+        if (n == hoverDonor) dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+        if (nDonor <= 24)
+            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.78f, ImVec2(pt.x + R * 2.2f, pt.y - R * 1.6f),
+                        ImGui::GetColorU32(sem.textDim), don.nodes[(size_t)n].name.c_str());
     }
-
-    // The list pane's hover: ring both ends and tie them with a line, so
-    // "which joint is this row" needs no reading of coordinates.
-    if (hiD >= 0 && donorBones.count(hiD)) {
-        const ImVec2 pt = place(dFit, dCur, hiD);
-        dl->AddCircle(pt, R + scaled(3), ImGui::GetColorU32(sem.accent), 0, 2.0f);
-        if (hiT >= 0 && targetBones.count(hiT)) {
-            const ImVec2 tp = place(tFit, tCur, hiT);
-            dl->AddCircle(tp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
-                          2.0f);
-            dl->AddLine(pt, tp, ImGui::GetColorU32(sem.accent), 1.5f);
-        }
+    dl->PopClipRect();
+    if (hoverDonor >= 0) linkFor(hoverDonor, -1);
+    else if (hiD >= 0) linkFor(hiD, hiT);
+    else if (animMapSelDonor_ >= 0) linkFor(animMapSelDonor_, -1);
+    if (hoverTarget >= 0) {
+        // Point back at whatever lands on this target joint.
+        for (auto& [dn, tn] : resolved)
+            if (tn == hoverTarget) linkFor(dn, -1);
+        for (auto& [dn, tn] : suggested)
+            if (tn == hoverTarget && resolved[dn] < 0) linkFor(dn, -1);
     }
 
     // Hover name + click actions.
     if (hoverDonor >= 0) {
         ImGui::SetTooltip("%s", don.nodes[(size_t)hoverDonor].name.c_str());
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            animMapSelDonor_ = hoverDonor;
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) animMapSelDonor_ = hoverDonor;
         // Right-click drops the hand-made pair for that joint.
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             const std::string& name = don.nodes[(size_t)hoverDonor].name;
@@ -6572,19 +6546,46 @@ bool App::drawAnimBoneMapWindow() {
         }
     } else if (hoverTarget >= 0) {
         ImGui::SetTooltip("%s", tgt.nodes[(size_t)hoverTarget].name.c_str());
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
-            animMapSelDonor_ >= 0) {
-            const std::string& from = don.nodes[(size_t)animMapSelDonor_].name;
-            const std::string& to = tgt.nodes[(size_t)hoverTarget].name;
-            upsertPair(animMapPairs_, from, to);
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && animMapSelDonor_ >= 0) {
+            upsertPair(animMapPairs_, don.nodes[(size_t)animMapSelDonor_].name, tgt.nodes[(size_t)hoverTarget].name);
             animMapSelDonor_ = -1;
+        }
+    }
+
+    // Target view toggle (top-right of its card) and the gesture hint.
+    {
+        const float m = scaled(10.0f);
+        const OverlayPillItem pill[] = {
+            {"Side##bm", "Side", animMapTargetView_ == 0},
+            {"Front##bm", "Front", animMapTargetView_ == 1},
+            {nullptr, nullptr, false},
+            {"Frame##bm", "Frame", false},
+        };
+        float w = ui::OverlayPad() * 2.0f + ui::OverlayTextWidth("Side") + ui::OverlayTextWidth("Front") +
+                  ui::OverlayTextWidth("Frame") + ui::OverlayPad() * 2.0f + 1.0f;
+        switch (overlayPill(ImVec2(tMax.x - m - w, tMin.y + m), pill, 4)) {
+            case 0: animMapTargetView_ = 0; break;
+            case 1: animMapTargetView_ = 1; break;
+            case 3:
+                animMapZoom_ = 1.0f;
+                animMapPanX_ = animMapPanY_ = 0.0f;
+                break;
+            default: break;
+        }
+        const char* hint = "Click a red or amber joint, then the joint it drives \xC2\xB7 right-click removes \xC2\xB7 wheel zooms";
+        const ImVec2 ts = ImGui::CalcTextSize(hint);
+        const float pad = scaled(8.0f);
+        const ImVec2 a(cMin.x + m, cMin.y + cSize.y - m - ts.y - pad);
+        if (ts.x + pad * 2.0f < cSize.x - m * 2.0f) {
+            ui::OverlayPanel(dl, a, ImVec2(a.x + ts.x + pad * 2.0f, a.y + ts.y + pad));
+            dl->AddText(ImVec2(a.x + pad, a.y + pad * 0.5f), ImGui::GetColorU32(sem.textDim), hint);
         }
     }
     ImGui::EndChild();
     ImGui::SameLine();
-    // --- the pair list: what is mapped onto what, hover = show me ----------
-    ImGui::BeginChild("##bonelist", ImVec2(0, -footerH),
-                      ImGuiChildFlags_Borders);
+
+    // --- right column: suggestions, pairs, unmatched; the test pose pinned ---
+    ImGui::BeginChild("##bonelist", ImVec2(0, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
     {
         auto nodeByName = [](const glbparser::Skel& sk, const std::string& nm) {
             for (size_t k = 0; k < sk.nodes.size(); ++k)
@@ -6596,117 +6597,238 @@ bool App::drawAnimBoneMapWindow() {
             animMapHiD_ = dNode;
             animMapHiT_ = tNode;
         };
-        int removePair = -1;
-        if (!animMapPairs_.empty()) {
-            ImGui::SeparatorText("Pairs");
-            for (size_t k = 0; k < animMapPairs_.size(); ++k) {
-                ImGui::PushID((int)k);
-                if (ImGui::SmallButton("x")) removePair = (int)k;
-                ImGui::SameLine();
-                ImGui::TextUnformatted(animMapPairs_[k].first.c_str());
-                hoverRow(nodeByName(don, animMapPairs_[k].first),
-                         nodeByName(tgt, animMapPairs_[k].second));
-                ImGui::Indent(scaled(18));
-                ImGui::TextDisabled("> %s", animMapPairs_[k].second.c_str());
-                hoverRow(nodeByName(don, animMapPairs_[k].first),
-                         nodeByName(tgt, animMapPairs_[k].second));
-                ImGui::Unindent(scaled(18));
-                ImGui::PopID();
+        const float poseH = ImGui::GetFrameHeightWithSpacing() * 2.0f + scaled(30.0f);
+        ImGui::BeginChild("##bonelistscroll", ImVec2(0, -poseH));
+        const float fs = ImGui::GetFontSize();
+        // One pair row: dot, donor > target, score, an action button at the
+        // right. Returns 1 when the row was clicked, 2 when its button was.
+        auto pairRow = [&](int id, ImU32 dot, const std::string& from, const std::string& to, const char* score,
+                           const char* btn, const char* btnTip) {
+            ImGui::PushID(id);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight();
+            const float bw = btn ? h : 0.0f;
+            int res = 0;
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::InvisibleButton((from + "##row").c_str(), ImVec2(w, h))) res = 1;
+            const bool hov = ImGui::IsItemHovered();
+            hoverRow(nodeByName(don, from), to.empty() ? -1 : nodeByName(tgt, to));
+            ImDrawList* ldl = ImGui::GetWindowDrawList();
+            if (hov)
+                ldl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                                   ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, 0.9f)),
+                                   ImGui::GetStyle().FrameRounding);
+            ldl->AddCircleFilled(ImVec2(p.x + fs * 0.5f, p.y + h * 0.5f), fs * 0.24f, dot);
+            float x = p.x + fs * 1.1f;
+            {
+                ui::FontScope mono(ui::monoFont());
+                ldl->AddText(ImVec2(x, p.y + (h - fs) * 0.5f), ImGui::GetColorU32(sem.text), from.c_str());
+                x += std::max(fs * 5.5f, ImGui::CalcTextSize(from.c_str()).x + fs * 0.6f);
+                if (!to.empty()) {
+                    ldl->AddText(ImVec2(x, p.y + (h - fs) * 0.5f), ImGui::GetColorU32(sem.textDim), "\xE2\x86\x92");
+                    ldl->AddText(ImVec2(x + fs * 0.9f, p.y + (h - fs) * 0.5f), ImGui::GetColorU32(sem.text),
+                                 to.c_str());
+                } else {
+                    ldl->AddText(ImVec2(x, p.y + (h - fs) * 0.5f), ImGui::GetColorU32(sem.textDim),
+                                 "click a joint on the right");
+                }
+                if (score) {
+                    const float sw = ImGui::CalcTextSize(score).x;
+                    ldl->AddText(ImVec2(p.x + w - bw - sw - fs * 0.6f, p.y + (h - fs) * 0.5f),
+                                 ImGui::GetColorU32(sem.textDim), score);
+                }
             }
-        }
-        if (removePair >= 0)
-            animMapPairs_.erase(animMapPairs_.begin() + removePair);
+            if (btn) {
+                ImGui::SetCursorScreenPos(ImVec2(p.x + w - bw, p.y));
+                if (ImGui::Button(btn, ImVec2(bw, h))) res = 2;
+                // The button's glyph, drawn: a check to accept, a cross to remove.
+                const ImVec2 b0 = ImGui::GetItemRectMin(), c(b0.x + bw * 0.5f, b0.y + h * 0.5f);
+                const float s = h * 0.2f;
+                const ImU32 gc = ImGui::GetColorU32(sem.text);
+                if (std::strstr(btn, "rm")) {
+                    ldl->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), gc, 1.6f);
+                    ldl->AddLine(ImVec2(c.x - s, c.y + s), ImVec2(c.x + s, c.y - s), gc, 1.6f);
+                } else {
+                    ldl->AddLine(ImVec2(c.x - s, c.y), ImVec2(c.x - s * 0.3f, c.y + s * 0.7f), gc, 1.6f);
+                    ldl->AddLine(ImVec2(c.x - s * 0.3f, c.y + s * 0.7f), ImVec2(c.x + s, c.y - s * 0.6f), gc, 1.6f);
+                }
+                if (btnTip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", btnTip);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + ImGui::GetStyle().ItemSpacing.y * 0.5f));
+            ImGui::Dummy(ImVec2(0, 0));
+            ImGui::PopID();
+            return res;
+        };
+
+        // Suggestions: the amber guesses, each one click to confirm.
         if (!animMapSugg_.empty()) {
-            ImGui::SeparatorText("Suggestions");
+            char cnt[16];
+            std::snprintf(cnt, sizeof cnt, "%d", (int)animMapSugg_.size());
+            ui::Caption("Suggestions", cnt);
+            char all[48];
+            std::snprintf(all, sizeof all, "Accept all %d", (int)animMapSugg_.size());
+            if (ImGui::Button(all, ImVec2(-FLT_MIN, 0)))
+                for (const animmerge::BoneSuggestion& sg : animMapSugg_) upsertPair(animMapPairs_, sg.donor, sg.target);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn every amber guess into a real pair.");
             int accept = -1;
             for (size_t k = 0; k < animMapSugg_.size(); ++k) {
                 const animmerge::BoneSuggestion& sg = animMapSugg_[k];
-                ImGui::PushID(1000 + (int)k);
-                if (ImGui::SmallButton("+")) accept = (int)k;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Accept.");
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%s",
-                                   sg.donor.c_str());
-                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
-                ImGui::Indent(scaled(18));
-                ImGui::TextDisabled("~ %s  %d%%", sg.target.c_str(),
-                                    (int)(sg.score * 100.0f + 0.5f));
-                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
-                ImGui::Unindent(scaled(18));
-                ImGui::PopID();
+                char sc[16];
+                std::snprintf(sc, sizeof sc, "%d%%", (int)(sg.score * 100.0f + 0.5f));
+                const int r = pairRow(1000 + (int)k, cAmber, sg.donor, sg.target, sc, "##acc", "Accept");
+                if (r == 2) accept = (int)k;
+                if (r == 1) animMapSelDonor_ = nodeByName(don, sg.donor);
             }
             if (accept >= 0)
-                upsertPair(animMapPairs_, animMapSugg_[(size_t)accept].donor,
-                           animMapSugg_[(size_t)accept].target);
+                upsertPair(animMapPairs_, animMapSugg_[(size_t)accept].donor, animMapSugg_[(size_t)accept].target);
+            ImGui::Spacing();
         }
-        if (!animMapAiSugg_.empty()) {
-            ImGui::SeparatorText("AI");
-            if (ImGui::SmallButton("Accept all AI")) {
-                for (const auto& pr : animMapAiSugg_)
+        if (animMapAffixOk_) {
+            char lbl[96];
+            snprintf(lbl, sizeof lbl, "Apply rule: %s (%d)", animMapAffix_.describe().c_str(), animMapAffix_.matches);
+            if (ImGui::Button(lbl, ImVec2(-FLT_MIN, 0)))
+                for (const auto& pr : animmerge::applyAffixRule(tgt, don, opts, animMapAffix_))
                     upsertPair(animMapPairs_, pr.first, pr.second);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("One rename rule covers these bones - the two rigs are\n"
+                                  "identical modulo this prefix/suffix.");
+            ImGui::Spacing();
+        }
+        // Unmatched and unsuggested: the ones only a human can place.
+        std::vector<int> orphans;
+        for (int nd : donorBones)
+            if (resolved.count(nd) && resolved[nd] < 0 && !suggested.count(nd)) orphans.push_back(nd);
+        if (!orphans.empty()) {
+            ui::Caption("Unmatched", std::to_string(orphans.size()).c_str());
+            for (int nd : orphans)
+                if (pairRow(2000 + nd, cRed, don.nodes[(size_t)nd].name, "", nullptr, nullptr, nullptr) == 1)
+                    animMapSelDonor_ = nd;
+            ImGui::Spacing();
+        }
+        // AI: one more suggestion group, never applied on its own.
+        if (!animMapAiSugg_.empty()) {
+            ui::Caption("AI suggestions", std::to_string(animMapAiSugg_.size()).c_str());
+            if (ImGui::Button("Accept all AI", ImVec2(-FLT_MIN, 0))) {
+                for (const auto& pr : animMapAiSugg_) upsertPair(animMapPairs_, pr.first, pr.second);
                 animMapAiSugg_.clear();
             }
             int acceptAi = -1;
-            for (size_t k = 0; k < animMapAiSugg_.size(); ++k) {
-                const auto& pr = animMapAiSugg_[k];
-                ImGui::PushID(3000 + (int)k);
-                if (ImGui::SmallButton("+")) acceptAi = (int)k;
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s",
-                                   pr.first.c_str());
-                hoverRow(nodeByName(don, pr.first), nodeByName(tgt, pr.second));
-                ImGui::Indent(scaled(18));
-                ImGui::TextDisabled("~ %s", pr.second.c_str());
-                hoverRow(nodeByName(don, pr.first), nodeByName(tgt, pr.second));
-                ImGui::Unindent(scaled(18));
-                ImGui::PopID();
-            }
+            for (size_t k = 0; k < animMapAiSugg_.size(); ++k)
+                if (pairRow(3000 + (int)k, ImGui::GetColorU32(sem.accent), animMapAiSugg_[k].first,
+                            animMapAiSugg_[k].second, nullptr, "##aiacc", "Accept") == 2)
+                    acceptAi = (int)k;
             if (acceptAi >= 0) {
                 upsertPair(animMapPairs_, animMapAiSugg_[(size_t)acceptAi].first,
                            animMapAiSugg_[(size_t)acceptAi].second);
                 animMapAiSugg_.erase(animMapAiSugg_.begin() + acceptAi);
             }
+            ImGui::Spacing();
         }
-        // Unmatched and unsuggested: the ones only a human can place.
-        std::vector<int> orphans;
-        for (int nd : donorBones)
-            if (resolved.count(nd) && resolved[nd] < 0 && !suggested.count(nd))
-                orphans.push_back(nd);
-        if (!orphans.empty()) {
-            ImGui::SeparatorText("Unmatched");
-            for (int nd : orphans) {
-                ImGui::PushID(2000 + nd);
-                if (ImGui::Selectable(don.nodes[(size_t)nd].name.c_str(),
-                                      animMapSelDonor_ == nd))
-                    animMapSelDonor_ = nd;
-                hoverRow(nd, -1);
-                ImGui::PopID();
+        if (animMapAiGen_ && animMapAiGen_->busy()) {
+            ui::ProgressInline(-1.0f, "Asking the AI...");
+            if (ui::GhostButton("Cancel##ai")) animMapAiGen_->cancel();
+        } else {
+            if (ui::GhostButton("Ask AI for pairs")) {
+                animMapAiErr_.clear();
+                animMapAiGen_ = std::make_unique<aigen::Generator>();
+                animMapAiGen_->start(globalAi_, animmerge::aiMapPrompt(tgt, don, opts),
+                                     "Map the bones now. Reply with the JSON only.");
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Send both skeletons (hierarchy + bind positions) to the\n"
+                                  "AI backend from Edit > Preferences. Proposals land here\n"
+                                  "for you to accept - nothing is applied on its own.");
+        }
+        if (animMapAiGen_ && !animMapAiGen_->busy()) {
+            if (animMapAiGen_->state() == aigen::Generator::State::Success) {
+                animMapAiSugg_ = animmerge::parseAiBoneMap(animMapAiGen_->reply(), tgt, don);
+                animMapAiSugg_.erase(std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
+                                                    [&](const auto& pr) {
+                                                        return animmerge::resolveBoneName(tgt, pr.first, opts) >= 0;
+                                                    }),
+                                     animMapAiSugg_.end());
+                if (animMapAiSugg_.empty()) animMapAiErr_ = "AI proposed nothing usable.";
+            } else if (animMapAiGen_->state() == aigen::Generator::State::Failed) {
+                animMapAiErr_ = animMapAiGen_->error();
+            }
+            animMapAiGen_.reset();
+        }
+        if (!animMapAiErr_.empty()) ui::StatusLine(1, animMapAiErr_.c_str());
+
+        // Pairs you made (or accepted): what Apply writes.
+        if (!animMapPairs_.empty()) {
+            ImGui::Spacing();
+            ui::Caption("Pairs", std::to_string(animMapPairs_.size()).c_str());
+            int removePair = -1;
+            for (size_t k = 0; k < animMapPairs_.size(); ++k)
+                if (pairRow(4000 + (int)k, ImGui::GetColorU32(sem.accent), animMapPairs_[k].first,
+                            animMapPairs_[k].second, nullptr, "##rm", "Remove this pair") == 2)
+                    removePair = (int)k;
+            if (removePair >= 0) animMapPairs_.erase(animMapPairs_.begin() + removePair);
+            if (ui::GhostButton("Clear pairs")) animMapPairs_.clear();
         }
         if (animMapPairs_.empty() && animMapSugg_.empty() && orphans.empty())
-            ImGui::TextDisabled("all bones matched by name");
+            ui::StatusLine(0, "Every source joint matched by name.");
+        ImGui::EndChild();
+
+        // The test pose: both rigs posed through the CURRENT mapping.
+        ImGui::Separator();
+        ui::Caption("Test pose");
+        const char* poseLbl = poseOn ? don.clips[(size_t)animMapPoseClip_].name.c_str() : "off";
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##posec", poseLbl)) {
+            if (ImGui::Selectable("off", animMapPoseClip_ < 0)) animMapPoseClip_ = -1;
+            for (size_t c = 0; c < don.clips.size(); ++c)
+                if (ImGui::Selectable(don.clips[c].name.c_str(), (int)c == animMapPoseClip_)) {
+                    animMapPoseClip_ = (int)c;
+                    animMapPoseT_ = 0.0f;
+                    animMapPosePlay_ = true;
+                }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Pose both rigs through the current mapping with a source clip.\n"
+                              "A wrong pair shows as a folded limb long before any percentage does.");
+        ImGui::BeginDisabled(!poseOn);
+        if (ImGui::Button(animMapPosePlay_ && poseOn ? "Pause##pose" : "Play##pose", ImVec2(scaled(60), 0)))
+            animMapPosePlay_ = !animMapPosePlay_;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const float dur = poseOn ? don.clips[(size_t)animMapPoseClip_].duration : 1.0f;
+        if (ImGui::SliderFloat("##poset", &animMapPoseT_, 0.0f, dur > 0.01f ? dur : 0.01f, "%.2f s"))
+            animMapPosePlay_ = false;
+        ImGui::EndDisabled();
     }
     ImGui::EndChild();
 
     // --- footer -------------------------------------------------------------
     bool applied = false;
     const bool dirty = animMapPairs_ != row.boneMap;
-    ImGui::BeginDisabled(!dirty);
-    if (ImGui::Button("Apply")) {
+    ImGui::Separator();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Pairs are saved on the import row and always beat name matching.");
+    char apply[48];
+    std::snprintf(apply, sizeof apply, "Apply %d pair%s##apply", (int)animMapPairs_.size(),
+                  animMapPairs_.size() == 1 ? "" : "s");
+    const float aw = ImGui::CalcTextSize(apply, ImGui::FindRenderedTextEnd(apply)).x +
+                     ImGui::GetStyle().FramePadding.x * 2.6f;
+    const float cw = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SameLine();
+    const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), right - aw - cw - ImGui::GetStyle().ItemSpacing.x));
+    if (ImGui::Button("Close")) animMapRow_ = -1;
+    ImGui::SameLine();
+    if (ui::PrimaryButton(apply, aw, dirty)) {
         row.boneMap = animMapPairs_;
         // The book learns every accepted pair, so the same rename suggests
         // itself in the next file from the same pack.
-        for (const auto& [from, to] : animMapPairs_)
-            boneAliases_[animmerge::canonicalBoneKey(from)] = to;
+        for (const auto& [from, to] : animMapPairs_) boneAliases_[animmerge::canonicalBoneKey(from)] = to;
         saveBoneAliases();
         applied = true;
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Close")) animMapRow_ = -1;
-    ImGui::SameLine();
-    ImGui::TextDisabled(
-        "wheel zoom - middle-drag pan - right-click removes a pair");
+    if (!dirty && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Nothing to apply: the pairs here are the ones the import row\n"
+                          "already has. Accept a suggestion or click two joints.");
 
     ImGui::End();
     if (!openFlag) animMapRow_ = -1;
