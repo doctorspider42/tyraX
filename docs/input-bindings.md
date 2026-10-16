@@ -6,7 +6,30 @@ that had no recourse. Now every button read goes through a named **action**,
 actions are bound in per-project **presets**, and the player can **rebind them
 in-game** from a menu row.
 
-![The Input Map with an action selected, its pad and keyboard bindings, and the active preset.](img/input-map.png)
+![The Input Map on examples/two-players: preset tabs and the find field in the header, the binding matrix grouped On foot / Noclip / Menus / Vehicle with pad, keyboard and mouse keycaps, the DualShock 2 diagram with the on-foot callouts, and the selected Jump action's bindings.](img/input-map.png)
+
+**The window.** *Tools > Input Map* shows the whole map at once:
+
+- **Header** — the action count, one **tab per preset** (*Default · at
+  start*; right-click a tab to rename it, make it the *Preset at game start*
+  or delete it; **+ Preset** copies the one you are editing), a **find**
+  field that matches actions *or buttons* (type `Cross` to see everything on
+  Cross), and **Players can rebind** (the in-game rebinding master switch).
+- **Binding matrix** — every action of the edited preset, grouped by the
+  mode it plays in: *On foot*, *Noclip*, *Menus*, *Vehicle*, *Custom*. Columns
+  Pad / Keyboard / Mouse as keycaps, and a dot when the player may rebind it.
+  Stick-driven movement says `stick` rather than looking unbound. A pad
+  keycap turns amber when another action **of the same mode** uses that
+  button too.
+- **DualShock 2 diagram** — the pad with a callout on every button bound in
+  one mode (*On foot*, *Menus*, *Vehicle*; it follows the action you pick).
+- **The selected action** — label, name, role, then its pad button, keyboard
+  key and mouse button in the edited preset. **Press to set** captures the
+  next button of a controller connected to this computer (pad) or the next
+  key you press (keyboard). Under it a plain clash check: *"Cross also: Fly
+  up (noclip), Confirm (menus), Vehicle nitrous (vehicle). Different modes, no
+  clash."* - or an amber line when two actions of one mode share the button.
+- **Footer** — **+ Custom action**, the sprint speed and *Restore built-ins*.
 
 Three layers, each optional:
 
@@ -71,7 +94,8 @@ missing actions on load and only ever **adds**. The one addition is **sprint**
 A preset is a named binding set. Each action can hold a pad button **and** a
 keyboard key **and** a mouse button at once — all of them fire it.
 
-- The preset the game boots with is *Preset at game start*.
+- The preset the game boots with is *Preset at game start* (right-click its
+  tab); its tab reads *at start*.
 - Switch presets at runtime with a menu **Choice** row bound to *Input preset*
   (its options are the presets, in order) or the **Set Input Preset** flow
   node.
@@ -124,7 +148,7 @@ like every other menu state and are re-applied after a load
 (`TerrainGame::applyInputBindings()`, called every frame next to
 `applyMenuBindings()`).
 
-*Input Map > Allow in-game rebinding* is the master switch: off makes every
+*Input Map > Players can rebind* is the master switch: off makes every
 rebind row read-only (it still shows the binding). Keep the menu-navigation
 actions **not** rebindable — a player who moves *confirm* onto a button they
 cannot reach is locked out of the menu that would fix it, which is why the

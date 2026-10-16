@@ -763,70 +763,262 @@ void App::drawFontManagerWindow() {
 // One action's bindings inside one preset: a pad-button, a keyboard-key and a
 // mouse-button picker, each with a "(none)" entry - an action may be bound to
 // any combination, and all of them fire it.
+// --- Tools > Input Map --------------------------------------------------------
+namespace {
+// Shared with the UI Editor / Loading Screens (defined with them below).
+ImU32 tint(const ImVec4& c, float a = 1.0f);
+void listHead(const char* left, const char* right = nullptr);
+
+// The play context an action's role belongs to: two actions only clash when
+// they share a button inside one context (Cross is Jump on foot, Fly up in
+// noclip and Confirm in menus - three modes, no clash). Roles are fixed, so
+// this is a static map. Custom actions (no role) are their own group.
+enum ImContext { CtxFoot = 0, CtxNoclip, CtxMenus, CtxVehicle, CtxCustom, CtxCount };
+
+int roleContext(int role) {
+    switch (role) {
+        case InputAction::RoleJump:
+        case InputAction::RoleUse:
+        case InputAction::RoleThrow:
+        case InputAction::RoleSprint:
+        case InputAction::RoleMoveForward:
+        case InputAction::RoleMoveBack:
+        case InputAction::RoleMoveLeft:
+        case InputAction::RoleMoveRight: return CtxFoot;
+        case InputAction::RoleFlyUp:
+        case InputAction::RoleFlyDown: return CtxNoclip;
+        case InputAction::RoleConfirm:
+        case InputAction::RoleBack:
+        case InputAction::RoleMenu:
+        case InputAction::RoleAlt:
+        case InputAction::RoleMenuUp:
+        case InputAction::RoleMenuDown:
+        case InputAction::RoleMenuLeft:
+        case InputAction::RoleMenuRight: return CtxMenus;
+        case InputAction::RoleVehThrottle:
+        case InputAction::RoleVehBrake:
+        case InputAction::RoleVehHandbrake:
+        case InputAction::RoleVehNitrous:
+        case InputAction::RoleVehCamera:
+        case InputAction::RoleVehRearView: return CtxVehicle;
+        default: return CtxCustom;
+    }
+}
+
+const char* contextName(int c) {
+    static const char* n[CtxCount] = {"On foot", "Noclip", "Menus", "Vehicle", "Custom"};
+    return n[c];
+}
+
+bool isMoveRole(int role) {
+    return role >= InputAction::RoleMoveForward && role <= InputAction::RoleMoveRight;
+}
+
+// The face buttons keep their pad colours where they depict pad buttons (the
+// keycaps and the controller diagram) - by meaning, from the theme.
+ImVec4 padColour(const std::string& pad) {
+    const theme::Semantics& s = theme::semantics();
+    if (pad == "Cross") return s.accent;
+    if (pad == "Circle") return s.danger;
+    if (pad == "Square") return s.special;
+    if (pad == "Triangle") return s.ok;
+    return s.text;
+}
+
+// A keycap in a matrix cell: the binding on a raised pill, or a dim dash.
+void keycap(ImDrawList* dl, ImVec2 p, float h, const char* text, ImVec4 col, bool none, bool warn) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize() * 0.9f;
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text);
+    if (none) {
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(p.x, p.y + (h - ts.y) * 0.5f), tint(sem.textDim, 0.5f), text);
+        return;
+    }
+    const float ph = IM_TRUNC(h * 0.78f), pad = fs * 0.55f;
+    const ImVec2 a(p.x, p.y + (h - ph) * 0.5f), b(p.x + ts.x + pad * 2.0f, a.y + ph);
+    dl->AddRectFilled(a, b, tint(sem.surface), 5.0f);
+    dl->AddRect(a, b, warn ? tint(sem.warn, 0.9f) : tint(sem.border, 1.4f), 5.0f);
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(a.x + pad, p.y + (h - ts.y) * 0.5f), tint(col), text);
+}
+
+// HID usage code for an ImGui key the picker offers (0 = not offered).
+int hidOfImGuiKey(ImGuiKey k) {
+    if (k >= ImGuiKey_A && k <= ImGuiKey_Z) return 0x04 + (k - ImGuiKey_A);
+    if (k >= ImGuiKey_1 && k <= ImGuiKey_9) return 0x1E + (k - ImGuiKey_1);
+    if (k >= ImGuiKey_F1 && k <= ImGuiKey_F12) return 0x3A + (k - ImGuiKey_F1);
+    switch (k) {
+        case ImGuiKey_0: return 0x27;
+        case ImGuiKey_Enter: return 0x28;
+        case ImGuiKey_Escape: return 0x29;
+        case ImGuiKey_Backspace: return 0x2A;
+        case ImGuiKey_Tab: return 0x2B;
+        case ImGuiKey_Space: return 0x2C;
+        case ImGuiKey_Minus: return 0x2D;
+        case ImGuiKey_Equal: return 0x2E;
+        case ImGuiKey_RightArrow: return 0x4F;
+        case ImGuiKey_LeftArrow: return 0x50;
+        case ImGuiKey_DownArrow: return 0x51;
+        case ImGuiKey_UpArrow: return 0x52;
+        case ImGuiKey_LeftCtrl: return 0xE0;
+        case ImGuiKey_LeftShift: return 0xE1;
+        case ImGuiKey_LeftAlt: return 0xE2;
+        case ImGuiKey_RightCtrl: return 0xE4;
+        case ImGuiKey_RightShift: return 0xE5;
+        case ImGuiKey_RightAlt: return 0xE6;
+        default: return 0;
+    }
+}
+
+// The host gamepad (GLFW's SDL mapping) as PS2 pad buttons, in
+// kPadButtonNames order; the triggers count as pressed past half travel.
+// False when no mapped gamepad is connected.
+bool hostPadButtons(bool out[16]) {
+    for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid) {
+        if (!glfwJoystickIsGamepad(jid)) continue;
+        GLFWgamepadstate st;
+        if (!glfwGetGamepadState(jid, &st)) continue;
+        const unsigned char* b = st.buttons;
+        out[0] = b[GLFW_GAMEPAD_BUTTON_A];            // Cross
+        out[1] = b[GLFW_GAMEPAD_BUTTON_X];            // Square
+        out[2] = b[GLFW_GAMEPAD_BUTTON_Y];            // Triangle
+        out[3] = b[GLFW_GAMEPAD_BUTTON_B];            // Circle
+        out[4] = b[GLFW_GAMEPAD_BUTTON_DPAD_UP];
+        out[5] = b[GLFW_GAMEPAD_BUTTON_DPAD_DOWN];
+        out[6] = b[GLFW_GAMEPAD_BUTTON_DPAD_LEFT];
+        out[7] = b[GLFW_GAMEPAD_BUTTON_DPAD_RIGHT];
+        out[8] = b[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER];  // L1
+        out[9] = st.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] > 0.0f;  // L2 (-1..1)
+        out[10] = b[GLFW_GAMEPAD_BUTTON_LEFT_THUMB];  // L3
+        out[11] = b[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER];
+        out[12] = st.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] > 0.0f;
+        out[13] = b[GLFW_GAMEPAD_BUTTON_RIGHT_THUMB];
+        out[14] = b[GLFW_GAMEPAD_BUTTON_START];
+        out[15] = b[GLFW_GAMEPAD_BUTTON_BACK];  // Select
+        return true;
+    }
+    return false;
+}
+
+}  // namespace
+
 bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
     bool changed = false;
     InputBinding& b = preset.at(action.name);
+    const theme::Semantics& sem = theme::semantics();
+    const float capW = ImGui::CalcTextSize("Press a button...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
 
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    if (ImGui::BeginCombo("Pad button",
-                          b.pad.empty() ? "(none)" : b.pad.c_str())) {
-        if (ImGui::Selectable("(none)", b.pad.empty())) {
-            b.pad.clear();
-            changed = true;
-        }
-        for (int i = 0; i < 16; ++i)
-            if (ImGui::Selectable(kPadButtonNames[i], b.pad == kPadButtonNames[i])) {
-                b.pad = kPadButtonNames[i];
+    // Pad: the list, or "press to set" from a controller on this machine.
+    {
+        const bool stick = b.pad.empty() && isMoveRole(action.role);
+        const std::string cur = b.pad.empty() ? (stick ? "(stick)" : "(none)") : b.pad;
+        ImGui::PushStyleColor(ImGuiCol_Text, b.pad.empty() ? sem.textDim : padColour(b.pad));
+        const bool open = ui::BeginCombo("Pad button", cur.c_str());
+        ImGui::PopStyleColor();
+        if (open) {
+            if (ImGui::Selectable(stick ? "(stick)" : "(none)", b.pad.empty())) {
+                b.pad.clear();
                 changed = true;
             }
-        ImGui::EndCombo();
+            for (int i = 0; i < 16; ++i)
+                if (ImGui::Selectable(kPadButtonNames[i], b.pad == kPadButtonNames[i])) {
+                    b.pad = kPadButtonNames[i];
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        if (stick) ui::RowHelp("The analog stick drives it; a pad button is optional.");
+    }
+    {
+        const bool capturing = inputCapture_ == 1;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        if (ImGui::Button(capturing ? "Press a button...##padcap" : "Press to set##pad", ImVec2(capW, 0))) {
+            inputCapture_ = capturing ? 0 : 1;
+            inputCaptureNoPad_ = false;
+            if (inputCapture_ == 1) {
+                bool now[16] = {};
+                inputCaptureNoPad_ = !hostPadButtons(now);
+                for (int i = 0; i < 16; ++i) inputCapturePrev_[i] = now[i];
+            }
+        }
+        if (capturing) {
+            bool now[16] = {};
+            if (!hostPadButtons(now)) {
+                inputCaptureNoPad_ = true;
+            } else {
+                for (int i = 0; i < 16; ++i) {
+                    if (now[i] && !inputCapturePrev_[i]) {
+                        b.pad = kPadButtonNames[i];
+                        inputCapture_ = 0;
+                        changed = true;
+                        break;
+                    }
+                    inputCapturePrev_[i] = now[i];
+                }
+            }
+        }
+        if (inputCapture_ == 1 && inputCaptureNoPad_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("no controller connected");
+        }
     }
 
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    const char* keyLabel = b.key ? inputKeyLabel(b.key) : "(none)";
-    if (ImGui::BeginCombo("Keyboard key", *keyLabel ? keyLabel : "(none)")) {
-        if (ImGui::Selectable("(none)", b.key == 0)) {
-            b.key = 0;
-            changed = true;
-        }
-        for (const InputKeyName& k : inputKeyNames())
-            if (ImGui::Selectable(k.label, b.key == k.code)) {
-                b.key = k.code;
+    {
+        const char* keyLabel = b.key ? inputKeyLabel(b.key) : "";
+        if (ui::BeginCombo("Keyboard key", *keyLabel ? keyLabel : "(none)")) {
+            if (ImGui::Selectable("(none)", b.key == 0)) {
+                b.key = 0;
                 changed = true;
             }
-        ImGui::EndCombo();
+            for (const InputKeyName& k : inputKeyNames())
+                if (ImGui::Selectable(k.label, b.key == k.code)) {
+                    b.key = k.code;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        ui::RowHelp("A USB keyboard on the console (experimental).");
+        const bool capturing = inputCapture_ == 2;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        if (ImGui::Button(capturing ? "Press a key...##keycap" : "Press to set##key", ImVec2(capW, 0)))
+            inputCapture_ = capturing ? 0 : 2;
+        if (capturing) {
+            for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k)
+                if (ImGui::IsKeyPressed((ImGuiKey)k, false))
+                    if (const int hid = hidOfImGuiKey((ImGuiKey)k)) {
+                        b.key = hid;
+                        inputCapture_ = 0;
+                        changed = true;
+                        break;
+                    }
+        }
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(USB keyboard)");
 
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    if (ImGui::Combo("Mouse button", &b.mouse,
-                     "(none)\0Left\0Right\0Middle\0"))
-        changed = true;
-
-    ImGui::TextDisabled("Resolves to: %s", inputBindingLabel(b).c_str());
+    if (ui::Combo("Mouse button", &b.mouse, "(none)\0Left\0Right\0Middle\0")) changed = true;
     return changed;
 }
 
-// Tools > Input Map (docs/input-bindings.md). Left: the project's named
-// actions. Right: the selected action's identity plus its binding in each
-// preset. The presets are what "bindings per project" means; a player's own
-// rebinds happen in-game through a menu Rebind key row and never touch this.
+// Tools > Input Map (docs/input-bindings.md). The map as a map: every action's
+// pad / keyboard / mouse binding in one matrix grouped by play context, a
+// controller diagram for one context, and the selected action's binding with
+// a plain clash check. Presets are tabs in the header; the project-wide
+// switches sit in the header and the footer, not under an action. A player's
+// own rebinds happen in-game through a menu Rebind key row and never touch
+// this.
 void App::drawInputMapWindow() {
     if (!showInputMap_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(680.0f), scaled(460.0f)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1100.0f), scaled(700.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Input Map", &showInputMap_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
     InputMap& im = project_.input;
     if (im.presets.empty()) im.presets.push_back(InputPreset{});
-    if (inputPresetSel_ < 0 || inputPresetSel_ >= (int)im.presets.size())
-        inputPresetSel_ = 0;
-    if (im.activePreset < 0 || im.activePreset >= (int)im.presets.size())
-        im.activePreset = 0;
+    if (inputPresetSel_ < 0 || inputPresetSel_ >= (int)im.presets.size()) inputPresetSel_ = 0;
+    if (im.activePreset < 0 || im.activePreset >= (int)im.presets.size()) im.activePreset = 0;
+    if (inputActionSel_ >= (int)im.actions.size()) inputActionSel_ = (int)im.actions.size() - 1;
 
     bool changed = false;
     // Belt and braces, as elsewhere: the window edits the Input section AND
@@ -834,227 +1026,540 @@ void App::drawInputMapWindow() {
     const std::string beforeSection =
         project::sectionJson(project_, project::Section::Input) +
         project::sectionJson(project_, project::Section::Settings);
+    InputPreset& preset = im.presets[inputPresetSel_];
+    auto bindingOf = [&](const InputAction& a) {
+        const InputBinding* b = preset.find(a.name);
+        return b ? *b : InputBinding{a.name, "", 0, 0};
+    };
 
-    // --- left: the action list -------------------------------------------
-    ImGui::BeginChild("##inputactions", ImVec2(scaled(200.0f), 0),
-                      ImGuiChildFlags_Borders);
-    for (size_t i = 0; i < im.actions.size(); ++i) {
-        ImGui::PushID((int)i);
-        const InputAction& a = im.actions[i];
-        std::string label = a.label.empty() ? a.name : a.label;
-        if (a.role == InputAction::RoleNone) label += "  *";  // custom action
-        if (ImGui::Selectable(label.c_str(), inputActionSel_ == (int)i))
-            inputActionSel_ = (int)i;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "%s\nBound to: %s\n%s", a.name.c_str(),
-                inputBindingLabel(im.presets[inputPresetSel_].at(a.name)).c_str(),
-                a.role == InputAction::RoleNone
-                    ? "Custom action - only the On Action flow trigger reads it."
-                    : "Built-in role - the generated game reads it directly.");
-        ImGui::PopID();
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    ImGui::BeginGroup();
-    if (inputActionSel_ < 0 || inputActionSel_ >= (int)im.actions.size())
-        inputActionSel_ = 0;
-
-    if (im.actions.empty()) {
-        ImGui::TextWrapped(
-            "This project has no input actions. \"Restore built-ins\" brings "
-            "back the standard set (jump / use / sprint / menu navigation).");
-    } else {
-        InputAction& a = im.actions[inputActionSel_];
-        {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%s", a.label.c_str());
-            ImGui::SetNextItemWidth(scaled(200.0f));
-            if (ImGui::InputText("Label", buf, sizeof(buf))) a.label = buf;
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        {
-            // The name is the reference key (flow nodes, menu rows), so a
-            // rename has to follow into them - and must stay unique.
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%s", a.name.c_str());
-            ImGui::SetNextItemWidth(scaled(200.0f));
-            if (ImGui::InputText("Name", buf, sizeof(buf))) {
-                std::string want = buf;
-                bool clash = want.empty();
-                for (size_t i = 0; i < im.actions.size(); ++i)
-                    if ((int)i != inputActionSel_ && im.actions[i].name == want)
-                        clash = true;
-                if (!clash) renameInputAction(inputActionSel_, want);
-            }
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(referenced by name)");
-
-        // Role: which built-in behavior the action drives. Reassigning is
-        // allowed (that is how you move "sprint" onto a custom action).
-        {
-            static const char* kRoleLabels =
-                "(custom - flow graph only)\0Jump\0Use\0Throw\0Sprint\0"
-                "Fly up (noclip)\0Fly down (noclip)\0Menu confirm\0Menu back\0"
-                "Pause menu\0Alternate (load slot)\0Menu up\0Menu down\0"
-                "Menu left\0Menu right\0Move forward\0Move back\0Move left\0"
-                "Move right\0";
-            ImGui::SetNextItemWidth(scaled(220.0f));
-            if (ImGui::Combo("Role", &a.role, kRoleLabels)) changed = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "What the generated game uses this action for. Only one\n"
-                    "action per role reaches the game (the first one wins);\n"
-                    "\"custom\" actions exist purely for the On Action trigger.");
-            // A duplicated role is silently dropped at codegen - say so here.
-            const int owner = im.roleIndex(a.role);
-            if (a.role != InputAction::RoleNone && owner != inputActionSel_)
-                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
-                                   "\"%s\" already owns this role - this "
-                                   "action is inert",
-                                   im.actions[owner].label.c_str());
-        }
-        if (ImGui::Checkbox("Player may rebind it in-game", &a.rebindable))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Off = a menu \"Rebind key\" row shows the binding but refuses\n"
-                "to change it. Keep the menu navigation actions off, or a bad\n"
-                "rebind can lock the player out of the menu that would fix it.\n"
-                "In-game rebinding covers the PAD button only; the keyboard and\n"
-                "mouse bindings below stay exactly as you author them here.");
-
-        // --- presets ------------------------------------------------------
-        ImGui::SeparatorText("Bindings per preset");
-        if (ImGui::BeginTabBar("##presets")) {
-            for (size_t i = 0; i < im.presets.size(); ++i) {
-                ImGui::PushID((int)i);
-                std::string title = im.presets[i].name;
-                if ((int)i == im.activePreset) title += " *";
-                if (ImGui::BeginTabItem(title.c_str())) {
-                    inputPresetSel_ = (int)i;
-                    changed |= inputBindingRow(im.presets[i], a);
-                    ImGui::EndTabItem();
+    // --- header: count, preset tabs, find, the master switch ------------------
+    {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%d actions", (int)im.actions.size());
+        ImGui::SameLine(0.0f, fs);
+        for (int i = 0; i < (int)im.presets.size(); ++i) {
+            ImGui::PushID(i);
+            std::string lbl = im.presets[i].name;
+            if (i == im.activePreset) lbl += "  \xC2\xB7 at start";
+            if (ui::FilterChip(lbl.c_str(), i == inputPresetSel_)) inputPresetSel_ = i;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Edit this preset's bindings. Right-click: rename,\n"
+                                  "make it the preset at game start, delete.");
+            if (ImGui::BeginPopupContextItem("##presetmenu")) {
+                inputPresetSel_ = i;
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%s", im.presets[i].name.c_str());
+                ImGui::SetNextItemWidth(scaled(160.0f));
+                // Flow-graph Set Input Preset nodes reference presets by name.
+                if (ImGui::InputText("Preset name", buf, sizeof(buf))) renameInputPreset(i, buf);
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::MenuItem("Preset at game start", nullptr, im.activePreset == i)) {
+                    im.activePreset = i;
+                    changed = true;
                 }
+                if (ImGui::MenuItem("Delete preset", nullptr, false, im.presets.size() > 1)) {
+                    im.presets.erase(im.presets.begin() + i);
+                    if (inputPresetSel_ >= (int)im.presets.size()) inputPresetSel_ = (int)im.presets.size() - 1;
+                    if (im.activePreset >= (int)im.presets.size()) im.activePreset = 0;
+                    changed = true;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+            ImGui::SameLine();
+        }
+        if (ui::FilterChip("+ Preset", false)) {
+            // A new preset starts as a copy of the edited one - the point of a
+            // preset is a few deliberate differences, not a blank slate.
+            InputPreset np = im.presets[inputPresetSel_];
+            const std::string base = "preset";
+            np.name = base;
+            for (int n = 2;; ++n) {
+                bool taken = false;
+                for (const InputPreset& pr : im.presets) taken |= (pr.name == np.name);
+                if (!taken) break;
+                np.name = base + "-" + std::to_string(n);
+            }
+            im.presets.push_back(std::move(np));
+            inputPresetSel_ = (int)im.presets.size() - 1;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A copy of the preset you are editing (e.g. Southpaw).");
+        const float swW = ImGui::CalcTextSize("Players can rebind").x + IM_TRUNC(fs * 1.05f) * 1.8f +
+                          ImGui::GetStyle().ItemInnerSpacing.x;
+        const float findW = scaled(200.0f);
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + fs, right - swW - findW - fs * 1.2f));
+        ImGui::SetNextItemWidth(findW);
+        ImGui::InputTextWithHint("##imfind", "Find action or button...", inputFind_, sizeof(inputFind_));
+        ImGui::SameLine(0.0f, fs);
+        if (ui::Switch("Players can rebind", &im.allowRebind)) changed = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Master switch for the menu \"Rebind key\" rows (pad only).\n"
+                              "Off = the rows show bindings read-only.");
+    }
+    ImGui::Dummy(ImVec2(0.0f, fs * 0.15f));
+
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float rightW = ImMin(scaled(392.0f), ImGui::GetContentRegionAvail().x * 0.42f);
+
+    // Per-context pad clashes in this preset: an action's button also bound
+    // to another action of the SAME context.
+    auto clashOf = [&](int ai) {
+        const InputAction& a = im.actions[ai];
+        const InputBinding b = bindingOf(a);
+        if (b.pad.empty()) return -1;
+        const int ctx = roleContext(a.role);
+        for (int j = 0; j < (int)im.actions.size(); ++j) {
+            if (j == ai || roleContext(im.actions[j].role) != ctx) continue;
+            if (bindingOf(im.actions[j]).pad == b.pad) return j;
+        }
+        return -1;
+    };
+
+    // --- left: the binding matrix --------------------------------------------------
+    ImGui::BeginChild("##im_left", ImVec2(ImGui::GetContentRegionAvail().x - rightW - ImGui::GetStyle().ItemSpacing.x,
+                                          bodyH));
+    {
+        const float footH = ImGui::GetFrameHeightWithSpacing() * 1.4f;
+        const float colPad = scaled(108.0f), colKey = scaled(108.0f), colMouse = scaled(84.0f), colRe = scaled(36.0f);
+        const float gap = fs * 0.6f;
+        auto colX = [&](float w0) {
+            const float total = ImGui::GetContentRegionAvail().x;
+            const float xRe = w0 + total - colRe;
+            const float xMouse = xRe - gap - colMouse;
+            const float xKey = xMouse - gap - colKey;
+            const float xPad = xKey - gap - colPad;
+            return std::array<float, 4>{xPad, xKey, xMouse, xRe};
+        };
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const auto cx = colX(p.x);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float sfs = IM_TRUNC(fs * 0.86f);
+            ImFont* f = ImGui::GetFont();
+            const ImU32 c = tint(sem.textDim, 0.85f);
+            dl->AddText(f, sfs, ImVec2(p.x + fs * 0.6f, p.y), c, "Action");
+            dl->AddText(f, sfs, ImVec2(cx[0], p.y), c, "Pad");
+            dl->AddText(f, sfs, ImVec2(cx[1], p.y), c, "Keyboard");
+            dl->AddText(f, sfs, ImVec2(cx[2], p.y), c, "Mouse");
+            dl->AddText(f, sfs, ImVec2(cx[3], p.y), c, "Re");
+            ImGui::Dummy(ImVec2(0.0f, sfs + fs * 0.3f));
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) ||
+                (ImGui::IsWindowHovered() &&
+                 ImGui::IsMouseHoveringRect(ImVec2(cx[3], p.y), ImVec2(cx[3] + colRe, p.y + sfs))))
+                ImGui::SetTooltip("Re: the player may rebind it in-game.");
+            ImGui::Separator();
+        }
+        ImGui::BeginChild("##im_matrix", ImVec2(0, ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().y - footH)));
+        const std::string q = [&] {
+            std::string s = inputFind_;
+            for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
+            return s;
+        }();
+        auto lc = [](std::string s) {
+            for (char& ch : s) ch = (char)std::tolower((unsigned char)ch);
+            return s;
+        };
+        int shown = 0;
+        for (int ctx = 0; ctx < CtxCount; ++ctx) {
+            std::vector<int> rows;
+            bool allFixed = true;
+            for (int i = 0; i < (int)im.actions.size(); ++i) {
+                const InputAction& a = im.actions[i];
+                if (roleContext(a.role) != ctx) continue;
+                if (!q.empty()) {
+                    const InputBinding b = bindingOf(a);
+                    const std::string hay = lc(a.label + " " + a.name + " " + b.pad + " " +
+                                               inputKeyLabel(b.key) + " " + inputMouseLabel(b.mouse) +
+                                               (b.pad.empty() && isMoveRole(a.role) ? " stick" : ""));
+                    if (hay.find(q) == std::string::npos) continue;
+                }
+                rows.push_back(i);
+                allFixed &= !a.rebindable;
+            }
+            if (rows.empty()) continue;
+            listHead(contextName(ctx), ctx == CtxMenus && allFixed ? "fixed - never rebindable"
+                                       : ctx == CtxCustom          ? "fire with On Action"
+                                                                   : nullptr);
+            for (int i : rows) {
+                ++shown;
+                const InputAction& a = im.actions[i];
+                const InputBinding b = bindingOf(a);
+                ImGui::PushID(i);
+                const float h = IM_TRUNC(ImGui::GetFrameHeight() + fs * 0.2f);
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float w = ImGui::GetContentRegionAvail().x;
+                const bool sel = i == inputActionSel_;
+                const std::string label = a.label.empty() ? a.name : a.label;
+                if (ImGui::InvisibleButton(label.c_str(), ImVec2(w, h))) {
+                    inputActionSel_ = i;
+                    inputCapture_ = 0;
+                    // The diagram follows the picked action's mode.
+                    const int c = roleContext(a.role);
+                    if (c == CtxFoot || c == CtxNoclip) inputDiagramCtx_ = 0;
+                    else if (c == CtxMenus) inputDiagramCtx_ = 1;
+                    else if (c == CtxVehicle) inputDiagramCtx_ = 2;
+                }
+                uiscript::markLastItemChecked(sel);
+                const bool hov = ImGui::IsItemHovered();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ImVec2 q2(p.x + w, p.y + h);
+                const float rr = ImGui::GetStyle().FrameRounding;
+                if (sel) {
+                    dl->AddRectFilled(p, q2, tint(sem.accent, 0.16f), rr);
+                    dl->AddRect(p, q2, tint(sem.accent, 0.33f), rr);
+                } else if (hov) {
+                    dl->AddRectFilled(p, q2, tint(sem.surface, 0.8f), rr);
+                }
+                const auto cx = colX(p.x);
+                const float ty = p.y + (h - fs) * 0.5f;
+                dl->PushClipRect(p, ImVec2(cx[0] - gap, q2.y), true);
+                dl->AddText(ImVec2(p.x + fs * 0.6f, ty), tint(sem.text, 0.92f), label.c_str());
+                {
+                    const float lw = ImGui::CalcTextSize(label.c_str()).x;
+                    ImFont* mf = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+                    const float mfs = IM_TRUNC(fs * 0.82f);
+                    dl->AddText(mf, mfs, ImVec2(p.x + fs * 0.6f + lw + fs * 0.5f, p.y + (h - mfs) * 0.5f),
+                                tint(sem.textDim, 0.75f), a.name.c_str());
+                }
+                dl->PopClipRect();
+                const bool stick = b.pad.empty() && isMoveRole(a.role);
+                const bool clash = clashOf(i) >= 0;
+                keycap(dl, ImVec2(cx[0], p.y), h, b.pad.empty() ? (stick ? "stick" : "\xE2\x80\x94") : b.pad.c_str(),
+                       b.pad.empty() ? sem.textDim : padColour(b.pad), b.pad.empty(), clash);
+                const char* kl = b.key ? inputKeyLabel(b.key) : "";
+                keycap(dl, ImVec2(cx[1], p.y), h, *kl ? kl : "\xE2\x80\x94", sem.text, !*kl, false);
+                static const char* kMouse[] = {"\xE2\x80\x94", "Left", "Right", "Middle"};
+                keycap(dl, ImVec2(cx[2], p.y), h, kMouse[ImClamp(b.mouse, 0, 3)], sem.text, b.mouse == 0, false);
+                const ImVec2 dc(cx[3] + fs * 0.4f, p.y + h * 0.5f);
+                if (a.rebindable && im.allowRebind)
+                    dl->AddCircleFilled(dc, fs * 0.24f, tint(sem.ok));
+                else
+                    dl->AddCircle(dc, fs * 0.24f, tint(sem.textDim, 0.6f), 0, 1.2f);
+                if (hov && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && clash)
+                    ImGui::SetTooltip("%s is also %s - same mode (%s), both fire.", b.pad.c_str(),
+                                      im.actions[clashOf(i)].label.c_str(), contextName(roleContext(a.role)));
                 ImGui::PopID();
             }
-            ImGui::EndTabBar();
         }
-    }
+        if (im.actions.empty()) {
+            if (ui::EmptyState(ui::Glyph::Sliders, "No input actions",
+                               "Every gameplay button reads a named action. Restore the built-in set "
+                               "(jump, use, sprint, menus, vehicle).",
+                               "Restore built-ins")) {
+                project::ensureInputActions(project_);
+                changed = true;
+            }
+        } else if (shown == 0) {
+            ImGui::TextDisabled("Nothing matches \"%s\".", inputFind_);
+        }
+        ImGui::EndChild();  // ##im_matrix
 
-    // --- preset management ------------------------------------------------
-    ImGui::SeparatorText("Presets");
-    {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "%s",
-                      im.presets[inputPresetSel_].name.c_str());
-        ImGui::SetNextItemWidth(scaled(160.0f));
-        if (ImGui::InputText("Preset name", buf, sizeof(buf))) {
-            // Flow-graph Set Input Preset nodes reference presets by name.
-            renameInputPreset(inputPresetSel_, buf);
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-    }
-    ImGui::SetNextItemWidth(scaled(160.0f));
-    {
-        std::string items;
-        for (const InputPreset& pr : im.presets) {
-            items += pr.name;
-            items.push_back('\0');
-        }
-        items.push_back('\0');
-        if (ImGui::Combo("Preset at game start", &im.activePreset, items.c_str()))
-            changed = true;
-    }
-    if (ImGui::Button("+ Add preset")) {
-        // A new preset starts as a copy of the edited one - the point of a
-        // preset is a few deliberate differences, not a blank slate.
-        InputPreset np = im.presets[inputPresetSel_];
-        std::string base = "preset";
-        np.name = base;
-        for (int n = 2;; ++n) {
-            bool taken = false;
-            for (const InputPreset& pr : im.presets) taken |= (pr.name == np.name);
-            if (!taken) break;
-            np.name = base + "-" + std::to_string(n);
-        }
-        im.presets.push_back(std::move(np));
-        inputPresetSel_ = (int)im.presets.size() - 1;
-        changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(im.presets.size() <= 1);
-    if (ImGui::Button("Delete preset")) {
-        im.presets.erase(im.presets.begin() + inputPresetSel_);
-        if (inputPresetSel_ >= (int)im.presets.size())
-            inputPresetSel_ = (int)im.presets.size() - 1;
-        if (im.activePreset >= (int)im.presets.size()) im.activePreset = 0;
-        changed = true;
-    }
-    ImGui::EndDisabled();
-
-    ImGui::SeparatorText("Actions");
-    if (ImGui::Button("+ Add action")) {
-        InputAction na;
-        std::string base = "action";
-        na.name = base;
-        for (int n = 2;; ++n) {
-            bool taken = false;
-            for (const InputAction& e : im.actions) taken |= (e.name == na.name);
-            if (!taken) break;
-            na.name = base + "-" + std::to_string(n);
-        }
-        na.label = na.name;
-        im.actions.push_back(std::move(na));
-        inputActionSel_ = (int)im.actions.size() - 1;
-        changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(im.actions.empty());
-    if (ImGui::Button("Delete action")) {
-        const std::string gone = im.actions[inputActionSel_].name;
-        im.actions.erase(im.actions.begin() + inputActionSel_);
-        for (InputPreset& pr : im.presets)
-            for (size_t i = 0; i < pr.bindings.size();)
-                if (pr.bindings[i].action == gone)
-                    pr.bindings.erase(pr.bindings.begin() + i);
-                else
-                    ++i;
-        if (inputActionSel_ >= (int)im.actions.size())
+        // Footer: custom actions, built-ins, sprint speed.
+        ImGui::Separator();
+        if (ImGui::Button("+ Custom action")) {
+            InputAction na;
+            const std::string base = "action";
+            na.name = base;
+            for (int n = 2;; ++n) {
+                bool taken = false;
+                for (const InputAction& e : im.actions) taken |= (e.name == na.name);
+                if (!taken) break;
+                na.name = base + "-" + std::to_string(n);
+            }
+            na.label = na.name;
+            im.actions.push_back(std::move(na));
             inputActionSel_ = (int)im.actions.size() - 1;
-        changed = true;
+            inputFind_[0] = 0;
+            changed = true;
+        }
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("No role: fire it with the On Action node.");
+        const float sprintW = scaled(150.0f);
+        const float restoreW = ImGui::CalcTextSize("Restore built-ins").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + fs,
+                              ImGui::GetWindowContentRegionMax().x - restoreW - sprintW - fs * 0.8f));
+        ImGui::SetNextItemWidth(sprintW);
+        if (ImGui::DragFloat("##sprint", &project_.settings.sprintMultiplier, 0.02f, 1.0f, 4.0f, "Sprint %.2fx"))
+            changed = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Sprint speed: walk-speed multiplier while the sprint action\n"
+                              "is held. 1.00x switches sprinting off without unbinding.");
+        ImGui::SameLine();
+        if (ui::GhostButton("Restore built-ins")) {
+            // Only adds what is missing (project::ensureInputActions) - existing
+            // bindings are never overwritten.
+            project::ensureInputActions(project_);
+            changed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Re-adds any missing built-in action (jump, use, sprint,\n"
+                              "menu navigation...) with its default binding. Never\n"
+                              "changes an action you already have.");
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Restore built-ins")) {
-        // Only adds what is missing (project::ensureInputActions) - existing
-        // bindings are never overwritten.
-        project::ensureInputActions(project_);
-        changed = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Re-adds any missing built-in action (jump, use,\n"
-                          "sprint, menu navigation...) with its default\n"
-                          "binding. Never changes an action you already have.");
+    ImGui::EndChild();  // ##im_left
 
-    ImGui::Separator();
-    if (ImGui::Checkbox("Allow in-game rebinding", &im.allowRebind))
-        changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Master switch for the menu \"Rebind key\" rows.\n"
-                          "Off = the rows display bindings read-only.");
-    ImGui::SetNextItemWidth(scaled(160.0f));
-    if (ImGui::DragFloat("Sprint speed", &project_.settings.sprintMultiplier,
-                         0.02f, 1.0f, 4.0f, "%.2fx"))
-        changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Walk-speed multiplier while the sprint action is\n"
-                          "held. 1.00x switches sprinting off without\n"
-                          "unbinding the button.");
-    ImGui::EndGroup();
+    // --- right: controller diagram + the selected action ---------------------------
+    ImGui::SameLine();
+    ImGui::BeginChild("##im_right", ImVec2(0, bodyH));
+    {
+        // The selected action's context drives the diagram until the user
+        // picks one; Noclip shares the on-foot picture.
+        static const char* kCtx[] = {"On foot", "Menus", "Vehicle"};
+        ImGui::AlignTextToFramePadding();
+        ui::Caption("DualShock 2");
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - scaled(210.0f));
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - fs * 0.3f);
+        ui::Segmented("##imctx", kCtx, 3, &inputDiagramCtx_, scaled(210.0f));
+        const int dctx = inputDiagramCtx_ == 0 ? CtxFoot : inputDiagramCtx_ == 1 ? CtxMenus : CtxVehicle;
+
+        // The diagram in a 376x250 design box, scaled to the column.
+        const float boxW = ImGui::GetContentRegionAvail().x;
+        const float k = boxW / 376.0f;
+        const float boxH = 250.0f * k;
+        const ImVec2 o = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        auto P = [&](float x, float y) { return ImVec2(o.x + x * k, o.y + y * k); };
+        // Body: two grips around a bridge.
+        {
+            const ImVec2 pts[] = {P(88, 70),  P(188, 60), P(288, 70), P(330, 78), P(344, 120), P(364, 196),
+                                  P(356, 226), P(334, 230), P(300, 196), P(278, 166), P(188, 174), P(98, 166),
+                                  P(76, 196), P(42, 230),  P(20, 226),  P(12, 196), P(32, 120), P(46, 78)};
+            dl->AddConcavePolyFilled(pts, IM_ARRAYSIZE(pts), tint(sem.surface));
+            dl->AddPolyline(pts, IM_ARRAYSIZE(pts), tint(sem.border, 2.0f), ImDrawFlags_Closed, 1.0f);
+        }
+        // Which actions of this context sit on each pad button.
+        std::string onBtn[16];
+        bool selBtn[16] = {};
+        for (int i = 0; i < (int)im.actions.size(); ++i) {
+            const InputAction& a = im.actions[i];
+            const int c = roleContext(a.role);
+            if (c != dctx) continue;
+            const int bi = padButtonIndex(bindingOf(a).pad);
+            if (bi < 0) continue;
+            if (!onBtn[bi].empty()) onBtn[bi] += " / ";
+            onBtn[bi] += a.label.empty() ? a.name : a.label;
+            if (i == inputActionSel_) selBtn[bi] = true;
+        }
+        const ImU32 dim = tint(sem.textDim, 0.7f);
+        auto shoulder = [&](int bi, float x, float y, const char* t) {
+            const bool on = !onBtn[bi].empty();
+            const ImVec2 a = P(x, y), b = P(x + 40, y + 13);
+            dl->AddRectFilled(a, b, on ? tint(sem.accent, 0.25f) : tint(sem.field), 5.0f * k);
+            if (selBtn[bi]) dl->AddRect(a, b, tint(sem.accent), 5.0f * k, 0, 1.5f);
+            const ImVec2 ts = ImGui::CalcTextSize(t);
+            dl->AddText(ImGui::GetFont(), fs * 0.75f, ImVec2((a.x + b.x) * 0.5f - ts.x * 0.375f, a.y + (b.y - a.y - fs * 0.75f) * 0.5f),
+                        on ? tint(sem.text) : dim, t);
+        };
+        shoulder(9, 74, 34, "L2");
+        shoulder(8, 74, 50, "L1");
+        shoulder(12, 262, 34, "R2");
+        shoulder(11, 262, 50, "R1");
+        // D-pad.
+        dl->AddCircleFilled(P(88, 112), 22 * k, tint(sem.field));
+        auto dpad = [&](int bi, float x0, float y0, float x1, float y1) {
+            const ImU32 c = !onBtn[bi].empty() ? tint(sem.text, 0.75f) : tint(sem.textDim, 0.45f);
+            dl->AddLine(P(x0, y0), P(x1, y1), c, 5.0f * k);
+            if (selBtn[bi]) dl->AddCircle(P((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), 7 * k, tint(sem.accent), 0, 1.5f);
+        };
+        dpad(4, 88, 95, 88, 105);
+        dpad(5, 88, 119, 88, 129);
+        dpad(6, 71, 112, 81, 112);
+        dpad(7, 95, 112, 105, 112);
+        // Face buttons: their real shapes, in their pad colours.
+        auto face = [&](int bi, float x, float y, int shape) {
+            const ImVec4 col = padColour(kPadButtonNames[bi]);
+            const float r = 10 * k;
+            const ImVec2 c = P(x, y);
+            dl->AddCircleFilled(c, r, tint(col, onBtn[bi].empty() ? 0.06f : 0.18f));
+            dl->AddCircle(c, r, tint(col, onBtn[bi].empty() ? 0.45f : 1.0f), 0, selBtn[bi] ? 2.5f : 1.4f);
+            const ImU32 ic = tint(col, onBtn[bi].empty() ? 0.5f : 1.0f);
+            const float s = 4.2f * k;
+            if (shape == 0) {  // cross
+                dl->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), ic, 1.4f);
+                dl->AddLine(ImVec2(c.x + s, c.y - s), ImVec2(c.x - s, c.y + s), ic, 1.4f);
+            } else if (shape == 1) {  // square
+                dl->AddRect(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), ic, 0.0f, 0, 1.4f);
+            } else if (shape == 2) {  // triangle
+                dl->AddTriangle(ImVec2(c.x, c.y - s * 1.1f), ImVec2(c.x + s, c.y + s * 0.8f),
+                                ImVec2(c.x - s, c.y + s * 0.8f), ic, 1.4f);
+            } else {  // circle
+                dl->AddCircle(c, s, ic, 0, 1.4f);
+            }
+        };
+        face(2, 288, 96, 2);
+        face(1, 268, 114, 1);
+        face(3, 308, 114, 3);
+        face(0, 288, 132, 0);
+        // Sticks, Select, Start.
+        dl->AddCircleFilled(P(138, 150), 17 * k, tint(sem.field));
+        dl->AddCircle(P(138, 150), 17 * k, selBtn[10] ? tint(sem.accent) : tint(sem.border, 1.5f), 0, 1.2f);
+        dl->AddCircleFilled(P(238, 150), 17 * k, tint(sem.field));
+        dl->AddCircle(P(238, 150), 17 * k, selBtn[13] ? tint(sem.accent) : tint(sem.border, 1.5f), 0, 1.2f);
+        dl->AddRectFilled(P(168, 106), P(184, 113), onBtn[15].empty() ? tint(sem.field) : tint(sem.text, 0.5f), 3 * k);
+        dl->AddRectFilled(P(194, 106), P(210, 113), onBtn[14].empty() ? tint(sem.field) : tint(sem.text, 0.5f), 3 * k);
+
+        // Callouts: a dark pill beside each bound button.
+        auto callout = [&](const std::string& text, float x, float y, int align, ImVec4 col, bool sel) {
+            if (text.empty()) return;
+            const float cfs = IM_TRUNC(fs * 0.82f);
+            const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(cfs, FLT_MAX, 0.0f, text.c_str());
+            const float pw = ts.x + cfs * 0.9f, ph = ts.y + cfs * 0.3f;
+            ImVec2 a = P(x, y);
+            a.x = align < 0 ? a.x - pw : align == 0 ? a.x - pw * 0.5f : a.x;
+            a.y -= ph * 0.5f;
+            a.x = ImClamp(a.x, o.x, o.x + boxW - pw);
+            const ImVec2 b(a.x + pw, a.y + ph);
+            dl->AddRectFilled(a, b, IM_COL32(14, 16, 21, 225), 5.0f);
+            dl->AddRect(a, b, sel ? tint(sem.accent) : tint(sem.border, 1.6f), 5.0f);
+            dl->AddText(ImGui::GetFont(), cfs, ImVec2(a.x + cfs * 0.45f, a.y + cfs * 0.15f), tint(col), text.c_str());
+        };
+        const ImVec4 tc = sem.text;
+        callout(onBtn[9], 94, 24, 0, tc, selBtn[9]);
+        callout(onBtn[8], 70, 56, -1, tc, selBtn[8]);
+        callout(onBtn[12], 282, 24, 0, tc, selBtn[12]);
+        callout(onBtn[11], 306, 56, 1, tc, selBtn[11]);
+        callout(onBtn[2], 302, 88, 1, padColour("Triangle"), selBtn[2]);
+        callout(onBtn[3], 322, 114, 1, padColour("Circle"), selBtn[3]);
+        callout(onBtn[0], 302, 142, 1, padColour("Cross"), selBtn[0]);
+        callout(onBtn[1], 254, 102, -1, padColour("Square"), selBtn[1]);
+        // The d-pad as one label when it is menu navigation.
+        if (!onBtn[4].empty() && !onBtn[5].empty() && !onBtn[6].empty() && !onBtn[7].empty() &&
+            dctx == CtxMenus) {
+            callout("Navigate", 62, 112, -1, tc, selBtn[4] || selBtn[5] || selBtn[6] || selBtn[7]);
+        } else {
+            callout(onBtn[4], 62, 92, -1, tc, selBtn[4]);
+            callout(onBtn[6], 62, 112, -1, tc, selBtn[6]);
+            callout(onBtn[5], 62, 132, -1, tc, selBtn[5]);
+            callout(onBtn[7], 112, 128, 1, tc, selBtn[7]);
+        }
+        callout(onBtn[15].empty() ? "" : "Select: " + onBtn[15], 172, 70, -1, tc, selBtn[15]);
+        callout(onBtn[14].empty() ? "" : "Start: " + onBtn[14], 206, 70, 1, tc, selBtn[14]);
+        callout(onBtn[10].empty() ? "" : "L3: " + onBtn[10], 138, 178, 0, tc, selBtn[10]);
+        callout(onBtn[13].empty() ? "" : "R3: " + onBtn[13], 238, 178, 0, tc, selBtn[13]);
+        if (dctx == CtxFoot) callout("Move (stick)", 138, 200, 0, sem.textDim, false);
+        if (dctx == CtxVehicle) callout("Steer (stick)", 138, 200, 0, sem.textDim, false);
+        ImGui::Dummy(ImVec2(boxW, boxH + fs * 0.4f));
+        ImGui::Separator();
+
+        // The selected action.
+        if (inputActionSel_ >= 0 && inputActionSel_ < (int)im.actions.size()) {
+            InputAction& a = im.actions[inputActionSel_];
+            bool del = false;
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted(a.label.empty() ? a.name.c_str() : a.label.c_str());
+            }
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight());
+            if (ui::MoreButton("Action actions", ImGui::GetFrameHeight())) ImGui::OpenPopup("##actmore");
+            if (ImGui::BeginPopup("##actmore")) {
+                if (ImGui::MenuItem("Delete action")) del = true;
+                ImGui::EndPopup();
+            }
+            ImGui::TextDisabled("%s \xC2\xB7 %s", a.name.c_str(), contextName(roleContext(a.role)));
+            ImGui::PushItemWidth(-FLT_MIN);
+            ui::InspectorRows rows(scaled(76), scaled(110));
+            {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%s", a.label.c_str());
+                if (ui::InputText("Label", buf, sizeof(buf))) a.label = buf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ui::RowHelp("What an in-game rebind row shows.");
+            }
+            {
+                // The name is the reference key (flow nodes, menu rows), so a
+                // rename has to follow into them - and must stay unique.
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%s", a.name.c_str());
+                if (ui::InputText("Name", buf, sizeof(buf))) {
+                    std::string want = buf;
+                    bool clash = want.empty();
+                    for (size_t i = 0; i < im.actions.size(); ++i)
+                        if ((int)i != inputActionSel_ && im.actions[i].name == want) clash = true;
+                    if (!clash) renameInputAction(inputActionSel_, want);
+                }
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ui::RowHelp("Referenced by name (flow nodes, menu rows); renames follow.");
+            }
+            {
+                // Role: which built-in behavior the action drives. Reassigning
+                // is allowed (that is how you move "sprint" onto a custom one).
+                static const char* kRoleLabels =
+                    "(custom - flow graph only)\0Jump\0Use\0Throw\0Sprint\0"
+                    "Fly up (noclip)\0Fly down (noclip)\0Menu confirm\0Menu back\0"
+                    "Pause menu\0Alternate (load slot)\0Menu up\0Menu down\0"
+                    "Menu left\0Menu right\0Move forward\0Move back\0Move left\0"
+                    "Move right\0Vehicle throttle\0Vehicle brake\0Vehicle handbrake\0"
+                    "Vehicle nitrous\0Vehicle camera\0Vehicle rear view\0";
+                if (ui::Combo("Role", &a.role, kRoleLabels)) changed = true;
+                ui::RowHelp("What the generated game uses this action for. Only one\n"
+                            "action per role reaches the game (the first one wins).");
+                // A duplicated role is silently dropped at codegen - say so here.
+                const int owner = im.roleIndex(a.role);
+                if (a.role != InputAction::RoleNone && owner != inputActionSel_) {
+                    char msg[160];
+                    std::snprintf(msg, sizeof(msg), "\"%s\" already owns this role - this one is inert",
+                                  im.actions[owner].label.c_str());
+                    ui::StatusLine(1, msg);
+                }
+            }
+            ui::Caption(("Binding - " + preset.name).c_str());
+            changed |= inputBindingRow(preset, a);
+            if (ui::Switch("Player may rebind it in-game (Pad only; keep menu navigation fixed)", &a.rebindable))
+                changed = true;
+
+            // Clash check: the same pad button in the other actions of this
+            // preset, said plainly - different modes are fine.
+            const InputBinding b = bindingOf(a);
+            if (!b.pad.empty()) {
+                std::string also, same;
+                const int ctx = roleContext(a.role);
+                for (int j = 0; j < (int)im.actions.size(); ++j) {
+                    if (j == inputActionSel_ || bindingOf(im.actions[j]).pad != b.pad) continue;
+                    const InputAction& o2 = im.actions[j];
+                    const std::string nm = o2.label.empty() ? o2.name : o2.label;
+                    const int c2 = roleContext(o2.role);
+                    if (c2 == ctx) same += (same.empty() ? "" : ", ") + nm;
+                    else {
+                        std::string cn = contextName(c2);
+                        for (char& ch : cn) ch = (char)std::tolower((unsigned char)ch);
+                        also += (also.empty() ? "" : ", ") + nm + " (" + cn + ")";
+                    }
+                }
+                ImGui::Spacing();
+                ImGui::PushTextWrapPos(0.0f);
+                if (!same.empty()) {
+                    ui::StatusLine(1, (b.pad + " clashes with " + same + " - same mode, both fire.").c_str());
+                } else if (!also.empty()) {
+                    ImGui::TextDisabled("%s also: %s. Different modes, no clash.", b.pad.c_str(), also.c_str());
+                } else {
+                    ImGui::TextDisabled("%s does nothing else in this preset.", b.pad.c_str());
+                }
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::PopItemWidth();
+            if (del) {
+                const std::string gone = im.actions[inputActionSel_].name;
+                im.actions.erase(im.actions.begin() + inputActionSel_);
+                for (InputPreset& pr : im.presets)
+                    for (size_t i = 0; i < pr.bindings.size();)
+                        if (pr.bindings[i].action == gone)
+                            pr.bindings.erase(pr.bindings.begin() + i);
+                        else
+                            ++i;
+                if (inputActionSel_ >= (int)im.actions.size()) inputActionSel_ = (int)im.actions.size() - 1;
+                inputCapture_ = 0;
+                changed = true;
+            }
+        } else {
+            ImGui::TextDisabled("Select an action in the matrix.");
+        }
+    }
+    ImGui::EndChild();  // ##im_right
 
     if (changed ||
         project::sectionJson(project_, project::Section::Input) +
@@ -2542,7 +3047,7 @@ constexpr bool isFxMark(int e) { return e <= kFxMarkBase; }
 constexpr int fxMarkIndex(int e) { return kFxMarkBase - e; }
 constexpr int fxMark(int i) { return kFxMarkBase - i; }
 
-ImU32 tint(const ImVec4& c, float a = 1.0f) {
+ImU32 tint(const ImVec4& c, float a) {
     ImVec4 v = c;
     v.w *= a;
     return ImGui::GetColorU32(v);
@@ -2629,7 +3134,7 @@ RowResult screenRow(const char* label, const char* meta, const char* badge, cons
 }
 
 // A dim sub-heading of a screen list, with an optional note at the right.
-void listHead(const char* left, const char* right = nullptr) {
+void listHead(const char* left, const char* right) {
     const theme::Semantics& sem = theme::semantics();
     const float fs = ImGui::GetFontSize();
     const float sfs = IM_TRUNC(fs * 0.86f);

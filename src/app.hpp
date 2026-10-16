@@ -2311,6 +2311,14 @@ private:
     bool showInputMap_ = false;
     int inputActionSel_ = 0;  // row selected in the Input Map action list
     int inputPresetSel_ = 0;  // preset tab being edited
+    // Input Map session state: the find field, the controller diagram's
+    // context (0 on foot, 1 menus, 2 vehicle), and "press to set" capture
+    // (0 off, 1 pad button from a host gamepad, 2 keyboard key).
+    char inputFind_[64] = "";
+    int inputDiagramCtx_ = 0;
+    int inputCapture_ = 0;
+    bool inputCaptureNoPad_ = false;
+    bool inputCapturePrev_[16] = {};
 
     // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
     // built-in "Debugger" window layout).
