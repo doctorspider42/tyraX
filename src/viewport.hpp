@@ -442,6 +442,13 @@ public:
     bool grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
                         int& outW, int& outH);
 
+    // Viewport overlay cards' frosted backdrop: a 1/4-size gaussian-blurred
+    // copy of `srcTex` (the srcW x srcH image render() just returned, same
+    // bottom-up orientation). Targets are reused across frames and resized
+    // only with the panel. 0 = no blur (too small, or the programs failed) -
+    // the cards then fall back to their opaque fill.
+    uint32_t blurBackdrop(uint32_t srcTex, int srcW, int srcH);
+
     // Collaboration presence: other participants' selections in the ACTIVE
     // scene, outlined in each peer's color under the local selection (local
     // amber always reads on top). The app resolves object ids to indices per
@@ -1443,6 +1450,14 @@ private:
     // image is blitted (and thus downscaled) into before glReadPixels.
     void ensureGrabFramebuffer(int width, int height);
     uint32_t grabFbo_ = 0, grabTex_ = 0;
+    // Overlay backdrop blur (blurBackdrop): two ping-pong 1/4-size targets
+    // and the downsample / one-axis gaussian programs, built on first use.
+    bool ensureBlurPrograms();
+    uint32_t blurFbo_[2] = {0, 0}, blurTex_[2] = {0, 0};
+    int blurW_ = 0, blurH_ = 0;
+    uint32_t blurDownProg_ = 0, blurAxisProg_ = 0;
+    bool blurFailed_ = false;
+    int uBlurDownSrc_ = -1, uBlurDownTexel_ = -1, uBlurAxisSrc_ = -1, uBlurAxisStep_ = -1;
     int grabW_ = 0, grabH_ = 0;
 
     // Material Editor preview target + fixed backdrop meshes

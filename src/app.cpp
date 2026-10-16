@@ -2701,6 +2701,9 @@ void App::drawViewportWindow() {
         viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
+        // The overlay cards' frosted backdrop (ui::OverlayGlassPanel): a small
+        // blurred copy of this very image, 0 when the panel is too small.
+        const uint32_t blurTex = viewport_.blurBackdrop(tex, (int)avail.x, (int)avail.y);
         // Phone camera link: stream THIS frame to the connected device, so the
         // phone is a viewfinder onto the editor's own image rather than a
         // second, subtly different render.
@@ -2724,6 +2727,8 @@ void App::drawViewportWindow() {
 
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
+        ui::SetOverlayBackdrop((ImTextureID)(intptr_t)blurTex, imgPos,
+                               ImVec2(imgPos.x + avail.x, imgPos.y + avail.y));
         ImGuiIO& io = ImGui::GetIO();
 
         // A model dragged out of the Asset Browser lands where the cursor points
@@ -3894,27 +3899,34 @@ void App::drawViewportWindow() {
             }
         }
 
+        // Frame (F, the readout's button): the orbit pivot onto the selection.
+        auto frameSelection = [&] {
+            if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) return;
+            viewport_.setTarget(project_.objects()[selectedObject_].position);
+            navFocusedIndex_ = selectedObject_;  // keep orbit-around-selection in sync
+        };
+
         // --- Tool palette (top-left corner of the viewport) ---
         // One vertical card: the transform gizmo modes, the two terrain
-        // brushes, then the measuring tape and surface snapping - each with
-        // its shortcut in the corner. Labels are the old buttons' ("Move (1)"
-        // ...): they are the IDs scripts and docs name. Render mode and the
-        // TV-safe frames live in the View menu; the camera controls and the
-        // gizmo axis space are the bottom cards.
+        // brushes, then the measuring tape - each with its shortcut in the
+        // corner. Labels are the old buttons' ("Move (1)" ...): they are the
+        // IDs scripts and docs name. The view controls (projection, camera,
+        // render mode, surface snap, axis space) are the pill at the top
+        // centre; the selection readout and the output switch the bottom row.
         const bool hasTerrain = project_.active().terrain.enabled;
         const float ovPad = ui::OverlayPad();
         const float ovMargin = scaled(10.0f);
         const float toolBtn = IM_TRUNC(ImGui::GetFrameHeight() * 1.22f);
         float toolsRight = imgPos.x + ovMargin;
         {
-            const int nBtn = 8, nSep = 3;
+            const int nBtn = 6, nSep = 2;
             const float sepH = scaled(9.0f);
             const ImVec2 p0(imgPos.x + ovMargin, imgPos.y + ovMargin);
             const ImVec2 p1(p0.x + toolBtn + ovPad * 2.0f,
                             p0.y + ovPad * 2.0f + toolBtn * nBtn + sepH * nSep);
             if (p1.y < imgPos.y + avail.y - ovMargin) {
                 ImDrawList* odl = ImGui::GetWindowDrawList();
-                ui::OverlayPanel(odl, p0, p1);
+                ui::OverlayGlassPanel(odl, p0, p1);
                 toolsRight = p1.x;
                 float y = p0.y + ovPad;
                 auto sep = [&] {
@@ -3980,86 +3992,148 @@ void App::drawViewportWindow() {
                         "Measure (7): click a point, then a second one - the distance\n"
                         "is shown in world units and in meters (Preferences > World >\n"
                         "Units per meter). Click again to start over, Esc clears.");
-                // Surface snapping: inserted / pasted objects rest on what is
-                // under them. A machine-global preference, mirrored in View.
-                if (btn("Surface snap", ui::Glyph::Snap, placementSnap_, true, nullptr)) {
-                    placementSnap_ = !placementSnap_;
-                    saveGlobalConfig();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Surface snap: inserted and pasted objects rest on the surface\n"
-                        "under them (the terrain, or the top of the object below)\n"
-                        "instead of sinking into it. End drops the selection to the floor.");
-                sep();  // keeps the card's bottom padding even
             }
         }
         const float topRowX = toolsRight + scaled(10.0f);
-
-        // While a paste is in flight, say so where the eye already is.
-        if (pastePending_) {
-            ImGui::SetCursorScreenPos(ImVec2(topRowX, imgPos.y + ovMargin));
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                               "Placing paste - click to drop, Ctrl+V to drop, "
-                               "Esc to cancel");
-        }
-
-        // --- Bottom cards: camera (left, after the gear) and axis space ---
         const float rowH = ui::OverlayRowHeight();
         const float cardH = rowH + ovPad * 2.0f;
-        const float cardY = imgPos.y + avail.y - cardH - ovMargin;
-        float leftCardRight = imgPos.x;
+
+        // --- View pill (top centre) ---
+        // Projection, look-through camera, render mode | surface snap |
+        // gizmo axis space. Visible text is short ("Perspective"); the IDs
+        // are the old buttons' labels ("Proj: Perspective", "View: Free",
+        // "Surface snap", "World"/"Camera"). Room is what is left between the
+        // tool palette and the axis gizmo: one row, else two stacked pills,
+        // else none (the View menu and the hotkeys still reach everything).
+        float topRowY = imgPos.y + ovMargin;  // first free y for the top row
         {
-            const bool objSel = selectedObject_ >= 0 &&
-                                selectedObject_ < (int)project_.objects().size();
-            const std::string projLbl =
-                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
             bool anyCam = !lookThroughCam_.empty();
             for (const SceneObject& o : project_.objects())
                 if (o.type == PrimitiveType::Camera) {
                     anyCam = true;
                     break;
                 }
+            const std::string projLbl =
+                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
+            const char* projTxt = Viewport::projectionName(viewport_.projection());
             const std::string viewLbl =
                 "View: " + (lookThroughCam_.empty() ? std::string("Free") : lookThroughCam_);
-            float w = ui::OverlayTextWidth("Center view") + ui::OverlayTextWidth("Center selection") +
-                      ui::OverlayTextWidth(projLbl.c_str());
-            if (anyCam) w += ui::OverlayTextWidth(viewLbl.c_str());
-            const ImVec2 c0(imgPos.x + viewportGearSpan(), cardY);
-            ImDrawList* odl = ImGui::GetWindowDrawList();
-            ui::OverlayPanel(odl, c0, ImVec2(c0.x + w + ovPad * 2.0f, c0.y + cardH));
-            leftCardRight = c0.x + w + ovPad * 2.0f;
-            float x = c0.x + ovPad;
-            auto at = [&](const char* text) {
-                ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
-                x += ui::OverlayTextWidth(text);
-            };
-            at("Center view");
-            if (ui::OverlayTextButton("Center view", "Center view", false)) viewport_.resetView();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Reset the camera to the terrain center\n"
-                                  "with the default orientation and zoom.");
-            at("Center selection");
-            if (ui::OverlayTextButton("Center selection", "Center selection", false, objSel) && objSel) {
-                viewport_.setTarget(project_.objects()[selectedObject_].position);
-                navFocusedIndex_ = selectedObject_;  // keep orbit-around-selection in sync
-            }
-            if (objSel && ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move the camera pivot to the selected object.");
+            const std::string viewTxt =
+                lookThroughCam_.empty() ? std::string("Free camera") : lookThroughCam_;
+            static const char* const kModeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+            const int vm = ImClamp((int)viewport_.viewMode(), 0, 2);
+            const char* spaceNames[] = {"World", "Camera"};
 
-            // Camera projection: perspective / parallel + the six locked axis
-            // views. The numpad shortcuts do the same; this is the
-            // discoverable half.
-            at(projLbl.c_str());
-            if (ui::OverlayTextButton(projLbl.c_str(), projLbl.c_str(), false))
-                ImGui::OpenPopup("##projection");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Camera projection. Orthographic drops the perspective\n"
-                    "foreshortening; the axis views also aim the camera down\n"
-                    "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
-                    "Num 5 toggles perspective). Orbiting an axis view drops\n"
-                    "the lock and goes back to the projection you came from.");
+            const float divW = scaled(9.0f);
+            const float wA = ui::OverlayMenuButtonWidth(projTxt) +
+                             (anyCam ? ui::OverlayMenuButtonWidth(viewTxt.c_str()) : 0.0f) +
+                             ui::OverlayMenuButtonWidth(kModeNames[vm]);
+            const float wB = rowH + divW + ui::OverlayTextWidth(spaceNames[0]) +
+                             ui::OverlayTextWidth(spaceNames[1]);
+            // Free span: right of the palette, left of the axis gizmo (same
+            // geometry as drawAxisGizmo, which skips itself when cramped).
+            const float gizR = scaled(42.0f) + scaled(8.5f);
+            const bool gizmoShown =
+                showAxisGizmo_ && avail.x >= scaled(42.0f) * 4.0f && avail.y >= scaled(42.0f) * 4.0f;
+            const float spanL = toolsRight + scaled(8.0f);
+            const float spanR = imgPos.x + avail.x -
+                                (gizmoShown ? gizR * 2.0f + scaled(14.0f) + scaled(6.0f) : ovMargin);
+            const float cx = imgPos.x + avail.x * 0.5f;
+            auto placeX = [&](float w) {
+                return ImClamp(cx - w * 0.5f, spanL, ImMax(spanL, spanR - w));
+            };
+            const float oneW = wA + divW + wB + ovPad * 2.0f;
+            const bool oneRow = spanR - spanL >= oneW;
+            const bool twoRows = !oneRow && spanR - spanL >= ImMax(wA, wB) + ovPad * 2.0f &&
+                                 avail.y > cardH * 6.0f;
+            ImDrawList* odl = ImGui::GetWindowDrawList();
+            auto groupA = [&](float x, float y) {
+                ImGui::SetCursorScreenPos(ImVec2(x, y));
+                if (ui::OverlayMenuButton(projLbl.c_str(), projTxt, false))
+                    ImGui::OpenPopup("##projection");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Camera projection. Orthographic drops the perspective\n"
+                        "foreshortening; the axis views also aim the camera down\n"
+                        "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
+                        "Num 5 toggles perspective). Orbiting an axis view drops\n"
+                        "the lock and goes back to the projection you came from.");
+                x += ui::OverlayMenuButtonWidth(projTxt);
+                // Look-through camera: shown once the scene has a Camera
+                // entity. The Cutscene Director camera preview overrides it.
+                if (anyCam) {
+                    ImGui::SetCursorScreenPos(ImVec2(x, y));
+                    if (ui::OverlayMenuButton(viewLbl.c_str(), viewTxt.c_str(),
+                                              !lookThroughCam_.empty()))
+                        ImGui::OpenPopup("##lookthrough");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Render the viewport through a Camera entity (its\n"
+                            "position, rotation and FOV, followed live). Pick\n"
+                            "\"Free camera\" to return to the orbit camera.");
+                    x += ui::OverlayMenuButtonWidth(viewTxt.c_str());
+                }
+                // Render mode: the View menu's three, one click closer.
+                ImGui::SetCursorScreenPos(ImVec2(x, y));
+                if (ui::OverlayMenuButton("Render mode", kModeNames[vm], false))
+                    ImGui::OpenPopup("##rendermode");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Render mode: solid, wireframe, or both (also in View).");
+            };
+            auto groupB = [&](float x, float y) {
+                // Surface snapping: inserted / pasted objects rest on what is
+                // under them. A machine-global preference, mirrored in View.
+                ImGui::SetCursorScreenPos(ImVec2(x, y));
+                if (ui::OverlayIconButton("Surface snap", ui::Glyph::Snap, rowH, placementSnap_, true,
+                                          nullptr)) {
+                    placementSnap_ = !placementSnap_;
+                    saveGlobalConfig();
+                }
+                uiscript::markLastItemChecked(placementSnap_);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Surface snap: inserted and pasted objects rest on the surface\n"
+                        "under them (the terrain, or the top of the object below)\n"
+                        "instead of sinking into it. End drops the selection to the floor.");
+                x += rowH;
+                ui::OverlayDivider(odl, x + divW * 0.5f, y + rowH * 0.2f, y + rowH * 0.8f);
+                x += divW;
+                // Gizmo axis space, a two-way switch (5 toggles).
+                static const char* const kSpaceTips[] = {
+                    "Absolute axes: move and rotate along the world X/Y/Z.\n"
+                    "Scale always works on the object's own axes. Toggle with 5.",
+                    "Camera-relative axes: move along the view right/up/forward\n"
+                    "and rotate around them; scale is uniform. Toggle with 5."};
+                for (int i = 0; i < 2; ++i) {
+                    ImGui::SetCursorScreenPos(ImVec2(x, y));
+                    x += ui::OverlayTextWidth(spaceNames[i]);
+                    if (ui::OverlayTextButton(spaceNames[i], spaceNames[i], gizmoSpace_ == i))
+                        gizmoSpace_ = i;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kSpaceTips[i]);
+                }
+            };
+            if (oneRow) {
+                const float x0 = placeX(oneW), y0 = imgPos.y + ovMargin;
+                ui::OverlayGlassPanel(odl, ImVec2(x0, y0), ImVec2(x0 + oneW, y0 + cardH));
+                groupA(x0 + ovPad, y0 + ovPad);
+                ui::OverlayDivider(odl, x0 + ovPad + wA + divW * 0.5f, y0 + ovPad + rowH * 0.2f,
+                                   y0 + ovPad + rowH * 0.8f);
+                groupB(x0 + ovPad + wA + divW, y0 + ovPad);
+                topRowY = y0 + cardH + scaled(6.0f);
+            } else if (twoRows) {
+                // Both pills share the centre the wider one can take.
+                float y0 = imgPos.y + ovMargin;
+                const float wa = wA + ovPad * 2.0f, wb = wB + ovPad * 2.0f;
+                const float wMax = ImMax(wa, wb);
+                const float mid = placeX(wMax) + wMax * 0.5f;
+                const float xa = mid - wa * 0.5f, xb = mid - wb * 0.5f;
+                ui::OverlayGlassPanel(odl, ImVec2(xa, y0), ImVec2(xa + wa, y0 + cardH));
+                groupA(xa + ovPad, y0 + ovPad);
+                y0 += cardH + scaled(6.0f);
+                ui::OverlayGlassPanel(odl, ImVec2(xb, y0), ImVec2(xb + wb, y0 + cardH));
+                groupB(xb + ovPad, y0 + ovPad);
+                topRowY = y0 + cardH + scaled(6.0f);
+            }
             if (ImGui::BeginPopup("##projection")) {
                 for (int i = 0; i < Viewport::kProjectionCount; ++i) {
                     const Viewport::Projection pr = (Viewport::Projection)i;
@@ -4070,52 +4144,183 @@ void App::drawViewportWindow() {
                 }
                 ImGui::EndPopup();
             }
-
-            // Look-through camera: shown once the scene has a Camera entity.
-            // The Cutscene Director camera preview overrides it.
-            if (anyCam) {
-                at(viewLbl.c_str());
-                if (ui::OverlayTextButton(viewLbl.c_str(), viewLbl.c_str(), !lookThroughCam_.empty()))
-                    ImGui::OpenPopup("##lookthrough");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Render the viewport through a Camera entity (its\n"
-                        "position, rotation and FOV, followed live). Pick\n"
-                        "\"Free camera\" to return to the orbit camera.");
-                if (ImGui::BeginPopup("##lookthrough")) {
-                    if (ImGui::MenuItem("Free camera", nullptr, lookThroughCam_.empty()))
-                        lookThroughCam_.clear();
-                    ImGui::Separator();
-                    for (const SceneObject& o : project_.objects())
-                        if (o.type == PrimitiveType::Camera)
-                            if (ImGui::MenuItem(o.name.c_str(), nullptr, o.name == lookThroughCam_))
-                                lookThroughCam_ = o.name;
-                    ImGui::EndPopup();
-                }
+            if (ImGui::BeginPopup("##lookthrough")) {
+                if (ImGui::MenuItem("Free camera", nullptr, lookThroughCam_.empty()))
+                    lookThroughCam_.clear();
+                ImGui::Separator();
+                for (const SceneObject& o : project_.objects())
+                    if (o.type == PrimitiveType::Camera)
+                        if (ImGui::MenuItem(o.name.c_str(), nullptr, o.name == lookThroughCam_))
+                            lookThroughCam_ = o.name;
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginPopup("##rendermode")) {
+                // View state, not an edit - same as View > Render mode.
+                for (int i = 0; i < 3; ++i)
+                    if (ImGui::MenuItem(kModeNames[i], nullptr, vm == i) && vm != i)
+                        viewport_.setViewMode((Viewport::ViewMode)i);
+                ImGui::EndPopup();
             }
         }
 
-        // --- Gizmo axis space (bottom-right card, a two-way switch) ---
+        // While a paste is in flight, say so where the eye already is.
+        if (pastePending_) {
+            ImGui::SetCursorScreenPos(ImVec2(topRowX, topRowY));
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                               "Placing paste - click to drop, Ctrl+V to drop, "
+                               "Esc to cancel");
+        }
+
+        // --- Bottom row: selection readout (after the gear), output switch ---
+        const float cardY = imgPos.y + avail.y - cardH - ovMargin;
         {
-            const char* spaceNames[] = {"World", "Camera"};
-            const char* spaceTips[] = {
-                "Absolute axes: move and rotate along the world X/Y/Z.\n"
-                "Scale always works on the object's own axes. Toggle with 5.",
-                "Camera-relative axes: move along the view right/up/forward\n"
-                "and rotate around them; scale is uniform. Toggle with 5."};
-            const float w = ui::OverlayTextWidth(spaceNames[0]) + ui::OverlayTextWidth(spaceNames[1]);
-            // A narrow viewport: stack it above the camera card's row end
-            // rather than on top of it.
-            const float x0 = imgPos.x + avail.x - ovMargin - w - ovPad * 2.0f;
-            const bool stack = x0 < leftCardRight + scaled(6.0f);
-            const ImVec2 c0(x0, stack ? cardY - cardH - scaled(6.0f) : cardY);
-            ui::OverlayPanel(ImGui::GetWindowDrawList(), c0, ImVec2(c0.x + w + ovPad * 2.0f, c0.y + cardH));
-            float x = c0.x + ovPad;
-            for (int i = 0; i < 2; ++i) {
-                ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
-                x += ui::OverlayTextWidth(spaceNames[i]);
-                if (ui::OverlayTextButton(spaceNames[i], spaceNames[i], gizmoSpace_ == i)) gizmoSpace_ = i;
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
+            // Output switch (bottom-right): the editor's own image or the
+            // console's (viewportPs2_, also the gear's "PS2 output (GS)"
+            // checkbox and View > Viewport output), with the GS size dim.
+            const Viewport::Ps2Output po = ps2ViewportOutput();
+            char gsTxt[32];
+            std::snprintf(gsTxt, sizeof(gsTxt), "%dx%d", po.bufW, po.bufH);
+            const char* outNames[] = {"Editor", "As PS2"};
+            ImFont* gsFont = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float gsW =
+                gsFont->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, 0.0f, gsTxt).x + scaled(10.0f);
+            const float outW = ui::OverlayTextWidth(outNames[0]) + ui::OverlayTextWidth(outNames[1]) +
+                               gsW + ovPad * 2.0f;
+            const float readoutX = imgPos.x + viewportGearSpan();
+            float outX = imgPos.x + avail.x - ovMargin - outW;
+            float outY = cardY;
+
+            // Selection readout: what is selected and how big, plus Frame.
+            const int nSel = (int)selection_.size();
+            const bool objSel = selectedObject_ >= 0 &&
+                                selectedObject_ < (int)project_.objects().size();
+            if (objSel) {
+                const SceneObject& o = project_.objects()[selectedObject_];
+                const theme::Semantics& sem = theme::semantics();
+                std::string name, type, stats;
+                if (nSel > 1) {
+                    name = std::to_string(nSel) + " objects";
+                } else {
+                    name = o.name;
+                    type = primitiveTypeName(o.type);
+                    // Triangles where the Properties panel reports them (a
+                    // static model's summary); others show the size only.
+                    if (o.type == PrimitiveType::Model && !o.modelPath.empty() &&
+                        !isAnimatedModelPath(o.modelPath)) {
+                        const ModelInfo& mi = modelInfo(o.modelPath, o.materialPath);
+                        if (mi.ok) stats = std::to_string(mi.tris) + " tris";
+                    }
+                    float sz[3];
+                    if (objectWorldSize(o, sz)) {
+                        const float ups = project_.settings.unitsPerMeter > 0.0f
+                                              ? project_.settings.unitsPerMeter
+                                              : 1.0f;
+                        char b[96];
+                        std::snprintf(b, sizeof(b), "%.2f\xC3\x97%.2f\xC3\x97%.2f m", sz[0] / ups,
+                                      sz[1] / ups, sz[2] / ups);
+                        if (!stats.empty()) stats += " \xC2\xB7 ";
+                        stats += b;
+                    }
+                }
+                const float gap = scaled(8.0f);
+                const float dotR = scaled(4.0f);
+                ImFont* bold = ui::boldFont();
+                ImFont* mono = ui::monoFont();
+                const float fs = ImGui::GetFontSize();
+                auto textW = [&](ImFont* f, const std::string& s) {
+                    return s.empty() ? 0.0f
+                                     : (f ? f : ImGui::GetFont())->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.c_str()).x;
+                };
+                const float keyW = ImGui::CalcTextSize("F").x + scaled(8.0f);
+                const float frameW = ui::OverlayTextWidth("Frame") + keyW + scaled(4.0f);
+                const float nameW = textW(bold, name);
+                float typeW = type.empty() ? 0.0f : textW(nullptr, type) + gap;
+                float statsW = stats.empty() ? 0.0f : textW(mono, stats) + gap;
+                auto total = [&] {
+                    return ovPad * 2.0f + scaled(6.0f) + dotR * 2.0f + gap + nameW + typeW + statsW +
+                           gap + scaled(1.0f) + gap * 0.5f + frameW;
+                };
+                // A narrow viewport: the output switch goes up a row first,
+                // then the readout drops its stats, then its type.
+                if (readoutX + total() > outX - scaled(6.0f)) outY = cardY - cardH - scaled(6.0f);
+                const float maxW = imgPos.x + avail.x - ovMargin - readoutX;
+                if (total() > maxW) statsW = 0.0f;
+                if (total() > maxW) typeW = 0.0f;
+                const float w = ImMin(total(), maxW);
+                if (w > frameW + ovPad * 2.0f + dotR * 2.0f + gap * 2.0f) {
+                    ImDrawList* odl = ImGui::GetWindowDrawList();
+                    const ImVec2 c0(readoutX, cardY), c1(readoutX + w, cardY + cardH);
+                    ui::OverlayGlassPanel(odl, c0, c1);
+                    const float midY = cardY + cardH * 0.5f;
+                    const float ty = midY - fs * 0.5f;
+                    float x = c0.x + ovPad + scaled(6.0f);
+                    ImVec4 dc(o.color[0], o.color[1], o.color[2], 1.0f);
+                    if (nSel > 1) dc = sem.accent;
+                    odl->AddCircleFilled(ImVec2(x + dotR, midY), dotR, ImGui::GetColorU32(dc));
+                    x += dotR * 2.0f + gap;
+                    const float textR = c1.x - ovPad - frameW - gap;
+                    odl->PushClipRect(ImVec2(x, c0.y), ImVec2(textR, c1.y), true);
+                    odl->AddText(bold ? bold : ImGui::GetFont(), fs, ImVec2(x, ty),
+                                 ImGui::GetColorU32(sem.text), name.c_str());
+                    x += nameW + gap;
+                    if (typeW > 0.0f) {
+                        odl->AddText(ImVec2(x, ty), ImGui::GetColorU32(sem.textDim), type.c_str());
+                        x += typeW;
+                    }
+                    if (statsW > 0.0f) {
+                        ImVec4 sc = sem.textDim;
+                        sc.w *= 0.9f;
+                        odl->AddText(mono ? mono : ImGui::GetFont(), fs, ImVec2(x, ty),
+                                     ImGui::GetColorU32(sc), stats.c_str());
+                    }
+                    odl->PopClipRect();
+                    const float fx = c1.x - ovPad - frameW;
+                    ui::OverlayDivider(odl, fx - gap * 0.5f, cardY + ovPad + rowH * 0.2f,
+                                       cardY + ovPad + rowH * 0.8f);
+                    // Frame = the old "Center selection" (kept as the ID):
+                    // the orbit pivot moves onto the selection. Key F.
+                    ImGui::SetCursorScreenPos(ImVec2(fx, cardY + ovPad));
+                    if (ui::OverlayTextButton("Center selection", "Frame", false))
+                        frameSelection();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Frame (F): move the camera pivot to the selection.");
+                    // The key hint as a small keycap after the word.
+                    const ImVec2 kp(fx + ui::OverlayTextWidth("Frame"), cardY + ovPad + rowH * 0.18f);
+                    const ImVec2 kq(kp.x + keyW, cardY + ovPad + rowH * 0.82f);
+                    odl->AddRect(kp, kq, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.18f)), scaled(3.0f));
+                    const ImVec2 ks = ImGui::CalcTextSize("F");
+                    odl->AddText(ImVec2((kp.x + kq.x - ks.x) * 0.5f, (kp.y + kq.y - ks.y) * 0.5f),
+                                 ImGui::GetColorU32(sem.textDim), "F");
+                }
+            }
+
+            if (outX > readoutX) {
+                ImDrawList* odl = ImGui::GetWindowDrawList();
+                const ImVec2 c0(outX, outY);
+                ui::OverlayGlassPanel(odl, c0, ImVec2(c0.x + outW, c0.y + cardH));
+                float x = c0.x + ovPad;
+                static const char* const kOutTips[] = {
+                    "The viewport's own image: full resolution, as wide as\n"
+                    "you docked the panel.",
+                    "What the console draws: the scene at the GS framebuffer\n"
+                    "size of Preferences > Display mode, fitted into the TV's\n"
+                    "4:3 / 16:9 picture (also the gear's \"PS2 output (GS)\")."};
+                for (int i = 0; i < 2; ++i) {
+                    ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
+                    x += ui::OverlayTextWidth(outNames[i]);
+                    if (ui::OverlayTextButton(outNames[i], outNames[i], viewportPs2_ == (i == 1)) &&
+                        viewportPs2_ != (i == 1)) {
+                        viewportPs2_ = i == 1;
+                        saveGlobalConfig();
+                    }
+                    uiscript::markLastItemChecked(viewportPs2_ == (i == 1));
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kOutTips[i]);
+                }
+                ImVec4 gc = theme::semantics().textDim;
+                gc.w *= viewportPs2_ ? 1.0f : 0.6f;
+                odl->AddText(gsFont, ImGui::GetFontSize(),
+                             ImVec2(x + scaled(5.0f), c0.y + ovPad + (rowH - ImGui::GetFontSize()) * 0.5f),
+                             ImGui::GetColorU32(gc), gsTxt);
             }
         }
 
@@ -4124,7 +4329,7 @@ void App::drawViewportWindow() {
         // with the map (see brushMaxRadius/sculptMaxStrength); logarithmic so
         // small maps keep fine control. [ and ] resize the brush from the keys.
         if (sculptMode_ || paintMode_) {
-            ImGui::SetCursorScreenPos(ImVec2(topRowX, imgPos.y + ovMargin));
+            ImGui::SetCursorScreenPos(ImVec2(topRowX, topRowY + (pastePending_ ? rowH : 0.0f)));
             ImGui::SetNextItemWidth(scaled(140));
             ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
                                brushMaxRadius(project_), "%.1f",
@@ -4180,6 +4385,10 @@ void App::drawViewportWindow() {
                 }
             }
             if (ImGui::IsKeyPressed(ImGuiKey_5)) gizmoSpace_ = 1 - gizmoSpace_;
+            // F frames the selection (the readout's Frame button).
+            if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !io.KeyCtrl && !io.KeySuper &&
+                !io.KeyAlt)
+                frameSelection();
             // Camera projection on the numpad (CAD/Blender muscle memory):
             // 1/3/7 front/right/top, Ctrl for the opposite side, 5 toggles
             // perspective. The tool keys live on the number ROW, so nothing
@@ -4240,6 +4449,7 @@ void App::drawViewportWindow() {
                 dropSelectionToFloor();
         }
     }
+    ui::SetOverlayBackdrop((ImTextureID)0, ImVec2(), ImVec2());
     ImGui::End();
 }
 
@@ -4403,7 +4613,7 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
     const float top = pos.y + size.y - btn - pad;
     const ImVec2 p0(pos.x + pad, top);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ui::OverlayPanel(dl, p0, ImVec2(p0.x + btn, p0.y + btn));
+    ui::OverlayGlassPanel(dl, p0, ImVec2(p0.x + btn, p0.y + btn));
     ImGui::SetCursorScreenPos(p0);
     const bool clicked = ImGui::InvisibleButton("##viewgear", ImVec2(btn, btn));
     const bool hovered = ImGui::IsItemHovered();
@@ -4413,9 +4623,15 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
                           ImGui::GetStyle().FrameRounding + ui::OverlayPad());
     ui::DrawGlyph(dl, ui::Glyph::Gear, ImVec2(p0.x + btn * 0.5f, p0.y + btn * 0.5f), btn * 0.5f,
                   ImGui::GetColorU32(theme::semantics().text));
-    if (hovered) ImGui::SetTooltip("Viewport output and guides");
+    if (hovered) ImGui::SetTooltip("Center view, viewport output and guides");
     if (clicked) ImGui::OpenPopup("##viewguides");
     if (ImGui::BeginPopup("##viewguides")) {
+        // The camera reset lives here since the selection readout took the
+        // bottom row (Frame / F is the selection's half).
+        if (ImGui::MenuItem("Center view")) viewport_.resetView();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reset the camera to the terrain center\n"
+                              "with the default orientation and zoom.");
         // The output mode sits above the guides because it draws the same
         // rectangle they do - only for real, by rendering into it.
         ImGui::SeparatorText("Output");

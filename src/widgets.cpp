@@ -443,4 +443,76 @@ bool OverlayTextButton(const char* label, const char* text, bool active, bool en
     return pressed;
 }
 
+// --- viewport overlays (blur) ---
+namespace {
+ImTextureID gBackdrop = (ImTextureID)0;
+ImVec2 gBackdropMin, gBackdropMax;
+}  // namespace
+
+void SetOverlayBackdrop(ImTextureID tex, ImVec2 imgMin, ImVec2 imgMax) {
+    gBackdrop = tex;
+    gBackdropMin = imgMin;
+    gBackdropMax = imgMax;
+}
+
+void OverlayGlassPanel(ImDrawList* dl, ImVec2 min, ImVec2 max) {
+    const float iw = gBackdropMax.x - gBackdropMin.x, ih = gBackdropMax.y - gBackdropMin.y;
+    if (!gBackdrop || iw <= 0.0f || ih <= 0.0f) {
+        OverlayPanel(dl, min, max);
+        return;
+    }
+    const theme::Semantics& sem = theme::semantics();
+    const float r = ImGui::GetStyle().FrameRounding + OverlayPad();
+    dl->AddRectFilled(ImVec2(min.x, min.y + 2.0f), ImVec2(max.x, max.y + 3.0f),
+                      IM_COL32(0, 0, 0, 60), r);
+    // The card's own rectangle of the blurred image; v flips (GL is bottom-up).
+    const ImVec2 uv0((min.x - gBackdropMin.x) / iw, 1.0f - (min.y - gBackdropMin.y) / ih);
+    const ImVec2 uv1((max.x - gBackdropMin.x) / iw, 1.0f - (max.y - gBackdropMin.y) / ih);
+    dl->AddImageRounded(gBackdrop, min, max, uv0, uv1, IM_COL32_WHITE, r);
+    ImVec4 tint = sem.ground;
+    tint.w = 0.6f;
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(tint), r);
+    dl->AddRect(min, max, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.09f)), r);
+}
+
+float OverlayMenuButtonWidth(const char* text) {
+    return OverlayTextWidth(text) + ImGui::GetFontSize() * 0.7f;
+}
+
+bool OverlayMenuButton(const char* label, const char* text, bool active, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = OverlayMenuButtonWidth(text), h = OverlayRowHeight();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h)) && enabled;
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered(), 12.0f);
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec2 q(p.x + w, p.y + h);
+    if (active)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.22f)), r);
+    if (held)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.16f)), r);
+    else if (t > 0.0f)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f * t)), r);
+    const ImU32 ink = !enabled ? fadeCol(sem.textDim, 0.5f)
+                      : active ? ImGui::GetColorU32(sem.text)
+                               : fadeCol(sem.text, 0.86f);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float padX = ImGui::GetStyle().FramePadding.x * 0.8f;
+    dl->AddText(ImVec2(p.x + padX, p.y + (h - ts.y) * 0.5f), ink, text);
+    // Caret: a small open chevron, dimmer than the text.
+    const float cs = ImGui::GetFontSize() * 0.2f;  // half width
+    const ImVec2 c(q.x - padX - cs, p.y + h * 0.5f + cs * 0.45f);
+    const float th = ImMax(1.0f, ImGui::GetFontSize() * 0.075f);
+    const ImVec2 pts[3] = {ImVec2(c.x - cs, c.y - cs), c, ImVec2(c.x + cs, c.y - cs)};
+    dl->AddPolyline(pts, 3, fadeCol(sem.textDim, 0.95f), 0, th);
+    return pressed;
+}
+
+void OverlayDivider(ImDrawList* dl, float x, float y0, float y1) {
+    dl->AddLine(ImVec2(x, y0), ImVec2(x, y1), IM_COL32(255, 255, 255, 28), 1.0f);
+}
+// --- end viewport overlays (blur) ---
+
 }  // namespace ui

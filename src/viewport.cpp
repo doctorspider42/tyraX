@@ -1892,6 +1892,12 @@ void Viewport::shutdown() {
     if (outTex_) glDeleteTextures(1, &outTex_);
     if (grabFbo_) glDeleteFramebuffers(1, &grabFbo_);
     if (grabTex_) glDeleteTextures(1, &grabTex_);
+    if (blurDownProg_) glDeleteProgram(blurDownProg_);
+    if (blurAxisProg_) glDeleteProgram(blurAxisProg_);
+    for (int i = 0; i < 2; ++i) {
+        if (blurFbo_[i]) glDeleteFramebuffers(1, &blurFbo_[i]);
+        if (blurTex_[i]) glDeleteTextures(1, &blurTex_[i]);
+    }
 }
 
 void Viewport::setGrading(bool enabled, const CompiledGrading& g) {
@@ -7174,6 +7180,142 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     lastImageW_ = outW_;
     lastImageH_ = outH_;
     return outTex_;
+}
+
+// --- Overlay backdrop blur -------------------------------------------------------
+// The cards floating over the viewport (tool palette, view pill, readouts) show
+// a frosted copy of the scene behind them. ImGui cannot blur, but everything
+// under those cards is OUR image, so a small GL pass makes the blurred copy and
+// the cards draw it back with matching UVs (ui::OverlayGlassPanel). Work is at
+// 1/4 resolution: a 4x4 box downsample (four bilinear taps), then a separable
+// 17-tap gaussian, horizontal then vertical, ping-ponging two targets that are
+// reallocated only when the panel size changes.
+
+namespace {
+// Downsample: each output texel averages the 4x4 source block under it - four
+// bilinear taps placed on 2x2 corners do it exactly.
+const char* BLUR_DOWN_FS = R"(#version 330 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uTexel;  // one SOURCE texel
+out vec4 FragColor;
+void main() {
+    vec3 c = texture(uSrc, vUV + uTexel * vec2(-1.0, -1.0)).rgb +
+             texture(uSrc, vUV + uTexel * vec2( 1.0, -1.0)).rgb +
+             texture(uSrc, vUV + uTexel * vec2(-1.0,  1.0)).rgb +
+             texture(uSrc, vUV + uTexel * vec2( 1.0,  1.0)).rgb;
+    FragColor = vec4(c * 0.25, 1.0);
+}
+)";
+// One gaussian axis (sigma 4 texels of the 1/4 image = ~16 px on screen).
+const char* BLUR_AXIS_FS = R"(#version 330 core
+in vec2 vUV;
+uniform sampler2D uSrc;
+uniform vec2 uStep;  // one texel along the blurred axis
+out vec4 FragColor;
+void main() {
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0;
+    for (int i = -8; i <= 8; ++i) {
+        float w = exp(-float(i * i) / 32.0);
+        sum += texture(uSrc, vUV + uStep * float(i)).rgb * w;
+        wsum += w;
+    }
+    FragColor = vec4(sum / wsum, 1.0);
+}
+)";
+}  // namespace
+
+bool Viewport::ensureBlurPrograms() {
+    if (blurDownProg_ && blurAxisProg_) return true;
+    if (blurFailed_) return false;
+    auto link = [&](const char* fsSrc, uint32_t& prog) {
+        GLuint vs = compile(GL_VERTEX_SHADER, GRADE_VS);
+        GLuint fs = compile(GL_FRAGMENT_SHADER, fsSrc);
+        if (!vs || !fs) {
+            if (vs) glDeleteShader(vs);
+            if (fs) glDeleteShader(fs);
+            return false;
+        }
+        prog = glCreateProgram();
+        glAttachShader(prog, vs);
+        glAttachShader(prog, fs);
+        glLinkProgram(prog);
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        GLint ok = 0;
+        glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[1024];
+            glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
+            std::fprintf(stderr, "overlay blur program link error: %s\n", log);
+            glDeleteProgram(prog);
+            prog = 0;
+            return false;
+        }
+        return true;
+    };
+    if (!link(BLUR_DOWN_FS, blurDownProg_) || !link(BLUR_AXIS_FS, blurAxisProg_)) {
+        blurFailed_ = true;  // never retried: the cards fall back to opaque
+        return false;
+    }
+    uBlurDownSrc_ = glGetUniformLocation(blurDownProg_, "uSrc");
+    uBlurDownTexel_ = glGetUniformLocation(blurDownProg_, "uTexel");
+    uBlurAxisSrc_ = glGetUniformLocation(blurAxisProg_, "uSrc");
+    uBlurAxisStep_ = glGetUniformLocation(blurAxisProg_, "uStep");
+    return true;
+}
+
+uint32_t Viewport::blurBackdrop(uint32_t srcTex, int srcW, int srcH) {
+    const int w = srcW / 4, h = srcH / 4;
+    if (!srcTex || w < 8 || h < 8 || !gradeVao_ || !ensureBlurPrograms()) return 0;
+    if (w != blurW_ || h != blurH_ || !blurFbo_[0]) {
+        blurW_ = w;
+        blurH_ = h;
+        for (int i = 0; i < 2; ++i) {
+            if (!blurFbo_[i]) glGenFramebuffers(1, &blurFbo_[i]);
+            if (!blurTex_[i]) glGenTextures(1, &blurTex_[i]);
+            glBindTexture(GL_TEXTURE_2D, blurTex_[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindFramebuffer(GL_FRAMEBUFFER, blurFbo_[i]);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blurTex_[i], 0);
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                std::fprintf(stderr, "overlay blur framebuffer incomplete\n");
+        }
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    glDisable(GL_DEPTH_TEST);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(gradeVao_);
+    glViewport(0, 0, w, h);
+    // 1) full-size image -> blurTex_[0]
+    glBindFramebuffer(GL_FRAMEBUFFER, blurFbo_[0]);
+    glUseProgram(blurDownProg_);
+    glBindTexture(GL_TEXTURE_2D, srcTex);
+    glUniform1i(uBlurDownSrc_, 0);
+    glUniform2f(uBlurDownTexel_, 1.0f / (float)srcW, 1.0f / (float)srcH);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // 2) horizontal [0] -> [1], 3) vertical [1] -> [0]
+    glUseProgram(blurAxisProg_);
+    glUniform1i(uBlurAxisSrc_, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, blurFbo_[1]);
+    glBindTexture(GL_TEXTURE_2D, blurTex_[0]);
+    glUniform2f(uBlurAxisStep_, 1.0f / (float)w, 0.0f);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindFramebuffer(GL_FRAMEBUFFER, blurFbo_[0]);
+    glBindTexture(GL_TEXTURE_2D, blurTex_[1]);
+    glUniform2f(uBlurAxisStep_, 0.0f, 1.0f / (float)h);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+    glEnable(GL_DEPTH_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return blurTex_[0];
 }
 
 // --- Phone camera readback -------------------------------------------------------

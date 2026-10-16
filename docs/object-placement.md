@@ -8,7 +8,7 @@ until you put it down.
 
 ## Surface snapping
 
-With **Surface snap** on (the button in the viewport's tool row, or
+With **Surface snap** on (the snap button in the view pill at the top centre of the viewport, or
 *View > Placement > Snap to surface*), an object entering the scene is placed
 so its underside touches the highest surface under its footprint: the
 **terrain**, sampled with the same bilinear filter the game walks on, or the

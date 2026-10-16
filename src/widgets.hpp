@@ -98,4 +98,24 @@ bool OverlayIconButton(const char* label, Glyph g, float size, bool active, bool
  * when `active`. Returns clicked. */
 bool OverlayTextButton(const char* label, const char* text, bool active, bool enabled = true);
 
+// --- viewport overlays (blur) ---
+// Frosted cards: the Viewport hands over a blurred copy of its own image
+// (Viewport::blurBackdrop) and where that image sits on screen; cards drawn
+// with OverlayGlassPanel then show the blurred scene behind them under a dark
+// tint. Without a backdrop they are the plain OverlayPanel.
+
+/** Sets the blurred backdrop for this frame's glass cards. `tex` is a GL
+ * texture in GL's bottom-up orientation covering [imgMin, imgMax]; 0 clears. */
+void SetOverlayBackdrop(ImTextureID tex, ImVec2 imgMin, ImVec2 imgMax);
+/** OverlayPanel over the blurred backdrop (falls back to OverlayPanel). */
+void OverlayGlassPanel(ImDrawList* dl, ImVec2 min, ImVec2 max);
+/** Width an OverlayMenuButton showing `text` takes (text + caret). */
+float OverlayMenuButtonWidth(const char* text);
+/** An OverlayTextButton with a small down caret after `text`: it opens a
+ * popup. Same ID/return contract as OverlayTextButton. */
+bool OverlayMenuButton(const char* label, const char* text, bool active, bool enabled = true);
+/** A thin vertical divider between groups inside an overlay card. */
+void OverlayDivider(ImDrawList* dl, float x, float y0, float y1);
+// --- end viewport overlays (blur) ---
+
 }  // namespace ui
