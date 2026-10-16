@@ -3085,7 +3085,9 @@ private:
                                   // (-1 = camera lane, >= 0 = object track)
     int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
-    bool seqPreview_ = true;      // pose the viewport at the playhead
+    // The sequence camera (and its bars/fade) also drives the main viewport.
+    // Off by default: the Director shows the shot in its own preview.
+    bool seqPreview_ = false;
     bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
     bool seqAutoKey_ = false;     // gizmo release drops a key at the playhead
     float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)

@@ -3644,8 +3644,9 @@ void App::drawFlowGraphWindow() {
         int tab = dbgLive ? flowInspTab_ : 0;
         if (dbgLive && ui::BeginQuietTabBar("##fg_insp_tabs")) {
             const ImGuiTabItemFlags force = liveFlip ? ImGuiTabItemFlags_SetSelected : 0;
-            if (ui::QuietTab("Node", tab == 0, tab == 0 ? force : 0)) flowInspTab_ = tab = 0;
-            if (ui::QuietTab("Live", tab == 1, tab == 1 ? force : 0)) flowInspTab_ = tab = 1;
+            const int want = tab;  // while forcing, ImGui still reports the old tab this frame
+            if (ui::QuietTab("Node", want == 0, want == 0 ? force : 0) && !force) flowInspTab_ = tab = 0;
+            if (ui::QuietTab("Live", want == 1, want == 1 ? force : 0) && !force) flowInspTab_ = tab = 1;
             ui::EndQuietTabBar();
         }
         auto nodeById = [&](int id) -> FlowNode* {
