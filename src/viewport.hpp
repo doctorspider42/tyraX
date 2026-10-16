@@ -250,6 +250,13 @@ public:
     void setGiProbes(const gibake::ProbeGrid& g);
     void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
     bool giProbesLoaded() const { return giDim_[0] > 0; }
+    // GI probe visualiser (the Ambience Editor's GI tab): every baked probe as
+    // a small diamond whose six tips are shaded with that probe's own light
+    // in that direction (L0 + 2/3 L1.n, the shader's formula minus the
+    // trilinear blend), so colour AND direction read; dead probes (inside
+    // geometry) as small dark ones. Editor overlay - never in the game view.
+    void setGiProbeView(bool on) { giProbeView_ = on; }
+    int giProbeCount(int* live = nullptr) const;
 
     // The TERRAIN takes GI from the baked terrain lightmap, not from the probe
     // grid - the same split the generated game makes (buildTerrainChunk's
@@ -431,14 +438,40 @@ public:
                     const std::vector<int>& selection, int primary);
 
     // A second picture of the same scene through an explicit camera, into its
-    // own target - the Cutscene Director's shot preview. The same render()
-    // with the scene-pass targets swapped for a private set, the camera
-    // override set for the one call, and editor guides (grid, axes) and the
-    // PS2 output mode off; everything the main image and the picking depend
-    // on (matrices, the last-image source the phone stream reads) is put back.
-    // Returns the GL texture (bottom-up), valid until the next renderShot.
+    // own target - the Cutscene Director's shot preview (`slot` GameViewShot)
+    // and the Phone Camera window's (GameViewPhone). renderGameView through
+    // an explicit camera: the scene as the game draws it, everything the main
+    // image and the picking depend on (matrices, the last-image source the
+    // phone stream reads) put back. Returns the GL texture (bottom-up), valid
+    // until the next call for the same slot.
     uint32_t renderShot(int width, int height, const std::vector<SceneObject>& objects,
-                        const float eye[3], const float target[3], float fovDeg, float rollDeg);
+                        const float eye[3], const float target[3], float fovDeg, float rollDeg,
+                        int slot = GameViewShot, uint64_t stamp = 0);
+
+    // "Game view": the scene as the GAME draws it, into a private target per
+    // slot - no grid/axes, no markers (spawn points, players, lights' bulbs
+    // and reach, cameras and their frustums, empties, sound emitters, areas,
+    // scatter boxes, invisible walls, scroller origins, portal arrows/links),
+    // no overlays (nav mesh, collision, batches, usable highlight), no
+    // selection or peer outlines, solid shading, PS2 output mode off. Grading
+    // and the GS colour simulation still run, so gameViewFrames() hands back
+    // the ungraded and graded images of the same pass.
+    //   eye == nullptr: through the editor's own camera (look-through and
+    //   cutscene overrides included); otherwise through the given camera.
+    // Cheap by construction: a slot re-renders only when its key changes (size,
+    // camera, grading, the object list, the caller's `stamp`) or, for the
+    // things that move on their own (particles, animated models), at most
+    // kGameViewIdleHz times a second. Returns the GL texture (bottom-up),
+    // valid until the next call for the same slot.
+    enum GameViewSlot { GameViewShot = 0, GameViewPhone, GameViewGrading, GameViewHud, GameViewSlots };
+    static constexpr double kGameViewIdleHz = 10.0;
+    uint32_t renderGameView(int slot, int width, int height, const std::vector<SceneObject>& objects,
+                            uint64_t stamp = 0, const float* eye = nullptr,
+                            const float* target = nullptr, float fovDeg = 50.0f,
+                            float rollDeg = 0.0f);
+    // The slot's last pass before (`before`) and after (`after`) the grade
+    // pass; the same texture twice when no grade ran. False before the first.
+    bool gameViewFrames(int slot, uint32_t& before, uint32_t& after, int& w, int& h) const;
 
     // Phone camera link (docs/phone-camera.md): reads the image the LAST
     // render() produced back into packed RGB for JPEG streaming to the
@@ -656,6 +689,12 @@ public:
     // new thumbnails a single frame may pay for. Failed assets are remembered
     // as 0 so an unreadable file is not retried every frame.
     uint32_t assetThumb(const std::string& relPath, bool render);
+    // Asset Browser inspector: the same studio shot as assetThumb, at `size`
+    // square and from a caller-held orbit (yaw/pitch in degrees, zoom > 1 =
+    // closer), into its own target. Re-renders only when an argument changes;
+    // 0 while a .glb/.fbx is still baking or for an unreadable file.
+    uint32_t assetOrbitView(const std::string& relPath, int size, float yawDeg,
+                            float pitchDeg, float zoom);
     static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
     // --- assets-c: prefab thumbnails ---
     // The Prefabs panel's tiles: a prefab's geometry members (primitives and
@@ -1133,6 +1172,13 @@ private:
     bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
+    // setGiProbeView: the grid as set (CPU), and its marker mesh, rebuilt on
+    // the next draw after setGiProbes.
+    bool giProbeView_ = false;
+    gibake::ProbeGrid giGrid_;
+    Mesh giProbeMesh_;
+    bool giProbeMeshDirty_ = true;
+    void buildGiProbeMesh();
     void uploadGiProbes();
     // The two baked lightmaps, read PER PIXEL by the fragment shader
     // (docs/global-illumination.md, "The editor viewport"): the terrain map
@@ -1464,7 +1510,16 @@ private:
     struct ShotTargets {
         uint32_t fbo = 0, colorTex = 0, depthRbo = 0, gradeFbo = 0, gradeTex = 0;
         int w = 0, h = 0;
-    } shot_;
+        // renderGameView's cache: what the last pass was keyed on, when it
+        // ran, what it returned, and whether its grade pass ran.
+        uint64_t key = 0;
+        double at = -1.0;
+        uint32_t tex = 0;
+        bool graded = false;
+    } shots_[GameViewSlots];
+    // render(): draw the scene as the game does (renderGameView sets it for
+    // one call) - the scene pass skips markers, the overlay passes skip.
+    bool gameView_ = false;
     // Which framebuffer holds the image the last render() returned (fbo_,
     // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
     // and its size - the source grabPreviewRgb blits from, so the phone sees
@@ -1549,6 +1604,15 @@ private:
     // entry with value 0 = tried and unusable), dropped by invalidateAssets.
     void ensureThumbFramebuffer();
     uint32_t thumbFbo_ = 0, thumbColor_ = 0, thumbDepth_ = 0;
+    // assetOrbitView's target and what its last picture was of.
+    uint32_t orbitFbo_ = 0, orbitTex_ = 0, orbitDepth_ = 0;
+    std::string orbitRel_;
+    int orbitSize_ = 0;
+    float orbitYaw_ = 0.0f, orbitPitch_ = 0.0f, orbitZoom_ = 0.0f;
+    const void* orbitSrc_ = nullptr;
+    void drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
+                       const MaterialDraw* material, int s, float yawDeg, float pitchDeg,
+                       float zoom);
     std::map<std::string, uint32_t> thumbCache_;
     void clearThumbCache();
 

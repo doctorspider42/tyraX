@@ -17,8 +17,9 @@ Open **Tools > UI Editor**. It is three columns:
   **Add** menu adds an image, a text, a bar or a custom screen effect. Button
   icons and fonts are the two buttons at the bottom - shared assets, not
   layers.
-- **The preview** (centre) - the PS2's 512x448 frame over the viewport's
-  current picture (*Scene*), a checker or black, with the 90% *Safe area*
+- **The preview** (centre) - the PS2's 512x448 frame over the scene as the
+  game draws it from the viewport camera (*Scene* - no grid, markers or
+  selection), a checker or black, with the 90% *Safe area*
   guide. The looped animations run in it (*Animations*), hidden-at-start
   elements show dimmed. Click an element to select it, drag it to move it,
   drag a corner handle to resize an image or a bar (about its centre), and

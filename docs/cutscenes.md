@@ -22,7 +22,8 @@ shows the phone camera link's state (click it for *Tools > Phone Camera*,
 where a phone move is recorded into the sequence) and imports a take.
 
 - **The shot** at the playhead is the big picture: rendered through the
-  sequence camera in the window itself, with the bars and fades the console
+  sequence camera in the window itself, as the game draws it (no grid,
+  markers, gizmos or selection outline), with the bars and fades the console
   will composite and a label naming the camera, its FOV and shake. *Shot*
   leaves the main viewport to you; *Also drive the viewport* makes it film
   through the sequence camera too (what the Director always did before).

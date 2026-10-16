@@ -2122,6 +2122,23 @@ void App::drawGiBakeSection() {
         }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
+        // The probes the active scene's bake holds, in the viewport - view
+        // state, so it stays usable while a bake runs or GI is switched off.
+        ImGui::Spacing();
+        ui::Switch("Show probes in viewport", &giShowProbes_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Each baked probe as a small diamond, its tips shaded with the light\n"
+                              "that probe sampled in that direction. Small dark ones are dead\n"
+                              "(inside geometry - they weigh nothing).");
+        {
+            int live = 0;
+            const int n = viewport_.giProbeCount(&live);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + labelW + gap);
+            if (n > 0)
+                ImGui::TextDisabled("%d baked · %d live · %d dead", n, live, n - live);
+            else
+                ImGui::TextDisabled("No probes baked for this scene.");
+        }
         ImGui::EndChild();
     }
     ui::EndCard();
@@ -4576,7 +4593,7 @@ void App::drawUiEditorWindow() {
         ui::Segmented("##uiprevbg", kBg, 3, &uiPrevBg_);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("What the preview draws behind the HUD. Scene = the\n"
-                              "viewport's current frame.");
+                              "scene from the viewport camera, as the game draws it.");
         ImGui::SameLine();
         if (ui::FilterChip("Animations", uiPrevAnimate_)) uiPrevAnimate_ = !uiPrevAnimate_;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -4940,22 +4957,21 @@ void App::drawUiEditorWindow() {
 
         // Background.
         int bg = uiPrevBg_;
-        if (bg == 0 && (!uiSceneTex_ || uiSceneTexW_ <= 0 || uiSceneTexH_ <= 0)) bg = 1;
+        uint32_t sceneTex = 0;
         if (bg == 0) {
-            // The viewport's frame, centre-cropped to 512:448. GL textures are
-            // bottom-up, hence the swapped v.
-            const float a = 512.0f / 448.0f, ta = (float)uiSceneTexW_ / (float)uiSceneTexH_;
-            float u0 = 0.0f, u1 = 1.0f, vTop = 1.0f, vBot = 0.0f;
-            if (ta > a) {
-                const float k = a / ta;
-                u0 = 0.5f - k * 0.5f;
-                u1 = 0.5f + k * 0.5f;
-            } else {
-                const float k = ta / a;
-                vTop = 0.5f + k * 0.5f;
-                vBot = 0.5f - k * 0.5f;
-            }
-            dl->AddImage((ImTextureID)(intptr_t)uiSceneTex_, f0, f1, ImVec2(u0, vTop), ImVec2(u1, vBot));
+            // The scene as the game draws it (no grid, markers or selection)
+            // through the editor camera, rendered straight at the frame's
+            // 512:448 shape (capped at the GS size) and only when the camera
+            // or the project changes - Viewport::renderGameView.
+            const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+            const float k = ImMin(1.0f, 512.0f / ImMax(1.0f, fw * sc));
+            sceneTex = viewport_.renderGameView(Viewport::GameViewHud, (int)(fw * sc * k),
+                                                (int)(fh * sc * k), project_.objects(), modelEditSerial_);
+            if (!sceneTex) bg = 1;
+        }
+        if (bg == 0) {
+            // GL textures are bottom-up, hence the swapped v.
+            dl->AddImage((ImTextureID)(intptr_t)sceneTex, f0, f1, ImVec2(0, 1), ImVec2(1, 0));
         } else if (bg == 1) {
             dl->AddRectFilled(f0, f1, tint(sem.field));
             const float cell = 16.0f / 512.0f * fw;

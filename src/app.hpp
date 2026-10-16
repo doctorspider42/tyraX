@@ -747,6 +747,9 @@ private:
     float assetTileSize_ = 84.0f;
     double assetScanTime_ = -1.0;   // ImGui time of the last disk scan
     int assetThumbBudget_ = 0;      // thumbnails still allowed this frame
+    // Asset Browser inspector preview orbit (view state; reset per asset).
+    std::string assetOrbitRel_;
+    float assetOrbitYaw_ = 35.0f, assetOrbitPitch_ = 22.0f, assetOrbitZoom_ = 1.0f;
     uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
@@ -2246,6 +2249,13 @@ private:
     // pointer is over in the Model tab (-1 none) - the preview rings it.
     int vehicleTab_ = 1;
     bool vehicleShowMeasures_ = true;
+    // Vehicle Editor preview: Near (tier 0) or Far (the far tier the console
+    // swaps to past farDistance). View state.
+    bool vehiclePreviewFar_ = false;
+    // Ambience Editor > Global illumination > "Show probes in viewport":
+    // the baked probe grid drawn over the scene (Viewport::setGiProbeView).
+    // View state, session only.
+    bool giShowProbes_ = false;
     int vehicleHoverWheel_ = -1;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
@@ -2864,10 +2874,6 @@ private:
     bool uiPrevSafe_ = true;
     int uiDragMode_ = 0;
     double uiTransPlayT0_ = -1.0;
-    // The viewport's rendered frame (set by the Viewport window every frame it
-    // draws): the UI Editor's "Scene" background.
-    uint32_t uiSceneTex_ = 0;
-    int uiSceneTexW_ = 0, uiSceneTexH_ = 0;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // The specimen and the atlas card: backdrop (0 on the scene, 1 on black,

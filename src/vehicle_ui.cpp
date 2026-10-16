@@ -119,6 +119,33 @@ tmdl::Model viewportBody(const tmdl::Model& body, const vehbake::Result& r) {
     return m;
 }
 
+// What the console draws past the far distance (vehicleLodTier = 1 and
+// applyGeoLod): every part that has tiers shows its first one (a part with
+// none stays detailed), the parts farHideMask names are skipped. Indices are
+// kept (a hidden part is emptied, not removed) so lampPart stays valid.
+tmdl::Model farTierBody(const tmdl::Model& body, const vehbake::Result& r) {
+    tmdl::Model m = body;
+    for (size_t pi = 0; pi < m.parts.size(); ++pi) {
+        tmdl::Part& p = m.parts[pi];
+        p.stripVerts.clear();
+        if (pi < 31 && ((r.farHideMask >> pi) & 1)) {
+            p.verts.clear();
+            p.ao.clear();
+        } else if (!p.lods.empty()) {
+            p.verts = p.lods.front().verts;
+            p.ao = p.lods.front().ao;
+        }
+        p.lods.clear();
+    }
+    return m;
+}
+
+// The far tier exists to be shown: a far part that actually carries a tier.
+bool hasFarTier(const vehbake::Result& r) {
+    return r.farPart >= 0 && r.farPart < (int)r.body.parts.size() &&
+           !r.body.parts[(size_t)r.farPart].lods.empty();
+}
+
 }  // namespace
 
 bool App::vehicleBodyBounds(const SceneObject& o, float* mn, float* mx) {
@@ -662,7 +689,11 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     if (!hasFast) vehiclePreviewFast_ = false;
     else if (rate > tuning.drive.fastWheelSpeed) vehiclePreviewFast_ = true;
     else if (rate < tuning.drive.fastWheelSpeed * .8f) vehiclePreviewFast_ = false;
+    const bool farTier = hasFarTier(baked);
+    if (!farTier || vehDmgPreviewId_ == v.id) vehiclePreviewFar_ = false;
+    const bool showFar = vehiclePreviewFar_;
     const std::string key = it->second.key + "|" + v.name + (vehiclePreviewFast_ ? "|fast" : "|normal") +
+        (showFar ? "|far" : "|near") +
         "|" + std::to_string(v.drive.track) + "|" + std::to_string(v.drive.wheelBase) +
         "|" + std::to_string(v.drive.wheelRadius) + "|" + std::to_string(v.drive.rideHeight);
     if (key != vehiclePreviewKey_) {
@@ -672,8 +703,11 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         vehiclePreview_->clearVehicleDraws();
         vehiclePreview_->invalidateAssets();
         const auto& body = vehDmgPreviewId_ == v.id ? vehDmgPreviewBody_ : baked.body;
-        vehiclePreview_->setVehicleDraw(v.name, viewportBody(body, baked),
-            vehiclePreviewFast_ ? baked.fastWheel : baked.wheel,
+        // Far: the far tier carries the wheels baked in, and the console
+        // stops the wheel bag while it shows - so no wheel mesh.
+        static const tmdl::Model kNoWheel;
+        vehiclePreview_->setVehicleDraw(v.name, showFar ? farTierBody(baked.body, baked) : viewportBody(body, baked),
+            showFar ? kNoWheel : (vehiclePreviewFast_ ? baked.fastWheel : baked.wheel),
             ".res-baked/vehicles/veh-" + v.id + "-palette.png",
             v.drive.wheelBase, v.drive.track, v.drive.wheelRadius, v.drive.rideHeight,
             baked.lampPart, baked.lampRearVerts);
@@ -810,7 +844,7 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         }
     }
 
-    // Overlay: Reset view | Spin wheels | Wheels & measures, top left.
+    // Overlay: Near | Far, Reset view | Spin wheels | Wheels & measures, top left.
     float overlayRight = imagePos.x;
     {
         const float pad = scaled(10);
@@ -818,12 +852,29 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         const char* sText = vehiclePreviewFast_ ? "Spin wheels (fast)" : "Spin wheels";
         const float w0 = ui::OverlayTextWidth("Reset view"), w1 = ui::OverlayTextWidth(mText),
                     w2 = ui::OverlayTextWidth(sText);
+        const float wn = ui::OverlayTextWidth("Near"), wf = ui::OverlayTextWidth("Far");
         const ImVec2 c0(imagePos.x + pad, imagePos.y + pad);
-        const ImVec2 c1(c0.x + w0 + w1 + w2 + ui::OverlayPad() * 2.0f + scaled(16),
+        const ImVec2 c1(c0.x + wn + wf + w0 + w1 + w2 + ui::OverlayPad() * 2.0f + scaled(40),
                         c0.y + ui::OverlayRowHeight() + ui::OverlayPad() * 2.0f);
         ui::OverlayGlassPanel(dl, c0, c1);
         overlayRight = c1.x;
         ImGui::SetCursorScreenPos(ImVec2(c0.x + ui::OverlayPad(), c0.y + ui::OverlayPad()));
+        // Near | Far: the model the console draws close up, or the far tier
+        // it swaps to past the far distance (wheels baked in, glass an
+        // authored far model paints hidden).
+        const bool farOk = farTier && vehDmgPreviewId_ != v.id;
+        if (ui::OverlayTextButton("Near", "Near", !vehiclePreviewFar_)) vehiclePreviewFar_ = false;
+        uiscript::markLastItemChecked(!vehiclePreviewFar_);
+        ImGui::SameLine(0.0f, scaled(2));
+        if (ui::OverlayTextButton("Far", "Far", vehiclePreviewFar_, farOk)) vehiclePreviewFar_ = true;
+        uiscript::markLastItemChecked(vehiclePreviewFar_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(farOk ? "The far tier: what the console draws past the far distance\n"
+                                      "(wheels baked in, one bag fewer)."
+                                    : vehDmgPreviewId_ == v.id
+                                          ? "The damage preview shows the near model."
+                                          : "This car has no far tier (Cost tab).");
+        ImGui::SameLine(0.0f, scaled(16));
         if (ui::OverlayTextButton("Reset view", "Reset view", false)) frameCar();
         ImGui::SameLine(0.0f, scaled(8));
         if (ui::OverlayTextButton("Spin wheels", sText, vehiclePreviewPlay_)) vehiclePreviewPlay_ = !vehiclePreviewPlay_;

@@ -1815,6 +1815,7 @@ void Viewport::shutdown() {
     for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     terrainLayerMeshes_.clear();
     destroyMesh(navOverlayMesh_);
+    destroyMesh(giProbeMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -1886,11 +1887,16 @@ void Viewport::shutdown() {
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
-    if (shot_.fbo) glDeleteFramebuffers(1, &shot_.fbo);
-    if (shot_.colorTex) glDeleteTextures(1, &shot_.colorTex);
-    if (shot_.depthRbo) glDeleteRenderbuffers(1, &shot_.depthRbo);
-    if (shot_.gradeFbo) glDeleteFramebuffers(1, &shot_.gradeFbo);
-    if (shot_.gradeTex) glDeleteTextures(1, &shot_.gradeTex);
+    if (orbitFbo_) glDeleteFramebuffers(1, &orbitFbo_);
+    if (orbitTex_) glDeleteTextures(1, &orbitTex_);
+    if (orbitDepth_) glDeleteRenderbuffers(1, &orbitDepth_);
+    for (ShotTargets& st : shots_) {
+        if (st.fbo) glDeleteFramebuffers(1, &st.fbo);
+        if (st.colorTex) glDeleteTextures(1, &st.colorTex);
+        if (st.depthRbo) glDeleteRenderbuffers(1, &st.depthRbo);
+        if (st.gradeFbo) glDeleteFramebuffers(1, &st.gradeFbo);
+        if (st.gradeTex) glDeleteTextures(1, &st.gradeTex);
+    }
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
     if (ps2Program_) glDeleteProgram(ps2Program_);
     if (outFbo_) glDeleteFramebuffers(1, &outFbo_);
@@ -3401,7 +3407,71 @@ bool Viewport::placementRaycast(float u, float v,
 //
 // GL_NEAREST is deliberate: hardware filtering would interpolate ACROSS the
 // coefficient tiles (L0 into L1x), so the shader does its own trilinear.
+int Viewport::giProbeCount(int* live) const {
+    if (live) *live = 0;
+    if (giGrid_.empty()) return 0;
+    if (live)
+        for (uint8_t l : giGrid_.live) *live += l ? 1 : 0;
+    return giGrid_.count();
+}
+
+void Viewport::buildGiProbeMesh() {
+    giProbeMeshDirty_ = false;
+    destroyMesh(giProbeMesh_);
+    const gibake::ProbeGrid& g = giGrid_;
+    if (g.empty() || (int)g.live.size() < g.count() ||
+        g.sh.size() < (size_t)g.count() * 12)
+        return;
+    // Marker size: a fraction of the tightest grid step, so neighbours never
+    // touch whatever the spacing.
+    float minStep = 1e30f;
+    for (int k = 0; k < 3; ++k)
+        if (g.dim[k] > 1 && g.step[k] > 1e-4f) minStep = std::min(minStep, g.step[k]);
+    if (minStep > 1e29f) minStep = 1.0f;
+    const float r = 0.14f * minStep;
+    static const float kDir[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+                                     {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    // Octahedron faces: one +-X tip, one +-Y tip, one +-Z tip each.
+    static const int kFace[8][3] = {{0, 2, 4}, {4, 2, 1}, {1, 2, 5}, {5, 2, 0},
+                                    {4, 3, 0}, {1, 3, 4}, {5, 3, 1}, {0, 3, 5}};
+    const float dec = g.scale / 127.0f;
+    std::vector<float> v;
+    v.reserve((size_t)g.count() * 24 * 8);
+    for (int z = 0; z < g.dim[2]; ++z)
+        for (int y = 0; y < g.dim[1]; ++y)
+            for (int x = 0; x < g.dim[0]; ++x) {
+                const int idx = x + g.dim[0] * (y + g.dim[1] * z);
+                const bool live = g.live[(size_t)idx] != 0;
+                const float c[3] = {g.origin[0] + x * g.step[0], g.origin[1] + y * g.step[1],
+                                    g.origin[2] + z * g.step[2]};
+                const float rr = live ? r : r * 0.5f;
+                float col[6][3];
+                for (int t = 0; t < 6; ++t)
+                    for (int k = 0; k < 3; ++k) {
+                        if (!live) {
+                            col[t][k] = 0.12f;
+                            continue;
+                        }
+                        const int8_t* sh = &g.sh[(size_t)idx * 12];
+                        float val = sh[k] * dec +
+                                    (2.0f / 3.0f) * dec *
+                                        (sh[3 + k] * kDir[t][0] + sh[6 + k] * kDir[t][1] +
+                                         sh[9 + k] * kDir[t][2]);
+                        col[t][k] = std::min(1.0f, std::max(0.0f, val));
+                    }
+                for (const auto& f : kFace)
+                    for (int corner : f) {
+                        v.insert(v.end(), {c[0] + kDir[corner][0] * rr, c[1] + kDir[corner][1] * rr,
+                                           c[2] + kDir[corner][2] * rr, col[corner][0],
+                                           col[corner][1], col[corner][2], 0.0f, 0.0f});
+                    }
+            }
+    giProbeMesh_ = uploadMesh(v);
+}
+
 void Viewport::setGiProbes(const gibake::ProbeGrid& g) {
+    giGrid_ = g;
+    giProbeMeshDirty_ = true;
     const bool empty = g.empty();
     if (empty) {
         giDim_[0] = giDim_[1] = giDim_[2] = 0;
@@ -5398,6 +5468,29 @@ void Viewport::fly(float forward, float strafe, float dt) {
     target_[2] += (fwdH.z * forward + rightH.z * strafe) * s;
 }
 
+// Game view (renderGameView): does the GAME draw anything for this object?
+// The editor-only markers say no - their whole appearance is a gizmo. A
+// third-person Player draws its avatar; any other Player is the camera.
+static bool drawsInGame(const SceneObject& o) {
+    if (o.collisionMode == 3) return false;  // invisible wall
+    switch (o.type) {
+        case PrimitiveType::SpawnPoint:
+        case PrimitiveType::SoundEmitter:
+        case PrimitiveType::PointLight:
+        case PrimitiveType::Empty:
+        case PrimitiveType::Camera:
+        case PrimitiveType::Area:
+        case PrimitiveType::Scatter:
+        case PrimitiveType::Scroller:
+        case PrimitiveType::Comment:
+            return false;
+        case PrimitiveType::Player:
+            return o.playerMode == 2 && isAnimatedModelPath(o.modelPath);
+        default:
+            return true;
+    }
+}
+
 // A local AABB against the six homogeneous clip planes. Testing the box's
 // support point avoids transforming eight corners and handles rotation,
 // negative/nonuniform scale, perspective and orthographic views alike.
@@ -5415,53 +5508,132 @@ static bool modelInView(const Mat4& mvp, const float mn[3], const float mx[3]) {
 
 uint32_t Viewport::renderShot(int width, int height, const std::vector<SceneObject>& objects,
                               const float eye[3], const float target[3], float fovDeg,
-                              float rollDeg) {
+                              float rollDeg, int slot, uint64_t stamp) {
+    return renderGameView(slot, width, height, objects, stamp, eye, target, fovDeg, rollDeg);
+}
+
+bool Viewport::gameViewFrames(int slot, uint32_t& before, uint32_t& after, int& w,
+                              int& h) const {
+    if (slot < 0 || slot >= GameViewSlots) return false;
+    const ShotTargets& st = shots_[slot];
+    if (!st.tex || !st.colorTex || st.w <= 0 || st.h <= 0) return false;
+    before = st.colorTex;
+    after = st.graded ? st.gradeTex : st.colorTex;
+    w = st.w;
+    h = st.h;
+    return true;
+}
+
+uint32_t Viewport::renderGameView(int slot, int width, int height,
+                                  const std::vector<SceneObject>& objects, uint64_t stamp,
+                                  const float* eye, const float* target, float fovDeg,
+                                  float rollDeg) {
+    if (slot < 0 || slot >= GameViewSlots) slot = GameViewShot;
+    ShotTargets& shot = shots_[slot];
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+
+    // Save the camera override first: the key below must see the camera the
+    // pass will actually use.
+    const bool savedOverride = camOverride_;
+    float savedEye[3], savedTarget[3];
+    std::memcpy(savedEye, camEye_, sizeof(savedEye));
+    std::memcpy(savedTarget, camTarget_, sizeof(savedTarget));
+    const float savedFov = camFov_, savedRoll = camRoll_;
+    auto restoreCamera = [&]() {
+        camOverride_ = savedOverride;
+        std::memcpy(camEye_, savedEye, sizeof(savedEye));
+        std::memcpy(camTarget_, savedTarget, sizeof(savedTarget));
+        camFov_ = savedFov;
+        camRoll_ = savedRoll;
+    };
+    if (eye && target) setCameraOverride(eye, target, fovDeg, rollDeg);
+
+    // The cache key: FNV-1a over everything that changes the picture and is
+    // cheap to read - size, the resolved camera, the grade, the object list
+    // (identity and length; content edits arrive through the caller's stamp).
+    uint64_t key = 1469598103934665603ull;
+    auto mix = [&key](const void* p, size_t n) {
+        const unsigned char* b = static_cast<const unsigned char*>(p);
+        for (size_t i = 0; i < n; ++i) key = (key ^ b[i]) * 1099511628211ull;
+    };
+    const CamView cv = camView(width, height);
+    mix(&width, sizeof(width));
+    mix(&height, sizeof(height));
+    mix(cv.eye, sizeof(cv.eye));
+    mix(cv.fwd, sizeof(cv.fwd));
+    mix(cv.up, sizeof(cv.up));
+    mix(&cv.ortho, sizeof(cv.ortho));
+    mix(&cv.tanHalf, sizeof(cv.tanHalf));
+    mix(&cv.halfH, sizeof(cv.halfH));
+    mix(&gradingOn_, sizeof(gradingOn_));
+    mix(&grading_, sizeof(grading_));
+    mix(&gsQuant_, sizeof(gsQuant_));
+    mix(&gsDither_, sizeof(gsDither_));
+    const void* objData = objects.data();
+    const size_t objCount = objects.size();
+    mix(&objData, sizeof(objData));
+    mix(&objCount, sizeof(objCount));
+    mix(&stamp, sizeof(stamp));
+    const double now = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+    if (shot.tex && shot.key == key && shot.at >= 0.0 &&
+        now - shot.at < 1.0 / kGameViewIdleHz) {
+        restoreCamera();
+        return shot.tex;
+    }
+
     // Swap the scene-pass targets (exactly the set ensureFramebuffer owns)
-    // for the private ones, so render() draws into them and resizes them, not
-    // the panel's. Everything else render() leaves behind that the MAIN image
-    // is read through - matrices for picking/gizmos, the last-image source the
-    // phone stream blits from, the camera override - is saved and restored.
+    // for the slot's, so render() draws into them and resizes them, not the
+    // panel's. Everything else render() leaves behind that the MAIN image is
+    // read through - matrices for picking/gizmos, the last-image source the
+    // phone stream blits from, gradingFrames' record - is saved and restored.
     auto swapTargets = [&]() {
-        std::swap(fbo_, shot_.fbo);
-        std::swap(colorTex_, shot_.colorTex);
-        std::swap(depthRbo_, shot_.depthRbo);
-        std::swap(gradeFbo_, shot_.gradeFbo);
-        std::swap(gradeTex_, shot_.gradeTex);
-        std::swap(fbWidth_, shot_.w);
-        std::swap(fbHeight_, shot_.h);
+        std::swap(fbo_, shot.fbo);
+        std::swap(colorTex_, shot.colorTex);
+        std::swap(depthRbo_, shot.depthRbo);
+        std::swap(gradeFbo_, shot.gradeFbo);
+        std::swap(gradeTex_, shot.gradeTex);
+        std::swap(fbWidth_, shot.w);
+        std::swap(fbHeight_, shot.h);
     };
     float savedView[16], savedProj[16];
     std::memcpy(savedView, viewM_, sizeof(savedView));
     std::memcpy(savedProj, projM_, sizeof(savedProj));
     const uint32_t savedLast = lastImageFbo_;
     const int savedLastW = lastImageW_, savedLastH = lastImageH_;
-    const bool savedOverride = camOverride_;
-    float savedEye[3], savedTarget[3];
-    std::memcpy(savedEye, camEye_, sizeof(savedEye));
-    std::memcpy(savedTarget, camTarget_, sizeof(savedTarget));
-    const float savedFov = camFov_, savedRoll = camRoll_;
+    const bool savedGraded = lastGraded_;
+    const int savedSceneW = lastSceneW_, savedSceneH = lastSceneH_;
     const bool savedGuides = guidesVisible_;
     const bool savedPs2 = ps2_.on;
+    const ViewMode savedMode = viewMode_;
 
     swapTargets();
-    setCameraOverride(eye, target, fovDeg, rollDeg);
     guidesVisible_ = false;
     ps2_.on = false;
+    viewMode_ = ViewMode::Solid;
+    gameView_ = true;
     const uint32_t tex = render(width, height, objects, std::vector<int>(), -1);
+    gameView_ = false;
+    viewMode_ = savedMode;
     ps2_.on = savedPs2;
     guidesVisible_ = savedGuides;
+    shot.graded = lastGraded_;
     swapTargets();
 
-    camOverride_ = savedOverride;
-    std::memcpy(camEye_, savedEye, sizeof(savedEye));
-    std::memcpy(camTarget_, savedTarget, sizeof(savedTarget));
-    camFov_ = savedFov;
-    camRoll_ = savedRoll;
+    restoreCamera();
     lastImageFbo_ = savedLast;
     lastImageW_ = savedLastW;
     lastImageH_ = savedLastH;
+    lastGraded_ = savedGraded;
+    lastSceneW_ = savedSceneW;
+    lastSceneH_ = savedSceneH;
     std::memcpy(viewM_, savedView, sizeof(savedView));
     std::memcpy(projM_, savedProj, sizeof(savedProj));
+    shot.key = key;
+    shot.at = now;
+    shot.tex = tex;
     return tex;
 }
 
@@ -6285,6 +6457,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            if (gameView_ && !drawsInGame(o)) continue;
             // Baked scatter chunks are build output of the graph the preview
             // below draws live from the same deterministic evaluation - drawing
             // both would double every instance. Frozen volumes instead draw
@@ -6834,7 +7007,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     }
     for (size_t pi = 0; pi < objects.size(); ++pi) {
         const SceneObject& p = objects[pi];
-        if (p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
+        if (gameView_ || p.type != PrimitiveType::Portal || hiddenAt(pi)) continue;
         const float d2r = kPi / 180.0f;
         Mat4 m = scaleM(1.2f, 1.2f, 1.2f);  // fixed length, quad-scale-free
         m = mul(rotX(p.rotation[0] * d2r), m);
@@ -6890,8 +7063,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // origin marker so the invisible belt object is locatable
             const Mat4 om = mul(translation(s.position[0], s.position[1], s.position[2]),
                                 scaleM(0.3f, 0.3f, 0.3f));
-            draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
-                 s.color[2], 0, &om);
+            if (!gameView_)
+                draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
+                     s.color[2], 0, &om);
             // Hiding a belt hides its GHOSTS only - the origin marker above is
             // drawn either way, or a hidden belt would be unfindable. An index
             // past the mask draws (an unset mask means "show all").
@@ -6929,20 +7103,23 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
 
     // Nav-mesh overlay: translucent green quads over the walkable cells
     // (View > Nav Mesh Overlay; baked app-side, see setNavOverlay).
-    if (navOverlayOn_ && navOverlayMesh_.vertexCount)
+    // Everything from here to the particles is editor overlay: none of it in
+    // the game view.
+    const bool overlays = !gameView_;
+    if (overlays && navOverlayOn_ && navOverlayMesh_.vertexCount)
         draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.4f);
 
     // Scatter overlays: an isolated mask draped on the ground, the curve being
     // edited, its control-point handles, and the proxy dots for huge counts.
-    if (scatterMaskMesh_.vertexCount)
+    if (overlays && scatterMaskMesh_.vertexCount)
         draw(scatterMaskMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.55f);
-    if (scatterPointsMesh_.vertexCount)
+    if (overlays && scatterPointsMesh_.vertexCount)
         draw(scatterPointsMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-    if (scatterCurveMesh_.vertexCount)
+    if (overlays && scatterCurveMesh_.vertexCount)
         draw(scatterCurveMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
-    for (size_t h = 0; h * 3 + 2 < scatter_.handles.size(); ++h) {
+    for (size_t h = 0; overlays && h * 3 + 2 < scatter_.handles.size(); ++h) {
         const float* hp = &scatter_.handles[h * 3];
         const bool active = (int)h == scatter_.activeHandle;
         const float r = active ? 0.9f : 0.55f;
@@ -6951,12 +7128,19 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
              active ? 0.95f : 0.7f, active ? 0.4f : 0.2f);
     }
 
+    // GI probe visualiser (setGiProbeView): one draw, vertex colours unlit.
+    if (overlays && giProbeView_) {
+        if (giProbeMeshDirty_) buildGiProbeMesh();
+        if (giProbeMesh_.vertexCount)
+            draw(giProbeMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f);
+    }
+
     // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as
     // the wireframe of its box in the object color - the object's whole
     // appearance in the editor and nothing at all in the game.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
         draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
              o.color[1], o.color[2]);
     }
@@ -6968,7 +7152,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // console's own (Preferences > Build > Show collision boxes) draw one
     // answer - including the content-forward yaw, which turns an animated
     // model's box with its mesh.
-    if (collisionOverlay_) {
+    if (overlays && collisionOverlay_) {
         const aobake::ModelAabbFn bounds = [this](const SceneObject& o, float* mn,
                                                   float* mx) {
             return modelLocalBounds(o, mn, mx);
@@ -6995,7 +7179,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // light gizmos, in world space, depth-tested like the rest of the scene -
     // an overlay that ignored depth would put a batch box for the far side of
     // the map on top of the building in front of you.
-    if (!batchOverlay_.empty()) {
+    if (overlays && !batchOverlay_.empty()) {
         for (const BatchOverlayBox& b : batchOverlay_) {
             const float cx = 0.5f * (b.min[0] + b.max[0]);
             const float cy = 0.5f * (b.min[1] + b.max[1]);
@@ -7030,7 +7214,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // said nothing about where a spot points; the cone is the light.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
         const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
         if (o.lightDynamic && o.lightSpot) {
             const float d2r = kPi / 180.0f;
@@ -7057,7 +7241,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // entity but ignoring its scale so the wedge always reads the actual shot.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Camera || hiddenAt(oi)) continue;
         if (camHidden(o.name)) continue;  // previewing through this camera
         const float d2r = kPi / 180.0f;
         const float len = 2.4f;
@@ -7076,7 +7260,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // mesh's two vertices sit at local z=0 and z=1).
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
-        if (o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
+        if (!overlays || o.type != PrimitiveType::Portal || hiddenAt(oi)) continue;
         if (o.portalTarget.empty()) continue;
         const SceneObject* tgt = nullptr;
         for (const SceneObject& t : objects)
@@ -7099,7 +7283,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // "Highlight usable objects" preference: wire box in the highlight color
     // around every usable object (the proximity condition only applies
     // in-game; the editor just shows which objects qualify and the color).
-    if (usableHighlight_) {
+    if (overlays && usableHighlight_) {
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             const SceneObject& o = objects[oi];
             if (!o.usable || hiddenAt(oi)) continue;
@@ -7118,6 +7302,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Session peers' selections first (their color), so the local outline
     // below always draws on top when both select the same object.
     for (const PeerSel& ps : peerSels_) {
+        if (!overlays) break;
         for (int idx : ps.indices) {
             if (idx < 0 || idx >= (int)objects.size() || hiddenAt((size_t)idx)) continue;
             // A road's selected spline overlay is its outline. Its otherwise
@@ -8262,46 +8447,16 @@ void Viewport::clearThumbCache() {
     thumbCache_.clear();
 }
 
-uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
-    if (!program_ || relPath.empty()) return 0;
-
-    std::string ext = std::filesystem::path(relPath).extension().string();
-    for (char& c : ext) c = (char)tolower((unsigned char)c);
-
-    // Images are their own thumbnail: the shared texture cache already holds
-    // exactly the pixels the scene samples, so nothing is rendered or copied.
-    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
-        ext == ".bmp") {
-        auto it = texCache_.find(relPath);
-        if (it != texCache_.end()) return it->second;
-        return render ? glTexture(relPath) : 0;
-    }
-
-    const bool isObj = ext == ".obj";
-    const bool isAnim = ext == ".glb" || ext == ".fbx";
-    const bool isMtl = ext == ".mtl";
-    if (!isObj && !isAnim && !isMtl) return 0;
-
-    auto cached = thumbCache_.find(relPath);
-    if (cached != thumbCache_.end()) return cached->second;
-    if (!render) return 0;
-
-    // Collect what to draw first: an unreadable file caches a 0 and never
-    // touches the framebuffer.
-    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
-    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
-    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
-    if (isObj && (!model || model->parts.empty())) model = nullptr;
-    if (isAnim && anim && !anim->ok) anim = nullptr;
-    if (!model && !anim && !material) {
-        thumbCache_[relPath] = 0;
-        return 0;
-    }
+// The asset studio shot shared by assetThumb and assetOrbitView: the asset
+// framed by its own bounds (a material on the unit sphere), unlit colours,
+// transparent background, into the framebuffer the caller bound (s x s).
+// yawDeg/pitchDeg place the camera around the bounds centre; zoom > 1 moves
+// it closer.
+void Viewport::drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
+                             const MaterialDraw* material, int s, float yawDeg,
+                             float pitchDeg, float zoom) {
     if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
 
-    const int s = kAssetThumbSize;
-    ensureThumbFramebuffer();
-    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
     glViewport(0, 0, s, s);
     // Transparent background: the tile shows the browser's own panel color
     // behind the asset, so a grid reads as one surface instead of 200 boxes.
@@ -8369,8 +8524,8 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     }
     if (radius < 0.05f) radius = 0.05f;
 
-    const float dist = radius * 2.35f;
-    const float pitch = 22.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const float dist = radius * 2.35f / (zoom > 0.05f ? zoom : 0.05f);
+    const float pitch = pitchDeg * kPi / 180.0f, yaw = yawDeg * kPi / 180.0f;
     const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
                    center.y + dist * std::sin(pitch),
                    center.z + dist * std::cos(pitch) * std::sin(yaw)};
@@ -8401,6 +8556,55 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     }
 
     glBindVertexArray(0);
+}
+
+uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
+    if (!program_ || relPath.empty()) return 0;
+
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+
+    // Images are their own thumbnail: the shared texture cache already holds
+    // exactly the pixels the scene samples, so nothing is rendered or copied.
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" ||
+        ext == ".bmp") {
+        auto it = texCache_.find(relPath);
+        if (it != texCache_.end()) return it->second;
+        return render ? glTexture(relPath) : 0;
+    }
+
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+
+    auto cached = thumbCache_.find(relPath);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // Collect what to draw first: an unreadable file caches a 0 and never
+    // touches the framebuffer.
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    // A .glb/.fbx bakes on a worker (animModelDraw returns nullptr until it
+    // lands). That is NOT "unreadable": caching the 0 here made every model
+    // nothing in the scene had baked yet - the vehicle bodies, whose scene
+    // draw is the .tmdl - keep an empty tile for the session. Collect a
+    // finished bake (render() may not run while a tool covers the viewport)
+    // and come back next frame.
+    if (isAnim) animBakeCollect();
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    if (isAnim && !anim) return 0;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) {
+        thumbCache_[relPath] = 0;
+        return 0;
+    }
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    drawAssetView(model, anim, material, s, 35.0f, 22.0f, 1.0f);
 
     // Framebuffer -> the asset's own texture. The FBO is still bound for
     // reading, so this is a pure GPU copy of the square just drawn.
@@ -8417,6 +8621,70 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
 
     thumbCache_[relPath] = tex;
     return tex;
+}
+
+uint32_t Viewport::assetOrbitView(const std::string& relPath, int size, float yawDeg,
+                                  float pitchDeg, float zoom) {
+    if (!program_ || relPath.empty()) return 0;
+    if (size < 16) size = 16;
+    if (size > 1024) size = 1024;
+    std::string ext = std::filesystem::path(relPath).extension().string();
+    for (char& c : ext) c = (char)tolower((unsigned char)c);
+    const bool isObj = ext == ".obj";
+    const bool isAnim = ext == ".glb" || ext == ".fbx";
+    const bool isMtl = ext == ".mtl";
+    if (!isObj && !isAnim && !isMtl) return 0;
+    if (isAnim) animBakeCollect();
+    const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
+    if (isObj && (!model || model->parts.empty())) model = nullptr;
+    if (isAnim && anim && !anim->ok) anim = nullptr;
+    if (!model && !anim && !material) return 0;
+
+    // Re-render only when something the picture depends on moved: one cheap
+    // draw per drag step, nothing while the inspector just sits there. The
+    // model pointer joins the key so a re-import (new cache entry) refreshes.
+    const void* src = model ? (const void*)model
+                            : (anim ? (const void*)anim : (const void*)material);
+    if (orbitTex_ && relPath == orbitRel_ && size == orbitSize_ && yawDeg == orbitYaw_ &&
+        pitchDeg == orbitPitch_ && zoom == orbitZoom_ && src == orbitSrc_)
+        return orbitTex_;
+
+    // Its own target (the one-framebuffer-per-preview rule), resized with the
+    // inspector.
+    if (!orbitFbo_ || size != orbitSize_) {
+        if (!orbitFbo_) glGenFramebuffers(1, &orbitFbo_);
+        if (!orbitTex_) glGenTextures(1, &orbitTex_);
+        if (!orbitDepth_) glGenRenderbuffers(1, &orbitDepth_);
+        glBindTexture(GL_TEXTURE_2D, orbitTex_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindRenderbuffer(GL_RENDERBUFFER, orbitDepth_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, size, size);
+        glBindFramebuffer(GL_FRAMEBUFFER, orbitFbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, orbitTex_,
+                               0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                                  orbitDepth_);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            std::fprintf(stderr, "asset orbit framebuffer incomplete\n");
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, orbitFbo_);
+    drawAssetView(model, anim, material, size, yawDeg, pitchDeg, zoom);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    orbitRel_ = relPath;
+    orbitSize_ = size;
+    orbitYaw_ = yawDeg;
+    orbitPitch_ = pitchDeg;
+    orbitZoom_ = zoom;
+    orbitSrc_ = src;
+    return orbitTex_;
 }
 
 // --- assets-c: prefab thumbnails ---

@@ -65,7 +65,11 @@ offset stay local to each definition; the measured wheel placement carries a
 | Cost | Triangle budgets, submissions, fast wheels and far model |
 
 The **live preview** uses the baked body and wheels. Drag to orbit, scroll to
-zoom. Its overlay has *Reset view*, **Spin wheels** and **Wheels & measures**,
+zoom. Its overlay has **Near | Far** - *Far* shows the far tier the console
+swaps to past the far distance: every tiered part at its first tier, the
+wheels baked in (no wheel meshes), the parts an authored far model hides left
+out; disabled when the car has no far tier or a damage test is showing -
+*Reset view*, **Spin wheels** and **Wheels & measures**,
 which tags each wheel with its position and role (FL *steer*, RL *drive*...)
 and draws the measured wheelbase under the car; hovering a row of the Model
 tab's wheel table rings that wheel. The **Baked cost** card (triangles, draw
