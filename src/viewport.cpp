@@ -7971,6 +7971,21 @@ bool Viewport::importPreviewRay(float u, float v, float origin[3], float dir[3])
     return true;
 }
 
+bool Viewport::importPreviewProject(const float p[3], float& u, float& v) const {
+    if (!importCamValid_ || importTanHalf_ <= 0.0f) return false;
+    float d[3], z = 0.0f, x = 0.0f, y = 0.0f;
+    for (int a = 0; a < 3; ++a) d[a] = p[a] - importEye_[a];
+    for (int a = 0; a < 3; ++a) {
+        z += d[a] * importFwd_[a];
+        x += d[a] * importRight_[a];
+        y += d[a] * importUp_[a];
+    }
+    if (z <= 1e-6f) return false;
+    u = 0.5f + 0.5f * x / (z * importTanHalf_ * importAspect_);
+    v = 0.5f - 0.5f * y / (z * importTanHalf_);
+    return true;
+}
+
 std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,
                                                  const std::string& materialRel) {
     std::vector<std::string> names;

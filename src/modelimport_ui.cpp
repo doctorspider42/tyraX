@@ -19,6 +19,9 @@
 
 #include <imgui.h>
 
+#include "theme.hpp"
+#include "toolkit.hpp"
+
 namespace fs = std::filesystem;
 
 namespace {
@@ -193,12 +196,15 @@ void App::modelImportTick() {
         modelImportPhase_ = ImportPhase::Ready;
         if (modelImportSrc_) {
             const modelimport::Source& s = *modelImportSrc_;
-            // Both forms by default when the file can animate: the static
-            // twin is a few hundred KB and means either entity can use it.
+            // A skinned file is a character: by default it imports animated
+            // ONLY - a frozen bind-pose .obj beside it is a prop nobody asked
+            // for (it used to be written silently). Rigid animation (clips,
+            // no skin) keeps both forms; a Model... pick asks for static.
             modelImportOpt_.writeAnimated =
                 s.canAnimate() && modelImportFor_ != ModelImportFor::NewStatic;
-            modelImportOpt_.writeStatic = modelImportFor_ != ModelImportFor::NewAnimated ||
-                                          !s.canAnimate();
+            modelImportOpt_.writeStatic =
+                modelImportFor_ == ModelImportFor::NewStatic || !s.canAnimate() ||
+                (!s.skinned && modelImportFor_ != ModelImportFor::NewAnimated);
             modelImportReplan();
         }
         return;
@@ -308,14 +314,20 @@ void App::drawModelImportModal() {
     }
     const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(1040), scaled(660)), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1100), scaled(760)), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Import model", nullptr, ImGuiWindowFlags_NoSavedSettings))
         return;
 
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
     const std::string fileName = fs::path(modelImportFile_).filename().string();
-    auto spinner = [&](const char* what) {
-        ImGui::Text("%c  %s", "|/-\\"[(int)(ImGui::GetTime() * 10.0) & 3], what);
-        ImGui::TextDisabled("%s", fileName.c_str());
+    auto busy = [&](const char* what) {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + avail.x * 0.2f,
+                                   ImGui::GetCursorPosY() + avail.y * 0.42f));
+        ImGui::BeginChild("##importbusy", ImVec2(avail.x * 0.6f, fs * 3.0f));
+        ui::ProgressInline(-1.0f, what, fileName.c_str());
+        ImGui::EndChild();
     };
     if (modelImportPhase_ == ImportPhase::Idle) {
         ImGui::CloseCurrentPopup();
@@ -323,32 +335,35 @@ void App::drawModelImportModal() {
         return;
     }
     if (modelImportPhase_ == ImportPhase::Loading) {
-        spinner("Reading model...");
+        busy("Reading model...");
         ImGui::EndPopup();
         return;
     }
     if (modelImportPhase_ == ImportPhase::Writing) {
-        spinner("Writing model, material and textures...");
+        busy("Writing model, material and textures...");
         ImGui::EndPopup();
         return;
     }
     if (!modelImportSrc_) {
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s: %s", fileName.c_str(),
-                           modelImportError_.c_str());
-        if (ImGui::Button("Choose another file...")) {
+        ImGui::Dummy(ImVec2(0, ImGui::GetContentRegionAvail().y * 0.3f));
+        ui::EmptyState(ui::Glyph::Box, ("Cannot read " + fileName).c_str(),
+                       modelImportError_.c_str());
+        const float bw = scaled(170), sp = ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SetCursorPosX((ImGui::GetWindowWidth() - bw * 2.0f - sp) * 0.5f);
+        if (ImGui::Button("Close", ImVec2(bw, 0))) {
+            modelImportPhase_ = ImportPhase::Idle;
+            modelImporting_ = false;
+            modelImportFor_ = ModelImportFor::Nothing;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ui::PrimaryButton("Choose another file...", bw)) {
             modelImportPhase_ = ImportPhase::Idle;
             modelImporting_ = false;
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
             importModelAsset(modelImportTarget_);
             return;
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Close")) {
-            modelImportPhase_ = ImportPhase::Idle;
-            modelImporting_ = false;
-            modelImportFor_ = ModelImportFor::Nothing;
-            ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
         return;
@@ -357,16 +372,53 @@ void App::drawModelImportModal() {
     const modelimport::Source& src = *modelImportSrc_;
     modelimport::Options& opt = modelImportOpt_;
     bool replan = false;
-    const float footer = ImGui::GetFrameHeightWithSpacing() * 1.6f;
 
-    // ---- preview (left) ----
-    const float previewW = ImGui::GetContentRegionAvail().x * 0.56f;
+    // ---- header: the file is the title, its facts a badge ----
+    {
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope b(ui::boldFont());
+            ImGui::TextUnformatted(fileName.c_str());
+        }
+        ImGui::SameLine();
+        char facts[160];
+        std::snprintf(facts, sizeof facts, "%s - %d tris - %zu object%s - %zu texture%s",
+                      src.format.c_str(), src.tris, src.objects.size(),
+                      src.objects.size() == 1 ? "" : "s", src.images.size(),
+                      src.images.size() == 1 ? "" : "s");
+        ImGui::BeginGroup();
+        ImGui::Dummy(ImVec2(0, (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f -
+                                   ImGui::GetStyle().ItemSpacing.y));
+        {
+            ui::FontScope m(ui::monoFont());
+            ui::Badge(facts);
+        }
+        ImGui::EndGroup();
+        const float cw = ImGui::CalcTextSize("Choose another file").x +
+                         ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - cw);
+        if (ui::GhostButton("Choose another file")) {
+            modelImportPhase_ = ImportPhase::Idle;
+            modelImporting_ = false;
+            modelImportSrc_.reset();
+            modelImportPlan_.clear();
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            importModelAsset(modelImportTarget_);
+            return;
+        }
+    }
+    ImGui::Separator();
+    const float footer = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f + 1.0f;
+
+    // ---- preview (left): the hero ----
+    const float optionsW = scaled(380);
+    const float previewW = std::max(scaled(240), ImGui::GetContentRegionAvail().x - optionsW -
+                                                     ImGui::GetStyle().ItemSpacing.x);
     ImGui::BeginChild("##importpreview", ImVec2(previewW, -footer), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     {
         const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const float h = std::max(avail.y - ImGui::GetFrameHeightWithSpacing() * 2.2f,
-                                 scaled(120));
         Viewport::ImportPreviewDesc d;
         d.version = modelImportVersion_;
         for (const modelimport::Image& im : src.images)
@@ -400,11 +452,16 @@ void App::drawModelImportModal() {
         d.panX = modelImportPanX_;
         d.panY = modelImportPanY_;
         d.wireframe = modelImportWire_;
-        const int pw = std::max(1, (int)avail.x), ph = std::max(1, (int)h);
+        const int pw = std::max(1, (int)avail.x), ph = std::max(1, (int)avail.y);
         const uint32_t tex = viewport_.renderImportPreview(pw, ph, d);
         const ImVec2 at = ImGui::GetCursorScreenPos();
+        const ImVec2 bt(at.x + pw, at.y + ph);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddImageRounded((ImTextureID)(intptr_t)tex, at, bt, ImVec2(0, 1), ImVec2(1, 0),
+                            IM_COL32_WHITE, ImGui::GetStyle().FrameRounding + 3.0f);
         // right drag = orbit, middle drag = pan, wheel = zoom (the left button
         // is left alone: it is what closes popups and clicks the panel)
+        ImGui::SetNextItemAllowOverlap();
         ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph),
                                ImGuiButtonFlags_MouseButtonLeft |
                                    ImGuiButtonFlags_MouseButtonRight |
@@ -438,38 +495,168 @@ void App::drawModelImportModal() {
         if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
             modelImportZoom_ = std::clamp(
                 modelImportZoom_ * std::pow(1.15f, ImGui::GetIO().MouseWheel), 0.05f, 40.0f);
-        ImGui::GetWindowDrawList()->AddImage((ImTextureID)(intptr_t)tex, at,
-                                             ImVec2(at.x + pw, at.y + ph), ImVec2(0, 1),
-                                             ImVec2(1, 0));
-        ImGui::Checkbox("Wireframe", &modelImportWire_);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Reset view")) {
-            modelImportAngle_ = 40.0f;
-            modelImportPitch_ = 18.0f;
-            modelImportZoom_ = 1.0f;
-            modelImportPanX_ = modelImportPanY_ = 0.0f;
+
+        // Height ruler ON the model: the number the Real height field edits,
+        // drawn at the model's left edge from its lowest to its highest point.
+        {
+            // Bounds of what is DRAWN: the planned models at their origins
+            // (the pivot moves geometry; the source bounds do not).
+            float bmn[3] = {1e30f, 1e30f, 1e30f}, bmx[3] = {-1e30f, -1e30f, -1e30f};
+            for (const modelimport::Planned& pl : modelImportPlan_)
+                for (int a = 0; a < 3; ++a) {
+                    bmn[a] = std::min(bmn[a], pl.mn[a] + pl.origin[(size_t)a]);
+                    bmx[a] = std::max(bmx[a], pl.mx[a] + pl.origin[(size_t)a]);
+                }
+            // Stand the ruler beside the silhouette at the model's own depth:
+            // the centre column pushed along the camera's left by the bounds'
+            // extent in that direction (a box corner would sit far in front
+            // of the model at this field of view).
+            float ua = 0, va = 0, ub = 0, vb = 0;
+            bool found = false;
+            float r0[3], d0[3], r1[3], d1[3];
+            if (!modelImportPlan_.empty() && bmx[1] > bmn[1] &&
+                viewport_.importPreviewRay(0.5f, 0.5f, r0, d0) &&
+                viewport_.importPreviewRay(0.6f, 0.5f, r1, d1)) {
+                float right[3] = {d1[0] - d0[0], 0.0f, d1[2] - d0[2]};
+                const float rl = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+                if (rl > 1e-6f) {
+                    right[0] /= rl, right[2] /= rl;
+                    const float cx = (bmn[0] + bmx[0]) * 0.5f, cz = (bmn[2] + bmx[2]) * 0.5f;
+                    float ext = 0.0f;
+                    for (int c = 0; c < 4; ++c) {
+                        const float qx = (c & 1) ? bmx[0] : bmn[0], qz = (c & 2) ? bmx[2] : bmn[2];
+                        ext = std::max(ext, -((qx - cx) * right[0] + (qz - cz) * right[2]));
+                    }
+                    ext *= 1.35f;
+                    const float qa[3] = {cx - right[0] * ext, bmn[1], cz - right[2] * ext};
+                    const float qb[3] = {qa[0], bmx[1], qa[2]};
+                    found = viewport_.importPreviewProject(qa, ua, va) &&
+                            viewport_.importPreviewProject(qb, ub, vb);
+                }
+            }
+            if (dy > 1e-6f && found) {
+                ImVec2 sa(at.x + ua * pw, at.y + va * ph), sb(at.x + ub * pw, at.y + vb * ph);
+                // A wide model close to the camera pushes the column out of
+                // the frame: slide it back in sideways (heights stay true).
+                const float minX = at.x + fs * 3.0f;
+                if (std::min(sa.x, sb.x) < minX) {
+                    const float dxs = minX - std::min(sa.x, sb.x);
+                    sa.x += dxs, sb.x += dxs;
+                }
+                const ImU32 col = ImGui::GetColorU32(sem.ok);
+                dl->PushClipRect(at, bt, true);
+                dl->AddLine(sa, sb, col, 1.5f);
+                dl->AddLine(ImVec2(sa.x - 4, sa.y), ImVec2(sa.x + 4, sa.y), col, 1.5f);
+                dl->AddLine(ImVec2(sb.x - 4, sb.y), ImVec2(sb.x + 4, sb.y), col, 1.5f);
+                char hl[32];
+                std::snprintf(hl, sizeof hl, "%.2f m", dy * modelImportMeters_);
+                ui::FontScope m(ui::monoFont());
+                const ImVec2 ts = ImGui::CalcTextSize(hl);
+                const ImVec2 mid((sa.x + sb.x) * 0.5f, (sa.y + sb.y) * 0.5f);
+                const ImVec2 la(mid.x - ts.x * 0.5f - fs * 0.4f, mid.y - ts.y * 0.5f - fs * 0.2f);
+                const ImVec2 lb(mid.x + ts.x * 0.5f + fs * 0.4f, mid.y + ts.y * 0.5f + fs * 0.2f);
+                dl->AddRectFilled(la, lb, ImGui::GetColorU32(ImVec4(sem.ground.x, sem.ground.y, sem.ground.z, 0.85f)), fs * 0.3f);
+                dl->AddRect(la, lb, ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.5f)), fs * 0.3f);
+                dl->AddText(ImVec2(la.x + fs * 0.4f, la.y + fs * 0.2f), col, hl);
+                dl->PopClipRect();
+            }
         }
-        ImGui::SameLine();
-        ImGui::TextDisabled(modelImportPlan_.size() > 1
-                                ? "click = select, right drag = orbit, middle = pan, wheel = zoom"
-                                : "right drag = orbit, middle drag = pan, wheel = zoom");
-        ImGui::TextDisabled("%s  |  %s, %d tris, %zu object(s), %zu material(s), %zu "
-                            "texture(s)",
-                            fileName.c_str(), src.format.c_str(), src.tris,
-                            src.objects.size(), src.materials.size(), src.images.size());
+
+        // Glass toolbar (top left): Shaded | Wireframe, Reset view.
+        const float m = fs * 0.7f;
+        {
+            const char* modes[] = {"Shaded", "Wireframe"};
+            int mode = modelImportWire_ ? 1 : 0;
+            const float segW = ImGui::CalcTextSize("ShadedWireframe").x +
+                               ImGui::GetStyle().FramePadding.x * 4.0f + 6.0f;
+            const float resetW = ImGui::CalcTextSize("Reset view").x +
+                                 ImGui::GetStyle().FramePadding.x * 2.6f;
+            const ImVec2 pa(at.x + m, at.y + m);
+            const ImVec2 pb(pa.x + segW + resetW + fs * 1.4f, pa.y + ImGui::GetFrameHeight() + fs * 0.6f);
+            ui::OverlayPanel(dl, pa, pb);
+            ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            if (ui::Segmented("##importshade", modes, 2, &mode)) modelImportWire_ = mode == 1;
+            ImGui::SameLine(0, fs * 0.4f);
+            if (ui::GhostButton("Reset view")) {
+                modelImportAngle_ = 40.0f;
+                modelImportPitch_ = 18.0f;
+                modelImportZoom_ = 1.0f;
+                modelImportPanX_ = modelImportPanY_ = 0.0f;
+            }
+        }
+        // The mouse hint as a quiet pill (top right).
+        {
+            const char* hint = modelImportPlan_.size() > 1
+                                   ? "Click select   Right-drag orbit   Middle-drag pan   Wheel zoom"
+                                   : "Right-drag orbit   Middle-drag pan   Wheel zoom";
+            const ImVec2 ts = ImGui::CalcTextSize(hint);
+            const ImVec2 pb(bt.x - m, at.y + m + ts.y + fs * 0.7f);
+            const ImVec2 pa(pb.x - ts.x - fs * 1.2f, at.y + m);
+            if (pa.x > at.x + fs * 18.0f) {
+                ui::OverlayPanel(dl, pa, pb);
+                dl->AddText(ImVec2(pa.x + fs * 0.6f, pa.y + fs * 0.35f),
+                            ImGui::GetColorU32(sem.textDim), hint);
+            }
+        }
+        // Clip bar (bottom) for animated sources: what clips come along.
+        // The preview shows the bind pose - clips play in the Animation
+        // Editor once imported.
+        if (!src.clips.empty() || src.skinned) {
+            char line[96];
+            std::snprintf(line, sizeof line, "%zu clip%s%s - bind pose shown", src.clips.size(),
+                          src.clips.size() == 1 ? "" : "s", src.skinned ? " - skinned" : "");
+            const float h = ImGui::GetFrameHeight() + fs * 0.6f;
+            const ImVec2 pa(at.x + m, bt.y - m - h), pb(bt.x - m, bt.y - m);
+            ui::OverlayPanel(dl, pa, pb);
+            ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            if (!src.clips.empty()) {
+                static int clipSel = 0;
+                if (clipSel >= (int)src.clips.size()) clipSel = 0;
+                ImGui::SetNextItemWidth(std::min(scaled(260), (pb.x - pa.x) * 0.5f));
+                if (ImGui::BeginCombo("##importclips", src.clips[(size_t)clipSel].c_str())) {
+                    for (int i = 0; i < (int)src.clips.size(); ++i)
+                        if (ImGui::Selectable(src.clips[(size_t)i].c_str(), i == clipSel)) clipSel = i;
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("The clips this file brings. Trim, rename and preview them\n"
+                                      "in Tools > Animation Editor after the import.");
+                ImGui::SameLine();
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(line);
+            dl->AddText(ImVec2(pb.x - ts.x - fs * 0.7f, pa.y + (h - ts.y) * 0.5f),
+                        ImGui::GetColorU32(sem.textDim), line);
+        }
     }
     ImGui::EndChild();
     ImGui::SameLine();
 
-    // ---- options (right) ----
+    // ---- options (right): label-left rows, short enough not to scroll ----
     ImGui::BeginChild("##importoptions", ImVec2(0, -footer), false);
-    ImGui::SetNextItemWidth(scaled(220));
-    if (ImGui::InputText("Name", modelImportName_, sizeof modelImportName_))
-        replan = true;
+    const float capW = std::clamp(ImGui::GetContentRegionAvail().x * 0.3f, scaled(86), scaled(116));
+    auto caption = [&](const char* t) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", t);
+        ImGui::SameLine(capW);
+    };
+    auto sectionGap = [&]() {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    };
+    {
+        ui::InspectorRows rows(scaled(86), scaled(116));
+        if (ui::InputText("Name", modelImportName_, sizeof modelImportName_)) replan = true;
+    }
     // The catalogue: type a path ("res/models/terrain/rocks" - missing folders
     // are created) or pick an existing folder from the arrow.
-    ImGui::SetNextItemWidth(scaled(220) - ImGui::GetFrameHeight());
+    caption("Folder");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight());
     ImGui::InputText("##folder", modelImportFolder_, sizeof modelImportFolder_);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Where the model goes. Type a new path to file it into a\n"
+                          "catalogue - res/models/terrain/rocks - folders are created.\n"
+                          "Move it later in the Asset Browser; references follow.");
     ImGui::SameLine(0, 0);
     if (ImGui::BeginCombo("##folders", nullptr, ImGuiComboFlags_NoPreview |
                                                     ImGuiComboFlags_PopupAlignLeft |
@@ -486,145 +673,154 @@ void App::drawModelImportModal() {
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
-    ImGui::TextUnformatted("Folder");
-    prefHelp("Where the model goes. Type a new path to file it into a\n"
-             "catalogue - res/models/terrain/rocks - folders are created.\n"
-             "Move it later in the Asset Browser; references follow.");
 
-    ImGui::SeparatorText("Use as");
-    ImGui::Checkbox("Static model", &opt.writeStatic);
-    prefHelp("A .obj + .mtl + PNG textures - what a Model entity places.\n"
-             "From a .glb/.fbx this is the bind pose.");
-    ImGui::BeginDisabled(!src.canAnimate());
-    if (src.canAnimate()) {
-        const std::string label =
-            "Animated model (" + std::to_string(src.clips.size()) + " clip(s)" +
-            (src.skinned ? ", skinned)" : ")");
-        ImGui::Checkbox(label.c_str(), &opt.writeAnimated);
-    } else {
-        bool off = false;
-        ImGui::Checkbox("Animated model", &off);
-    }
-    ImGui::EndDisabled();
-    prefHelp(src.canAnimate()
-                 ? "Keeps the .glb/.fbx skeleton and clips - what an Animated model\n"
-                   "entity places. Its materials go to the same .mtl."
-                 : "This file has no skeleton and no clips.");
-    if (!opt.writeStatic && !opt.writeAnimated)
-        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.3f, 1.0f), "Pick at least one.");
-
-    ImGui::SeparatorText("Split");
+    // Use as: two switches whose descriptions say what each one WRITES.
+    sectionGap();
     {
-        ImGui::BeginDisabled(src.objects.size() <= 1 || !opt.writeStatic);
+        const float y = ImGui::GetCursorPosY();
+        ui::Caption("Use as");
+        const char* rule = "pick at least one";
+        const ImVec2 ts = ImGui::CalcTextSize(rule);
+        const ImVec2 after = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - ts.x, y - fs * 0.15f));
+        ImGui::PushStyleColor(ImGuiCol_Text, (!opt.writeStatic && !opt.writeAnimated) ? sem.warn
+                                                                                       : sem.textDim);
+        ImGui::TextUnformatted(rule);
+        ImGui::PopStyleColor();
+        ImGui::SetCursorPos(after);
+    }
+    {
+        ui::InspectorRows rows(scaled(86), scaled(116));
+        const std::string ext = src.format.empty() ? "file" : "." + src.format;
+        if (src.canAnimate()) {
+            const std::string label = "Animated model (Keeps the " + ext + " skeleton and its " +
+                                      std::to_string(src.clips.size()) + " clip" +
+                                      (src.clips.size() == 1 ? "" : "s") +
+                                      " - for characters)";
+            ui::Switch(label.c_str(), &opt.writeAnimated);
+            const std::string sl = "Static model (Also writes a frozen .obj in the bind pose - "
+                                   "for props)";
+            ui::Switch(sl.c_str(), &opt.writeStatic);
+        } else {
+            ui::Switch("Static model (A .obj + .mtl + PNG textures - what a Model places)",
+                       &opt.writeStatic);
+            ImGui::BeginDisabled();
+            bool off = false;
+            ui::Switch("Animated model (This file has no skeleton and no clips)", &off);
+            ImGui::EndDisabled();
+        }
+    }
+
+    // Split (multi-object files only): the model list between Use as and Size.
+    if (src.objects.size() > 1) {
+        sectionGap();
+        ui::Caption("Split");
+        caption("Models");
+        ImGui::BeginDisabled(!opt.writeStatic);
         const std::string top = "One per top-level object (" +
                                 std::to_string(src.groups.size()) + ")";
         const std::string each = "One per mesh (" + std::to_string(src.objects.size()) + ")";
         const char* items[] = {"Keep as one model", top.c_str(), each.c_str()};
         int split = (int)opt.split;
-        ImGui::SetNextItemWidth(scaled(260));
+        ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::Combo("##split", &split, items, 3)) {
             opt.split = (modelimport::Split)split;
             replan = true;
         }
         ImGui::EndDisabled();
-        prefHelp("A pack often ships many props in one file. Splitting writes\n"
-                 "each as its own model into res/models/<name>/, sharing one\n"
-                 ".mtl and the textures.");
-    }
-    if (modelImportPlan_.size() > 1) {
-        int included = 0;
-        for (char c : opt.include) included += c != 0;
-        ImGui::Text("%d of %zu model(s)", included, modelImportPlan_.size());
-        ImGui::SameLine();
-        if (ImGui::SmallButton("All")) std::fill(opt.include.begin(), opt.include.end(), 1);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("None")) std::fill(opt.include.begin(), opt.include.end(), 0);
-        ImGui::BeginChild("##importlist", ImVec2(0, scaled(150)), true);
-        for (size_t i = 0; i < modelImportPlan_.size(); ++i) {
-            ImGui::PushID((int)i);
-            bool inc = opt.include[i] != 0;
-            if (ImGui::Checkbox("##inc", &inc)) opt.include[i] = inc;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A pack often ships many props in one file. Splitting writes\n"
+                              "each as its own model into res/models/<name>/, sharing one\n"
+                              ".mtl and the textures.");
+        if (modelImportPlan_.size() > 1) {
+            int included = 0;
+            for (char c : opt.include) included += c != 0;
+            ImGui::TextDisabled("%d of %zu model(s)", included, modelImportPlan_.size());
             ImGui::SameLine();
-            char row[160];
-            std::snprintf(row, sizeof row, "%s  (%d tris)", modelImportPlan_[i].name.c_str(),
-                          modelImportPlan_[i].tris);
-            if (ImGui::Selectable(row, modelImportSel_ == (int)i))
-                modelImportSel_ = modelImportSel_ == (int)i ? -1 : (int)i;
-            if (modelImportScrollToSel_ && modelImportSel_ == (int)i) {
-                ImGui::SetScrollHereY(0.5f);
-                modelImportScrollToSel_ = false;
+            if (ImGui::SmallButton("All")) std::fill(opt.include.begin(), opt.include.end(), 1);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("None")) std::fill(opt.include.begin(), opt.include.end(), 0);
+            ImGui::BeginChild("##importlist", ImVec2(0, scaled(130)), true);
+            for (size_t i = 0; i < modelImportPlan_.size(); ++i) {
+                ImGui::PushID((int)i);
+                bool inc = opt.include[i] != 0;
+                if (ImGui::Checkbox("##inc", &inc)) opt.include[i] = inc;
+                ImGui::SameLine();
+                char row[160];
+                std::snprintf(row, sizeof row, "%s  (%d tris)", modelImportPlan_[i].name.c_str(),
+                              modelImportPlan_[i].tris);
+                if (ImGui::Selectable(row, modelImportSel_ == (int)i))
+                    modelImportSel_ = modelImportSel_ == (int)i ? -1 : (int)i;
+                if (modelImportScrollToSel_ && modelImportSel_ == (int)i) {
+                    ImGui::SetScrollHereY(0.5f);
+                    modelImportScrollToSel_ = false;
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
+            ImGui::EndChild();
         }
-        ImGui::EndChild();
     }
 
-    ImGui::SeparatorText("Pivot and size");
+    // Size & pivot: one decision (how big is it) in one row.
+    sectionGap();
+    ui::Caption("Size & pivot");
     {
+        caption("Pivot");
         int pivot = (int)opt.pivot;
-        const char* items[] = {"As authored", "Bottom centre", "Centre"};
-        ImGui::SetNextItemWidth(scaled(180));
-        if (ImGui::Combo("Pivot", &pivot, items, 3)) {
+        const char* pivots[] = {"Authored", "Bottom", "Centre"};
+        if (ui::Segmented("##importpivot", pivots, 3, &pivot, -1.0f)) {
             opt.pivot = (modelimport::Pivot)pivot;
             replan = true;
         }
-        prefHelp("Where the object's origin goes. Bottom centre stands a\n"
-                 "model on whatever it is placed on.");
-        const char* units[] = {"Meters", "Centimeters", "Inches", "Custom"};
-        ImGui::SetNextItemWidth(scaled(180));
-        if (ImGui::Combo("Source units", &modelImportUnit_, units, 4) && modelImportUnit_ < 3)
-            modelImportMeters_ = kUnitPresetMeters[modelImportUnit_];
-        prefHelp(".glb/.fbx already arrive in meters; an .obj carries no unit.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Where the object's origin goes. Bottom stands a model on\n"
+                              "whatever it is placed on.");
         // the height of the selected model, else of the whole file
         const float srcH = modelImportSel_ >= 0
                                ? modelImportPlan_[(size_t)modelImportSel_].mx[1] -
                                      modelImportPlan_[(size_t)modelImportSel_].mn[1]
                                : src.mx[1] - src.mn[1];
+        caption(modelImportSel_ >= 0 ? "Selected" : "Real height");
+        const float unitW = scaled(122);
+        const float sp = ImGui::GetStyle().ItemSpacing.x;
         if (srcH > 1e-6f) {
             float realH = srcH * modelImportMeters_;
-            ImGui::SetNextItemWidth(scaled(180));
-            if (ImGui::DragFloat(modelImportSel_ >= 0 ? "Height of selected (m)"
-                                                      : "Real height (m)",
-                                 &realH, 0.01f, 0.001f, 10000.0f, "%.3f m") &&
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - unitW - sp);
+            if (ImGui::DragFloat("##realheight", &realH, 0.01f, 0.001f, 10000.0f, "%.3f m") &&
                 realH > 0.0001f) {
                 modelImportMeters_ = realH / srcH;
                 modelImportUnit_ = unitPresetIndex(modelImportMeters_);
             }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("The real height in meters - the green ruler on the model.");
+            ImGui::SameLine();
         }
+        const char* units[] = {"file: meters", "file: cm", "file: inches", "file: custom"};
+        ImGui::SetNextItemWidth(srcH > 1e-6f ? unitW : -FLT_MIN);
+        if (ImGui::Combo("##sourceunits", &modelImportUnit_, units, 4) && modelImportUnit_ < 3)
+            modelImportMeters_ = kUnitPresetMeters[modelImportUnit_];
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("What one unit of the file measures. .glb/.fbx already arrive\n"
+                              "in meters; an .obj carries no unit.");
         if (modelImportUnit_ == 3) {
-            ImGui::SetNextItemWidth(scaled(180));
-            if (ImGui::DragFloat("Meters per unit", &modelImportMeters_, 0.001f, 0.00001f,
-                                 10000.0f, "%.5f", ImGuiSliderFlags_Logarithmic))
+            caption("Meters / unit");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::DragFloat("##meterspu", &modelImportMeters_, 0.001f, 0.00001f, 10000.0f,
+                                 "%.5f", ImGuiSliderFlags_Logarithmic))
                 modelImportUnit_ = unitPresetIndex(modelImportMeters_);
         }
         const float s = modelImportMeters_ * project_.settings.unitsPerMeter;
-        ImGui::TextDisabled("Inserted at scale %.3f (%.3f x %.3f x %.3f units)", s,
-                            (src.mx[0] - src.mn[0]) * s, (src.mx[1] - src.mn[1]) * s,
-                            (src.mx[2] - src.mn[2]) * s);
+        ImGui::SetCursorPosX(capW);
+        ui::FontScope mono(ui::monoFont());
+        ImGui::TextDisabled("%.2f x %.2f x %.2f m at scale %.3f",
+                            (src.mx[0] - src.mn[0]) * modelImportMeters_,
+                            (src.mx[1] - src.mn[1]) * modelImportMeters_,
+                            (src.mx[2] - src.mn[2]) * modelImportMeters_, s);
     }
 
-    ImGui::SeparatorText("Optimization");
-    if (ImGui::Checkbox("Clean up", &opt.cleanup)) replan = true;
-    prefHelp("Drops zero-area and duplicated triangles.");
-    {
-        int pct = (int)std::lround(opt.keep * 100.0f);
-        ImGui::SetNextItemWidth(scaled(180));
-        ImGui::SliderInt("Keep triangles", &pct, 5, 100, "%d%%");
-        opt.keep = pct / 100.0f;
-        if (ImGui::IsItemDeactivatedAfterEdit()) replan = true;
-        prefHelp("Reduces the mesh (the same decimator as the build's LOD\n"
-                 "tiers). 100% = untouched.");
-        const int sizes[] = {128, 256, 512, 1024, 0};
-        const char* sizeNames[] = {"128", "256", "512", "1024", "Original"};
-        int cur = 4;
-        for (int i = 0; i < 5; ++i)
-            if (sizes[i] == opt.maxTexture) cur = i;
-        ImGui::SetNextItemWidth(scaled(180));
-        if (ImGui::Combo("Max texture size", &cur, sizeNames, 5)) opt.maxTexture = sizes[cur];
-        prefHelp("Longest side written to res/. The PS2 tops out at 512, and\n"
-                 "the build resizes anything bigger anyway.");
-    }
+    // PS2 cost: the levers, with a verdict where the number needs one.
+    sectionGap();
+    ui::Caption("PS2 cost");
     {
         int tris = 0, list = 0, strip = 0;
         for (size_t i = 0; i < modelImportPlan_.size(); ++i) {
@@ -633,77 +829,182 @@ void App::drawModelImportModal() {
             list += modelImportPlan_[i].listVerts;
             strip += modelImportPlan_[i].stripVerts;
         }
-        ImGui::Text("%d triangles (source %d)", tris, src.tris);
-        ImGui::Text("VU1 vertices: %d", strip);
-        if (strip < list) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(strips, %d%% of a list)", list ? strip * 100 / list : 100);
+        caption("Keep tris");
+        int pct = (int)std::lround(opt.keep * 100.0f);
+        char fmt[64];
+        std::snprintf(fmt, sizeof fmt, "%d / %d", tris, src.tris);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::SliderInt("##keeptris", &pct, 5, 100, fmt);
+        opt.keep = pct / 100.0f;
+        if (ImGui::IsItemDeactivatedAfterEdit()) replan = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Keeps %d%% of the triangles (the same decimator as the build's\n"
+                              "LOD tiers). The count is what is kept / the source.", pct);
+        caption("Textures");
+        const int sizes[] = {128, 256, 512, 1024, 0};
+        const char* sizeNames[] = {"128", "256", "512", "1024", "Original"};
+        int cur = 4;
+        for (int i = 0; i < 5; ++i)
+            if (sizes[i] == opt.maxTexture) cur = i;
+        if (ui::Segmented("##maxtexture", sizeNames, 5, &cur, -1.0f)) opt.maxTexture = sizes[cur];
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Longest texture side written to res/. The PS2 tops out at 512,\n"
+                              "and the build resizes anything bigger anyway.");
+        {
+            ui::InspectorRows rows(scaled(86), scaled(116));
+            if (ui::Switch("Clean up (Drop zero-area and duplicate triangles)", &opt.cleanup))
+                replan = true;
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("What the build ships: the same triangle-strip pass\n"
-                              "every static model goes through, run here so the\n"
-                              "number is the bake's own.");
+        // The VU1 cost: 3 vertices per triangle means nothing stripped -
+        // docs/model-pipeline.md's flat-shaded case.
+        const float perTri = tris > 0 ? (float)strip / (float)tris : 0.0f;
+        char vu[200];
+        if (perTri > 2.5f) {
+            std::snprintf(vu, sizeof vu,
+                          "%d VU1 vertices - %.1f per tri: flat-shaded meshes rarely strip.",
+                          strip, perTri);
+            if (ui::NoteCard(1, vu))
+                ImGui::SetTooltip("Every triangle sends its own three vertices: hard edges and\n"
+                                  "split UVs break triangle strips. Smooth normals and fewer\n"
+                                  "seams let the build strip it (docs/model-pipeline.md).");
+        } else {
+            ImGui::SetCursorPosX(capW);
+            ui::FontScope mono(ui::monoFont());
+            ImGui::TextDisabled("%d VU1 vertices - %.1f per tri%s", strip, perTri,
+                                strip < list ? " (strips)" : "");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("What the build ships: the same triangle-strip pass every\n"
+                                  "static model goes through, run here so the number is the\n"
+                                  "bake's own.");
+        }
     }
 
-    ImGui::SeparatorText("Materials");
-    ImGui::Text("%zu material(s), %zu texture(s)", src.materials.size(), src.images.size());
-    if (src.missingTextures() > 0) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f), "%d texture(s) not found",
-                           src.missingTextures());
-        if (ImGui::IsItemHovered()) {
+    // Materials: one status line - ok, or what is missing and the fix.
+    sectionGap();
+    {
+        const float y = ImGui::GetCursorPosY();
+        ui::Caption("Materials", std::to_string(src.materials.size()).c_str());
+        const ImVec2 after = ImGui::GetCursorPos();
+        const int missing = src.missingTextures();
+        char chip[64];
+        if (missing > 0)
+            std::snprintf(chip, sizeof chip, "%d texture%s missing", missing, missing == 1 ? "" : "s");
+        else
+            std::snprintf(chip, sizeof chip, "nothing missing");
+        const float chipW = ImGui::CalcTextSize(chip).x * 0.82f + fs;
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - chipW, y));
+        ui::Badge(chip, missing > 0 ? 1 : 0);
+        if (missing > 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
             std::string list;
             int n = 0;
-            for (const modelimport::Material& m : src.materials)
-                if (!m.missingTexture.empty() && n++ < 24)
-                    list += m.missingTexture + "  (" + m.name + ")\n";
+            for (const modelimport::Material& mt : src.materials)
+                if (!mt.missingTexture.empty() && n++ < 24)
+                    list += mt.missingTexture + "  (" + mt.name + ")\n";
             ImGui::SetTooltip("%s", list.c_str());
         }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Search folder...")) {
-            const std::string dir = pickFolder();
-            if (!dir.empty()) {
-                modelImportTexDirs_.push_back(dir);
-                modelImportPhase_ = ImportPhase::Idle;  // let importModelFile reload
-                modelImporting_ = false;
-                const std::string file = modelImportFile_, target = modelImportTarget_;
-                importModelFile(file, target);
-                ImGui::EndChild();
-                ImGui::EndPopup();
-                return;
+        ImGui::SetCursorPos(after);
+        if (missing > 0) {
+            ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+            ImGui::TextDisabled("Missing textures render white. Point the importer at the "
+                                "folder that has them:");
+            ImGui::PopTextWrapPos();
+            if (ImGui::Button("Search folder...")) {
+                const std::string dir = pickFolder();
+                if (!dir.empty()) {
+                    modelImportTexDirs_.push_back(dir);
+                    modelImportPhase_ = ImportPhase::Idle;  // let importModelFile reload
+                    modelImporting_ = false;
+                    const std::string file = modelImportFile_, target = modelImportTarget_;
+                    importModelFile(file, target);
+                    ImGui::EndChild();
+                    ImGui::EndPopup();
+                    return;
+                }
             }
         }
+        for (size_t i = 0; i < src.warnings.size() && i < 4; ++i) ui::NoteCard(1, src.warnings[i].c_str());
+        ImGui::Dummy(ImVec2(1, 1));
     }
-    for (size_t i = 0; i < src.warnings.size() && i < 4; ++i)
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", src.warnings[i].c_str());
-
     ImGui::EndChild();
 
     if (replan) modelImportReplan();
 
-    // ---- footer ----
+    // ---- footer: scene switch, what it writes, Cancel + the one action ----
     ImGui::Separator();
     const std::string stem = modelimport::safeName(modelImportName_);
     const std::string base = normalizeModelFolder(modelImportFolder_);
     const bool split = opt.writeStatic && modelImportPlan_.size() > 1;
     const std::string dest = split ? base + "/" + stem : base;
-    // the scene options live in the footer so they are on screen however
-    // long the options column grows
+    ImGui::AlignTextToFramePadding();
     if (modelImportFor_ == ModelImportFor::Nothing) {
-        ImGui::Checkbox("Add to the scene", &modelImportAddToScene_);
-        ImGui::SameLine();
+        ui::Switch("Add to the scene", &modelImportAddToScene_);
+        ImGui::SameLine(0, fs);
     }
     if ((modelImportAddToScene_ || modelImportFor_ == ModelImportFor::NewStatic) && split) {
-        ImGui::Checkbox("at the file's layout", &modelImportLayout_);
-        if (ImGui::IsItemHovered())
+        ui::Switch("at the file's layout", &modelImportLayout_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Every model where the file had it, as one editor group.\n"
                               "Off: only the first model is placed.");
-        ImGui::SameLine();
+        ImGui::SameLine(0, fs);
     }
-    ImGui::TextDisabled("Into %s/", dest.c_str());
-    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - scaled(250));
+    // What will be written - the import's consequence, stated before it runs.
+    std::string writes;
+    {
+        int nStatic = 0;
+        for (size_t i = 0; i < modelImportPlan_.size(); ++i)
+            nStatic += (i >= opt.include.size() || opt.include[i]) ? 1 : 0;
+        const bool anim = opt.writeAnimated && src.canAnimate();
+        if (anim) writes = dest + "/" + stem + "." + src.format;
+        if (opt.writeStatic) {
+            if (!writes.empty()) writes += " + ";
+            writes += split ? std::to_string(nStatic) + " .obj in " + dest + "/"
+                            : (anim ? stem + ".obj" : dest + "/" + stem + ".obj");
+        }
+        if (!writes.empty()) {
+            writes += " + " + stem + ".mtl";
+            if (!src.images.empty())
+                writes += " + " + std::to_string(src.images.size()) + " texture" +
+                          (src.images.size() == 1 ? "" : "s");
+            if (anim && !src.clips.empty())
+                writes += " - " + std::to_string(src.clips.size()) + " clip" +
+                          (src.clips.size() == 1 ? "" : "s");
+            writes = "writes " + writes;
+        } else {
+            writes = "writes nothing - pick Animated or Static";
+        }
+    }
+    const float cancelW = scaled(96), importW = scaled(150);
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    {
+        ui::FontScope mono(ui::monoFont());
+        const float room = right - cancelW - importW - sp * 3.0f - ImGui::GetCursorPosX();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(std::max(1.0f, room), ImGui::GetFrameHeight()));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->PushClipRect(p, ImVec2(p.x + room, p.y + ImGui::GetFrameHeight()), true);
+        dl->AddText(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(sem.textDim),
+                    writes.c_str());
+        dl->PopClipRect();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+            ImGui::CalcTextSize(writes.c_str()).x > room)
+            ImGui::SetTooltip("%s", writes.c_str());
+    }
+    ImGui::SameLine(right - cancelW - importW - sp);
+    if (ImGui::Button("Cancel", ImVec2(cancelW, 0))) {
+        modelImportPhase_ = ImportPhase::Idle;
+        modelImporting_ = false;
+        modelImportFor_ = ModelImportFor::Nothing;
+        modelImportSrc_.reset();
+        modelImportPlan_.clear();
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::SameLine();
     const bool can = (opt.writeStatic || opt.writeAnimated) && !modelImportPlan_.empty();
-    ImGui::BeginDisabled(!can);
-    if (ImGui::Button("Import", ImVec2(scaled(120), 0))) {
+    const std::string importText = "Import " + (stem.empty() ? std::string("model") : stem);
+    if (ui::PrimaryButtonText("Import", importText.c_str(), importW, can)) {
         opt.baseName = stem;
         if (!src.canAnimate()) opt.writeAnimated = false;
         modelImportPhase_ = ImportPhase::Writing;
@@ -719,16 +1020,8 @@ void App::drawModelImportModal() {
             modelImportDone_.store(true, std::memory_order_release);
         });
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
-        modelImportPhase_ = ImportPhase::Idle;
-        modelImporting_ = false;
-        modelImportFor_ = ModelImportFor::Nothing;
-        modelImportSrc_.reset();
-        modelImportPlan_.clear();
-        ImGui::CloseCurrentPopup();
-    }
+    if (!can && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Pick Animated model or Static model first.");
     ImGui::EndPopup();
 }
 

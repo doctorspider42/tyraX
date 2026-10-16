@@ -485,6 +485,56 @@ bool ChoiceCard(const char* label, bool selected, float height) {
     }
     return pressed;
 }
+// --- assets-a ---
+bool PrimaryButtonText(const char* id, const char* text, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImFont* bf = boldFont() ? boldFont() : ImGui::GetFont();
+    const float fsz = ImGui::GetFontSize();
+    const ImVec2 ts = bf->CalcTextSizeA(fsz, FLT_MAX, 0.0f, text);
+    const float h = ImGui::GetFrameHeight();
+    float w = width > 0.0f ? width : ts.x + st.FramePadding.x * 2.6f;
+    if (width < 0.0f) w = ImMax(ts.x + st.FramePadding.x * 2.0f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImVec4 f = enabled ? sem.accent : sem.surface;
+    if (enabled) f = mixv(f, ImVec4(1, 1, 1, 1), 0.10f * t);
+    if (held) f = mixv(f, ImVec4(0, 0, 0, 1), 0.15f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(f), st.FrameRounding);
+    dl->AddText(bf, fsz, ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f),
+                enabled ? c32(sem.ground) : c32(sem.textDim, 0.6f), text);
+    return pressed && enabled;
+}
+
+bool NoteCard(int kind, const char* text) {
+    const float fs = ImGui::GetFontSize();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float wrap = w - fs * 2.2f;
+    const ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, wrap);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float h = ts.y + fs * 1.2f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = kindCol(kind);
+    const ImVec4 base = ImGui::ColorConvertU32ToFloat4(col);
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(base, 0.10f), r);
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), c32(base, 0.35f), r);
+    dl->AddCircleFilled(ImVec2(p.x + fs * 0.8f, p.y + fs * 0.6f + fs * 0.5f), fs * 0.22f, col);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.5f, p.y + fs * 0.6f));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::SetCursorScreenPos(p);
+    ImGui::Dummy(ImVec2(w, h));
+    return ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
+}
+// --- end assets-a ---
 
 }  // namespace ui
 

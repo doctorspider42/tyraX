@@ -5,53 +5,67 @@ before anything is written, and always produces the same kind of files.
 
 ## The window
 
-![The import window: a textured model in the preview on the left, the use-as, split, pivot, size, optimization and material options on the right.](img/model-import.png)
+![The import window: the file and its facts in the header, the model as the large preview with a height ruler, label-left options on the right, and a footer that says what will be written next to the Import button.](img/model-import.png)
 
 Open it from **Project > Assets > Import model...**, the
-[Asset Browser](asset-browser.md)'s **Import...** menu, or **Import new
+[Asset Browser](asset-browser.md)'s **Import** menu, or **Import new
 model...** inside the model picker. Pick a file; it is read in the background
-and the window opens with a preview on the left and the options on the right.
+and the window opens. The header names the file with its facts (format,
+triangles, objects, textures) and offers **Choose another file**.
 
-- **Preview** — right drag to orbit, middle drag to pan, mouse wheel to zoom,
-  **Reset view** to start over, **Wireframe** for the triangles. Missing textures show as plain white surfaces, so a broken import
-  is visible before it reaches the project. Selecting a row of the model list
-  outlines that model in orange, and in a split import a left click on a piece
-  in the preview selects its row (scrolling the list to it).
+- **Preview** — the model, large: right drag to orbit, middle drag to pan,
+  mouse wheel to zoom; **Shaded / Wireframe** and **Reset view** float over
+  its top left. A green **height ruler** stands beside the model with the
+  number the *Real height* field edits. Missing textures show as plain white
+  surfaces, so a broken import is visible before it reaches the project.
+  Selecting a row of the model list outlines that model in orange, and in a
+  split import a left click on a piece selects its row (scrolling the list to
+  it). An animated file shows a clip bar at the bottom: the clips it brings
+  (the preview itself is the bind pose - clips play in the
+  [Animation Editor](animated-models.md) after the import).
 - **Folder** — where the model goes, e.g. `res/models/terrain/rocks`: type a
   path (missing folders are created; a bare `terrain/rocks` lands under
   `res/models`) or pick an existing folder from the arrow. It is remembered for
   the next import, so filing a pack into a catalogue is one setting. Imported
   from an Asset Browser folder, it starts there. Moving a model later in the
   Asset Browser keeps every reference.
-- **Use as** — **Static model** writes an `.obj` (from a `.glb`/`.fbx` that is
-  the bind pose). **Animated model** keeps the `.glb`/`.fbx` with its skeleton
-  and clips; it is greyed out for a file with neither. Both can be on.
-- **Split** — keep the file as one model, or write one model per top-level
-  object, or one per mesh. Packs often ship dozens of props in one file; a
-  split import writes them into `<folder>/<name>/`, all sharing one `.mtl`
-  and the textures. Untick models in the list to leave them out.
-- **Pivot** — as authored, bottom centre (stands on what it is placed on) or
-  centre. Applied per model.
-- **Source units / Real height** — the asset's real-world size, the same record
-  the Asset Browser's **Size...** edits ([world-scale.md](world-scale.md)). With
+- **Use as** — two switches, each saying what it writes. **Animated model**
+  keeps the `.glb`/`.fbx` with its skeleton and clips (for characters; off and
+  greyed for a file with neither). **Static model** writes an `.obj` (from a
+  `.glb`/`.fbx` that is a frozen bind pose, for props). Both can be on; at
+  least one must be. A **skinned** file starts with only *Animated model* on -
+  the bind-pose `.obj` used to be written beside it silently; a rigid animated
+  file (clips, no skin) starts with both.
+- **Split** (files with several objects) — keep the file as one model, or write
+  one model per top-level object, or one per mesh. Packs often ship dozens of
+  props in one file; a split import writes them into `<folder>/<name>/`, all
+  sharing one `.mtl` and the textures. Untick models in the list to leave them
+  out.
+- **Pivot** — *Authored*, *Bottom* (stands on what it is placed on) or
+  *Centre*. Applied per model.
+- **Real height** — the asset's real-world size in meters, with what one unit
+  of the file measures beside it (*file: meters / cm / inches / custom*), and
+  the resulting dimensions and insert scale under it - the same record the
+  Asset Browser's **Real size** edits ([world-scale.md](world-scale.md)). With
   a model selected in the list, the height is that model's.
-- **Clean up** — drops zero-area and duplicated triangles.
-- **Keep triangles** — reduces the mesh with the same decimator the build's LOD
-  tiers use. 100% leaves it untouched.
-- **Max texture size** — the longest side written to `res/`. The PS2 tops out
-  at 512 and the build resizes anything bigger anyway; this keeps the project
-  small.
-- **VU1 vertices** — what the build will ship: the triangle-strip pass every
-  static model goes through, run on the planned meshes so the number is the
-  bake's own. Flat-shaded meshes rarely strip (see
-  [model-pipeline.md](model-pipeline.md), "Triangle strips").
-- **Materials** — the count, and the textures that could not be found. Hover
-  for the list; **Search folder...** points the importer at the folder that has
-  them (searched recursively by file name, `.png` found for a `.jpg` reference
-  too) and re-reads the file.
-- **Add to the scene** (footer) — places the result. For a split import, **at
-  the file's layout** puts every model where the file had it, as one
-  [editor group](object-groups.md).
+- **PS2 cost** — **Keep tris** reduces the mesh with the same decimator the
+  build's LOD tiers use and shows the kept count against the source;
+  **Textures** is the longest side written to `res/` (the PS2 tops out at 512
+  and the build resizes anything bigger anyway); **Clean up** drops zero-area
+  and duplicated triangles. The **VU1 vertices** the build will ship (the
+  triangle-strip pass every static model goes through, run on the planned
+  meshes) turn into a warning card when they reach about three per triangle -
+  flat-shaded meshes rarely strip (see [model-pipeline.md](model-pipeline.md),
+  "Triangle strips").
+- **Materials** — the count and one status chip: *nothing missing*, or how many
+  textures could not be found (hover for the list). **Search folder...** points
+  the importer at the folder that has them (searched recursively by file name,
+  `.png` found for a `.jpg` reference too) and re-reads the file.
+- **Footer** — **Add to the scene** places the result (for a split import,
+  **at the file's layout** puts every model where the file had it, as one
+  [editor group](object-groups.md)); a line states exactly what will be written
+  (`writes res/models/cat.glb + cat.mtl - 2 clips`); **Cancel**, and the one
+  primary action, **Import <name>**.
 
 ## What gets written
 

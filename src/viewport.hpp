@@ -572,6 +572,10 @@ public:
     // LAST renderImportPreview frame - the import window's click-to-select.
     // False before the first frame.
     bool importPreviewRay(float u, float v, float origin[3], float dir[3]) const;
+    // The inverse: where a world point lands in that frame's image (u, v in
+    // [0,1], origin top-left). False before the first frame or behind the
+    // camera. Draws the import window's height ruler onto the model.
+    bool importPreviewProject(const float p[3], float& u, float& v) const;
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals

@@ -150,5 +150,16 @@ void Meter(float fraction, float width = 0.0f, float warnAt = 2.0f, float danger
 void Pill(const char* text, int kind);
 float PillWidth(const char* text);
 // --- end screens-c ---
+// --- assets-a ---
+/** PrimaryButton whose visible text differs from its ID: `id` is the label
+ * (the ID and the --ui-script name, kept stable), `text` what it shows -
+ * "Import cat" on a button scripts still click as "Import". */
+bool PrimaryButtonText(const char* id, const char* text, float width = 0.0f, bool enabled = true);
+
+/** A full-width warning/info card: a tinted rounded block (kind as
+ * StatusLine: 0 ok, 1 warn, 2 danger, 3 info) with a dot and wrapped text.
+ * Returns true when it is hovered (for a tooltip with the long story). */
+bool NoteCard(int kind, const char* text);
+// --- end assets-a ---
 
 }  // namespace ui
