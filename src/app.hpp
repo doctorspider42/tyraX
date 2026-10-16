@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <array>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <set>
@@ -3849,6 +3850,14 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    // Edit > Preferences > ps2link "Test connection": a TCP connect to
+    // tcp/18193 on a worker (wire::probeTcp), never a deploy. The verdict is
+    // kept with the IP it was for, so editing the field drops it.
+    std::future<std::string> ps2TestJob_;
+    std::string ps2TestIp_;      // the address the running/last test asked
+    std::string ps2TestResult_;  // "" none yet; else the verdict line
+    int ps2TestKind_ = 3;        // StatusLine kind of the verdict
+    double ps2TestStarted_ = 0.0;
     char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
     int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects

@@ -20238,9 +20238,49 @@ void App::drawEditorPreferencesModal() {
         ImGui::SetNextItemWidth(scaled(200));
         ImGui::InputTextWithHint("##PS2 (ps2link) IP", "192.168.0.10", prefPs2Ip_, sizeof(prefPs2Ip_));
         if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        // Test connection: is ps2link listening there? A TCP connect to its
+        // file-request port, nothing sent - not a deploy, not a reset.
+        const bool testing = ps2TestJob_.valid();
+        if (testing && ps2TestJob_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            const std::string err = ps2TestJob_.get();
+            const int ms = (int)((ImGui::GetTime() - ps2TestStarted_) * 1000.0);
+            if (err.empty()) {
+                ps2TestResult_ = "ps2link answered at " + ps2TestIp_ + " (" + std::to_string(ms) + " ms)";
+                ps2TestKind_ = 0;
+            } else if (err.find("timed out") != std::string::npos) {
+                ps2TestResult_ = "No answer within 2 s - is the PS2 on, running PS2LINK.ELF, at this IP?";
+                ps2TestKind_ = 2;
+            } else if (err.find("refused") != std::string::npos) {
+                ps2TestResult_ = "Something at " + ps2TestIp_ + " refused the connection - not ps2link";
+                ps2TestKind_ = 2;
+            } else {
+                ps2TestResult_ = "Could not test: " + err;
+                ps2TestKind_ = 2;
+            }
+        }
+        ImGui::SameLine();
+        const bool gameOnConsole = runner_.ps2ClientAlive();
+        ImGui::BeginDisabled(!prefPs2Ip_[0] || ps2TestJob_.valid() || gameOnConsole);
+        if (ImGui::Button(ps2TestJob_.valid() ? "Testing...###ps2_test" : "Test connection###ps2_test")) {
+            ps2TestIp_ = prefPs2Ip_;
+            ps2TestResult_.clear();
+            ps2TestStarted_ = ImGui::GetTime();
+            ps2TestJob_ = std::async(std::launch::async, [ip = ps2TestIp_] {
+                return wire::probeTcp(ip, 18193, 2000);
+            });
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", gameOnConsole
+                                        ? "A game is running on the console - its file server holds ps2link"
+                                        : "Checks that ps2link listens at this address (tcp/18193).\n"
+                                          "Nothing is deployed and the console is not reset.");
         if (!prefPs2Ip_[0]) {
             ImGui::SetCursorPosX(colX);
             ui::StatusLine(1, "Not set - Run on PS2 (F6) stays off.");
+        } else if (!ps2TestResult_.empty() && ps2TestIp_ == prefPs2Ip_) {
+            ImGui::SetCursorPosX(colX);
+            ui::StatusLine(ps2TestKind_, ps2TestResult_.c_str());
         }
         rowDesc("A PS2 on this network running PS2LINK.ELF. The game boots over ethernet with assets served "
                 "from this computer.");

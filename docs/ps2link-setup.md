@@ -40,6 +40,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Running games
    > ps2link IP*. Machine-global, not project data, so you do this once.
+   **Test connection** next to it checks the address before you deploy.
 5. **Run with F6**, stop with the top bar's Stop. That is it.
 
 Two things worth knowing before you hit a wall:
@@ -405,6 +406,18 @@ the baseline launch, and are excluded from the six cycles.
 a **machine-global** editor setting (`editor.ini`), shared by every project —
 not project data, so it never travels in a `.tyra` file. Leave it empty to
 disable the F6 path entirely.
+
+**Test connection** beside the field opens a TCP connection to `tcp/18193` -
+the file-request socket ps2link listens on, which every `ps2client` command
+connects to the same way - waits up to 2 s, and closes it again without
+sending a byte. Nothing is deployed and the console is not reset. It answers
+one of three things: *ps2link answered (N ms)*; *no answer within 2 s* (wrong
+IP, console off or not in ps2link, or a network in between); *refused* (a
+machine is at that address but nothing listens there - not ps2link). It is
+greyed out while a game is running on the console, whose file server holds the
+connection. A green answer proves the TCP half only: the console's log comes
+back over UDP 18194, which the PC's firewall must still let in (see the ports
+table below).
 
 Headless, the IP can also come from the command line:
 
