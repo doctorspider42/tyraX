@@ -1232,6 +1232,10 @@ private:
     void vuRebuildPreview();
     int vuObjectsInClass(unsigned classBit) const;
     void vuSimulate();
+    void drawVuLook(int look);    // the centre column for one look
+    void drawVuCheck(int look);   // host run + generated .vclpp beside it
+    void drawVuKernel();
+    void drawVuMicroMemory(unsigned mask, unsigned needed, int fam);
 
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
     // editor. One window drives every Scatter volume in the active scene -
@@ -2280,6 +2284,12 @@ private:
     float vuSimParams_[4] = {1.0f, 0.0f, 0.0f, 0.0f};
     float vuSimTime_ = 0.0f;
     std::string vuSimOut_;
+    std::vector<int> vuSimRows_;  // per vertex: x y z (values), x y z (zero), same
+    std::string vuSimErr_;
+    int vuSimQ_ = 0;
+    bool vuSimRan_ = false, vuSimSame_ = true;
+    int vuSelKind_ = 0;  // the list: 0 a look, 1 the VU0 kernel, 2 Micro memory
+    int vuSelLook_ = 0;
     int prefabSelected_ = 0;
     // The Notes field: a wrapped paragraph at rest, a multiline editor while it
     // is being typed in (ImGui's multiline InputText does not word-wrap, so the
