@@ -115,8 +115,9 @@ edited in the same units/s form with the same metric readout. See
 
 A model asset can carry **how many meters one unit of the file measures**
 (`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The import
-window asks for it ([model-import.md](model-import.md)), and the **Size...** button in the
-[Asset Browser](asset-browser.md)'s inspector (select a model) changes it
+window asks for it ([model-import.md](model-import.md)), and the **Real size** row in the
+[Asset Browser](asset-browser.md)'s inspector (select a model; it shows the
+size in meters, with `?` while none is recorded) changes it
 afterwards:
 
 - **Source units** — Meters / Centimeters / Inches / Custom. `.glb` and

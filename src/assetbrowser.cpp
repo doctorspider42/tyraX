@@ -25,6 +25,8 @@
 #include "app.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <functional>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -41,6 +43,9 @@
 #include "templates.hpp"  // saveMenuAssets - the built-in HUD sprites
 
 #include "platform.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
 
 namespace fs = std::filesystem;
 
@@ -1244,13 +1249,22 @@ bool App::activateAsset(const std::string& rel) {
 // The window
 // ---------------------------------------------------------------------------
 
+// Three columns - folders (+ smart views) | the grid | an inspector column -
+// instead of a grid with a fixed strip under it: the strip took a third of
+// the grid's height, spent its empty state on three lines of permanent help,
+// and squeezed references into its right half. The per-tile "unused" ring is
+// gone too (in showcase 104 of 105 models carried it, so it told nothing per
+// tile); the question it was answering - what can I delete? - is the Unused
+// smart view and a count in the status line.
 void App::drawAssetBrowserWindow() {
     if (!showAssetBrowser_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(960), scaled(600)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200), scaled(760)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Asset Browser", &showAssetBrowser_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
     // res/ is the database, so the disk is the source of truth: a periodic
     // rescan picks up hand-dropped files, an import from another panel and
@@ -1260,16 +1274,53 @@ void App::drawAssetBrowserWindow() {
     // Each new thumbnail is a GL render + a texture copy; spread a folder full
     // of them over a few frames instead of stalling one.
     assetThumbBudget_ = 4;
+    int metaBudget = 6;  // model parses for the tiles' triangle line, per frame
 
+    auto isUnused = [&](const AssetItem& item) {
+        if (item.generated) return false;
+        const AssetUsage* use = assetUsageFor(item.rel);
+        if (use && use->total() > 0) return false;
+        return assetWavefrontUsers(item.rel).empty();
+    };
+    // "Recently changed": what landed in res/ in the last week, newest first -
+    // fresh imports, a repaint, a render. (The importer keeps no log, so this
+    // reads file times; it is the "what did I just add" view.)
+    const long long weekTicks = (long long)std::chrono::duration_cast<
+                                    fs::file_time_type::duration>(std::chrono::hours(24 * 7))
+                                    .count();
+    long long newest = 0;
+    for (const AssetItem& item : assetItems_) newest = std::max(newest, item.mtime);
+    const long long nowTicks =
+        (long long)fs::file_time_type::clock::now().time_since_epoch().count();
+    auto isRecent = [&](const AssetItem& item) {
+        return !item.generated && item.mtime > 0 && nowTicks - item.mtime < weekTicks;
+    };
+    int nUnused = 0, nRecent = 0, nGenerated = 0;
+    for (const AssetItem& item : assetItems_) {
+        nUnused += isUnused(item) ? 1 : 0;
+        nRecent += isRecent(item) ? 1 : 0;
+        nGenerated += item.generated ? 1 : 0;
+    }
+    (void)newest;
+
+    auto inView = [&](const AssetItem& item) {
+        switch (assetView_) {
+            case 1: return isUnused(item);
+            case 2: return isRecent(item);
+            case 3: return item.generated;
+            default:
+                if (item.generated) return false;
+                return assetRecursive_ ? insideFolder(item.rel, assetFolder_)
+                                       : folderOf(item.rel) == assetFolder_;
+        }
+    };
     auto matchesFilter = [&](const AssetItem& item) {
         if (!assetSearch_.empty() &&
             lowerOf(item.name).find(lowerOf(assetSearch_)) == std::string::npos)
             return false;
-        if (item.generated && !assetShowGenerated_) return false;
         switch (assetFilter_) {
             case kFilterModels:
-                return item.kind == AssetKind::Model ||
-                       item.kind == AssetKind::AnimModel;
+                return item.kind == AssetKind::Model || item.kind == AssetKind::AnimModel;
             case kFilterMaterials: return item.kind == AssetKind::Material;
             case kFilterTextures: return item.kind == AssetKind::Texture;
             case kFilterAudio:
@@ -1280,17 +1331,18 @@ void App::drawAssetBrowserWindow() {
             default: return true;
         }
     };
-    auto inScope = [&](const AssetItem& item) {
-        return assetRecursive_ ? insideFolder(item.rel, assetFolder_)
-                               : folderOf(item.rel) == assetFolder_;
-    };
     auto isSelectedAsset = [&](const std::string& rel) {
         for (const std::string& s : assetSelection_)
             if (s == rel) return true;
         return false;
     };
+    auto openFolder = [&](const std::string& rel) {
+        assetFolder_ = rel;
+        assetView_ = 0;
+        assetSelection_.clear();
+    };
 
-    // --- toolbar ----------------------------------------------------------
+    // --- header: what this is + the two ways to add to it --------------------
     // Imports land in the folder the browser is showing when that folder is
     // inside the root the type belongs to - otherwise in the type's own root,
     // where the importers put them.
@@ -1305,151 +1357,57 @@ void App::drawAssetBrowserWindow() {
         }
         assetSelection_.assign(1, imported);
     };
-    if (ImGui::Button("Import...")) ImGui::OpenPopup("assetimport");
-    if (ImGui::BeginPopup("assetimport")) {
-        if (ImGui::MenuItem("Model (.obj / .glb / .fbx)...", nullptr, false,
-                            !modelImporting_))
-            importModelAsset(assetFolder_);
-        if (ImGui::MenuItem("Material (.mtl)...")) importInto(importMaterialAsset());
-        if (ImGui::MenuItem("Texture (.png)...")) importInto(importTextureAsset());
-        ImGui::Separator();
-        if (ImGui::MenuItem("Music track (.wav)...")) {
-            importMusicTrack();
-            assetsChanged();
-        }
-        if (ImGui::MenuItem("Sound effect (.wav)...")) {
-            importSoundEffect();
-            assetsChanged();
-        }
-        if (ImGui::MenuItem("HUD image (.png)...")) {
-            importHudImage();
-            assetsChanged();
-        }
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("New folder")) {
-        assetNewFolderParent_ = assetFolder_;
-        assetNewFolderBuf_[0] = 0;
-    }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(170));
-    char search[128];
-    std::snprintf(search, sizeof(search), "%s", assetSearch_.c_str());
-    if (ImGui::InputTextWithHint("##assetsearch", "Search name...", search,
-                                 sizeof(search)))
-        assetSearch_ = search;
-    ImGui::SameLine();
-    if (ImGui::SmallButton("x##clearsearch")) assetSearch_.clear();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear the search");
-
-    // Type chips carry the count in the current scope - "Textures (0)" says at a
-    // glance that this folder has none, without switching filters.
-    ImGui::SameLine();
-    ImGui::TextUnformatted("|");
-    int counts[kFilterCount] = {};
-    for (const AssetItem& item : assetItems_) {
-        if (!inScope(item)) continue;
-        if (item.generated && !assetShowGenerated_) continue;
-        ++counts[kFilterAll];
-        switch (item.kind) {
-            case AssetKind::Model:
-            case AssetKind::AnimModel: ++counts[kFilterModels]; break;
-            case AssetKind::Material: ++counts[kFilterMaterials]; break;
-            case AssetKind::Texture: ++counts[kFilterTextures]; break;
-            case AssetKind::Music:
-            case AssetKind::Sound:
-            case AssetKind::DronePatch: ++counts[kFilterAudio]; break;
-            case AssetKind::Font: ++counts[kFilterFonts]; break;
-            default: ++counts[kFilterOther]; break;
-        }
-    }
-    for (int f = 0; f < kFilterCount; ++f) {
-        // Chips wrap instead of running off a narrowly docked window.
-        ImGui::SameLine();
-        if (ImGui::GetContentRegionAvail().x <
-            ImGui::CalcTextSize(kFilterLabels[f]).x + scaled(48))
-            ImGui::NewLine();
-        const bool on = assetFilter_ == f;
-        if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(
-                                                           ImGuiCol_ButtonActive));
-        char label[64];
-        std::snprintf(label, sizeof(label), "%s (%d)##f%d", kFilterLabels[f],
-                      counts[f], f);
-        if (ImGui::SmallButton(label)) assetFilter_ = f;
-        if (on) ImGui::PopStyleColor();
-    }
-
-    // --- second row: breadcrumb + view controls ----------------------------
-    ImGui::AlignTextToFramePadding();
     {
-        // Clickable path segments; the deepest one is the current folder.
-        std::vector<std::string> parts;
-        for (size_t i = 0; i <= assetFolder_.size(); ++i) {
-            if (i == assetFolder_.size() || assetFolder_[i] == '/') {
-                parts.push_back(assetFolder_.substr(0, i));
-                continue;
-            }
+        int total = 0;
+        for (const AssetItem& item : assetItems_) total += item.generated ? 0 : 1;
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope m(ui::monoFont());
+            ImGui::TextDisabled("res/ - %d files", total);
         }
-        for (size_t i = 0; i < parts.size(); ++i) {
-            if (i) {
-                ImGui::SameLine(0.0f, scaled(4));
-                ImGui::TextDisabled("/");
-                ImGui::SameLine(0.0f, scaled(4));
-            }
-            const std::string label = nameOf(parts[i]) + "##bc" + std::to_string(i);
-            if (i + 1 == parts.size()) {
-                ImGui::TextUnformatted(nameOf(parts[i]).c_str());
-            } else if (ImGui::SmallButton(label.c_str())) {
-                assetFolder_ = parts[i];
-                assetSelection_.clear();
-            }
+        const float pad = ImGui::GetStyle().FramePadding.x * 2.6f;
+        const float nfW = ImGui::CalcTextSize("New folder").x + pad;
+        const float imW = ImGui::CalcTextSize("Import").x + pad + fs;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - nfW - imW -
+                        ImGui::GetStyle().ItemSpacing.x);
+        if (ui::GhostButton("New folder")) {
+            assetNewFolderParent_ = assetFolder_;
+            assetNewFolderBuf_[0] = 0;
         }
-    }
-    {
-        // Right-aligned: what the grid shows and how big. On a window too narrow
-        // for both, they simply follow the breadcrumb instead of overlapping it.
-        const float right = ImGui::GetWindowContentRegionMax().x;
         ImGui::SameLine();
-        const float controlsX = right - scaled(470);
-        if (controlsX > ImGui::GetCursorPosX()) ImGui::SameLine(controlsX);
-        ImGui::Checkbox("Sub-folders", &assetRecursive_);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("List everything below this folder, not just its\n"
-                              "own files (search across a whole tree).");
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Generated", &assetShowGenerated_)) scanAssetTree();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Also show files the build writes into res/\n"
-                              "(baked menu panels, text sprites, glyph atlases,\n"
-                              ".tmdl meshes). They are read-only here.");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(96));
-        const char* sorts[] = {"Name", "Type", "Size", "Newest"};
-        ImGui::Combo("##assetsort", &assetSort_, sorts, 4);
-        ImGui::SameLine();
-        if (ImGui::SmallButton(assetGridView_ ? "List" : "Grid"))
-            assetGridView_ = !assetGridView_;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(assetGridView_ ? "Switch to detail rows"
-                                             : "Switch to the thumbnail grid");
-        if (assetGridView_) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(90));
-            ImGui::SliderFloat("##tilesize", &assetTileSize_, 48.0f, 160.0f, "%.0f px");
+        if (ui::PrimaryButtonText("Import...", "Import", imW)) ImGui::OpenPopup("assetimport");
+        if (ImGui::BeginPopup("assetimport")) {
+            if (ImGui::MenuItem("Model (.obj / .glb / .fbx)...", nullptr, false, !modelImporting_))
+                importModelAsset(assetFolder_);
+            if (ImGui::MenuItem("Material (.mtl)...")) importInto(importMaterialAsset());
+            if (ImGui::MenuItem("Texture (.png)...")) importInto(importTextureAsset());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Music track (.wav)...")) {
+                importMusicTrack();
+                assetsChanged();
+            }
+            if (ImGui::MenuItem("Sound effect (.wav)...")) {
+                importSoundEffect();
+                assetsChanged();
+            }
+            if (ImGui::MenuItem("HUD image (.png)...")) {
+                importHudImage();
+                assetsChanged();
+            }
+            ImGui::EndPopup();
         }
     }
-
     if (!assetOpError_.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s", assetOpError_.c_str());
-        ImGui::SameLine();
+        ui::NoteCard(2, assetOpError_.c_str());
         if (ImGui::SmallButton("OK##operr")) assetOpError_.clear();
     }
-    ImGui::Separator();
 
-    // --- folder tree ------------------------------------------------------
-    const float inspectorH = scaled(150);
-    ImGui::BeginChild("assettree", ImVec2(scaled(180), -inspectorH), true);
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float treeW = scaled(220), inspW = scaled(310);
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+
+    // --- left: folders, smart views, the drop hint ----------------------------
+    ui::BeginCard("assettree", ImVec2(treeW, bodyH));
     {
         auto folderDropTarget = [&](const std::string& folder) {
             if (!ImGui::BeginDragDropTarget()) return;
@@ -1459,8 +1417,7 @@ void App::drawAssetBrowserWindow() {
                     // Dragging one of several selected files moves the whole
                     // selection - that is what the highlight promised.
                     std::vector<std::string> moving =
-                        isSelectedAsset(rel) ? assetSelection_
-                                             : std::vector<std::string>{rel};
+                        isSelectedAsset(rel) ? assetSelection_ : std::vector<std::string>{rel};
                     assetOpError_ = moveAssets(moving, folder);
                 }
             if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("TYRAX_ASSET_DIR")) {
@@ -1480,14 +1437,12 @@ void App::drawAssetBrowserWindow() {
                 assetRenameRel_ = folder;
                 assetRenameIsFolder_ = true;
                 assetRenameFocus_ = true;
-                std::snprintf(assetRenameBuf_, sizeof(assetRenameBuf_), "%s",
-                              nameOf(folder).c_str());
+                std::snprintf(assetRenameBuf_, sizeof(assetRenameBuf_), "%s", nameOf(folder).c_str());
             }
             if (ImGui::MenuItem("Delete folder...", nullptr, false, !isRoot)) {
                 assetDeleteBatch_.clear();
                 for (const AssetItem& item : assetItems_)
-                    if (insideFolder(item.rel, folder))
-                        assetDeleteBatch_.push_back(item.rel);
+                    if (insideFolder(item.rel, folder)) assetDeleteBatch_.push_back(item.rel);
                 assetDeleteFolder_ = folder;
                 assetDeleteBatchActive_ = true;
             }
@@ -1495,24 +1450,34 @@ void App::drawAssetBrowserWindow() {
                 platform::revealInFileManager(assetAbs(folder));
             ImGui::EndPopup();
         };
+        const float hintH = fs * 6.4f;
+        ui::Caption("Folders");
+        ImGui::BeginChild("##assetfolders", ImVec2(0, -(fs * 9.6f + hintH)));
         auto drawNode = [&](auto&& self, const std::string& rel) -> void {
             const AssetDir& dir = assetDirs_[rel];
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
-                                       ImGuiTreeNodeFlags_SpanAvailWidth;
+                                       ImGuiTreeNodeFlags_SpanAvailWidth |
+                                       ImGuiTreeNodeFlags_FramePadding;
             if (dir.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
-            if (assetFolder_ == rel) flags |= ImGuiTreeNodeFlags_Selected;
+            if (assetView_ == 0 && assetFolder_ == rel) flags |= ImGuiTreeNodeFlags_Selected;
             if (assetTreeOpen_.count(rel) || rel == "res")
                 ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-            const bool open = ImGui::TreeNodeEx(
-                rel.c_str(), flags, "%s (%d)", dir.name.c_str(), dir.filesDeep);
-            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-                assetFolder_ = rel;
-                assetSelection_.clear();
+            const bool open = ImGui::TreeNodeEx(rel.c_str(), flags, "%s", dir.name.c_str());
+            // the deep count, right-aligned in the row
+            {
+                char n[16];
+                std::snprintf(n, sizeof n, "%d", dir.filesDeep);
+                ui::FontScope m(ui::monoFont());
+                const float w = ImGui::CalcTextSize(n).x;
+                const ImVec2 mx = ImGui::GetItemRectMax(), mn = ImGui::GetItemRectMin();
+                ImGui::GetWindowDrawList()->AddText(
+                    ImVec2(mx.x - w - fs * 0.5f, (mn.y + mx.y - fs) * 0.5f),
+                    ImGui::GetColorU32(sem.textDim), n);
             }
+            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) openFolder(rel);
             // Folders are draggable too, so tidying up is one gesture.
             if (rel != "res" && ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload("TYRAX_ASSET_DIR", rel.c_str(),
-                                          rel.size() + 1);
+                ImGui::SetDragDropPayload("TYRAX_ASSET_DIR", rel.c_str(), rel.size() + 1);
                 ImGui::Text("%s (%d files)", dir.name.c_str(), dir.filesDeep);
                 ImGui::EndDragDropSource();
             }
@@ -1526,32 +1491,187 @@ void App::drawAssetBrowserWindow() {
             else assetTreeOpen_.erase(rel);
         };
         if (assetDirs_.count("res")) drawNode(drawNode, "res");
+        ImGui::EndChild();
+
+        ui::Caption("Smart views");
+        auto smartRow = [&](int view, const char* label, int count, ui::Glyph g, ImU32 col,
+                            const char* tip) {
+            char sub[16];
+            std::snprintf(sub, sizeof sub, "%d", count);
+            if (ui::ListRow(label, sub, assetView_ == view, g, col)) {
+                assetView_ = assetView_ == view ? 0 : view;
+                assetSelection_.clear();
+            }
+            uiscript::markLastItemChecked(assetView_ == view);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tip);
+        };
+        smartRow(1, "Unused", nUnused, ui::Glyph::Flag, ImGui::GetColorU32(sem.warn),
+                 "Files nothing in the project references - no object, material,\n"
+                 "terrain layer, HUD, menu, font, loading screen or audio node.\n"
+                 "Likely cleanup candidates.");
+        smartRow(2, "Recently changed", nRecent, ui::Glyph::Sparkle, 0,
+                 "Written in the last 7 days - fresh imports, repaints, renders.");
+        smartRow(3, "Generated by build", nGenerated, ui::Glyph::Gear, 0,
+                 "Files the build writes into res/ (baked menu panels, text\n"
+                 "sprites, glyph atlases, .tmdl meshes). Read-only here: edit the\n"
+                 "source they are baked from.");
+
+        // the drag hints, once, where dragging starts
+        ImGui::SetCursorPosY(ImGui::GetWindowHeight() - hintH - ImGui::GetStyle().WindowPadding.y);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        {
+            const float dash = fs * 0.3f;
+            auto line = [&](ImVec2 a, ImVec2 b) {
+                const float len = std::max(std::fabs(b.x - a.x), std::fabs(b.y - a.y));
+                const int n = std::max(1, (int)(len / (dash * 2.0f)));
+                for (int i = 0; i < n; ++i) {
+                    const float t0 = (float)i / n, t1 = t0 + 0.5f / n;
+                    dl->AddLine(ImVec2(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0),
+                                ImVec2(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1),
+                                ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.45f)));
+                }
+            };
+            const ImVec2 q(p.x + w, p.y + hintH);
+            line(p, ImVec2(q.x, p.y));
+            line(ImVec2(q.x, p.y), q);
+            line(q, ImVec2(p.x, q.y));
+            line(ImVec2(p.x, q.y), p);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.6f, p.y + fs * 0.5f));
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w - fs * 1.2f);
+        ImGui::TextDisabled("Drop files from your file manager anywhere here to import. Drag "
+                            "tiles onto a folder to move them - references follow.");
+        ImGui::PopTextWrapPos();
     }
-    ImGui::EndChild();
-
-    // --- file listing -----------------------------------------------------
+    ui::EndCard();
     ImGui::SameLine();
-    ImGui::BeginChild("assetgrid", ImVec2(0, -inspectorH), true);
 
+    // --- centre: toolbar, chips, the grid, the status line ---------------------
+    const float centerW = std::max(scaled(260), ImGui::GetContentRegionAvail().x - inspW - sp);
+    ui::BeginCard("assetcenter", ImVec2(centerW, bodyH));
     std::vector<const AssetItem*> shown;
-    for (const AssetItem& item : assetItems_)
-        if (inScope(item) && matchesFilter(item)) shown.push_back(&item);
-    std::sort(shown.begin(), shown.end(),
-              [&](const AssetItem* a, const AssetItem* b) {
-                  switch (assetSort_) {
-                      case 1:
-                          if (a->kind != b->kind) return (int)a->kind < (int)b->kind;
-                          break;
-                      case 2:
-                          if (a->bytes != b->bytes) return a->bytes > b->bytes;
-                          break;
-                      case 3:
-                          if (a->mtime != b->mtime) return a->mtime > b->mtime;
-                          break;
-                      default: break;
-                  }
-                  return lowerOf(a->rel) < lowerOf(b->rel);
-              });
+    {
+        // Row 1: where (breadcrumb or the smart view), search, sort, view.
+        ImGui::AlignTextToFramePadding();
+        const char* viewNames[] = {"", "Unused", "Recently changed", "Generated by build"};
+        if (assetView_ != 0) {
+            if (ImGui::SmallButton("res##bcview")) openFolder("res");
+            ImGui::SameLine(0.0f, scaled(4));
+            ImGui::TextDisabled("/");
+            ImGui::SameLine(0.0f, scaled(4));
+            ui::FontScope b(ui::boldFont());
+            ImGui::TextUnformatted(viewNames[assetView_]);
+        } else {
+            // Clickable path segments; the deepest one is the current folder.
+            std::vector<std::string> parts;
+            for (size_t i = 0; i <= assetFolder_.size(); ++i)
+                if (i == assetFolder_.size() || assetFolder_[i] == '/')
+                    parts.push_back(assetFolder_.substr(0, i));
+            for (size_t i = 0; i < parts.size(); ++i) {
+                if (i) {
+                    ImGui::SameLine(0.0f, scaled(4));
+                    ImGui::TextDisabled("/");
+                    ImGui::SameLine(0.0f, scaled(4));
+                }
+                const std::string label = nameOf(parts[i]) + "##bc" + std::to_string(i);
+                if (i + 1 == parts.size()) {
+                    ui::FontScope b(ui::boldFont());
+                    ImGui::TextUnformatted(nameOf(parts[i]).c_str());
+                } else if (ImGui::SmallButton(label.c_str())) {
+                    openFolder(parts[i]);
+                }
+            }
+        }
+        const float segW = ImGui::CalcTextSize("GridList").x + ImGui::GetStyle().FramePadding.x * 4.0f + 6.0f;
+        const float sortW = scaled(96), searchW = std::min(scaled(240), centerW * 0.36f);
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        // The controls right-aligned on the breadcrumb's line - or on their
+        // own line when a long path (or a narrow window) leaves no room.
+        ImGui::SameLine();
+        const float ctlX = right - segW - sortW - searchW - sp * 2.0f;
+        if (ImGui::GetCursorPosX() + sp > ctlX) ImGui::NewLine();
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ctlX));
+        ImGui::SetNextItemWidth(searchW);
+        char search[128];
+        std::snprintf(search, sizeof(search), "%s", assetSearch_.c_str());
+        const std::string hint = "Search names in " +
+                                 (assetView_ ? std::string(viewNames[assetView_])
+                                             : nameOf(assetFolder_) + "/");
+        if (ImGui::InputTextWithHint("##assetsearch", hint.c_str(), search, sizeof(search)))
+            assetSearch_ = search;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(sortW);
+        const char* sorts[] = {"Name", "Type", "Size", "Newest"};
+        ImGui::Combo("##assetsort", &assetSort_, sorts, 4);
+        ImGui::SameLine();
+        const char* views[] = {"Grid", "List"};
+        int gv = assetGridView_ ? 0 : 1;
+        if (ui::Segmented("##assetgridlist", views, 2, &gv)) assetGridView_ = gv == 0;
+
+        // Row 2: type chips with counts (zero-count types hidden), the scope.
+        int counts[kFilterCount] = {};
+        for (const AssetItem& item : assetItems_) {
+            if (!inView(item)) continue;
+            ++counts[kFilterAll];
+            switch (item.kind) {
+                case AssetKind::Model:
+                case AssetKind::AnimModel: ++counts[kFilterModels]; break;
+                case AssetKind::Material: ++counts[kFilterMaterials]; break;
+                case AssetKind::Texture: ++counts[kFilterTextures]; break;
+                case AssetKind::Music:
+                case AssetKind::Sound:
+                case AssetKind::DronePatch: ++counts[kFilterAudio]; break;
+                case AssetKind::Font: ++counts[kFilterFonts]; break;
+                default: ++counts[kFilterOther]; break;
+            }
+        }
+        const char* scopeLabel = "Include sub-folders";
+        const float swW = ImGui::CalcTextSize(scopeLabel).x + fs * 3.0f;
+        float rowRight = ImGui::GetWindowContentRegionMax().x - (assetView_ == 0 ? swW : 0.0f);
+        bool first = true;
+        for (int f = 0; f < kFilterCount; ++f) {
+            if (counts[f] == 0 && f != kFilterAll && assetFilter_ != f) continue;
+            const float w = ui::FilterChipWidth(kFilterLabels[f], counts[f]);
+            if (!first) {
+                if (ImGui::GetItemRectMax().x + sp + w <= ImGui::GetWindowPos().x + rowRight)
+                    ImGui::SameLine();
+            }
+            first = false;
+            if (ui::FilterChip(kFilterLabels[f], assetFilter_ == f, counts[f])) assetFilter_ = f;
+        }
+        if (assetView_ == 0) {
+            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), rowRight + sp));
+            ui::Switch(scopeLabel, &assetRecursive_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("List everything below this folder, not just its own\n"
+                                  "files (search across a whole tree).");
+        }
+        ImGui::Spacing();
+
+        for (const AssetItem& item : assetItems_)
+            if (inView(item) && matchesFilter(item)) shown.push_back(&item);
+        std::sort(shown.begin(), shown.end(), [&](const AssetItem* a, const AssetItem* b) {
+            switch (assetSort_) {
+                case 1:
+                    if (a->kind != b->kind) return (int)a->kind < (int)b->kind;
+                    break;
+                case 2:
+                    if (a->bytes != b->bytes) return a->bytes > b->bytes;
+                    break;
+                case 3:
+                    if (a->mtime != b->mtime) return a->mtime > b->mtime;
+                    break;
+                default: break;
+            }
+            if (assetView_ == 2 && assetSort_ == 0 && a->mtime != b->mtime) return a->mtime > b->mtime;
+            return lowerOf(a->rel) < lowerOf(b->rel);
+        });
+    }
+
+    const float statusH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("assetgrid", ImVec2(0, -statusH), false);
 
     // Click/drag/context menu, shared by both views so the two never diverge.
     auto itemInteract = [&](const AssetItem& item, bool doubleClicked) {
@@ -1587,8 +1707,7 @@ void App::drawAssetBrowserWindow() {
         }
         if (doubleClicked && !item.generated) activateAsset(item.rel);
         if (ImGui::BeginDragDropSource()) {
-            const bool model = item.kind == AssetKind::Model ||
-                               item.kind == AssetKind::AnimModel;
+            const bool model = item.kind == AssetKind::Model || item.kind == AssetKind::AnimModel;
             ImGui::SetDragDropPayload(model ? "TYRAX_ASSET_MODEL" : "TYRAX_ASSET_FILE",
                                       item.rel.c_str(), item.rel.size() + 1);
             const size_t n = isSelectedAsset(item.rel) ? assetSelection_.size() : 1;
@@ -1617,112 +1736,138 @@ void App::drawAssetBrowserWindow() {
                 assetRenameRel_ = item.rel;
                 assetRenameIsFolder_ = false;
                 assetRenameFocus_ = true;
-                std::snprintf(assetRenameBuf_, sizeof(assetRenameBuf_), "%s",
-                              item.name.c_str());
+                std::snprintf(assetRenameBuf_, sizeof(assetRenameBuf_), "%s", item.name.c_str());
             }
             if (ImGui::MenuItem("Duplicate", nullptr, false, !locked))
                 assetOpError_ = duplicateAsset(item.rel);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Copy path")) ImGui::SetClipboardText(item.rel.c_str());
+            if (ImGui::MenuItem("Reveal in file manager"))
+                platform::revealInFileManager(assetAbs(item.rel));
+            ImGui::Separator();
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
             if (ImGui::MenuItem("Delete...", nullptr, false, !locked)) {
                 if (!isSelectedAsset(item.rel)) assetSelection_.assign(1, item.rel);
                 requestAssetSelectionDelete();
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Copy path"))
-                ImGui::SetClipboardText(item.rel.c_str());
-            if (ImGui::MenuItem("Reveal in file manager"))
-                platform::revealInFileManager(assetAbs(item.rel));
+            ImGui::PopStyleColor();
             ImGui::EndPopup();
         }
-        if (ImGui::IsItemHovered()) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
             ImGui::BeginTooltip();
             ImGui::TextUnformatted(item.rel.c_str());
-            ImGui::TextDisabled("%s - %s", assetKindName(item.kind),
-                                sizeText(item.bytes).c_str());
-            const AssetUsage* use = assetUsageFor(item.rel);
-            if (use) ImGui::TextDisabled("used %d time(s) in the project", use->total());
+            ImGui::TextDisabled("%s - %s", assetKindName(item.kind), sizeText(item.bytes).c_str());
             if (item.generated) ImGui::TextDisabled("written by the build");
             ImGui::EndTooltip();
         }
     };
+    // The meta line under a tile: triangles for a model (parsed a few per
+    // frame), the file size for everything else.
+    auto metaOf = [&](const AssetItem& item) -> std::string {
+        if (item.kind == AssetKind::Model) {
+            if (modelInfoCache_.count(item.rel + "|") || metaBudget-- > 0) {
+                const ModelInfo& info = modelInfo(item.rel);
+                if (info.ok) {
+                    char b[32];
+                    if (info.tris >= 1000) std::snprintf(b, sizeof b, "%.1fk tris", info.tris / 1000.0f);
+                    else std::snprintf(b, sizeof b, "%d tris", info.tris);
+                    return b;
+                }
+            }
+            return "...";
+        }
+        return sizeText(item.bytes);
+    };
 
     if (shown.empty()) {
-        ImGui::TextDisabled(
-            assetItems_.empty()
-                ? "res/ is empty - Import... or drop files into the project folder."
-                : "Nothing here matches the filter.");
+        if (assetItems_.empty())
+            ui::EmptyState(ui::Glyph::Folder, "res/ is empty",
+                           "Import a model, a texture or a sound - or drop files into the "
+                           "project's res/ folder; they appear here.");
+        else if (assetView_ == 1)
+            ui::EmptyState(ui::Glyph::Flag, "Everything is in use",
+                           "Every file in res/ is referenced by the project.");
+        else
+            ui::EmptyState(ui::Glyph::Folder, "Nothing here matches",
+                           assetSearch_.empty() ? "This folder has no files of this type."
+                                                : "No file name contains the search.");
     } else if (assetGridView_) {
         const float tile = scaled(assetTileSize_);
-        const float labelH = ImGui::GetTextLineHeightWithSpacing() * 2.0f;
-        const ImVec2 cell(tile, tile + labelH);
-        const float avail = ImGui::GetContentRegionAvail().x;
-        const int perRow =
-            (int)ImMax(1.0f, std::floor(avail / (cell.x + ImGui::GetStyle().ItemSpacing.x)));
-        int col = 0;
+        const float capH = fs * 2.5f;
+        bool firstTile = true;
         for (const AssetItem* itemPtr : shown) {
             const AssetItem& item = *itemPtr;
+            ui::TileFlow(tile, firstTile);
+            firstTile = false;
             ImGui::PushID(item.rel.c_str());
             const ImVec2 pos = ImGui::GetCursorScreenPos();
             const bool selected = isSelectedAsset(item.rel);
-            ImGui::Selectable("##tile", selected,
-                              ImGuiSelectableFlags_AllowDoubleClick, cell);
-            const bool dbl = ImGui::IsItemHovered() &&
-                             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            ImGui::InvisibleButton(item.name.c_str(), ImVec2(tile, tile + capH),
+                                   ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+            uiscript::markLastItemChecked(selected);
+            const bool hov = ImGui::IsItemHovered();
+            const bool dbl = hov && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
             itemInteract(item, dbl);
 
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            const float pad = scaled(6);
-            const ImVec2 imgA(pos.x + pad, pos.y + pad);
-            const ImVec2 imgB(pos.x + tile - pad, pos.y + tile - pad);
+            const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+            const ImVec2 cellB(pos.x + tile, pos.y + tile + capH);
+            if (selected) {
+                dl->AddRectFilled(ImVec2(pos.x - 3, pos.y - 3), ImVec2(cellB.x + 3, cellB.y),
+                                  ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.12f)), r);
+                dl->AddRect(ImVec2(pos.x - 3, pos.y - 3), ImVec2(cellB.x + 3, cellB.y),
+                            ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.6f)), r);
+            }
+            const ImVec2 imgA(pos.x, pos.y), imgB(pos.x + tile, pos.y + tile);
+            dl->AddRectFilled(imgA, imgB,
+                              ImGui::GetColorU32(ImVec4(sem.field.x + (sem.surface.x - sem.field.x) * t * 0.5f,
+                                                        sem.field.y + (sem.surface.y - sem.field.y) * t * 0.5f,
+                                                        sem.field.z + (sem.surface.z - sem.field.z) * t * 0.5f, 1.0f)),
+                              r);
             // Ask what is already baked first: that is what tells us whether
             // this tile is about to spend one of the frame's thumbnail slots.
             const bool baked = viewport_.assetThumb(item.rel, false) != 0;
-            const uint32_t tex =
-                baked ? viewport_.assetThumb(item.rel, false)
-                      : viewport_.assetThumb(item.rel, assetThumbBudget_ > 0);
+            const uint32_t tex = baked ? viewport_.assetThumb(item.rel, false)
+                                       : viewport_.assetThumb(item.rel, assetThumbBudget_ > 0);
             if (!baked && tex) --assetThumbBudget_;
+            const float pad = scaled(4);
             if (tex) {
                 // A rendered thumbnail comes out of a framebuffer (bottom-left
                 // origin); an image file is its own thumbnail and is upright.
                 const bool flip = item.kind != AssetKind::Texture;
-                dl->AddImage((ImTextureID)(intptr_t)tex, imgA, imgB,
-                             ImVec2(0, flip ? 1.0f : 0.0f),
-                             ImVec2(1, flip ? 0.0f : 1.0f));
+                dl->AddImageRounded((ImTextureID)(intptr_t)tex, ImVec2(imgA.x + pad, imgA.y + pad),
+                                    ImVec2(imgB.x - pad, imgB.y - pad), ImVec2(0, flip ? 1.0f : 0.0f),
+                                    ImVec2(1, flip ? 0.0f : 1.0f), IM_COL32_WHITE, r - 2.0f);
             } else {
-                // No preview for this type (audio, fonts, anything else): a
-                // colored plate with the extension reads as fast as an icon.
+                // No preview for this type (audio, fonts, anything else): the
+                // extension in the type's colour reads as fast as an icon.
                 const ImU32 col = kindColor((int)item.kind);
-                dl->AddRectFilled(imgA, imgB, (col & 0x00FFFFFF) | 0x33000000,
-                                  scaled(4));
-                dl->AddRect(imgA, imgB, col, scaled(4));
                 std::string ext = extOf(item.rel);
                 if (!ext.empty()) ext = lowerOf(ext.substr(1));
+                ui::FontScope b(ui::boldFont());
                 const ImVec2 ts = ImGui::CalcTextSize(ext.c_str());
-                dl->AddText(ImVec2((imgA.x + imgB.x - ts.x) * 0.5f,
-                                   (imgA.y + imgB.y - ts.y) * 0.5f),
+                dl->AddText(ImVec2((imgA.x + imgB.x - ts.x) * 0.5f, (imgA.y + imgB.y - ts.y) * 0.5f),
                             col, ext.c_str());
             }
-            // Badges: dim generated files, ring the ones nothing references.
-            const AssetUsage* use = assetUsageFor(item.rel);
-            const bool wfUsed = !assetWfUsers_.empty() &&
-                                assetWfUsers_.count(item.rel) > 0;
-            if (!item.generated && (!use || use->total() == 0) && !wfUsed)
-                dl->AddCircle(ImVec2(imgB.x - scaled(5), imgA.y + scaled(5)),
-                              scaled(4), IM_COL32(220, 180, 90, 220), 0,
-                              scaled(1.5f));
-            const ImU32 textCol = ImGui::GetColorU32(
-                item.generated ? ImGuiCol_TextDisabled : ImGuiCol_Text);
-            // Wrapped inside the tile and hard-clipped to it: a long file name
-            // must not spill over the row below.
-            const ImVec4 clip(pos.x + pad, pos.y + tile - scaled(4),
-                              pos.x + tile - pad, pos.y + tile + labelH);
-            dl->AddText(nullptr, 0.0f, ImVec2(pos.x + pad, pos.y + tile - scaled(2)),
-                        textCol, item.name.c_str(), nullptr, tile - pad * 2.0f, &clip);
+            dl->AddRect(imgA, imgB, ImGui::GetColorU32(sem.border), r);
+            // One line of name, ellipsized - never wrapped mid-word - and a
+            // mono meta line.
+            {
+                const ImVec2 np(pos.x + 1.0f, imgB.y + fs * 0.3f);
+                ImGui::PushStyleColor(ImGuiCol_Text, item.generated ? sem.textDim : sem.text);
+                ImGui::RenderTextEllipsis(dl, np, ImVec2(imgB.x, np.y + fs + 2.0f), imgB.x,
+                                          item.name.c_str(), nullptr, nullptr);
+                ImGui::PopStyleColor();
+                const std::string meta = metaOf(item);
+                ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+                dl->AddText(mono, fs * 0.82f, ImVec2(np.x, np.y + fs * 1.15f),
+                            ImGui::GetColorU32(sem.textDim), meta.c_str());
+            }
             ImGui::PopID();
-
-            if (++col % perRow != 0) ImGui::SameLine();
         }
     } else if (ImGui::BeginTable("assetrows", 5,
-                                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+                                 ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                                      ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.45f);
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch, 0.16f);
@@ -1736,22 +1881,25 @@ void App::drawAssetBrowserWindow() {
             ImGui::TableNextColumn();
             ImGui::PushID(item.rel.c_str());
             const bool selected = isSelectedAsset(item.rel);
-            if (item.generated) ImGui::PushStyleColor(
-                ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            if (item.generated)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::Selectable(item.name.c_str(), selected,
-                              ImGuiSelectableFlags_SpanAllColumns |
-                                  ImGuiSelectableFlags_AllowDoubleClick);
+                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
             if (item.generated) ImGui::PopStyleColor();
-            const bool dbl = ImGui::IsItemHovered() &&
-                             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            const bool dbl = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
             itemInteract(item, dbl);
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(assetKindName(item.kind));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(sizeText(item.bytes).c_str());
+            {
+                ui::FontScope m(ui::monoFont());
+                ImGui::TextUnformatted(sizeText(item.bytes).c_str());
+            }
             ImGui::TableNextColumn();
             const AssetUsage* use = assetUsageFor(item.rel);
-            ImGui::TextUnformatted(std::to_string(use ? use->total() : 0).c_str());
+            const int uses = use ? use->total() : 0;
+            if (uses) ImGui::Text("%d", uses);
+            else ImGui::TextDisabled("-");
             ImGui::TableNextColumn();
             ImGui::TextDisabled("%s", folderOf(item.rel).c_str());
             ImGui::PopID();
@@ -1761,14 +1909,13 @@ void App::drawAssetBrowserWindow() {
 
     // Empty space in the listing is a drop target for the folder being shown,
     // and clears the selection on a click.
-    if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->Rect(),
-                                         ImGui::GetID("gridtarget"))) {
+    if (assetView_ == 0 &&
+        ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->Rect(), ImGui::GetID("gridtarget"))) {
         for (const char* type : {"TYRAX_ASSET_MODEL", "TYRAX_ASSET_FILE"})
             if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(type)) {
                 const std::string rel((const char*)pl->Data);
-                std::vector<std::string> moving = isSelectedAsset(rel)
-                                                      ? assetSelection_
-                                                      : std::vector<std::string>{rel};
+                std::vector<std::string> moving =
+                    isSelectedAsset(rel) ? assetSelection_ : std::vector<std::string>{rel};
                 assetOpError_ = moveAssets(moving, assetFolder_);
             }
         if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("TYRAX_ASSET_DIR")) {
@@ -1782,14 +1929,51 @@ void App::drawAssetBrowserWindow() {
         assetSelection_.clear();
     ImGui::EndChild();
 
-    // --- inspector --------------------------------------------------------
-    ImGui::BeginChild("assetinspector", ImVec2(0, 0), true);
+    // Status line: what is listed, what nothing uses, the one gesture to know.
+    {
+        ImGui::Separator();
+        ImGui::AlignTextToFramePadding();
+        int unusedHere = 0;
+        for (const AssetItem* it : shown) unusedHere += isUnused(*it) ? 1 : 0;
+        const char* kindWord = assetFilter_ == kFilterAll ? "files" : kFilterLabels[assetFilter_];
+        std::string where = assetView_ ? std::string("this view") : nameOf(assetFolder_) + "/";
+        std::string kw = kindWord;
+        for (char& c : kw) c = (char)std::tolower((unsigned char)c);
+        const float sliderW = scaled(110);
+        const float limit = ImGui::GetWindowContentRegionMax().x - (assetGridView_ ? sliderW + sp : 0.0f);
+        // each piece only when it fits whole - never under the slider
+        auto piece = [&](const std::string& text, const ImVec4* col) {
+            const float w = ImGui::CalcTextSize(text.c_str()).x;
+            if (ImGui::GetCursorPosX() + w > limit) return false;
+            if (col) ImGui::TextColored(*col, "%s", text.c_str());
+            else ImGui::TextDisabled("%s", text.c_str());
+            ImGui::SameLine();
+            return true;
+        };
+        bool fits = piece(std::to_string(shown.size()) + " " + kw + " in " + where, nullptr);
+        if (fits && unusedHere > 0 && assetView_ == 0)
+            fits = piece("-  " + std::to_string(unusedHere) + " not used by any scene", &sem.warn);
+        const bool anyModel = std::any_of(shown.begin(), shown.end(), [](const AssetItem* it) {
+            return it->kind == AssetKind::Model || it->kind == AssetKind::AnimModel;
+        });
+        if (fits && anyModel) piece("-  Drag a model onto the viewport to place it", nullptr);
+        if (!assetGridView_) ImGui::NewLine();
+        if (assetGridView_) {
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - sliderW);
+            ImGui::SetNextItemWidth(sliderW);
+            ImGui::SliderFloat("##tilesize", &assetTileSize_, 64.0f, 180.0f, "");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Tile size");
+        }
+    }
+    ui::EndCard();
+    ImGui::SameLine();
+
+    // --- right: the inspector column -----------------------------------------
+    ui::BeginCard("assetinspector", ImVec2(0, bodyH));
     if (assetSelection_.empty()) {
-        ImGui::TextDisabled("Select an asset to see what it is and who uses it.");
-        ImGui::TextDisabled(
-            "Drag files onto a folder to move them (their references follow); drag a\n"
-            "model onto the viewport to place it in the scene. The ring in a tile's\n"
-            "corner means nothing in the project references that file.");
+        ui::EmptyState(ui::Glyph::Box, "Nothing selected",
+                       "Pick a file to see what it is, what it costs on the PS2 and what "
+                       "uses it.");
     } else if (assetSelection_.size() > 1) {
         unsigned long long total = 0;
         int used = 0;
@@ -1799,212 +1983,287 @@ void App::drawAssetBrowserWindow() {
             const AssetUsage* u = assetUsageFor(rel);
             if (u && u->total() > 0) ++used;
         }
-        ImGui::Text("%d files selected - %s, %d referenced by the project",
-                    (int)assetSelection_.size(), sizeText(total).c_str(), used);
-        if (ImGui::Button("Delete...")) requestAssetSelectionDelete();
-        ImGui::SameLine();
+        {
+            ui::FontScope b(ui::boldFont());
+            ImGui::Text("%d files selected", (int)assetSelection_.size());
+        }
+        ImGui::TextDisabled("%s - %d referenced by the project", sizeText(total).c_str(), used);
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
         ImGui::TextDisabled("Drag them onto a folder in the tree to move the set.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (ui::DangerButton("Delete...", -1.0f)) requestAssetSelectionDelete();
     } else {
         drawAssetInspector(assetSelection_.front());
     }
-    ImGui::EndChild();
+    ui::EndCard();
 
     drawAssetBrowserModals();
     ImGui::End();
 }
 
-// Details + actions for one selected asset. This is where the per-type controls
-// live that used to sit inline in the Project panel's flat list.
+// The inspector column for one asset: preview, identity, the ONE thing to do
+// with it, its build settings, what uses it - then the file chores in a
+// footer, Delete in the danger colour (it used to sit as an equal grey button
+// next to Copy path).
 void App::drawAssetInspector(const std::string& rel) {
     const AssetItem* item = nullptr;
     for (const AssetItem& i : assetItems_)
         if (i.rel == rel) item = &i;
     if (!item) {
-        ImGui::TextDisabled("%s is gone from disk.", rel.c_str());
+        ui::EmptyState(ui::Glyph::Box, "File is gone", (rel + " is no longer on disk.").c_str());
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2.0f + 1.0f;
+    ImGui::BeginChild("##assetinspbody", ImVec2(0, -footerH));
 
-    ImGui::Text("%s", item->name.c_str());
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%s, %s)", assetKindName(item->kind),
-                        sizeText(item->bytes).c_str());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Copy path")) ImGui::SetClipboardText(rel.c_str());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Reveal")) platform::revealInFileManager(assetAbs(rel));
-    ImGui::TextDisabled("%s", rel.c_str());
-    if (item->generated) {
-        ImGui::TextColored(ImVec4(0.85f, 0.75f, 0.4f, 1.0f),
-                           "Written by the build - edit the source it is baked from.");
-        return;
+    // preview: the thumbnail renderer's image, large
+    {
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float h = std::min(w * 0.72f, scaled(230));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), r);
+        const uint32_t tex = viewport_.assetThumb(rel, true);
+        if (tex) {
+            const bool flip = item->kind != AssetKind::Texture;
+            const float s = h - fs;
+            const ImVec2 a(p.x + (w - s) * 0.5f, p.y + fs * 0.5f);
+            dl->AddImage((ImTextureID)(intptr_t)tex, a, ImVec2(a.x + s, a.y + s),
+                         ImVec2(0, flip ? 1.0f : 0.0f), ImVec2(1, flip ? 0.0f : 1.0f));
+        } else {
+            std::string ext = extOf(rel);
+            if (!ext.empty()) ext = lowerOf(ext.substr(1));
+            ui::FontScope b(ui::boldFont());
+            const ImVec2 ts = ImGui::CalcTextSize(ext.c_str());
+            dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f),
+                        kindColor((int)item->kind), ext.c_str());
+        }
+        ImGui::Dummy(ImVec2(w, h));
     }
 
-    ImGui::BeginGroup();
-    switch (item->kind) {
-        case AssetKind::Model: {
+    // identity
+    ImGui::Spacing();
+    {
+        ui::FontScope b(ui::boldFont());
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+        ImGui::TextUnformatted(item->name.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    {
+        ui::FontScope m(ui::monoFont());
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+        ImGui::TextDisabled("%s", rel.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    // badges: what it is and what it costs
+    {
+        std::vector<std::pair<std::string, int>> badges;
+        badges.push_back({assetKindName(item->kind), 3});
+        badges.push_back({sizeText(item->bytes), 4});
+        if (item->kind == AssetKind::Model) {
             const ModelInfo& info = modelInfo(rel);
             if (info.ok) {
-                ImGui::Text("%d triangles, %d material(s)", info.tris,
-                            (int)info.materials.size());
-                for (const ModelInfo::MaterialLine& line : info.materials)
-                    if (line.missing)
-                        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
-                                           "%s - texture not found next to the .obj",
-                                           line.text.c_str());
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
-                                   "Unreadable .obj");
+                badges.push_back({std::to_string(info.tris) + " tris", 4});
+                badges.push_back({std::to_string(info.materials.size()) +
+                                      (info.materials.size() == 1 ? " material" : " materials"),
+                                  4});
             }
-            if (ImGui::SmallButton("Add to scene")) activateAsset(rel);
-            ImGui::SameLine();
-            drawAssetSizeButton(rel);
-            ImGui::SameLine();
-            drawAssetQualityCombo(rel);
-            ImGui::SameLine();
-            drawAssetLodButton(rel);
-            break;
+        } else if (item->kind == AssetKind::Texture) {
+            int w = 0, h = 0, comp = 0;
+            if (stbi_info(assetAbs(rel).c_str(), &w, &h, &comp))
+                badges.push_back({std::to_string(w) + "x" + std::to_string(h), 4});
         }
-        case AssetKind::AnimModel: {
-            const GlbInfo& info = glbInfo(rel);
-            if (info.ok) {
-                ImGui::Text("%d clip(s), %d vertices, %d frames",
-                            (int)info.clips.size(), info.vertexCount,
-                            info.frameCount);
-                std::string clips;
-                for (const std::string& c : effectiveClips(rel))
-                    clips += (clips.empty() ? "" : ", ") + c;
-                if (!clips.empty()) ImGui::TextWrapped("%s", clips.c_str());
-                for (const std::string& w : info.warnings)
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", w.c_str());
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "Unusable: %s",
-                                   info.error.c_str());
+        if (item->generated) badges.push_back({"generated", 1});
+        bool firstB = true;
+        for (const auto& [text, kind] : badges) {
+            const float bw = ImGui::CalcTextSize(text.c_str()).x * 0.82f + fs;
+            if (!firstB && ImGui::GetItemRectMax().x + bw + 6.0f <
+                               ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+                ImGui::SameLine(0, 6.0f);
+            firstB = false;
+            ui::Badge(text.c_str(), kind);
+        }
+    }
+    ImGui::Spacing();
+
+    if (item->generated) {
+        ui::NoteCard(1, "Written by the build - edit the source it is baked from.");
+        ImGui::EndChild();
+    } else {
+        // The one primary action, and the rest behind "...".
+        const bool model = item->kind == AssetKind::Model || item->kind == AssetKind::AnimModel;
+        const char* primary = model                                   ? "Add to scene"
+                              : item->kind == AssetKind::Material     ? "Edit in Material Editor"
+                              : item->kind == AssetKind::DronePatch   ? "Open in Drone Generator"
+                              : item->kind == AssetKind::Font         ? "Font Manager..."
+                                                                      : nullptr;
+        const float moreW = ImGui::GetFrameHeight();
+        if (primary) {
+            if (ui::PrimaryButton(primary, ImGui::GetContentRegionAvail().x - moreW -
+                                               ImGui::GetStyle().ItemSpacing.x)) {
+                if (item->kind == AssetKind::Material) openMaterialEditor(rel);
+                else if (item->kind == AssetKind::DronePatch) droneLoadPatch(rel);
+                else activateAsset(rel);
             }
-            if (ImGui::SmallButton("Add to scene")) activateAsset(rel);
             ImGui::SameLine();
-            drawAssetSizeButton(rel);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Animation Editor...")) {
+        }
+        if (ui::MoreButton("More actions", moreW)) ImGui::OpenPopup("##assetmore");
+        if (ImGui::BeginPopup("##assetmore")) {
+            if (item->kind == AssetKind::AnimModel && ImGui::MenuItem("Animation Editor")) {
                 animEdModel_ = rel;
                 animEdClip_.clear();
                 showAnimEditor_ = true;
             }
-            break;
-        }
-        case AssetKind::Material: {
-            const ModelInfo& info = materialInfo(rel);
-            if (info.ok) {
-                ImGui::Text("%d material(s)", (int)info.materials.size());
-                for (const ModelInfo::MaterialLine& line : info.materials)
-                    ImGui::TextColored(
-                        line.missing ? ImVec4(1.0f, 0.45f, 0.35f, 1.0f)
-                                     : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
-                        "%s%s", line.text.c_str(),
-                        line.missing ? " - texture MISSING" : "");
-            } else {
-                ImGui::TextDisabled("Empty or unreadable .mtl");
+            if (ImGui::MenuItem("Rename...")) {
+                assetRenameRel_ = rel;
+                assetRenameIsFolder_ = false;
+                assetRenameFocus_ = true;
+                std::snprintf(assetRenameBuf_, sizeof(assetRenameBuf_), "%s", item->name.c_str());
             }
-            if (ImGui::SmallButton("Edit in Material Editor")) openMaterialEditor(rel);
-            ImGui::SameLine();
-            drawAssetQualityCombo(rel);
-            break;
+            if (ImGui::MenuItem("Duplicate")) assetOpError_ = duplicateAsset(rel);
+            ImGui::EndPopup();
         }
-        case AssetKind::Texture: {
-            int w = 0, h = 0, comp = 0;
-            if (stbi_info(assetAbs(rel).c_str(), &w, &h, &comp)) {
-                ImGui::Text("%d x %d, %d channel(s)", w, h, comp);
-                auto pow2 = [](int v) { return v > 0 && (v & (v - 1)) == 0; };
-                if (!pow2(w) || !pow2(h))
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                       "Not a power of two - the build resizes it "
-                                       "for the PS2 (8..256 per axis).");
-                if (w > 256 || h > 256)
-                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                       "Larger than 256 - it is scaled down at "
-                                       "build (GS VRAM is ~1.33 MB).");
-            } else {
-                ImGui::TextDisabled("Unreadable image");
-            }
-            break;
-        }
-        case AssetKind::Music:
-        case AssetKind::Sound: {
-            const bool sfx = item->kind == AssetKind::Sound;
-            const std::string& issue = wavIssue(rel, sfx);
-            if (issue.empty())
-                ImGui::TextDisabled(sfx ? "Ready for the ADPCM bake."
-                                        : "Streams from the disc as-is.");
-            else
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", issue.c_str());
-            ImGui::TextDisabled(
-                sfx ? "Volume, looping and conversion live in Project > Sounds."
-                    : "Volume and the PS2 build options live in Project > Music.");
-            break;
-        }
-        case AssetKind::DronePatch: {
-            // Read the patch itself so the inspector describes the piece rather
-            // than the file - it is a text format, so this is cheap.
-            std::ifstream f(assetAbs(rel), std::ios::binary);
-            std::stringstream ss;
-            ss << f.rdbuf();
-            dronegen::Params dp;
-            std::string title, err;
-            if (dronegen::fromText(ss.str(), dp, title, err)) {
-                int layers = 0;
-                for (const dronegen::Layer& L : dp.layers) layers += L.on ? 1 : 0;
-                ImGui::TextDisabled("%s%.0f s, %d Hz %s, %d layer%s",
-                                    title.empty() ? "" : (title + " - ").c_str(),
-                                    (double)dp.lengthSec, dp.sampleRate,
-                                    dp.stereo ? "stereo" : "mono", layers,
-                                    layers == 1 ? "" : "s");
-                ImGui::TextDisabled("%d automation lane%s, %s loop",
-                                    dp.autoLaneCount, dp.autoLaneCount == 1 ? "" : "s",
-                                    dp.master.loopSeamless ? "seamless" : "faded");
-                const std::string wav = folderOf(rel) + "/" + stemOf(rel) + ".wav";
-                std::error_code wec;
-                if (fs::exists(assetAbs(wav), wec))
-                    ImGui::TextDisabled("Rendered: %s", nameOf(wav).c_str());
-                else
-                    ImGui::TextDisabled("Not rendered yet - open it and Render.");
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s", err.c_str());
-            }
-            if (ImGui::Button("Open in Drone Generator")) droneLoadPatch(rel);
-            ImGui::TextDisabled("The knobs of a track: edit and re-render it any "
-                                "time. Editor-only, never ships.");
-            break;
-        }
-        case AssetKind::Font:
-            ImGui::TextDisabled(
-                "TTF source. Static text bakes to sprites at build; a font a "
-                "Display Text node uses also gets a glyph atlas.");
-            if (ImGui::SmallButton("Font Manager...")) activateAsset(rel);
-            break;
-        default:
-            ImGui::TextDisabled("No preview for this file type.");
-            break;
-    }
-    ImGui::EndGroup();
 
-    // Who uses it. This is the whole reason a move or a delete is safe here.
-    ImGui::SameLine(0.0f, scaled(24));
-    ImGui::BeginGroup();
-    const AssetUsage* use = assetUsageFor(rel);
-    const std::vector<std::string> wfUsers = assetWavefrontUsers(rel);
-    const int total = (use ? use->total() : 0) + (int)wfUsers.size();
-    if (total == 0) {
-        ImGui::TextColored(ImVec4(0.85f, 0.72f, 0.36f, 1.0f),
-                           "Nothing references this file.");
-        ImGui::TextDisabled("Safe to delete - or it is waiting to be used.");
-    } else {
-        ImGui::Text("Referenced %d time(s):", total);
-        if (use) {
-            for (size_t i = 0; i < use->lines.size(); ++i) {
-                ImGui::BulletText("%s", use->lines[i].c_str());
-                if (i < use->objectRefs.size()) {
-                    ImGui::SameLine();
+        // Build settings: what the PS2 build does with this file, labelled.
+        const bool hasSettings = model || item->kind == AssetKind::Material;
+        if (hasSettings) {
+            ImGui::Spacing();
+            ui::Caption("Build settings");
+            ui::InspectorRows rows(scaled(80), scaled(96));
+            if (model) drawAssetSizeButton(rel);
+            if (item->kind != AssetKind::AnimModel) drawAssetTexturesRow(rel);
+            if (item->kind == AssetKind::Model) drawAssetLodButton(rel);
+        }
+
+        // Details the type has (problems first).
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+        switch (item->kind) {
+            case AssetKind::Model: {
+                const ModelInfo& info = modelInfo(rel);
+                if (!info.ok) ui::NoteCard(2, "Unreadable .obj");
+                for (const ModelInfo::MaterialLine& line : info.materials)
+                    if (line.missing)
+                        ui::NoteCard(2, (line.text + " - texture not found next to the .obj").c_str());
+                break;
+            }
+            case AssetKind::AnimModel: {
+                const GlbInfo& info = glbInfo(rel);
+                if (info.ok) {
+                    ImGui::TextDisabled("%d clip(s), %d vertices, %d frames", (int)info.clips.size(),
+                                        info.vertexCount, info.frameCount);
+                    std::string clips;
+                    for (const std::string& c : effectiveClips(rel))
+                        clips += (clips.empty() ? "" : ", ") + c;
+                    if (!clips.empty()) ImGui::TextDisabled("%s", clips.c_str());
+                    for (const std::string& w : info.warnings) ui::NoteCard(1, w.c_str());
+                } else {
+                    ui::NoteCard(2, ("Unusable: " + info.error).c_str());
+                }
+                break;
+            }
+            case AssetKind::Material: {
+                const ModelInfo& info = materialInfo(rel);
+                if (info.ok) {
+                    for (const ModelInfo::MaterialLine& line : info.materials) {
+                        if (line.missing) ui::NoteCard(2, (line.text + " - texture MISSING").c_str());
+                        else ImGui::TextDisabled("%s", line.text.c_str());
+                    }
+                } else {
+                    ImGui::TextDisabled("Empty or unreadable .mtl");
+                }
+                break;
+            }
+            case AssetKind::Texture: {
+                int w = 0, h = 0, comp = 0;
+                if (stbi_info(assetAbs(rel).c_str(), &w, &h, &comp)) {
+                    auto pow2 = [](int v) { return v > 0 && (v & (v - 1)) == 0; };
+                    if (!pow2(w) || !pow2(h))
+                        ui::NoteCard(1, "Not a power of two - the build resizes it for the PS2 "
+                                        "(8..256 per axis).");
+                    if (w > 256 || h > 256)
+                        ui::NoteCard(1, "Larger than 256 - it is scaled down at build (GS VRAM "
+                                        "is ~1.33 MB).");
+                } else {
+                    ImGui::TextDisabled("Unreadable image");
+                }
+                break;
+            }
+            case AssetKind::Music:
+            case AssetKind::Sound: {
+                const bool sfx = item->kind == AssetKind::Sound;
+                const std::string& issue = wavIssue(rel, sfx);
+                if (issue.empty())
+                    ImGui::TextDisabled(sfx ? "Ready for the ADPCM bake." : "Streams from the disc as-is.");
+                else
+                    ui::NoteCard(1, issue.c_str());
+                ImGui::TextDisabled(sfx ? "Volume, looping and conversion live in Project > Sounds."
+                                        : "Volume and the PS2 build options live in Project > Music.");
+                break;
+            }
+            case AssetKind::DronePatch: {
+                // Read the patch itself so the inspector describes the piece
+                // rather than the file - it is a text format, so this is cheap.
+                std::ifstream f(assetAbs(rel), std::ios::binary);
+                std::stringstream ss;
+                ss << f.rdbuf();
+                dronegen::Params dp;
+                std::string title, err;
+                if (dronegen::fromText(ss.str(), dp, title, err)) {
+                    int layers = 0;
+                    for (const dronegen::Layer& L : dp.layers) layers += L.on ? 1 : 0;
+                    ImGui::TextDisabled("%s%.0f s, %d Hz %s, %d layer%s",
+                                        title.empty() ? "" : (title + " - ").c_str(),
+                                        (double)dp.lengthSec, dp.sampleRate,
+                                        dp.stereo ? "stereo" : "mono", layers, layers == 1 ? "" : "s");
+                    ImGui::TextDisabled("%d automation lane%s, %s loop", dp.autoLaneCount,
+                                        dp.autoLaneCount == 1 ? "" : "s",
+                                        dp.master.loopSeamless ? "seamless" : "faded");
+                    const std::string wav = folderOf(rel) + "/" + stemOf(rel) + ".wav";
+                    std::error_code wec;
+                    if (fs::exists(assetAbs(wav), wec))
+                        ImGui::TextDisabled("Rendered: %s", nameOf(wav).c_str());
+                    else
+                        ui::NoteCard(1, "Not rendered yet - open it and Render.");
+                } else {
+                    ui::NoteCard(1, err.c_str());
+                }
+                ImGui::TextDisabled("Editor-only - never ships.");
+                break;
+            }
+            case AssetKind::Font:
+                ImGui::TextDisabled("TTF source. Static text bakes to sprites at build; a font a "
+                                    "Display Text node uses also gets a glyph atlas.");
+                break;
+            default: break;
+        }
+        ImGui::PopTextWrapPos();
+
+        // Used by: the whole reason a move or a delete is safe here.
+        ImGui::Spacing();
+        const AssetUsage* use = assetUsageFor(rel);
+        const std::vector<std::string> wfUsers = assetWavefrontUsers(rel);
+        const int total = (use ? use->total() : 0) + (int)wfUsers.size();
+        ui::Caption("Used by", std::to_string(total).c_str());
+        if (total == 0) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+            ui::StatusLine(1, "Not used by any scene");
+            ImGui::PopStyleColor();
+            ImGui::TextDisabled("Safe to delete - or waiting to be used.");
+        } else {
+            if (use) {
+                for (size_t i = 0; i < use->lines.size(); ++i) {
+                    const bool jump = i < use->objectRefs.size();
                     ImGui::PushID((int)i);
-                    if (ImGui::SmallButton("Select")) {
+                    const std::string label = use->lines[i] + "##use";
+                    if (ui::ListRow(label.c_str(), jump ? ">" : nullptr, false, ui::Glyph::Box, 0,
+                                    true) &&
+                        jump) {
                         const auto [scene, object] = use->objectRefs[i];
                         if (scene != project_.activeScene) {
                             project_.activeScene = scene;
@@ -2012,18 +2271,197 @@ void App::drawAssetInspector(const std::string& rel) {
                         }
                         selectOnly(object);
                     }
+                    if (jump && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Select it (switches scene if needed)");
                     ImGui::PopID();
                 }
+                if (use->total() > (int)use->lines.size())
+                    ImGui::TextDisabled("... and %d more", use->total() - (int)use->lines.size());
             }
-            if (use->total() > (int)use->lines.size())
-                ImGui::TextDisabled("... and %d more",
-                                    use->total() - (int)use->lines.size());
+            for (const std::string& user : wfUsers) {
+                ImGui::PushID(user.c_str());
+                ui::ListRow((nameOf(user) + " names it##wf").c_str(), "sibling", false,
+                            ui::Glyph::Code, 0, true);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Wavefront files name each other by bare file name, so\n"
+                                      "these must stay in the same folder.");
+                ImGui::PopID();
+            }
         }
-        for (const std::string& user : wfUsers)
-            ImGui::BulletText("%s names it (must stay siblings)",
-                              nameOf(user).c_str());
+        ImGui::EndChild();
     }
-    ImGui::EndGroup();
+
+    // footer: the file chores; Delete in the danger colour
+    ImGui::Separator();
+    if (ui::GhostButton("Copy path")) ImGui::SetClipboardText(rel.c_str());
+    ImGui::SameLine();
+    if (ui::GhostButton("Reveal")) platform::revealInFileManager(assetAbs(rel));
+    if (!item->generated) {
+        const float dw = ImGui::CalcTextSize("Delete...").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - dw);
+        if (ui::DangerButton("Delete...")) requestAssetSelectionDelete();
+    }
+}
+
+// --- build settings rows (the inspector's labelled block) ---------------------
+
+// Real-world size of a model (docs/world-scale.md). Asked once at import; this
+// is where it gets corrected afterwards - and the only place that says what
+// scale the model will be dropped into a scene at. A row inside the
+// inspector's InspectorRows: the dimensions in meters as a field, click to
+// edit (the Size dialog).
+void App::drawAssetSizeButton(const std::string& assetRel) {
+    const theme::Semantics& sem = theme::semantics();
+    auto it = project_.modelUnitMeters.find(assetRel);
+    const bool known = it != project_.modelUnitMeters.end();
+    char text[96];
+    const ModelInfo* info = assetKindOf(assetRel) == AssetKind::Model ? &modelInfo(assetRel) : nullptr;
+    if (info && info->ok) {
+        const float k = known ? it->second : 1.0f / std::max(0.0001f, project_.settings.unitsPerMeter);
+        std::snprintf(text, sizeof text, "%.1f x %.1f x %.1f m%s", (info->max[0] - info->min[0]) * k,
+                      (info->max[1] - info->min[1]) * k, (info->max[2] - info->min[2]) * k,
+                      known ? "" : "?");
+    } else {
+        std::snprintf(text, sizeof text, "%s", known ? "recorded - edit" : "not recorded - set it");
+    }
+    assetSettingRow("Real size", text, assetRel, [&] { beginModelSizing(assetRel); },
+                    known ? "Real-world size of this model - click to change.\n"
+                            "New objects are inserted at the scale it implies."
+                          : "Real-world size is not recorded: objects are inserted at\n"
+                            "scale 1. Click to set it.");
+    (void)sem;
+}
+
+// Texture quality of this asset's textures: the per-asset override of the
+// project's Preferences > Textures, its meaning spelled out (it used to be an
+// unlabelled "(project)" combo).
+void App::drawAssetTexturesRow(const std::string& assetRel) {
+    auto it = project_.textureQuality.find(assetRel);
+    int cur = it == project_.textureQuality.end() ? 0
+              : it->second == "none"              ? 1
+              : it->second == "8bit"              ? 2
+                                                  : 3;
+    const std::string& q = project_.settings.textureQuant;
+    const std::string def = "Project default (" +
+                            std::string(q == "none" ? "full colour" : q == "8bit" ? "8-bit" : "4-bit") + ")";
+    const char* labels[] = {def.c_str(), "Full colour", "8-bit (256 colours)", "4-bit (16 colours)"};
+    if (ui::Combo("Textures", &cur, labels, 4)) {
+        if (cur == 0)
+            project_.textureQuality.erase(assetRel);
+        else
+            project_.textureQuality[assetRel] = cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
+        commitChange();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("How this asset's textures are quantized for the PS2 - an override of\n"
+                          "Preferences > Textures. A texture shared by several assets takes\n"
+                          "the highest quality any of them asks for.");
+}
+
+// Artist-authored mesh LOD tiers of one model: each level is another .obj
+// in the project with the same materials and fewer triangles. Empty = the
+// build decimates automatically (docs/model-pipeline.md). The popup keeps
+// the list dense - clearing a level drops the ones after it, since a tier
+// chain with a hole has no meaning.
+void App::drawAssetLodButton(const std::string& assetRel) {
+    const std::string name = std::filesystem::path(assetRel).filename().string();
+    const std::string pid = "lodpop" + assetRel;
+    auto it = project_.modelLods.find(assetRel);
+    const bool custom = it != project_.modelLods.end() && !it->second.empty();
+    const std::string text = custom ? std::to_string(it->second.size()) + " custom level" +
+                                          (it->second.size() == 1 ? "" : "s")
+                                    : std::string("Automatic");
+    assetSettingRow("LOD", text.c_str(), assetRel, [&] { ImGui::OpenPopup(pid.c_str()); },
+                    custom ? "Custom LOD meshes assigned - click to change"
+                           : "Distance LOD meshes for this model (Automatic: the build\n"
+                             "decimates). Click to assign your own.");
+    if (!ImGui::BeginPopup(pid.c_str())) return;
+    ImGui::TextUnformatted(("Mesh LOD levels of " + name).c_str());
+    ImGui::TextDisabled(
+        "Level 1 shows past the mesh LOD distance, level 2 past twice it.\n"
+        "A level must use the same materials (same usemtl names, same\n"
+        "order) and fewer triangles, or the build decimates instead.\n"
+        "Leave both on (auto) to let the build do it.");
+    ImGui::Separator();
+    std::vector<std::string> tiers =
+        it != project_.modelLods.end() ? it->second : std::vector<std::string>();
+    std::vector<std::string> models;
+    for (const AssetItem& a : assetItems_)
+        if (a.kind == AssetKind::Model && !a.generated && a.rel != assetRel) models.push_back(a.rel);
+    bool changed = false;
+    for (int level = 0; level < 2; ++level) {
+        const std::string cur = level < (int)tiers.size() ? tiers[level] : std::string();
+        const std::string label = "Level " + std::to_string(level + 1);
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo((label + "##lod" + assetRel).c_str(),
+                              cur.empty() ? "(auto - decimate)"
+                                          : cur.substr(cur.rfind('/') + 1).c_str())) {
+            if (ImGui::Selectable("(auto - decimate)", cur.empty())) {
+                tiers.resize((size_t)level);  // drops the coarser levels too
+                changed = true;
+            }
+            for (const std::string& candRel : models) {
+                if (ImGui::Selectable(candRel.substr(4).c_str(), candRel == cur)) {
+                    if ((int)tiers.size() <= level) tiers.resize((size_t)level + 1);
+                    tiers[level] = candRel;
+                    changed = true;
+                }
+                const ModelInfo& ci = modelInfo(candRel);
+                if (ci.ok) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(%d tris)", ci.tris);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (level == 0 && tiers.empty()) break;  // level 2 needs level 1
+    }
+    if (changed) {
+        // Drop trailing empties so "auto" never round-trips as a hole.
+        while (!tiers.empty() && tiers.back().empty()) tiers.pop_back();
+        if (tiers.empty())
+            project_.modelLods.erase(assetRel);
+        else
+            project_.modelLods[assetRel] = tiers;
+        commitChange();
+    }
+    ImGui::EndPopup();
+}
+
+// One labelled row whose value is a field-like button (Real size, LOD): the
+// caption in the InspectorRows column, the value, a chevron; the button is
+// named by the caption (the --ui-script name), unique per asset by ID.
+void App::assetSettingRow(const char* caption, const char* value, const std::string& assetRel,
+                          const std::function<void()>& onClick, const char* tip) {
+    const theme::Semantics& sem = theme::semantics();
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float capW = std::clamp(avail * 0.34f, scaled(80), scaled(96));
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddText(ImVec2(p.x, p.y + st.FramePadding.y), ImGui::GetColorU32(sem.textDim), caption);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + capW, p.y));
+    ImGui::PushID(assetRel.c_str());
+    const float w = std::max(1.0f, avail - capW);
+    const bool pressed = ImGui::InvisibleButton(caption, ImVec2(w, h));
+    ImGui::PopID();
+    const bool hov = ImGui::IsItemHovered();
+    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(hov ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg),
+                      st.FrameRounding);
+    dl->PushClipRect(a, ImVec2(b.x - h, b.y), true);
+    {
+        ui::FontScope m(ui::monoFont());
+        dl->AddText(ImVec2(a.x + st.FramePadding.x, a.y + st.FramePadding.y), ImGui::GetColorU32(sem.text),
+                    value);
+    }
+    dl->PopClipRect();
+    const float cx = b.x - h * 0.5f, cy = (a.y + b.y) * 0.5f, s = h * 0.13f;
+    dl->AddLine(ImVec2(cx - s * 0.5f, cy - s), ImVec2(cx + s * 0.5f, cy), ImGui::GetColorU32(sem.textDim), 1.5f);
+    dl->AddLine(ImVec2(cx + s * 0.5f, cy), ImVec2(cx - s * 0.5f, cy + s), ImGui::GetColorU32(sem.textDim), 1.5f);
+    if (hov && tip) ImGui::SetTooltip("%s", tip);
+    if (pressed) onClick();
 }
 
 void App::requestAssetSelectionDelete() {
