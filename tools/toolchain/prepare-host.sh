@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks or installs the Linux host packages used to assemble TyraX's pinned
+# Checks or installs the Linux or macOS host packages used to assemble TyraX's pinned
 # PS2DEV/OpenVCL toolchain. Installation is always an explicit opt-in.
 set -euo pipefail
 
@@ -8,6 +8,68 @@ case "$MODE" in
   --check|--install) ;;
   *) echo "usage: prepare-host.sh [--check|--install]" >&2; exit 2 ;;
 esac
+
+# macOS: the Xcode Command Line Tools give clang (as gcc/g++), and Homebrew
+# gives cmake (OpenVCL's build). The system make 3.81 and rsync (openrsync
+# since 15.4) build the engine and the games fine. The macOS
+# PS2DEV archive is NOT self-contained: its gcc/binutils load gmp, mpfr,
+# libmpc and zstd from Homebrew's opt/ prefix (otool -L), and without them the
+# EE compiler dies on its first file with "Library not loaded: libmpc.3.dylib".
+#
+# A TyraX.app carries all of that in tools/macos (GNU make - /usr/bin/make is
+# an xcode-select shim - the four libraries, prebuilt OpenVCL/vclpp/bin2s and
+# machorelink; installer/macos/build-host-tools.sh), so an installed editor
+# needs only real system tools: no Homebrew, no Command Line Tools.
+if [ "$(uname -s)" = Darwin ]; then
+  bundle="$(cd "$(dirname "$0")/.." && pwd)/macos"
+  if [ -x "$bundle/bin/gmake" ] && [ -x "$bundle/bin/machorelink" ] \
+     && [ -x "$bundle/bin/openvcl" ] && [ -f "$bundle/lib/libmpc.3.dylib" ]; then
+    missing=()
+    for tool in curl tar shasum rsync codesign; do
+      command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+      echo "[toolchain] macOS host prerequisites are ready (bundled tools)."
+      exit 0
+    fi
+    echo "[toolchain] missing system tools: ${missing[*]} - this macOS install is damaged." >&2
+    exit 1
+  fi
+  for d in /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$d" ] && PATH="$d:$PATH"
+  done
+  missing=()
+  xcode-select -p >/dev/null 2>&1 || missing+=(xcode-command-line-tools)
+  for tool in curl tar shasum cmake make rsync; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  brew_prefix=$(brew --prefix 2>/dev/null || true)
+  for lib in gmp/lib/libgmp.10 mpfr/lib/libmpfr.6 libmpc/lib/libmpc.3 zstd/lib/libzstd.1; do
+    [ -n "$brew_prefix" ] && [ -f "$brew_prefix/opt/$lib.dylib" ] \
+      || missing+=("$(basename "$lib").dylib")
+  done
+  if [ "${#missing[@]}" -eq 0 ]; then
+    echo "[toolchain] macOS host prerequisites are ready."
+    exit 0
+  fi
+  echo "[toolchain] missing host tools: ${missing[*]}" >&2
+  if [ "$MODE" = --check ]; then
+    echo "[toolchain] Run tools/toolchain/prepare-host.sh --install (Homebrew), or by hand:" >&2
+    echo "[toolchain]   xcode-select --install; brew install cmake gmp mpfr libmpc zstd" >&2
+    exit 1
+  fi
+  if ! xcode-select -p >/dev/null 2>&1; then
+    echo "[toolchain] Install the Xcode Command Line Tools first: xcode-select --install" >&2
+    exit 1
+  fi
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "[toolchain] Homebrew is required (https://brew.sh), then: brew install cmake gmp mpfr libmpc zstd" >&2
+    exit 1
+  fi
+  echo "[toolchain] Installing host prerequisites with Homebrew..."
+  brew install cmake gmp mpfr libmpc zstd
+  exec bash "$0" --check
+fi
 
 required=(curl tar sha256sum cmake make g++ gcc rsync)
 missing=()

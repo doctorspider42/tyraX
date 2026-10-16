@@ -76,10 +76,8 @@ EngineSizes& engineSizes() {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::path engine = "vendor/tyra/engine";
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
-        const fs::path c =
-            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+    if (const fs::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        const fs::path c = binDir / ".." / "vendor" / "tyra" / "engine";
         if (fs::exists(c / "Makefile", ec)) engine = fs::weakly_canonical(c, ec);
     }
     static const char* kStems[5][3] = {

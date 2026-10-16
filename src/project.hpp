@@ -1104,6 +1104,11 @@ struct Prefab {
     bool empty() const { return objects.empty(); }
 };
 
+// Declared ahead: Prefab's comparison below needs it, and libc++ resolves the
+// vector<SceneObject> == inside a template at the point of definition (GCC's
+// libstdc++ happened to find the later definition).
+inline bool operator==(const SceneObject& a, const SceneObject& b);
+
 inline bool operator==(const Prefab& a, const Prefab& b) {
     return a.id == b.id && a.name == b.name && a.notes == b.notes &&
            a.objects == b.objects;
@@ -2487,7 +2492,14 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
+// The number depends on the standard library: libc++ (macOS) has a 24-byte
+// std::string against libstdc++'s 32, so both are listed - update BOTH when a
+// field lands (a Mac build prints the libc++ one in the same message).
+#if defined(_LIBCPP_VERSION)
+static_assert(sizeof(ProjectSettings) == 784,
+#else
 static_assert(sizeof(ProjectSettings) == 864,
+#endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");

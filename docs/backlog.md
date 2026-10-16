@@ -1781,6 +1781,33 @@ that copy-out step designed.
 carries it) — but the PS2 toolchain image would have to run under emulation on
 that host, so measure a game build there before promising anything.
 
+### macOS: what native support (1.171.0) and the app (1.172.0) left out
+
+The editor builds and runs on macOS, games build natively with the macOS
+PS2DEV archive + in-tree OpenVCL (docs/native-toolchain.md#macos), a game
+boots in PCSX2.app, and the release carries a notarized .dmg
+(docs/updates.md#macos). Left for later, each testable on its own:
+
+- **The first CI run of `build-macos`**: written and run locally end to end
+  (sign, dmg, isolated install + game build), never on a GitHub runner -
+  especially the Intel one (`macos-15-intel`, the Intel PS2DEV archive and
+  `/usr/local/opt` relink paths are untested), and notarization through the
+  API key rather than a keychain profile.
+- **The self-update swap** (`update::runInstaller`, macOS branch) has not run
+  against a real release yet: needs two published versions.
+- **Opening a `.tyra` from Finder**: no `CFBundleDocumentTypes` - GLFW does not
+  hand the app an "open file" Apple Event, so a double-clicked project would
+  start an empty editor. Needs an NSApplicationDelegate hook first.
+- *Run on PS2* on a Mac (`ps2client` for macOS is x86_64 - Rosetta) is
+  untested.
+- **The viewport at Retina density**: the 3D viewport's FBO is sized in
+  points, so it is drawn at half the pixel density of the UI around it.
+- **GPU GI** needs GL 4.3 compute; macOS stops at 4.1, so the CPU path is the
+  only one there - say so in the GI window instead of a shader error.
+- **Docker fallback on macOS** is untested (Docker Desktop's bind mounts and
+  `containerFileOwner`).
+- **Editor audio** (miniaudio over CoreAudio) has not been listened to.
+
 ### Make the packagers prove they shipped what git tracks
 
 1.55.3 fixed one tracked file going missing from every package — an exclusion

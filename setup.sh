@@ -6,6 +6,7 @@
 #
 #   ./setup.sh          - vendor/ and tools/ only (no root needed)
 #   ./setup.sh --deps   - also install this distro's toolchain + dev headers
+#                         (macOS: the Homebrew packages, no root)
 #
 # --deps is separate because it is the only part that needs root, and on a
 # machine that already has a toolchain it is pure noise. setup.ps1 has no
@@ -27,9 +28,13 @@ install_system_packages() {
     local spec manager install packages root
     spec="$(tyrax_system_packages)"
     if [ -z "$spec" ]; then
-        echo "No supported package manager found (apt/dnf/pacman/zypper)." >&2
-        echo "Install by hand: a C++20 toolchain, cmake, ninja, git, pkg-config," >&2
-        echo "the X11/Wayland/GL development headers, and zenity." >&2
+        if [ "$(uname -s)" = Darwin ]; then
+            echo "Homebrew not found - install it from https://brew.sh, then re-run." >&2
+        else
+            echo "No supported package manager found (apt/dnf/pacman/zypper)." >&2
+            echo "Install by hand: a C++20 toolchain, cmake, ninja, git, pkg-config," >&2
+            echo "the X11/Wayland/GL development headers, and zenity." >&2
+        fi
         return 1
     fi
     IFS='|' read -r manager install packages <<<"$spec"
@@ -38,6 +43,10 @@ install_system_packages() {
         echo "Need root to install packages, but neither sudo nor pkexec is available." >&2
         echo "Run this as root:" >&2
         echo "  $install $packages" >&2
+        return 1
+    fi
+    if [ "$manager" = brew ] && ! xcode-select -p >/dev/null 2>&1; then
+        echo "The Xcode Command Line Tools (clang) are missing - run: xcode-select --install" >&2
         return 1
     fi
     echo "== Installing system packages ($manager) =="

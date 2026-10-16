@@ -429,7 +429,8 @@ int Runner::exec(const std::string& rawCmdline, const std::string& cwd) {
 // Where a PCSX2 install lives is the one thing that is genuinely differently
 // SHAPED per OS rather than just differently spelled, so it stays here instead
 // of moving into platform.cpp: Windows has two Program Files roots, Linux has
-// PATH plus flatpak plus a downloaded AppImage in the usual places.
+// PATH plus flatpak plus a downloaded AppImage in the usual places, macOS has
+// an app bundle.
 static std::string findPCSX2() {
     std::error_code ec;
 #ifdef _WIN32
@@ -441,6 +442,29 @@ static std::string findPCSX2() {
             fs::path p = dir / exe;
             if (fs::exists(p, ec)) return p.string();
         }
+#elif defined(__APPLE__)
+    // The upstream macOS build is an app bundle; Finder installs it in
+    // /Applications, a user without admin rights in ~/Applications.
+    std::vector<fs::path> roots{"/Applications"};
+    if (const fs::path home = platform::homeDir(); !home.empty())
+        roots.push_back(home / "Applications");
+    // The download is named after its version (PCSX2-v2.8.2.app) until
+    // somebody renames it, so any PCSX2*.app counts - the plain name first.
+    for (const fs::path& root : roots) {
+        std::vector<fs::path> apps{root / "PCSX2.app"};
+        for (const auto& e : fs::directory_iterator(root, ec)) {
+            const std::string name = e.path().filename().string();
+            if (name.rfind("PCSX2", 0) == 0 && e.path().extension() == ".app" &&
+                name != "PCSX2.app")
+                apps.push_back(e.path());
+        }
+        for (const fs::path& app : apps) {
+            const fs::path p = app / "Contents" / "MacOS" / "PCSX2";
+            if (fs::exists(p, ec)) return p.string();
+        }
+    }
+    for (const char* exe : {"pcsx2-qt", "pcsx2"})
+        if (platform::commandExists(exe)) return exe;
 #else
     // A packaged install (deb/rpm/AUR) puts one of these on PATH.
     for (const char* exe : {"pcsx2-qt", "pcsx2"})
@@ -682,9 +706,8 @@ bool Runner::launchPCSX2(const Project& p) {
 // in build/, so probe upward from it for the tools folder. Returns "" when the
 // tool is nowhere to be found.
 static std::string findTool(const std::string& relUnderTools) {
-    const std::string exe = platform::exePath();
-    if (exe.empty()) return "";
-    fs::path dir = fs::path(exe).parent_path();
+    fs::path dir = platform::resourceBinDir();
+    if (dir.empty()) return "";
     for (int up = 0; up < 3; up++) {
         fs::path candidate = dir / "tools" / relUnderTools;
         std::error_code ec;
@@ -1268,9 +1291,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
             const std::string script = findTool("toolchain/native-build.sh");
 #endif
             fs::path engineSource;
-            const std::string exe = platform::exePath();
-            if (!exe.empty()) {
-                fs::path dir = fs::path(exe).parent_path();
+            if (fs::path dir = platform::resourceBinDir(); !dir.empty()) {
                 for (int up = 0; up < 3 && engineSource.empty(); ++up) {
                     std::error_code ec;
                     fs::path candidate = dir / "vendor" / "tyra";

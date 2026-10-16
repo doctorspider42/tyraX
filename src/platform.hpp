@@ -35,6 +35,16 @@ namespace platform {
 // crash - both implementations fall back to argv[0]-free OS queries.
 std::string exePath();
 
+// The directory the editor's SHIPPED files are resolved from: they live in
+// `<this>/..` (vendor/tyra, tools/, src/ VU framework, examples/) or a level or
+// two further up. That is exePath()'s own directory everywhere - build/ in a
+// checkout, bin/ in a package - except inside a macOS app bundle, where code
+// signing keeps everything but the binary out of Contents/MacOS and the
+// repo-shaped tree is Contents/Resources: there the answer is
+// Contents/Resources/bin, a directory that need not exist. Every lookup of a
+// shipped file starts here, never at exePath() itself; empty if exePath() is.
+std::filesystem::path resourceBinDir();
+
 // Per-user, per-machine editor config root: %LOCALAPPDATA%\tyra-editor on
 // Windows, $XDG_CONFIG_HOME/tyra-editor (default ~/.config/tyra-editor)
 // elsewhere. Holds editor.ini, the session remote-cache and the exported

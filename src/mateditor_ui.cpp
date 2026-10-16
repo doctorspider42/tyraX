@@ -1436,7 +1436,9 @@ bool App::matBakeBuildMeshes(const std::string& entryName) {
         const auto t = std::filesystem::last_write_time(
             std::filesystem::path(project_.dir) / rel, ec);
         return ec ? std::string("?")
-                  : std::to_string(t.time_since_epoch().count());
+                  // libc++ counts file time in __int128; a key needs no more
+                  : std::to_string(static_cast<long long>(
+                        t.time_since_epoch().count()));
     };
     std::string key;
     if (matEdShape_ == 4) {

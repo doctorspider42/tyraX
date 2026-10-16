@@ -30,6 +30,14 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __APPLE__
+// macOS is the POSIX half with its own answers where Linux reads /proc or
+// shells out to freedesktop tools: dyld for the executable path, libproc and
+// KERN_PROCARGS2 for other processes, osascript for dialogs, `open` for URLs.
+#include <libproc.h>
+#include <mach-o/dyld.h>
+#include <sys/sysctl.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -76,6 +84,26 @@ const struct IgnoreSigPipe {
     IgnoreSigPipe() { ::signal(SIGPIPE, SIG_IGN); }
 } g_ignoreSigPipe;
 
+#ifdef __APPLE__
+// An app started from Finder or the Dock inherits launchd's PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin), not the login shell's, so `code`, `docker`
+// and a Homebrew PCSX2 - all in /usr/local/bin or /opt/homebrew/bin - would
+// be "not installed" in TyraX.app while working from a terminal. Append (never
+// prepend: what the user's PATH names first still wins) the two prefixes.
+const struct AppendUserBinDirs {
+    AppendUserBinDirs() {
+        const char* cur = getenv("PATH");
+        std::string path = cur && *cur ? cur : "/usr/bin:/bin:/usr/sbin:/sbin";
+        for (const char* dir : {"/usr/local/bin", "/opt/homebrew/bin"}) {
+            const std::string padded = ":" + path + ":";
+            if (padded.find(std::string(":") + dir + ":") == std::string::npos)
+                path += std::string(":") + dir;
+        }
+        ::setenv("PATH", path.c_str(), 1);
+    }
+} g_appendUserBinDirs;
+#endif
+
 // Single-quote for /bin/sh: wrap in '...' and escape embedded quotes the only
 // way sh allows ('\'' closes, escapes, reopens).
 std::string shQuote(const std::string& s) {
@@ -105,6 +133,25 @@ std::string capture(const std::string& cmdline, int* exitCode = nullptr) {
     return out;
 }
 
+#ifdef __APPLE__
+// An AppleScript string literal: double quotes, backslash-escaped.
+std::string asString(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    out += '"';
+    return out;
+}
+
+// Runs an AppleScript through osascript and returns its trimmed stdout. A
+// cancelled dialog exits 1 ("User canceled"), which callers read as "no".
+std::string appleScript(const std::string& script, int* exitCode = nullptr) {
+    return capture("osascript -e " + shQuote(script) + " 2>/dev/null", exitCode);
+}
+#endif
+
 #endif
 
 }  // namespace
@@ -118,6 +165,15 @@ std::string exePath() {
     char buf[MAX_PATH] = {};
     if (GetModuleFileNameA(nullptr, buf, MAX_PATH) == 0) return "";
     return buf;
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buf(size, '\0');
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return "";
+    buf.resize(std::strlen(buf.c_str()));
+    std::error_code ec;
+    const fs::path p = fs::canonical(buf, ec);
+    return ec ? buf : p.string();
 #else
     std::error_code ec;
     // /proc/self/exe is the authoritative answer on Linux and survives a
@@ -126,6 +182,21 @@ std::string exePath() {
     if (!ec) return p.string();
     return "";
 #endif
+}
+
+fs::path resourceBinDir() {
+    const std::string exe = exePath();
+    if (exe.empty()) return {};
+    const fs::path dir = fs::path(exe).parent_path();
+#ifdef __APPLE__
+    // <name>.app/Contents/MacOS/<exe>: answer <name>.app/Contents/Resources/bin.
+    const fs::path contents = dir.parent_path();
+    std::error_code ec;
+    if (dir.filename() == "MacOS" && contents.filename() == "Contents" &&
+        fs::is_directory(contents / "Resources", ec))
+        return contents / "Resources" / "bin";
+#endif
+    return dir;
 }
 
 fs::path configDir() {
@@ -347,6 +418,34 @@ std::string remoteCommandLine(DWORD pid) {
     return out;
 }
 
+#elif defined(__APPLE__)
+
+// Another process's argv joined with spaces, from KERN_PROCARGS2: an argc
+// word, the exec path, NUL padding, then argc NUL-terminated arguments.
+// Empty for a process we may not inspect (another user's), which the caller
+// treats as "not mine".
+std::string remoteCommandLine(pid_t pid) {
+    int mib[3] = {CTL_KERN, KERN_PROCARGS2, (int)pid};
+    size_t size = 0;
+    if (::sysctl(mib, 3, nullptr, &size, nullptr, 0) != 0 || size < sizeof(int)) return "";
+    std::vector<char> buf(size);
+    if (::sysctl(mib, 3, buf.data(), &size, nullptr, 0) != 0 || size < sizeof(int)) return "";
+    int argc = 0;
+    std::memcpy(&argc, buf.data(), sizeof(int));
+    size_t i = sizeof(int);
+    while (i < size && buf[i] != '\0') ++i;  // exec path
+    while (i < size && buf[i] == '\0') ++i;  // padding
+    std::string out;
+    for (int a = 0; a < argc && i < size; ++a) {
+        const size_t start = i;
+        while (i < size && buf[i] != '\0') ++i;
+        if (!out.empty()) out += ' ';
+        out.append(buf.data() + start, i - start);
+        ++i;
+    }
+    return out;
+}
+
 #else
 
 std::string readProcFile(const fs::path& p) {
@@ -385,6 +484,22 @@ std::vector<RunningProcess> processesNamed(const std::string& name) {
         } while (Process32NextW(snap, &e));
     }
     CloseHandle(snap);
+#elif defined(__APPLE__)
+    const int bytes = ::proc_listallpids(nullptr, 0);
+    if (bytes <= 0) return out;
+    std::vector<pid_t> pids((size_t)bytes / sizeof(pid_t) + 64);
+    const int n = ::proc_listallpids(pids.data(), (int)(pids.size() * sizeof(pid_t)));
+    for (int i = 0; i < n; ++i) {
+        char path[PROC_PIDPATHINFO_MAXSIZE] = {};
+        if (::proc_pidpath(pids[i], path, sizeof(path)) <= 0) continue;
+        const std::string exe = fs::path(path).filename().string();
+        if (processKey(exe) != want) continue;
+        RunningProcess p;
+        p.pid = (unsigned long long)pids[i];
+        p.name = exe;
+        p.commandLine = remoteCommandLine(pids[i]);
+        out.push_back(std::move(p));
+    }
 #else
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator("/proc", ec)) {
@@ -815,6 +930,9 @@ void Process::kill() {
 void errorBox(const std::string& title, const std::string& message) {
 #ifdef _WIN32
     MessageBoxA(g_dialogOwner, message.c_str(), title.c_str(), MB_ICONERROR | MB_OK);
+#elif defined(__APPLE__)
+    appleScript("display alert " + asString(title) + " message " + asString(message) +
+                " as critical buttons {\"OK\"} default button \"OK\"");
 #else
     if (commandExists("zenity")) {
         capture("zenity --error --title=" + shQuote(title) + " --text=" +
@@ -836,6 +954,12 @@ bool confirmBox(const std::string& title, const std::string& message) {
     // so a stray Enter must not be the one that agrees to it.
     return MessageBoxA(g_dialogOwner, message.c_str(), title.c_str(),
                        MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) == IDYES;
+#elif defined(__APPLE__)
+    // Default button is No, as on Windows.
+    return appleScript("button returned of (display alert " + asString(title) +
+                       " message " + asString(message) +
+                       " as warning buttons {\"No\", \"Yes\"} default button \"No\")") ==
+           "Yes";
 #else
     int code = -1;
     // zenity/kdialog both exit 0 for yes and non-zero for no/closed.
@@ -865,6 +989,8 @@ void openUrl(const std::string& url) {
     if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return;
 #ifdef _WIN32
     ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+    Process::startDetached("open " + shQuote(url) + " >/dev/null 2>&1");
 #else
     Process::startDetached("xdg-open " + shQuote(url) + " >/dev/null 2>&1");
 #endif
@@ -895,6 +1021,10 @@ void revealInFileManager(const std::string& path) {
     const std::string arg =
         isFile ? "/select,\"" + native + "\"" : "\"" + native + "\"";
     ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+    // -R reveals (selects) the entry in Finder; a folder just opens.
+    Process::startDetached(std::string(isFile ? "open -R " : "open ") +
+                           shQuote(target.string()) + " >/dev/null 2>&1");
 #else
     // The freedesktop FileManager1 interface is what actually selects an entry
     // (Nautilus, Dolphin, Nemo and Thunar all implement it). Fall back to
@@ -955,6 +1085,15 @@ bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
     CloseClipboard();
     if (!ok) GlobalFree(memory);  // ownership transfers only on success
     return ok;
+#elif defined(__APPLE__)
+    if (pngPath.empty()) return false;
+    std::error_code ec;
+    if (!fs::is_regular_file(pngPath, ec)) return false;
+    int code = -1;
+    appleScript("set the clipboard to (read (POSIX file " + asString(pngPath) +
+                    ") as \u00abclass PNGf\u00bb)",
+                &code);
+    return code == 0;
 #else
     if (pngPath.empty()) return false;
     std::error_code ec;
@@ -976,6 +1115,10 @@ void installDesktopEntry(const std::string& appId, const std::string& appName,
                          const std::string& comment, const unsigned char* iconPng,
                          std::size_t iconPngSize) {
 #ifdef _WIN32
+    (void)appId; (void)appName; (void)comment; (void)iconPng; (void)iconPngSize;
+#elif defined(__APPLE__)
+    // No desktop-entry mechanism: a Dock icon comes from an .app bundle's
+    // Info.plist, and a bare binary run from a checkout has none.
     (void)appId; (void)appName; (void)comment; (void)iconPng; (void)iconPngSize;
 #else
     const std::string exe = exePath();
@@ -1070,12 +1213,18 @@ namespace {
 const std::map<std::string, std::string>& fontIndex() {
     static const std::map<std::string, std::string> index = [] {
         std::map<std::string, std::string> m;
+#ifdef __APPLE__
+        std::vector<fs::path> roots{"/System/Library/Fonts", "/Library/Fonts"};
+        if (const fs::path home = homeDir(); !home.empty())
+            roots.push_back(home / "Library" / "Fonts");
+#else
         std::vector<fs::path> roots{"/usr/share/fonts", "/usr/local/share/fonts",
                                     "/run/host/fonts"};
         if (const fs::path home = homeDir(); !home.empty()) {
             roots.push_back(home / ".local" / "share" / "fonts");
             roots.push_back(home / ".fonts");
         }
+#endif
         for (const fs::path& root : roots) {
             std::error_code ec;
             if (!fs::exists(root, ec)) continue;
@@ -1125,6 +1274,20 @@ const std::vector<SystemFont>& systemFonts() {
         {"Trebuchet MS Bold", "trebucbd.ttf"},
         {"Verdana Bold", "verdanab.ttf"},
     };
+#elif defined(__APPLE__)
+    // The same families Windows offers, from /System/Library/Fonts/Supplemental.
+    static const std::vector<SystemFont> fonts = {
+        {"Arial Bold", "Arial Bold.ttf"},
+        {"Arial Black", "Arial Black.ttf"},
+        {"Comic Sans MS Bold", "Comic Sans MS Bold.ttf"},
+        {"Courier New Bold", "Courier New Bold.ttf"},
+        {"Georgia Bold", "Georgia Bold.ttf"},
+        {"Impact", "Impact.ttf"},
+        {"Tahoma Bold", "Tahoma Bold.ttf"},
+        {"Times New Roman Bold", "Times New Roman Bold.ttf"},
+        {"Trebuchet MS Bold", "Trebuchet MS Bold.ttf"},
+        {"Verdana Bold", "Verdana Bold.ttf"},
+    };
 #else
     // The metric-compatible and near-ubiquitous free families. Bold entries
     // throughout, like the Windows list: baked game text is small and reads
@@ -1147,6 +1310,9 @@ const std::vector<std::string>& fallbackFontFiles() {
 #ifdef _WIN32
     static const std::vector<std::string> chain = {"consolab.ttf", "arialbd.ttf",
                                                    "arial.ttf"};
+#elif defined(__APPLE__)
+    static const std::vector<std::string> chain = {"Arial Bold.ttf", "Verdana Bold.ttf",
+                                                   "Arial.ttf"};
 #else
     static const std::vector<std::string> chain = {
         "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf", "NotoSans-Bold.ttf",
@@ -1158,6 +1324,8 @@ const std::vector<std::string>& fallbackFontFiles() {
 const char* defaultFontLabel() {
 #ifdef _WIN32
     return "Consolas Bold";
+#elif defined(__APPLE__)
+    return "Arial Bold";
 #else
     return "DejaVu Sans Bold";
 #endif
@@ -1174,6 +1342,16 @@ const std::vector<SystemFont>& uiFontFiles() {
         {"Tahoma", "tahoma.ttf"},
         {"Verdana", "verdana.ttf"},
         {"Arial", "arial.ttf"},
+    };
+#elif defined(__APPLE__)
+    // Helvetica Neue is a collection; face 0 is the regular weight. SF Pro
+    // (SFNS.ttf) is deliberately absent - variable weight, like Segoe UI
+    // Variable on Windows.
+    static const std::vector<SystemFont> fonts = {
+        {"Helvetica Neue", "HelveticaNeue.ttc"},
+        {"Verdana", "Verdana.ttf"},
+        {"Arial", "Arial.ttf"},
+        {"Geneva", "Geneva.ttf"},
     };
 #else
     // Inter first where the user installed it, then the families the desktops
@@ -1239,6 +1417,26 @@ std::string pickFile(const std::string& title, const std::vector<FileFilter>& fi
                 OFN_HIDEREADONLY;
     if (!GetOpenFileNameW(&ofn)) return "";
     return wideToUtf8(buf);
+#elif defined(__APPLE__)
+    // NSOpenPanel through osascript, the zenity of macOS. `of type` takes
+    // bare extensions; a filter that is a catch-all ("*", "*.*") drops the
+    // restriction altogether.
+    std::string types;
+    bool any = filters.empty();
+    for (const FileFilter& f : filters)
+        for (const std::string& pat : f.patterns) {
+            if (pat == "*" || pat == "*.*") any = true;
+            else if (pat.rfind("*.", 0) == 0) {
+                if (!types.empty()) types += ", ";
+                types += asString(pat.substr(2));
+            }
+        }
+    std::string script = "POSIX path of (choose file with prompt " + asString(title);
+    if (!any && !types.empty()) script += " of type {" + types + "}";
+    script += ")";
+    int code = -1;
+    const std::string out = appleScript(script, &code);
+    return code == 0 ? out : std::string();
 #else
     // No portable native dialog exists on Linux, so shell out to whichever
     // desktop helper is installed. zenity ships with GNOME (and is a
@@ -1309,6 +1507,14 @@ std::string pickFolder(const std::string& title) {
     }
     if (SUCCEEDED(hrInit)) CoUninitialize();
     return result;
+#elif defined(__APPLE__)
+    int code = -1;
+    std::string out =
+        appleScript("POSIX path of (choose folder with prompt " + asString(title) + ")", &code);
+    if (code != 0) return "";
+    // POSIX path of a folder ends in '/'; the zenity answer this mirrors does not.
+    while (out.size() > 1 && out.back() == '/') out.pop_back();
+    return out;
 #else
     if (commandExists("zenity")) {
         int code = -1;

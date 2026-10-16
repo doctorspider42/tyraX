@@ -6161,6 +6161,13 @@ if [ -z "$PCSX2" ] && command -v flatpak >/dev/null 2>&1 &&
     PCSX2="flatpak run net.pcsx2.PCSX2"
 fi
 if [ -z "$PCSX2" ]; then
+    # macOS: the upstream app bundle.
+    for c in /Applications/PCSX2.app "$HOME"/Applications/PCSX2.app \
+             /Applications/PCSX2*.app "$HOME"/Applications/PCSX2*.app; do
+        [ -x "$c/Contents/MacOS/PCSX2" ] && PCSX2="$c/Contents/MacOS/PCSX2" && break
+    done
+fi
+if [ -z "$PCSX2" ]; then
     for c in "$HOME"/Applications/*.AppImage "$HOME"/Downloads/*.AppImage; do
         case "$(basename "$c")" in [Pp][Cc][Ss][Xx]2*) PCSX2="$c"; break;; esac
     done
@@ -6175,6 +6182,7 @@ ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 
 pkill -x pcsx2-qt >/dev/null 2>&1 || true
 pkill -x pcsx2 >/dev/null 2>&1 || true
+pkill -x PCSX2 >/dev/null 2>&1 || true
 exec $PCSX2 -elf "$PWD/$ELF"
 )SH";
 
@@ -6775,10 +6783,8 @@ static std::string reflSceneryCapture(const Project& p) {
 // Absolute path to the in-tree Tyra engine (editor repo, vendor/tyra), with
 // forward slashes - bind-mounted into the build container by docker-compose.
 static std::string engineSourceDir() {
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
-        std::filesystem::path candidate =
-            std::filesystem::path(exe).parent_path() / ".." / "vendor" / "tyra";
+    if (const std::filesystem::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        std::filesystem::path candidate = binDir / ".." / "vendor" / "tyra";
         std::error_code ec;
         if (std::filesystem::exists(candidate / "Makefile.base", ec)) {
             std::string s = std::filesystem::weakly_canonical(candidate, ec).string();
@@ -33414,9 +33420,9 @@ static std::string vscodeCppProperties(const Project& p) {
     };
 
     std::string engineInc;
-    if (const std::string exe = platform::exePath(); !exe.empty()) {
-        std::filesystem::path candidate = std::filesystem::path(exe).parent_path() /
-                                          ".." / "vendor" / "tyra" / "engine" / "inc";
+    if (const std::filesystem::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        std::filesystem::path candidate =
+            binDir / ".." / "vendor" / "tyra" / "engine" / "inc";
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec))
             engineInc = slashes(std::filesystem::weakly_canonical(candidate, ec).string());

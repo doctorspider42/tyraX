@@ -54,9 +54,8 @@ std::string numArg(double v) {
 // real textures is the one every number in the docs was measured on, so the
 // window looks for it and says which it found.
 std::string discoverAssets() {
-    const std::string exe = platform::exePath();
     std::error_code ec;
-    fs::path dir = fs::path(exe).parent_path();
+    fs::path dir = platform::resourceBinDir();
     for (int up = 0; up < 3 && !dir.empty(); ++up) {
         const fs::path cand = dir / "examples";
         if (fs::is_directory(cand, ec)) return cand.string();

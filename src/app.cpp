@@ -524,7 +524,10 @@ static constexpr const char* kAppId = "tyrax-editor";
 // expected case out of the error callback.
 static void applyWindowIcon(GLFWwindow* window) {
 #ifndef _WIN32
-    if (!window || glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) return;
+    // Cocoa has no per-window icon either (the Dock icon is the bundle's).
+    if (!window || glfwGetPlatform() == GLFW_PLATFORM_WAYLAND ||
+        glfwGetPlatform() == GLFW_PLATFORM_COCOA)
+        return;
     int w = 0, h = 0, comp = 0;
     stbi_uc* pixels = stbi_load_from_memory(appicon::kIconPng,
                                             (int)appicon::kIconPngSize, &w, &h, &comp, 4);
@@ -557,6 +560,10 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    // macOS hands out a 3.2+ core context only when it is forward-compatible;
+    // without the hint glfwCreateWindow fails and the editor exits at once.
+    if (glfwGetPlatform() == GLFW_PLATFORM_COCOA)
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
     // What the desktop matches the window against to find the entry above -
@@ -9555,11 +9562,11 @@ std::string App::installVsCodeExtension() {
     // silently ignored - which is why the earlier folder-copy install did
     // nothing and printed nothing. `code --install-extension <vsix>` registers
     // it properly.
-    const std::string exePath = platform::exePath();
-    if (exePath.empty()) return "Could not locate the editor executable";
+    const std::filesystem::path binDir = platform::resourceBinDir();
+    if (binDir.empty()) return "Could not locate the editor executable";
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
-        std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
+        binDir / ".." / "tools" / "vscode-tyrax", ec);
     // The NEWEST .vsix, not the first one the directory happens to hand back.
     // A leftover package is the documented trap here and it has already been
     // paid for once: the committed 0.2.0 predated the whole VU1 language
@@ -16527,9 +16534,9 @@ void App::drawEditorPreferencesModal() {
     const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
     ImGui::Combo("Build backend", &prefBuildBackend_, backendLabels, 2);
     prefHelp(
-        "Native is the default and needs no Docker daemon. On Linux it runs the\n"
-        "bundled PS2DEV/OpenVCL toolchain directly; on Windows it runs the same\n"
-        "pinned Linux toolchain through WSL. The first build provisions it in\n"
+        "Native is the default and needs no Docker daemon. On Linux and macOS it\n"
+        "runs the bundled PS2DEV/OpenVCL toolchain directly; on Windows the same\n"
+        "pinned Linux toolchain runs through WSL. The first build provisions it in\n"
         "the editor cache. Docker remains available as a compatibility fallback.");
 
     ImGui::BeginDisabled(prefBuildBackend_ != 1);

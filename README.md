@@ -8,7 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/doctorspider42/tyraX?style=for-the-badge&color=26d9ff&labelColor=0b1220" alt="Apache-2.0 license"></a>
   <br>
   <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&logo=playstation&logoColor=white&labelColor=0b1220" alt="Target: PlayStation 2">
-  <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows and Linux">
+  <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux%20%7C%20macOS-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white&labelColor=0b1220" alt="C++20">
   <img src="https://img.shields.io/badge/runs%20on-PCSX2%20%2B%20real%20hardware-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Runs on PCSX2 and real hardware">
   <br>
@@ -63,7 +63,7 @@ terrain-following roads, split-screen co-op, NPCs that find their way around
 walls.
 
 The editor is C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3, one source tree
-for **Windows and Linux**.
+for **Windows, Linux and macOS**.
 
 > [!TIP]
 > This file is the map. Every feature has a guide in **[docs/](docs/README.md)** —
@@ -191,10 +191,12 @@ for me to create it without the AI. Please give it a chance :)
 [latest release](https://github.com/doctorspider42/tyraX/releases) — the
 `TyraX-Setup-<version>.exe` installer on Windows, or on Linux the
 `tyrax-<version>-linux-x86_64.tar.gz` (unpack anywhere, no root) or the `.deb` /
-`.rpm`. All of them bring the engine and the PS2 tools with them, and the editor
-tells you when a newer build is out — [Installing and updating](docs/updates.md).
-The installer and the tarball update themselves; a `.deb` or `.rpm` is your
-package manager's to update.
+`.rpm`, and on macOS the `tyrax-<version>-macos-<arch>.dmg` (drag TyraX into
+Applications - signed and notarized, and it builds games with no Homebrew or
+Xcode). All of them bring the engine and the PS2 tools with them, and the
+editor tells you when a newer build is out — [Installing and
+updating](docs/updates.md). The installer, the tarball and the Mac app update
+themselves; a `.deb` or `.rpm` is your package manager's to update.
 
 **Windows — build it**
 
@@ -217,6 +219,19 @@ against, `zenity` for the file dialogs, `ccache`, plus `curl`, `tar` and
 itself on the first **Build & Run**. It knows apt, dnf, pacman and zypper; on
 anything else it prints the package list and stops. **No Docker anywhere in
 this path** — see [the native toolchain](docs/native-toolchain.md).
+
+**macOS — build it** (Apple silicon or Intel)
+
+```bash
+xcode-select --install               # clang, once
+./setup.sh --deps                    # Homebrew packages, for BOTH halves (no root)
+./build.sh --run
+```
+
+`--deps` installs `cmake ninja git ccache` for the editor and, for the games,
+`gmp mpfr libmpc zstd`, which the macOS PS2DEV compilers load from Homebrew
+(make, rsync, curl and tar are the system's own). Games build natively with the same pinned PS2DEV + OpenVCL as on
+Linux - [the native toolchain](docs/native-toolchain.md#macos).
 
 **There is no setup step to forget.** On a fresh clone (or a stale worktree)
 the build script notices that `vendor/` is missing something and runs
@@ -249,21 +264,22 @@ Then, in the editor:
 
 ## Requirements
 
-**Windows or Linux**, [PCSX2](https://pcsx2.net/) with a BIOS, and on Windows
+**Windows, Linux or macOS**, [PCSX2](https://pcsx2.net/) with a BIOS, and on Windows
 WSL with a Debian/Ubuntu distribution. No Docker in the default path.
 
 <details>
 <summary><b>The full list, and the one path-length trap</b></summary>
 
-- **Windows or Linux.**
+- **Windows, Linux or macOS** (11+, Apple silicon or Intel).
 - On Windows, WSL with a Debian/Ubuntu distribution. The installer can
   optionally prepare its host packages and pinned PS2 toolchain; the same
   explicit bootstrap is available in `tools/toolchain/prepare-host.*`. On
-  Linux nothing extra is needed — the toolchain runs on the host. Docker is an
+  Linux and macOS nothing extra is needed — the toolchain runs on the host. Docker is an
   optional fallback only.
 - [PCSX2](https://pcsx2.net/) with a BIOS configured (auto-detected in
   `Program Files\PCSX2`, on `PATH`, in `/usr/games`, as a flatpak or an
-  AppImage; any other location goes in `Edit > Preferences`).
+  AppImage, or as `PCSX2.app` in `/Applications` / `~/Applications`; any other
+  location goes in `Edit > Preferences`).
 - **On Linux, `./setup.sh --deps` installs everything below.** It is listed
   here so you can install it by hand on a distro it does not know:
   - *the editor* — CMake, Ninja, GCC, git, pkg-config, and the development
@@ -276,7 +292,9 @@ WSL with a Debian/Ubuntu distribution. No Docker in the default path.
     `ccache`, which the build picks up off `PATH` automatically.
 
   On Windows the editor toolchain is `scoop install mingw cmake ninja`; the PS2
-  side lives inside WSL.
+  side lives inside WSL. On macOS it is the Xcode Command Line Tools plus the
+  Homebrew list above (`./setup.sh --deps`); file dialogs use the system's own
+  panels through `osascript`.
 - **Keep the project path short.** PCSX2's `host:` loader silently refuses an ELF
   path longer than ~145 characters — the game never starts and nothing is logged.
   The editor warns in *Output*. Build & Run passes an absolute native path;
@@ -478,7 +496,7 @@ polling/report intervals, and a release build that provably carries none of it
 - The [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`,
   [interface themes](docs/editor-theme.md), and
   [format versioning and migrations](docs/format-versioning.md).
-- [Windows installer and Linux tarball/`.deb`/`.rpm`, released on every push](docs/updates.md),
+- [Windows installer, Linux tarball/`.deb`/`.rpm` and a notarized macOS `.dmg`, released on every push](docs/updates.md),
   with an update check the editor makes itself (and one checkbox turns off).
 
 ## Shortcuts
@@ -565,7 +583,7 @@ tyrax-editor --vu-replay <projectDir>     # re-run a console VU1 capture on the 
 tyrax-editor <projectDir|project.tyra>    # open the GUI with a project loaded
 ```
 
-(`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux.)
+(`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux and macOS.)
 
 A project needing real data migrations is refused by `--build`/`--resave`/
 `--refresh-gen` — run `--migrate` first, see

@@ -2,7 +2,7 @@
 name: tyra-testing
 description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
-  (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
+  (build.ps1 on Windows, build.sh on Linux and macOS), headless CLI project creation and
   game builds, checking code
   generation without a game build, full native or Docker-fallback e2e + PCSX2 (boot, emulog.txt,
   reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
