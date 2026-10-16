@@ -912,9 +912,14 @@ private:
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
-    // "Add to scene": bakes the current tree's assets into res/models/trees
-    // and inserts a Model object pointing at them.
-    void addTreeToScene();
+    // "Add to scene" / "Save to project": bakes the current tree's assets
+    // into res/models/trees (+ the `<stem>.tree` parameter sidecar that lets
+    // the generator re-open it) and, when `place`, inserts a Model object.
+    void addTreeToScene(bool place = true);
+    // Loads a tree saved by the generator (the `.tree` sidecar beside
+    // `objRel`) back into the Tree Generator and opens it. False when the
+    // model has no sidecar. The Asset Browser's "Edit in Tree Generator".
+    bool openTreeInGenerator(const std::string& objRel);
     // Tools > Prefabs (docs/prefabs.md): reusable groups of scene objects,
     // captured from a selection and stamped back into the world - by hand, by
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
@@ -2569,7 +2574,18 @@ private:
     treegen::Image treeBarkTex_, treeLeafTex_;
     uint64_t treePreviewVersion_ = 0;
     bool treePreviewDirty_ = true;
-    char treeName_[64] = "tree";
+    char treeName_[64] = "oak";
+    // The name still follows the preset (oak, birch...) until it is typed in.
+    bool treeNameTouched_ = false;
+    int treeTab_ = 0;  // Trunk / Branches / Leaves / Look / Detail
+    // Near / Impostor preview: the distant card captured on the CPU (the
+    // same capture the bake runs) into treeImpTex_, redone when the tree or
+    // the view count changes.
+    bool treeShowImpostor_ = false;
+    unsigned treeImpTex_ = 0;
+    uint64_t treeImpVersion_ = 0;
+    int treeImpViewsBuilt_ = 0;
+    int treeImpSize_ = 128;
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     bool treeGenImpostor_ = true;

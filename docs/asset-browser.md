@@ -46,7 +46,8 @@ If another file still needs a dependency, TyraX copies it instead. A move that
 would leave a broken reference is refused.
 
 Renaming updates `mtllib` and `map_Kd` lines. Paint layers (`.layers/`), custom
-UVs (`.uvs`) and Drone Generator patches (`.drone`) follow their asset; baked
+UVs (`.uvs`), Drone Generator patches (`.drone`) and Tree Generator parameters
+(`.tree`) follow their asset; baked
 `.tmdl` files are regenerated on the next build.
 
 You can also drag a model from the browser straight into the viewport.

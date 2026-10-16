@@ -2919,268 +2919,746 @@ void App::drawPrelitSection() {
     ImGui::TextDisabled("Headless: --bake-prelit <projectDir> [scene]");
 }
 
+// --- Tree Generator helpers -------------------------------------------------
+
+// One overlay toggle in a pill (Tree Generator and Animation Editor previews).
+// `text` null = a divider.
+struct OverlayPillItem {
+    const char* label;
+    const char* text;
+    bool active;
+};
+
+// A row of overlay text buttons on one translucent card at `at`. Each button
+// reports its state to --ui-script (expect-checked). Returns the clicked
+// index, or -1; *outMax receives the card's bottom-right corner.
+static int overlayPill(ImVec2 at, const OverlayPillItem* items, int n, ImVec2* outMax = nullptr) {
+    const float pad = ui::OverlayPad();
+    float w = pad * 2.0f;
+    for (int i = 0; i < n; ++i)
+        w += items[i].text ? ui::OverlayTextWidth(items[i].text) : pad * 2.0f + 1.0f;
+    const float h = ui::OverlayRowHeight() + pad * 2.0f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ui::OverlayPanel(dl, at, ImVec2(at.x + w, at.y + h));
+    int clicked = -1;
+    float x = at.x + pad;
+    for (int i = 0; i < n; ++i) {
+        if (!items[i].text) {
+            ui::OverlayDivider(dl, x + pad, at.y + pad * 2.0f, at.y + h - pad * 2.0f);
+            x += pad * 2.0f + 1.0f;
+            continue;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x, at.y + pad));
+        if (ui::OverlayTextButton(items[i].label, items[i].text, items[i].active)) clicked = i;
+        uiscript::markLastItemChecked(items[i].active);
+        x += ui::OverlayTextWidth(items[i].text);
+    }
+    if (outMax) *outMax = ImVec2(at.x + w, at.y + h);
+    return clicked;
+}
+
+// A preset's silhouette, drawn in its own bark and leaf colours: what you
+// are choosing, without rendering six trees.
+static void drawTreeSilhouette(ImDrawList* dl, ImVec2 c, float s, int preset,
+                               const treegen::Params& p) {
+    auto col = [](const float* rgb, float k = 1.0f) {
+        return ImGui::GetColorU32(ImVec4(std::min(1.0f, rgb[0] * k), std::min(1.0f, rgb[1] * k),
+                                         std::min(1.0f, rgb[2] * k), 1.0f));
+    };
+    const ImU32 bark = col(p.barkColor, 1.15f), leaf = col(p.leafColor, 1.35f);
+    const float tw = s * 0.07f;
+    const ImVec2 base(c.x, c.y + s * 0.45f);
+    switch (preset) {
+        case 1:  // birch: slim pale trunk, narrow crown
+            dl->AddRectFilled(ImVec2(c.x - tw * 0.6f, c.y - s * 0.1f), ImVec2(c.x + tw * 0.6f, base.y), bark);
+            dl->AddEllipseFilled(ImVec2(c.x, c.y - s * 0.12f), ImVec2(s * 0.17f, s * 0.32f), leaf);
+            break;
+        case 2:  // spruce: stacked cone
+            dl->AddRectFilled(ImVec2(c.x - tw * 0.5f, c.y + s * 0.3f), ImVec2(c.x + tw * 0.5f, base.y), bark);
+            dl->AddTriangleFilled(ImVec2(c.x, c.y - s * 0.45f), ImVec2(c.x - s * 0.24f, c.y + s * 0.32f),
+                                  ImVec2(c.x + s * 0.24f, c.y + s * 0.32f), leaf);
+            break;
+        case 3:  // poplar: a column
+            dl->AddRectFilled(ImVec2(c.x - tw * 0.5f, c.y + s * 0.2f), ImVec2(c.x + tw * 0.5f, base.y), bark);
+            dl->AddEllipseFilled(ImVec2(c.x, c.y - s * 0.08f), ImVec2(s * 0.11f, s * 0.36f), leaf);
+            break;
+        case 4: {  // dead tree: bare forks
+            const float lw = std::max(1.5f, s * 0.04f);
+            dl->AddLine(base, ImVec2(c.x, c.y - s * 0.05f), bark, lw * 1.4f);
+            dl->AddLine(ImVec2(c.x, c.y + s * 0.05f), ImVec2(c.x - s * 0.2f, c.y - s * 0.35f), bark, lw);
+            dl->AddLine(ImVec2(c.x, c.y - s * 0.05f), ImVec2(c.x + s * 0.18f, c.y - s * 0.4f), bark, lw);
+            dl->AddLine(ImVec2(c.x - s * 0.1f, c.y - s * 0.15f), ImVec2(c.x - s * 0.24f, c.y - s * 0.12f), bark, lw * 0.8f);
+            break;
+        }
+        case 5:  // bush: low and wide
+            dl->AddEllipseFilled(ImVec2(c.x, c.y + s * 0.28f), ImVec2(s * 0.3f, s * 0.16f), leaf);
+            break;
+        default:  // oak and anything spread: trunk + round crown
+            if (p.crown == 1) {
+                dl->AddTriangleFilled(ImVec2(c.x, c.y - s * 0.45f), ImVec2(c.x - s * 0.24f, c.y + s * 0.32f),
+                                      ImVec2(c.x + s * 0.24f, c.y + s * 0.32f), leaf);
+            } else {
+                dl->AddRectFilled(ImVec2(c.x - tw * 0.7f, c.y), ImVec2(c.x + tw * 0.7f, base.y), bark);
+                if (p.leafCount > 0)
+                    dl->AddEllipseFilled(ImVec2(c.x, c.y - s * 0.12f), ImVec2(s * 0.3f, s * 0.26f), leaf);
+            }
+            break;
+    }
+}
+
+// The `.tree` sidecar: the generator's Params beside the .obj they made, so
+// a tree can be re-opened and adjusted instead of rebuilt from memory.
+// Editor-only (texbake never ships it); travels with its model.
+template <class F>
+static void forEachTreeField(treegen::Params& p, F&& f) {
+    f("height", &p.height), f("thickness", &p.thickness), f("flare", &p.flare);
+    f("taper", &p.taper), f("gnarliness", &p.gnarliness), f("sweep", &p.sweep);
+    f("branchAngle", &p.branchAngle), f("angleJitter", &p.angleJitter);
+    f("lengthRatio", &p.lengthRatio), f("lengthTaper", &p.lengthTaper);
+    f("radiusRatio", &p.radiusRatio), f("spawnStart", &p.spawnStart);
+    f("leafSize", &p.leafSize), f("leafAspect", &p.leafAspect);
+    for (int i = 0; i < 3; ++i) {
+        const std::string k = std::to_string(i);
+        f(("barkColor" + k).c_str(), &p.barkColor[i]);
+        f(("barkColor2_" + k).c_str(), &p.barkColor2[i]);
+        f(("leafColor" + k).c_str(), &p.leafColor[i]);
+        f(("leafColor2_" + k).c_str(), &p.leafColor2[i]);
+    }
+}
+template <class F>
+static void forEachTreeInt(treegen::Params& p, F&& f) {
+    f("crown", &p.crown), f("whorls", &p.whorls), f("levels", &p.levels);
+    f("children0", &p.children[0]), f("children1", &p.children[1]), f("children2", &p.children[2]);
+    f("sides", &p.sides), f("sidesMin", &p.sidesMin), f("rings", &p.rings);
+    f("ringsMin", &p.ringsMin), f("leafCount", &p.leafCount), f("leafLevels", &p.leafLevels);
+    f("barkStyle", &p.barkStyle), f("leafStyle", &p.leafStyle);
+}
+
+static std::string treeParamsJson(treegen::Params p, const std::string& preset) {
+    std::string s = "{\n  \"tyraxTree\": 1,\n  \"preset\": \"" + json::escape(preset) +
+                    "\",\n  \"seed\": " + std::to_string(p.seed);
+    char buf[64];
+    forEachTreeField(p, [&](const char* k, float* v) {
+        std::snprintf(buf, sizeof buf, "%.6g", *v);
+        s += ",\n  \"" + std::string(k) + "\": " + buf;
+    });
+    forEachTreeInt(p, [&](const char* k, int* v) {
+        s += ",\n  \"" + std::string(k) + "\": " + std::to_string(*v);
+    });
+    return s + "\n}\n";
+}
+
+static bool treeParamsFromJson(const std::string& text, treegen::Params& out, std::string* preset) {
+    json::Value v;
+    if (!json::parse(text, v) || !v.find("tyraxTree")) return false;
+    treegen::Params p;  // absent keys keep the defaults
+    if (const json::Value* s = v.find("seed")) p.seed = (uint32_t)s->numberOr(p.seed);
+    forEachTreeField(p, [&](const char* k, float* f) {
+        if (const json::Value* e = v.find(k)) *f = (float)e->numberOr(*f);
+    });
+    forEachTreeInt(p, [&](const char* k, int* i) {
+        if (const json::Value* e = v.find(k)) *i = (int)e->numberOr(*i);
+    });
+    if (preset) {
+        const json::Value* pr = v.find("preset");
+        *preset = pr ? pr->stringOr("") : "";
+    }
+    out = p;
+    return true;
+}
+
+// The asset name a save would use: `base`, or base-2, base-3... when files of
+// that name exist - saving never clobbers an earlier tree.
+static std::string treeOutputName(const std::string& projectDir, const std::string& base) {
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(projectDir) / "res" / "models" / "trees" / (name + ".obj")); ++n)
+        name = base + "-" + std::to_string(n);
+    return name;
+}
+
+static std::string treePresetSlug(const char* presetName) {
+    std::string s = presetName;
+    for (char& c : s) c = c == ' ' ? '-' : (char)std::tolower((unsigned char)c);
+    return s;
+}
+
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
 // live turntable preview, then bake it into res/models/trees as an ordinary
 // Model object. Deterministic in the seed, so the same knobs always give the
 // same tree - "5 oak variants" is 5 seeds, not a mesh library.
+//
+// Layout (docs/tree-generator.md): presets + seed | the tree (hero) |
+// parameter tabs, and a footer that states what a save writes.
 void App::drawTreeGeneratorWindow() {
     if (!showTreeGenerator_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(560.0f)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200.0f), scaled(800.0f)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Tree Generator", &showTreeGenerator_)) {
         ImGui::End();
         return;
     }
     ImGuiIO& io = ImGui::GetIO();
+    const theme::Semantics& sem = theme::semantics();
     treegen::Params& p = treeParams_;
     bool dirty = false;  // a parameter changed this frame
-
-    // ---- left: parameter panel ------------------------------------------
-    ImGui::BeginChild("treeparams", ImVec2(scaled(320.0f), 0), true);
-
     const std::vector<treegen::Preset>& presets = treegen::presets();
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::BeginCombo("Preset", presets[treePreset_].name)) {
-        for (int i = 0; i < (int)presets.size(); ++i)
-            if (ImGui::Selectable(presets[i].name, treePreset_ == i)) {
+    if (treePreset_ < 0 || treePreset_ >= (int)presets.size()) treePreset_ = 0;
+    const float upm = project_.settings.unitsPerMeter > 0.0f ? project_.settings.unitsPerMeter : 1.0f;
+
+    const float footerH = ImGui::GetFrameHeight() + scaled(22.0f);
+    const float bodyH = ImGui::GetContentRegionAvail().y - footerH;
+    const float railW = scaled(200.0f), paramW = scaled(330.0f);
+    auto vline = [&]() {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(b.x, a.y), ImVec2(b.x, b.y),
+                                            ImGui::GetColorU32(sem.border));
+    };
+    auto dimWrapped = [&](const char* text) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.9f);
+        ImGui::TextWrapped("%s", text);
+        ImGui::PopFont();
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
+    };
+
+    // ---- left rail: start from a preset, then the seed --------------------
+    ImGui::BeginChild("treeparams", ImVec2(railW, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+    ui::Caption("Start from");
+    {
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const float tileW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+        const float tileH = tileW * 0.92f;
+        for (int i = 0; i < (int)presets.size(); ++i) {
+            if (i % 2) ImGui::SameLine(0.0f, gap);
+            const ImVec2 t0 = ImGui::GetCursorScreenPos();
+            const bool sel = treePreset_ == i;
+            if (ImGui::InvisibleButton(presets[i].name, ImVec2(tileW, tileH))) {
+                // A preset is a shape, not a seed: keep the seed.
+                const std::string oldSlug = treePresetSlug(presets[treePreset_].name);
                 treePreset_ = i;
                 const uint32_t keepSeed = p.seed;
                 p = presets[i].params;
-                p.seed = keepSeed;  // a preset is a shape, not a seed
+                p.seed = keepSeed;
+                if (!treeNameTouched_ || oldSlug == treeName_)
+                    std::snprintf(treeName_, sizeof treeName_, "%s",
+                                  treePresetSlug(presets[i].name).c_str());
                 dirty = true;
             }
-        ImGui::EndCombo();
+            uiscript::markLastItemChecked(sel);
+            const float hov = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 t1(t0.x + tileW, t0.y + tileH);
+            const float rr = ImGui::GetStyle().FrameRounding + 3.0f;
+            ImVec4 bg = sem.surface;
+            bg.w = sel ? 1.0f : 0.45f + 0.4f * hov;
+            dl->AddRectFilled(t0, t1, ImGui::GetColorU32(bg), rr);
+            dl->AddRect(t0, t1, ImGui::GetColorU32(sel ? sem.accent : sem.border), rr, 0,
+                        sel ? 1.5f : 1.0f);
+            const float fs = ImGui::GetFontSize();
+            drawTreeSilhouette(dl, ImVec2(t0.x + tileW * 0.5f, t0.y + (tileH - fs) * 0.45f),
+                               (tileH - fs * 1.6f), i, presets[i].params);
+            const ImVec2 ts = ImGui::CalcTextSize(presets[i].name);
+            dl->AddText(ImVec2(t0.x + (tileW - ts.x) * 0.5f, t1.y - fs * 1.35f),
+                        ImGui::GetColorU32(sel ? sem.text : sem.textDim), presets[i].name);
+        }
     }
-
-    // Seed row: editable value + a dice that rolls a fresh one.
-    ImGui::SetNextItemWidth(scaled(120.0f));
-    int seed = (int)p.seed;
-    if (ImGui::InputInt("Seed", &seed)) {
-        p.seed = (uint32_t)(seed < 0 ? 0 : seed);
-        dirty = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Roll")) {
-        // xorshift the current seed for a new-but-reproducible value
-        uint32_t s = p.seed ? p.seed : 0x1234567u;
-        s ^= s << 13; s ^= s >> 17; s ^= s << 5;
-        p.seed = s;
-        dirty = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Roll a new random seed (shape stays, layout varies)");
-
-    if (ImGui::CollapsingHeader("Trunk", ImGuiTreeNodeFlags_DefaultOpen)) {
-        dirty |= ImGui::SliderFloat("Height", &p.height, 0.5f, 20.0f, "%.1f");
-        // Thickness and leaf size are FRACTIONS of height (shown as percent),
-        // so Height scales the whole tree instead of stretching it thinner.
-        float thickPct = p.thickness * 100.0f;
-        if (ImGui::SliderFloat("Thickness", &thickPct, 0.5f, 15.0f, "%.1f%% of h")) {
-            p.thickness = thickPct * 0.01f;
+    dimWrapped("A preset is a shape - it keeps your seed.");
+    ImGui::Spacing();
+    ui::Caption("Seed");
+    {
+        const float diceW = ImGui::GetFrameHeight();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - diceW - ImGui::GetStyle().ItemSpacing.x);
+        int seed = (int)p.seed;
+        if (ImGui::InputInt("##Seed", &seed, 0, 0)) {
+            p.seed = (uint32_t)(seed < 0 ? 0 : seed);
             dirty = true;
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Trunk base radius as a share of height (= %.2f units)",
-                              p.thickness * p.height);
-        dirty |= ImGui::SliderFloat("Root flare", &p.flare, 1.0f, 3.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Taper", &p.taper, 0.1f, 0.95f, "%.2f");
-        dirty |= ImGui::SliderFloat("Gnarliness", &p.gnarliness, 0.0f, 0.5f, "%.2f");
-        dirty |= ImGui::SliderFloat("Upward pull", &p.sweep, -0.3f, 0.5f, "%.2f");
-    }
-
-    if (ImGui::CollapsingHeader("Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
-        const char* kCrown[] = {"Spread (broadleaf)", "Conical (conifer)"};
-        dirty |= ImGui::Combo("Crown", &p.crown, kCrown, 2);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Spread: branches spiral up every parent, the shape emerges.\n"
-                "Conical: the trunk runs to the apex and carries whorls of\n"
-                "boughs that shorten toward the top - a spruce/fir habit.");
-        dirty |= ImGui::SliderInt("Levels", &p.levels, 1, 4);
-        if (p.crown == 1) {
-            dirty |= ImGui::SliderInt("Whorls", &p.whorls, 2, 20);
-            dirty |= ImGui::SliderInt("Per whorl", &p.children[0], 1, 8);
-            for (int i = 1; i + 1 < p.levels && i < 3; ++i) {
-                ImGui::PushID(i);
-                char lbl[32];
-                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
-                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
-                ImGui::PopID();
-            }
-        } else {
-            for (int i = 0; i + 1 < p.levels && i < 3; ++i) {
-                ImGui::PushID(i);
-                char lbl[32];
-                std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
-                dirty |= ImGui::SliderInt(lbl, &p.children[i], 0, 12);
-                ImGui::PopID();
-            }
-        }
-        dirty |= ImGui::SliderFloat("Branch angle", &p.branchAngle, 5.0f, 90.0f, "%.0f");
-        if (p.crown == 1 && ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Conical: the tilt at mid-trunk. Lower whorls droop past it,\n"
-                "the ones near the apex sweep up.");
-        dirty |= ImGui::SliderFloat("Angle jitter", &p.angleJitter, 0.0f, 30.0f, "%.0f");
-        dirty |= ImGui::SliderFloat("Length ratio", &p.lengthRatio, 0.2f, 0.95f, "%.2f");
-        if (p.crown != 1)
-            dirty |= ImGui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
-        dirty |= ImGui::SliderFloat("Radius ratio", &p.radiusRatio, 0.2f, 0.9f, "%.2f");
-        dirty |= ImGui::SliderFloat("Spawn start", &p.spawnStart, 0.0f, 0.8f, "%.2f");
-    }
-
-    if (ImGui::CollapsingHeader("Leaves", ImGuiTreeNodeFlags_DefaultOpen)) {
-        dirty |= ImGui::SliderInt("Count", &p.leafCount, 0, 600);
-        float leafPct = p.leafSize * 100.0f;
-        if (ImGui::SliderFloat("Size", &leafPct, 1.0f, 30.0f, "%.1f%% of h")) {
-            p.leafSize = leafPct * 0.01f;
-            dirty = true;
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Leaf card width as a share of height (= %.2f units)",
-                              p.leafSize * p.height);
-        dirty |= ImGui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
-        dirty |= ImGui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
-        const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};
-        dirty |= ImGui::Combo("Foliage", &p.leafStyle, kLeaf, 3);
-    }
-
-    if (ImGui::CollapsingHeader("Appearance")) {
-        const char* kBark[] = {"Rough", "Birch", "Plates"};
-        dirty |= ImGui::Combo("Bark", &p.barkStyle, kBark, 3);
-        dirty |= ImGui::ColorEdit3("Bark light", p.barkColor,
-                                   ImGuiColorEditFlags_NoInputs);
-        dirty |= ImGui::ColorEdit3("Bark dark", p.barkColor2,
-                                   ImGuiColorEditFlags_NoInputs);
-        dirty |= ImGui::ColorEdit3("Leaf light", p.leafColor,
-                                   ImGuiColorEditFlags_NoInputs);
-        dirty |= ImGui::ColorEdit3("Leaf dark", p.leafColor2,
-                                   ImGuiColorEditFlags_NoInputs);
-    }
-
-    if (ImGui::CollapsingHeader("Detail (poly budget)")) {
-        dirty |= ImGui::SliderInt("Trunk sides", &p.sides, 3, 12);
-        dirty |= ImGui::SliderInt("Twig sides", &p.sidesMin, 3, 12);
-        dirty |= ImGui::SliderInt("Trunk rings", &p.rings, 1, 12);
-        dirty |= ImGui::SliderInt("Twig rings", &p.ringsMin, 1, 12);
-    }
-
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    // ---- right: preview + actions ---------------------------------------
-    ImGui::BeginGroup();
-
-    // Triangle budget readout - the PS2 stays happy well under a couple
-    // thousand tris per tree; warn (not block) past a soft ceiling.
-    const int tris = treeMesh_.triangles();
-    const int barkT = treeMesh_.barkTriangles();
-    const int leafT = treeMesh_.leafTriangles();
-    ImVec4 col = tris > 3000   ? ImVec4(1.0f, 0.45f, 0.35f, 1.0f)
-                 : tris > 1800 ? ImVec4(1.0f, 0.8f, 0.3f, 1.0f)
-                               : ImVec4(0.55f, 0.85f, 0.55f, 1.0f);
-    ImGui::TextColored(col, "%d triangles", tris);
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d bark + %d leaves)", barkT, leafT);
-    if (tris > 3000) {
         ImGui::SameLine();
-        ImGui::TextColored(col, "- heavy for PS2, trim detail/leaves");
+        const ImVec2 d0 = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("Roll", ImVec2(diceW, diceW))) {
+            // xorshift the current seed for a new-but-reproducible value
+            uint32_t s = p.seed ? p.seed : 0x1234567u;
+            s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+            p.seed = s;
+            dirty = true;
+        }
+        const bool hov = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rr = ImGui::GetStyle().FrameRounding;
+        dl->AddRectFilled(d0, ImVec2(d0.x + diceW, d0.y + diceW),
+                          ImGui::GetColorU32(hov ? sem.surface : sem.field), rr);
+        dl->AddRect(d0, ImVec2(d0.x + diceW, d0.y + diceW), ImGui::GetColorU32(sem.border), rr);
+        // a die: rounded square with five pips
+        const float m = diceW * 0.27f, pr = diceW * 0.05f;
+        const ImVec2 a(d0.x + m, d0.y + m), b(d0.x + diceW - m, d0.y + diceW - m);
+        dl->AddRect(a, b, ImGui::GetColorU32(sem.text), diceW * 0.08f, 0, 1.2f);
+        const ImVec2 pips[5] = {{a.x + (b.x - a.x) * 0.28f, a.y + (b.y - a.y) * 0.28f},
+                                {b.x - (b.x - a.x) * 0.28f, a.y + (b.y - a.y) * 0.28f},
+                                {(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f},
+                                {a.x + (b.x - a.x) * 0.28f, b.y - (b.y - a.y) * 0.28f},
+                                {b.x - (b.x - a.x) * 0.28f, b.y - (b.y - a.y) * 0.28f}};
+        for (const ImVec2& q : pips) dl->AddCircleFilled(q, pr, ImGui::GetColorU32(sem.text));
+        if (hov) ImGui::SetTooltip("Roll a new seed (shape stays, layout varies)");
     }
+    dimWrapped("Same shape family, new layout. Five variants = five seeds (~50 KB each).");
 
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float footer = ImGui::GetFrameHeightWithSpacing() * (treeGenImpostor_ ? 5.0f : 3.0f) + scaled(12.0f);
-    const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
-    const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
-
-    if (treeGenSpin_) {
-        treeGenAngle_ += io.DeltaTime * 22.0f;
-        if (treeGenAngle_ > 360.0f) treeGenAngle_ -= 360.0f;
+    // Trees this project already has from the generator: re-open to adjust.
+    {
+        static std::vector<std::string> saved;
+        static double scannedAt = -10.0;
+        static std::string scannedDir;
+        if (ImGui::GetTime() - scannedAt > 1.0 || scannedDir != project_.dir) {
+            scannedAt = ImGui::GetTime();
+            scannedDir = project_.dir;
+            saved.clear();
+            std::error_code ec;
+            const std::filesystem::path dir =
+                std::filesystem::path(project_.dir) / "res" / "models" / "trees";
+            if (std::filesystem::is_directory(dir, ec))
+                for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+                    if (e.path().extension() == ".tree") saved.push_back(e.path().stem().string());
+            std::sort(saved.begin(), saved.end());
+        }
+        if (!saved.empty()) {
+            ImGui::Spacing();
+            ui::Caption("In this project", std::to_string(saved.size()).c_str());
+            for (const std::string& stem : saved) {
+                ImGui::PushID(stem.c_str());
+                if (ui::ListRow(stem.c_str(), nullptr, false, ui::Glyph::Box))
+                    openTreeInGenerator("res/models/trees/" + stem + ".obj");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open res/models/trees/%s.obj's parameters.\n"
+                                      "Saving makes a new variant - placed copies stay as they are.",
+                                      stem.c_str());
+                ImGui::PopID();
+            }
+        }
     }
+    ImGui::EndChild();
+    vline();
+    ImGui::SameLine(0.0f, 0.0f);
 
-    Viewport::TreePreviewDesc desc;
-    desc.version = treePreviewVersion_;
-    desc.bark = &treeMesh_.bark;
-    desc.leaves = &treeMesh_.leaves;
-    desc.barkRgba = treeBarkTex_.rgba.data();
-    desc.barkW = treeBarkTex_.w;
-    desc.barkH = treeBarkTex_.h;
-    if (!treeMesh_.leaves.empty()) {
-        desc.leafRgba = treeLeafTex_.rgba.data();
-        desc.leafW = treeLeafTex_.w;
-        desc.leafH = treeLeafTex_.h;
-    }
-    for (int i = 0; i < 3; ++i)
-        desc.center[i] = (treeMesh_.min[i] + treeMesh_.max[i]) * 0.5f;
-    desc.minY = treeMesh_.min[1];
-    const float dx = treeMesh_.max[0] - treeMesh_.min[0];
-    const float dy = treeMesh_.max[1] - treeMesh_.min[1];
-    const float dz = treeMesh_.max[2] - treeMesh_.min[2];
-    desc.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (desc.radius < 0.01f) desc.radius = 0.01f;
-    desc.angleDeg = treeGenAngle_;
-    desc.pitchDeg = treeGenPitch_;
-    desc.zoom = treeGenZoom_;
-    desc.displayMode = treeGenDisplayMode_;
-
-    const uint32_t tex = viewport_.renderTreePreview(pw, ph, desc);
-    if (tex) {
+    // ---- centre: the tree ------------------------------------------------------
+    const float midW = ImGui::GetContentRegionAvail().x - paramW;
+    ImGui::BeginChild("treepreview", ImVec2(midW > 1 ? midW : 1, bodyH),
+                      ImGuiChildFlags_AlwaysUseWindowPadding);
+    {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
+        const int ph = (int)avail.y < 1 ? 1 : (int)avail.y;
+        if (treeGenSpin_) {
+            treeGenAngle_ += io.DeltaTime * 22.0f;
+            if (treeGenAngle_ > 360.0f) treeGenAngle_ -= 360.0f;
+        }
         const ImVec2 imgPos = ImGui::GetCursorScreenPos();
-        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
-                     ImVec2(0, 1), ImVec2(1, 0));
+        const ImVec2 imgMax(imgPos.x + pw, imgPos.y + ph);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float rr = ImGui::GetStyle().FrameRounding + 4.0f;
+
+        if (!treeShowImpostor_) {
+            Viewport::TreePreviewDesc desc;
+            desc.version = treePreviewVersion_;
+            desc.bark = &treeMesh_.bark;
+            desc.leaves = &treeMesh_.leaves;
+            desc.barkRgba = treeBarkTex_.rgba.data();
+            desc.barkW = treeBarkTex_.w;
+            desc.barkH = treeBarkTex_.h;
+            if (!treeMesh_.leaves.empty()) {
+                desc.leafRgba = treeLeafTex_.rgba.data();
+                desc.leafW = treeLeafTex_.w;
+                desc.leafH = treeLeafTex_.h;
+            }
+            for (int i = 0; i < 3; ++i)
+                desc.center[i] = (treeMesh_.min[i] + treeMesh_.max[i]) * 0.5f;
+            desc.minY = treeMesh_.min[1];
+            const float dx = treeMesh_.max[0] - treeMesh_.min[0];
+            const float dy = treeMesh_.max[1] - treeMesh_.min[1];
+            const float dz = treeMesh_.max[2] - treeMesh_.min[2];
+            // Frame the TREE, not its bounding sphere: the view is wider than
+            // tall, so the height decides - the sphere of a 7 m oak left the
+            // crown a fifth of the view over a field of floor.
+            const float aspect = (float)pw / (float)ph;
+            const float halfW = 0.5f * std::max(dx, dz) / std::max(1.0f, aspect);
+            // The preview camera sits at 2.4 radii with a 45 deg field, so the
+            // view's half height is ~one radius: 1.15 leaves a margin.
+            desc.radius = 1.15f * std::max(0.5f * dy, halfW) + 0.02f;
+            if (desc.radius < 0.01f) desc.radius = 0.01f;
+            desc.angleDeg = treeGenAngle_;
+            desc.pitchDeg = treeGenPitch_;
+            desc.zoom = treeGenZoom_;
+            desc.displayMode = treeGenDisplayMode_;
+            if (const uint32_t tex = viewport_.renderTreePreview(pw, ph, desc))
+                dl->AddImageRounded((ImTextureID)(intptr_t)tex, imgPos, imgMax, ImVec2(0, 1),
+                                    ImVec2(1, 0), IM_COL32_WHITE, rr);
+        } else {
+            // The distant card the bake would make, captured on the CPU: the
+            // view the turntable angle faces, as players see it past six tree
+            // heights.
+            if (treeImpVersion_ != treePreviewVersion_ || treeImpViewsBuilt_ != treeImpostorViews_ ||
+                !treeImpTex_) {
+                std::vector<unsigned char> px;
+                std::string err;
+                if (treegen::captureImpostor(treeMesh_, treeBarkTex_, treeLeafTex_, treeImpSize_,
+                                             treeImpostorViews_, px, &err)) {
+                    if (!treeImpTex_) glGenTextures(1, &treeImpTex_);
+                    glBindTexture(GL_TEXTURE_2D, treeImpTex_);
+                    glUploadTexRgba(treeImpSize_ * 4, treeImpSize_ * (treeImpostorViews_ / 4), px.data());
+                }
+                treeImpVersion_ = treePreviewVersion_;
+                treeImpViewsBuilt_ = treeImpostorViews_;
+            }
+            ImVec4 bg = sem.ground;
+            dl->AddRectFilled(imgPos, imgMax, ImGui::GetColorU32(bg), rr);
+            const int views = treeImpViewsBuilt_ > 0 ? treeImpViewsBuilt_ : 8;
+            int view = (int)std::lround(treeGenAngle_ / 360.0f * views) % views;
+            if (view < 0) view += views;
+            const float rows = (float)(views / 4);
+            const ImVec2 uv0((view % 4) * 0.25f, (view / 4) / rows);
+            const ImVec2 uv1(uv0.x + 0.25f, uv0.y + 1.0f / rows);
+            const float side = std::min((float)pw, (float)ph) * 0.86f;
+            const ImVec2 c0(imgPos.x + (pw - side) * 0.5f, imgPos.y + (ph - side) * 0.5f);
+            dl->AddRect(c0, ImVec2(c0.x + side, c0.y + side), ImGui::GetColorU32(sem.border), 0.0f);
+            if (treeImpTex_)
+                dl->AddImage((ImTextureID)(intptr_t)treeImpTex_, c0, ImVec2(c0.x + side, c0.y + side), uv0, uv1);
+            char info[96];
+            std::snprintf(info, sizeof info, "view %d of %d \xC2\xB7 %d px card \xC2\xB7 2 triangles",
+                          view + 1, views, treeImpSize_);
+            const ImVec2 ts = ImGui::CalcTextSize(info);
+            dl->AddText(ImVec2(c0.x + (side - ts.x) * 0.5f, c0.y + side + scaled(6.0f)),
+                        ImGui::GetColorU32(sem.textDim), info);
+        }
+        dl->AddRect(imgPos, imgMax, ImGui::GetColorU32(sem.border), rr);
+
+        // The whole view is the orbit handle; the overlays sit on top of it.
         ImGui::SetCursorScreenPos(imgPos);
-        ImGui::InvisibleButton("##tree_prev_in", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft |
-                                   ImGuiButtonFlags_MouseButtonRight);
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("Tree preview##tree_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
         const bool hovered = ImGui::IsItemHovered();
         const bool active = ImGui::IsItemActive();
-        if (hovered && io.MouseWheel != 0.0f) {
-            treeGenZoom_ *= std::pow(1.15f, io.MouseWheel);
-            treeGenZoom_ = treeGenZoom_ < 0.2f ? 0.2f
-                           : treeGenZoom_ > 12.0f ? 12.0f
-                                                  : treeGenZoom_;
-        }
+        if (hovered && io.MouseWheel != 0.0f)
+            treeGenZoom_ = std::clamp(treeGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
         if (active && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
             treeGenAngle_ += io.MouseDelta.x * 0.5f;
-            treeGenPitch_ += io.MouseDelta.y * 0.4f;
-            treeGenPitch_ = treeGenPitch_ < -30.0f ? -30.0f
-                            : treeGenPitch_ > 85.0f ? 85.0f
-                                                    : treeGenPitch_;
+            treeGenPitch_ = std::clamp(treeGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
             treeGenSpin_ = false;  // grabbing the camera stops the turntable
         }
-    }
+        if (hovered && ImGui::IsMouseDoubleClicked(0)) {
+            treeGenAngle_ = 40.0f;
+            treeGenPitch_ = 18.0f;
+            treeGenZoom_ = 1.0f;
+        }
 
-    // footer: view toggles + name + add-to-scene
-    ImGui::Checkbox("Spin", &treeGenSpin_);
-    ImGui::SameLine();
-    bool wire = treeGenDisplayMode_ == 1;
-    if (ImGui::Checkbox("Wireframe", &wire)) treeGenDisplayMode_ = wire ? 1 : 0;
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Reset view")) {
-        treeGenAngle_ = 40.0f;
-        treeGenPitch_ = 18.0f;
-        treeGenZoom_ = 1.0f;
-    }
+        // Top-left: the view pill.
+        const float m = scaled(12.0f);
+        const OverlayPillItem pill[] = {
+            {"Spin", "Spin", treeGenSpin_},
+            {"Wireframe", "Wireframe", treeGenDisplayMode_ == 1},
+            {nullptr, nullptr, false},
+            {"Near", "Near", !treeShowImpostor_},
+            {"Impostor", "Impostor", treeShowImpostor_},
+        };
+        switch (overlayPill(ImVec2(imgPos.x + m, imgPos.y + m), pill, 5)) {
+            case 0: treeGenSpin_ = !treeGenSpin_; break;
+            case 1: treeGenDisplayMode_ = treeGenDisplayMode_ == 1 ? 0 : 1; break;
+            case 3: treeShowImpostor_ = false; break;
+            case 4: treeShowImpostor_ = true; break;
+            default: break;
+        }
 
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    ImGui::InputText("Name", treeName_, sizeof(treeName_));
-    ImGui::Checkbox("Bake distant impostor", &treeGenImpostor_);
+        // Top-right: the PS2 budget, judged against the docs' thresholds.
+        {
+            const int tris = treeMesh_.triangles();
+            const int barkT = treeMesh_.barkTriangles(), leafT = treeMesh_.leafTriangles();
+            const int budget = 1800;
+            const float cw = scaled(230.0f), ch = scaled(66.0f);
+            const ImVec2 c0(imgMax.x - m - cw, imgPos.y + m), c1(imgMax.x - m, imgPos.y + m + ch);
+            ui::OverlayPanel(dl, c0, c1);
+            const float pad = scaled(10.0f);
+            const ImVec4 numCol = tris > 3000 ? sem.danger : tris > budget ? sem.warn : sem.ok;
+            char num[16];
+            std::snprintf(num, sizeof num, "%d", tris);
+            float x = c0.x + pad;
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::PushFont(nullptr, ImGui::GetFontSize() * 1.35f);
+                dl->AddText(ImVec2(x, c0.y + pad * 0.6f), ImGui::GetColorU32(numCol), num);
+                x += ImGui::CalcTextSize(num).x + scaled(6.0f);
+                ImGui::PopFont();
+            }
+            dl->AddText(ImVec2(x, c0.y + pad * 0.6f + scaled(4.0f)), ImGui::GetColorU32(sem.text), "triangles");
+            {
+                ui::FontScope mono(ui::monoFont());
+                char bud[32];
+                std::snprintf(bud, sizeof bud, "budget %d", budget);
+                const ImVec2 bs = ImGui::CalcTextSize(bud);
+                dl->AddText(ImVec2(c1.x - pad - bs.x, c0.y + pad * 0.6f + scaled(4.0f)),
+                            ImGui::GetColorU32(sem.textDim), bud);
+            }
+            const float by = c0.y + scaled(36.0f), bh = scaled(5.0f), bw = cw - pad * 2.0f;
+            const float scale = bw / (float)std::max(budget, tris);
+            auto rgb = [](const float* c) { return ImGui::GetColorU32(ImVec4(c[0] * 1.3f, c[1] * 1.3f, c[2] * 1.3f, 1.0f)); };
+            dl->AddRectFilled(ImVec2(c0.x + pad, by), ImVec2(c0.x + pad + bw, by + bh), ImGui::GetColorU32(sem.field), bh);
+            dl->AddRectFilled(ImVec2(c0.x + pad, by), ImVec2(c0.x + pad + barkT * scale, by + bh), rgb(p.barkColor), bh);
+            dl->AddRectFilled(ImVec2(c0.x + pad + barkT * scale, by),
+                              ImVec2(c0.x + pad + (barkT + leafT) * scale, by + bh), rgb(p.leafColor), bh);
+            char leg[64];
+            std::snprintf(leg, sizeof leg, "%d bark   %d leaves", barkT, leafT);
+            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.88f, ImVec2(c0.x + pad, by + bh + scaled(5.0f)),
+                        ImGui::GetColorU32(sem.textDim), leg);
+            ImGui::SetCursorScreenPos(c0);
+            ImGui::InvisibleButton("##treebudget", ImVec2(cw, ch));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The PS2 is comfortable under ~1800 triangles a tree;\n"
+                                  "past 3000 trim leaves or Detail. A distant impostor\n"
+                                  "costs 2 triangles once the tree is far away.");
+        }
+
+        // Bottom: what you are looking at, and how to move it.
+        {
+            char cap[96];
+            if (std::fabs(upm - 1.0f) < 1e-4f)
+                std::snprintf(cap, sizeof cap, "%.1f m tall \xC2\xB7 drag to orbit \xC2\xB7 wheel to zoom",
+                              treeMesh_.max[1] - treeMesh_.min[1]);
+            else
+                std::snprintf(cap, sizeof cap, "%.1f m tall (%.1f u) \xC2\xB7 drag to orbit \xC2\xB7 wheel to zoom",
+                              (treeMesh_.max[1] - treeMesh_.min[1]) / upm, treeMesh_.max[1] - treeMesh_.min[1]);
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(cap);
+            const float pad = scaled(8.0f);
+            const ImVec2 c0(imgPos.x + (pw - ts.x) * 0.5f - pad, imgMax.y - m - ts.y - pad);
+            ui::OverlayPanel(dl, c0, ImVec2(c0.x + ts.x + pad * 2.0f, c0.y + ts.y + pad));
+            dl->AddText(ImVec2(c0.x + pad, c0.y + pad * 0.5f), ImGui::GetColorU32(sem.textDim), cap);
+        }
+    }
+    ImGui::EndChild();
+    vline();
+    ImGui::SameLine(0.0f, 0.0f);
+
+    // ---- right: the parameters, one job per tab ---------------------------
+    ImGui::BeginChild("treetabs", ImVec2(0, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+    {
+        static const char* kTabs[] = {"Trunk##treetab", "Branches##treetab", "Leaves##treetab",
+                                      "Look##treetab", "Detail##treetab"};
+        static int shownFrame = -10;
+        const bool force = ImGui::GetFrameCount() - shownFrame > 1;
+        if (ui::BeginQuietTabBar("##treetabbar")) {
+            for (int i = 0; i < 5; ++i) {
+                const ImGuiTabItemFlags fl = force && i == treeTab_ ? ImGuiTabItemFlags_SetSelected : 0;
+                if (ui::QuietTab(kTabs[i], i == treeTab_, fl) && !force) treeTab_ = i;
+            }
+            ui::EndQuietTabBar();
+        }
+        shownFrame = ImGui::GetFrameCount();
+        ImGui::Spacing();
+        const treegen::Params& ref = presets[treePreset_].params;
+        ImGui::BeginChild("##treetabbody", ImVec2(0, 0));
+        const float capW = std::clamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(90.0f), scaled(120.0f));
+        auto helpUnder = [&](const char* text) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + capW);
+            dimWrapped(text);
+        };
+        {
+            ui::InspectorRows rows(capW, capW);
+            switch (treeTab_) {
+                case 0: {
+                    const char* hfmt = std::fabs(upm - 1.0f) < 1e-4f ? "%.1f m" : "%.1f u";
+                    dirty |= ui::SliderFloat("Height", &p.height, 0.5f, 20.0f, hfmt);
+                    helpUnder("Scales the whole tree - girth and leaves follow");
+                    // Thickness and leaf size are FRACTIONS of height (shown
+                    // as percent), so Height scales the whole tree instead of
+                    // stretching it thinner.
+                    float thickPct = p.thickness * 100.0f;
+                    if (ui::SliderFloat("Thickness", &thickPct, 0.5f, 15.0f, "%.1f%% of h")) {
+                        p.thickness = thickPct * 0.01f;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Trunk base radius as a share of height (= %.2f units)",
+                                          p.thickness * p.height);
+                    dirty |= ui::SliderFloat("Root flare", &p.flare, 1.0f, 3.0f, "%.2f");
+                    dirty |= ui::SliderFloat("Taper", &p.taper, 0.1f, 0.95f, "%.2f");
+                    dirty |= ui::SliderFloat("Gnarliness", &p.gnarliness, 0.0f, 0.5f, "%.2f");
+                    dirty |= ui::SliderFloat("Upward pull", &p.sweep, -0.3f, 0.5f, "%.2f");
+                    break;
+                }
+                case 1: {
+                    const char* kCrown[] = {"Spread (broadleaf)", "Conical (conifer)"};
+                    dirty |= ui::Combo("Crown", &p.crown, kCrown, 2);
+                    ui::RowHelp("Spread: branches spiral up every parent, the shape emerges.\n"
+                                "Conical: the trunk runs to the apex and carries whorls of\n"
+                                "boughs that shorten toward the top - a spruce/fir habit.");
+                    dirty |= ui::SliderInt("Levels", &p.levels, 1, 4);
+                    int first = 0;
+                    if (p.crown == 1) {
+                        dirty |= ui::SliderInt("Whorls", &p.whorls, 2, 20);
+                        dirty |= ui::SliderInt("Per whorl", &p.children[0], 1, 8);
+                        first = 1;
+                    }
+                    for (int i = first; i + 1 < p.levels && i < 3; ++i) {
+                        char lbl[32];
+                        std::snprintf(lbl, sizeof(lbl), "Children L%d", i);
+                        dirty |= ui::SliderInt(lbl, &p.children[i], 0, 12);
+                    }
+                    dirty |= ui::SliderFloat("Branch angle", &p.branchAngle, 5.0f, 90.0f, "%.0f deg");
+                    if (p.crown == 1)
+                        ui::RowHelp("Conical: the tilt at mid-trunk. Lower whorls droop past it,\n"
+                                    "the ones near the apex sweep up.");
+                    dirty |= ui::SliderFloat("Angle jitter", &p.angleJitter, 0.0f, 30.0f, "%.0f deg");
+                    dirty |= ui::SliderFloat("Length ratio", &p.lengthRatio, 0.2f, 0.95f, "%.2f");
+                    if (p.crown != 1)
+                        dirty |= ui::SliderFloat("Length taper", &p.lengthTaper, 0.0f, 0.9f, "%.2f");
+                    dirty |= ui::SliderFloat("Radius ratio", &p.radiusRatio, 0.2f, 0.9f, "%.2f");
+                    dirty |= ui::SliderFloat("Spawn start", &p.spawnStart, 0.0f, 0.8f, "%.2f");
+                    break;
+                }
+                case 2: {
+                    dirty |= ui::SliderInt("Count", &p.leafCount, 0, 600);
+                    helpUnder("Two triangles per leaf card - the biggest budget lever");
+                    float leafPct = p.leafSize * 100.0f;
+                    if (ui::SliderFloat("Size", &leafPct, 1.0f, 30.0f, "%.1f%% of h")) {
+                        p.leafSize = leafPct * 0.01f;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Leaf card width as a share of height (= %.2f units)",
+                                          p.leafSize * p.height);
+                    dirty |= ui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
+                    dirty |= ui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
+                    const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};
+                    dirty |= ui::Combo("Foliage", &p.leafStyle, kLeaf, 3);
+                    break;
+                }
+                case 3: {
+                    const char* kBark[] = {"Rough", "Birch", "Plates"};
+                    dirty |= ui::Combo("Bark", &p.barkStyle, kBark, 3);
+                    dirty |= ui::ColorHex("Bark light", p.barkColor);
+                    dirty |= ui::ColorHex("Bark dark", p.barkColor2);
+                    dirty |= ui::ColorHex("Leaf light", p.leafColor);
+                    dirty |= ui::ColorHex("Leaf dark", p.leafColor2);
+                    break;
+                }
+                default: {
+                    dirty |= ui::SliderInt("Trunk sides", &p.sides, 3, 12);
+                    dirty |= ui::SliderInt("Twig sides", &p.sidesMin, 3, 12);
+                    dirty |= ui::SliderInt("Trunk rings", &p.rings, 1, 12);
+                    dirty |= ui::SliderInt("Twig rings", &p.ringsMin, 1, 12);
+                    helpUnder("Sides x rings per branch segment: fewer is cheaper and blockier");
+                    break;
+                }
+            }
+        }
+        // Undo for one tab: back to the preset this tree started from.
+        ImGui::Spacing();
+        static const char* kTabNames[] = {"Trunk", "Branches", "Leaves", "Look", "Detail"};
+        char reset[64];
+        std::snprintf(reset, sizeof reset, "Reset %s to %s", kTabNames[treeTab_], presets[treePreset_].name);
+        if (ui::GhostButton(reset)) {
+            switch (treeTab_) {
+                case 0:
+                    p.height = ref.height, p.thickness = ref.thickness, p.flare = ref.flare;
+                    p.taper = ref.taper, p.gnarliness = ref.gnarliness, p.sweep = ref.sweep;
+                    break;
+                case 1:
+                    p.crown = ref.crown, p.whorls = ref.whorls, p.levels = ref.levels;
+                    for (int i = 0; i < 3; ++i) p.children[i] = ref.children[i];
+                    p.branchAngle = ref.branchAngle, p.angleJitter = ref.angleJitter;
+                    p.lengthRatio = ref.lengthRatio, p.lengthTaper = ref.lengthTaper;
+                    p.radiusRatio = ref.radiusRatio, p.spawnStart = ref.spawnStart;
+                    break;
+                case 2:
+                    p.leafCount = ref.leafCount, p.leafSize = ref.leafSize;
+                    p.leafAspect = ref.leafAspect, p.leafLevels = ref.leafLevels;
+                    p.leafStyle = ref.leafStyle;
+                    break;
+                case 3:
+                    p.barkStyle = ref.barkStyle;
+                    for (int i = 0; i < 3; ++i) {
+                        p.barkColor[i] = ref.barkColor[i], p.barkColor2[i] = ref.barkColor2[i];
+                        p.leafColor[i] = ref.leafColor[i], p.leafColor2[i] = ref.leafColor2[i];
+                    }
+                    break;
+                default:
+                    p.sides = ref.sides, p.sidesMin = ref.sidesMin;
+                    p.rings = ref.rings, p.ringsMin = ref.ringsMin;
+                    break;
+            }
+            dirty = true;
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+
+    // ---- footer: the output ---------------------------------------------------
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(a.x - ImGui::GetStyle().WindowPadding.x, a.y),
+                                            ImVec2(a.x + ImGui::GetContentRegionAvail().x + ImGui::GetStyle().WindowPadding.x, a.y),
+                                            ImGui::GetColorU32(sem.border));
+    }
+    ImGui::Dummy(ImVec2(0, scaled(8.0f)));
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Name");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::InputText("##treename", treeName_, sizeof(treeName_))) treeNameTouched_ = true;
+    ImGui::SameLine();
+    std::string base = sanitizeAssetName(treeName_);
+    if (base.empty()) base = "tree";
+    const std::string outName = treeOutputName(project_.dir, base);
+    {
+        std::string writes = "\xE2\x86\x92 res/models/trees/" + outName + ".obj + .mtl + " +
+                             (treeMesh_.leaves.empty() ? "1 png" : "2 png");
+        if (treeGenImpostor_) writes += " + impostor";
+        ui::FontScope mono(ui::monoFont());
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", writes.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(outName != base ? "A tree called %s exists - this one becomes %s."
+                                              : "Also %s.tree - the parameters, so the tree can be re-opened here.",
+                              outName != base ? base.c_str() : outName.c_str(), outName.c_str());
+    }
+    // Right-aligned group: impostor switch + views, Save, Add.
+    const float addW = ImGui::CalcTextSize("Add to scene").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+    const float saveW = ImGui::CalcTextSize("Save to project").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    static const char* kViews[] = {"4", "8", "16"};
+    float segW = 0.0f;
+    for (const char* v : kViews) segW += ImGui::CalcTextSize(v).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    segW += 6.0f;
+    const float swW = ImGui::GetFrameHeight() * 1.9f + ImGui::CalcTextSize("Distant impostor").x;
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    const float groupW = swW + sp + segW + sp + ImGui::CalcTextSize("views").x + sp * 3.0f + saveW + sp + addW;
+    ImGui::SameLine();
+    const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+    if (right - groupW > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(right - groupW);
+    ui::Switch("Distant impostor", &treeGenImpostor_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Also bake a 2-triangle camera-facing card shown beyond six tree heights\n"
+                          "(adjust in the object's Distance and LOD). GPU capture, CPU fallback.");
     if (treeGenImpostor_) {
-        int choice = treeImpostorViews_ == 4 ? 0 : treeImpostorViews_ == 16 ? 2 : 1;
-        ImGui::SetNextItemWidth(scaled(180.0f));
-        if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
-            treeImpostorViews_ = 4 << choice;
+        ImGui::SameLine();
+        int vi = treeImpostorViews_ == 4 ? 0 : treeImpostorViews_ == 16 ? 2 : 1;
+        if (ui::Segmented("##treeviews", kViews, 3, &vi)) treeImpostorViews_ = 4 << vi;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Capture views around the tree: more = smoother turning, more VRAM.");
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("views");
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"
-                          "GPU capture falls back to CPU if unavailable. Adjust distance in LOD properties.");
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, sp * 3.0f);
     ImGui::BeginDisabled(treeMesh_.bark.empty());
-    if (ImGui::Button("Add to scene")) addTreeToScene();
+    if (ImGui::Button("Save to project")) addTreeToScene(false);
     ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Write the asset without placing it - drag it in from the Asset Browser later.");
+    ImGui::SameLine();
+    if (ui::PrimaryButton("Add to scene", addW, !treeMesh_.bark.empty())) addTreeToScene(true);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Bake .obj + .mtl + textures into res/models/trees\n"
-                          "and drop a Model object into the current scene.");
-    ImGui::EndGroup();
+        ImGui::SetTooltip("Bake the files listed on the left and drop a Model object\n"
+                          "into the current scene.");
 
     if (dirty) treePreviewDirty_ = true;
     if (treePreviewDirty_) rebuildTreePreview();
@@ -3188,21 +3666,16 @@ void App::drawTreeGeneratorWindow() {
     ImGui::End();
 }
 
-// "Add to scene" from the Tree Generator: bakes the current tree's assets and
-// inserts a Model object pointing at them (addModelObject does the naming +
-// commit). A name clash reuses a numbered variant so re-adding never clobbers.
-void App::addTreeToScene() {
+// "Add to scene" / "Save to project" from the Tree Generator: bakes the current
+// tree's assets (+ the `.tree` parameter sidecar) and, when placing, inserts a
+// Model object pointing at them (addModelObject does the naming + commit). A
+// name clash makes a numbered variant, so re-saving never clobbers.
+void App::addTreeToScene(bool place) {
     std::string base = sanitizeAssetName(treeName_);
     if (base.empty()) base = "tree";
     // Distinct asset file name per generated tree so two trees in a project
     // don't share (and overwrite) each other's .obj/textures.
-    namespace fs = std::filesystem;
-    std::string name = base;
-    for (int n = 2;
-         fs::exists(fs::path(project_.dir) / "res" / "models" / "trees" /
-                    (name + ".obj"));
-         ++n)
-        name = base + "-" + std::to_string(n);
+    const std::string name = treeOutputName(project_.dir, base);
 
     std::string objRel, err;
     if (!treegen::writeAssets(project_.dir, name, treeParams_, treeMesh_,
@@ -3210,11 +3683,26 @@ void App::addTreeToScene() {
         statusMessage_ = "Tree export failed: " + err;
         return;
     }
+    {
+        const std::vector<treegen::Preset>& presets = treegen::presets();
+        const std::string presetName =
+            treePreset_ >= 0 && treePreset_ < (int)presets.size() ? presets[treePreset_].name : "";
+        std::ofstream side(std::filesystem::path(project_.dir) / "res" / "models" / "trees" /
+                               (name + ".tree"),
+                           std::ios::trunc);
+        side << treeParamsJson(treeParams_, presetName);
+    }
     std::string impostorRel, impostorBackend;
     if (treeGenImpostor_ &&
         !treegen::writeImpostor(project_.dir, name, treeMesh_, treeBarkTex_,
                                 treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, impostorGpu_, &impostorBackend)) {
         statusMessage_ = "Impostor export failed: " + err;
+        return;
+    }
+    if (!place) {
+        statusMessage_ = "Saved tree '" + name + "' to " + objRel + " (" +
+                         std::to_string(treeMesh_.triangles()) + " tris)" +
+                         (impostorRel.empty() ? "" : " - impostor " + impostorBackend);
         return;
     }
     addModelObject(objRel, nullptr, false);
@@ -3229,6 +3717,28 @@ void App::addTreeToScene() {
     statusMessage_ = "Added tree '" + name + "' (" +
                      std::to_string(treeMesh_.triangles()) + " tris)" +
                      (impostorRel.empty() ? "" : " - impostor " + impostorBackend);
+}
+
+bool App::openTreeInGenerator(const std::string& objRel) {
+    std::filesystem::path side = std::filesystem::path(project_.dir) / objRel;
+    side.replace_extension(".tree");
+    std::ifstream in(side);
+    if (!in) return false;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    treegen::Params loaded;
+    std::string preset;
+    if (!treeParamsFromJson(ss.str(), loaded, &preset)) return false;
+    treeParams_ = loaded;
+    const std::vector<treegen::Preset>& presets = treegen::presets();
+    for (int i = 0; i < (int)presets.size(); ++i)
+        if (preset == presets[i].name) treePreset_ = i;
+    std::snprintf(treeName_, sizeof treeName_, "%s", side.stem().string().c_str());
+    treeNameTouched_ = true;
+    treePreviewDirty_ = true;
+    showTreeGenerator_ = true;
+    ImGui::SetWindowFocus("Tree Generator");
+    return true;
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference
