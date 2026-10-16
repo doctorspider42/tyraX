@@ -3787,6 +3787,9 @@ private:
     std::string discPlanWarnings_;
     int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
+    std::set<std::string> discCollapsed_;  // load groups folded in the file list
+    double discElfAge_ = -1.0;    // seconds since the planned ELF was written (-1 = none)
+    double discElfAgeAt_ = 0.0;   // ImGui time discElfAge_ was measured
 
     // "Project Preferences" - an ordinary WINDOW, and it applies live like
     // every other panel in this editor (see drawPreferencesWindow for why the

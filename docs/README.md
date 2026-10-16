@@ -255,6 +255,9 @@ a Mac) finds any command, object or window by name.
 - [Running and debugging on a real PS2](ps2link-setup.md) — the one-time
   console setup for F6: our patched ps2link, flashing, ports, and a table of
   every failure message.
+- [Disc layout](disc-layout.md) — what goes on the PS2 disc in which order,
+  grouped by load stage, drag-to-reorder, the disc map, whether it fits a CD-R
+  or DVD-5, and Export ISO.
 
 **Team, AI & housekeeping**
 

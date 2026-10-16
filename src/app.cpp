@@ -5906,24 +5906,32 @@ std::vector<std::string> App::captureOpenWindows() const {
     return keys;
 }
 
-// The tools that change what the Viewport shows open BESIDE it: a floating
-// window over the picture it previews hides the thing it changes. Only a
-// window with no dock place in the loaded layout is docked (no ImGui settings
-// or floating ones, not alive yet this session) - once the user docks it
-// elsewhere, ImGui remembers that and this leaves it be.
-// Window names are the layout keys and never change; this only decides the
-// first dock node, with the same DockBuilder calls a recipe makes.
+// The world tools open DOCKED, never floating over the picture: a floating
+// window over the viewport hides the thing it changes. Where:
+//  - Side: the narrow Terrain Editor joins the Properties column.
+//  - Visual (Ambience, Color Grading - they judge the picture): a node split
+//    off the Viewport's right side, shared by both, when the Viewport's node
+//    is wide enough for two usable halves; otherwise a tab beside the
+//    Viewport (both windows adapt to a narrow dock and draw their own preview).
+//  - Page (Disc Layout, Project Preferences - nothing to see in the viewport):
+//    a tab in the Viewport's node, the full centre width.
+// Only a window with no dock place in the loaded layout is docked (no ImGui
+// settings or floating ones, not alive yet this session) - once the user docks
+// it elsewhere, ImGui remembers that and this leaves it be. Window names are
+// the layout keys and never change; this only decides the first dock node,
+// with the same DockBuilder calls a recipe makes.
 void App::dockToolWindows(unsigned int dockspace) {
+    enum Where { Side, Visual, Page };
     struct Tool {
         const char* name;
         bool* open;
-        bool side;  // the Properties column (a narrow tool) vs the wide node
+        Where where;
     };
-    const Tool tools[] = {{"Terrain Editor", &showTerrainEditor_, true},
-                          {"Ambience Editor", &showAmbienceEditor_, false},
-                          {"Color Grading", &showGradingEditor_, false},
-                          {"Disc Layout", &showDiscLayout_, false},
-                          {"Project Preferences", &showProjectPrefs_, false}};
+    const Tool tools[] = {{"Terrain Editor", &showTerrainEditor_, Side},
+                          {"Ambience Editor", &showAmbienceEditor_, Visual},
+                          {"Color Grading", &showGradingEditor_, Visual},
+                          {"Disc Layout", &showDiscLayout_, Page},
+                          {"Project Preferences", &showProjectPrefs_, Page}};
     bool docked = false;
     for (const Tool& t : tools) {
         bool& was = toolWasOpen_[t.name];
@@ -5939,28 +5947,32 @@ void App::dockToolWindows(unsigned int dockspace) {
         if (ImGui::FindWindowByName(t.name)) continue;
         if (const ImGuiWindowSettings* ws = ImGui::FindWindowSettingsByID(ImHashStr(t.name)))
             if (ws->DockId != 0) continue;
+        ImGuiWindow* vp = ImGui::FindWindowByName("Viewport");
+        ImGuiDockNode* vpNode = vp ? vp->DockNode : nullptr;
         ImGuiID target = 0;
-        if (t.side) {
+        if (t.where == Side) {
             if (ImGuiWindow* props = ImGui::FindWindowByName("Properties"))
                 if (props->DockNode) target = props->DockNode->ID;
+        } else if (t.where == Page) {
+            if (vpNode) target = vpNode->ID;
         } else {
-            // Join a wide tool that is already docked, else split one node off
-            // the Viewport's right side - one node for all of them, so opening
-            // a second tool does not keep halving the picture.
+            // Join the other visual tool's node (kept while its windows are
+            // closed), so opening the second does not halve the picture again.
             for (const Tool& o : tools)
-                if (!o.side && o.name != t.name)
+                if (o.where == Visual && o.name != t.name)
                     if (ImGuiWindow* w = ImGui::FindWindowByName(o.name))
-                        if (w->DockId && ImGui::DockBuilderGetNode(w->DockId)) {
-                            target = w->DockId;  // kept while its windows are closed
+                        if (w->DockId && ImGui::DockBuilderGetNode(w->DockId) && w->DockId != (vpNode ? vpNode->ID : 0)) {
+                            target = w->DockId;
                             break;
                         }
-            if (!target)
-                if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"))
-                    if (vp->DockNode) {
-                        ImGuiID rest = 0;
-                        target = ImGui::DockBuilderSplitNode(vp->DockNode->ID, ImGuiDir_Right,
-                                                             0.5f, nullptr, &rest);
-                    }
+            if (!target && vpNode) {
+                if (vpNode->Size.x >= scaled(900)) {
+                    ImGuiID rest = 0;
+                    target = ImGui::DockBuilderSplitNode(vpNode->ID, ImGuiDir_Right, 0.5f, nullptr, &rest);
+                } else {
+                    target = vpNode->ID;
+                }
+            }
         }
         if (!target) continue;  // nothing docked to stand beside: it floats
         ImGui::DockBuilderDockWindow(t.name, target);
@@ -16615,8 +16627,24 @@ static ImU32 discBrighten(ImU32 col, float amount) {
     return ImGui::ColorConvertFloat4ToU32(f);
 }
 
+// What each load group means, for its header row.
+static const char* discGroupMeaning(const std::string& g, const std::string& startScene) {
+    if (g == "boot") return "read first, fixed";
+    if (g == "startup") return "HUD, loading screens, sounds";
+    if (g == "music") return "streamed";
+    if (g == "other") return "not claimed by a group";
+    if (g.rfind("scene:", 0) == 0) return g.substr(6) == startScene ? "the start scene" : "loaded with its scene";
+    return "";
+}
+
+// Disc Layout (Project > Disc Layout...; docs/disc-layout.md): what goes on the
+// disc and in which order. Files grouped by load stage on the left, the disc
+// map as the hero on the right with its capacity, a stable info card, a legend
+// and the fit statement + Export ISO. Before any build it is an empty state
+// with Build as the action - not an error.
 void App::drawDiscLayoutWindow() {
     if (!showDiscLayout_ || !hasProject_) return;
+    if (!toolDockReady("Disc Layout")) return;
 
     // Replan after any build/export finishes (bin/ contents changed).
     if (runner_.busy())
@@ -16640,128 +16668,247 @@ void App::drawDiscLayoutWindow() {
             discPlanError_ = err;
         }
         if (discSelected_ >= (int)discPlan_.items.size()) discSelected_ = -1;
+        // How old the plan's source is: the ELF the last build wrote.
+        std::error_code ec;
+        const auto elf = std::filesystem::path(project_.dir) / "bin" / (project_.name + ".elf");
+        const auto t = std::filesystem::last_write_time(elf, ec);
+        discElfAgeAt_ = ImGui::GetTime();
+        discElfAge_ = ec ? -1.0
+                         : (double)std::chrono::duration_cast<std::chrono::seconds>(
+                               std::filesystem::file_time_type::clock::now() - t)
+                               .count();
     }
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(980), scaled(560)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1000), scaled(680)), ImGuiCond_FirstUseEver);
+    if (takeToolFocus("Disc Layout")) ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("Disc Layout", &showDiscLayout_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const bool busy = runner_.busy();
+
+    // --- header: where the plan comes from, refresh -----------------------------
+    {
+        std::string src = project_.name;
+        if (discPlanError_.empty() && discElfAge_ >= 0.0) {
+            const double age = discElfAge_ + (ImGui::GetTime() - discElfAgeAt_);
+            char buf[64];
+            if (age < 60.0) std::snprintf(buf, sizeof(buf), " · from the last build, just now");
+            else if (age < 3600.0) std::snprintf(buf, sizeof(buf), " · from the last build, %d min ago", (int)(age / 60.0));
+            else if (age < 86400.0) std::snprintf(buf, sizeof(buf), " · from the last build, %d h ago", (int)(age / 3600.0));
+            else std::snprintf(buf, sizeof(buf), " · from the last build, %d days ago", (int)(age / 86400.0));
+            src += buf;
+        }
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", src.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The plan refreshes itself after every build and ISO export.");
+        const float rw = ImGui::CalcTextSize("Refresh").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - rw));
+        if (ui::GhostButton("Refresh")) discPlanDirty_ = true;
+    }
 
     if (!discPlanError_.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.4f, 1.0f), "%s", discPlanError_.c_str());
-        ImGui::TextDisabled("Project > Build produces bin/, then come back here.");
-        if (ImGui::Button("Refresh")) discPlanDirty_ = true;
+        // Before the first build: say what the window needs, and offer it.
+        const std::string action = "Build " + project_.name;
+        ImGui::BeginChild("##disc_empty", ImVec2(0, 0));
+        const bool build = ui::EmptyState(
+            ui::Glyph::Box, "Nothing to lay out yet",
+            "The disc is planned from the files a build puts in bin/ - the ELF, baked models, textures and "
+            "audio. Build once and this fills in by itself.",
+            busy ? nullptr : action.c_str());
+        if (build) runner_.buildAndRun(projectForBuild(), false);
+        if (busy) {
+            const float w = ImMin(ImGui::GetContentRegionAvail().x, scaled(320));
+            ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - w) * 0.5f);
+            ImGui::BeginGroup();
+            ImGui::PushItemWidth(w);
+            ui::ProgressInline(-1.0f, "Building...", nullptr);
+            ImGui::PopItemWidth();
+            ImGui::EndGroup();
+        }
+        const std::string looked = "Looked for bin/" + project_.name + ".elf  ·  Build > Build (" +
+                                   ui::ShortcutChord("Shift+B", "\xe2\x87\xa7" "B", "+") + ")";
+        const float lw = ImGui::CalcTextSize(looked.c_str()).x;
+        ImGui::SetCursorPosX(ImMax(0.0f, (ImGui::GetContentRegionAvail().x - lw) * 0.5f));
+        ImGui::TextDisabled("%s", looked.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", discPlanError_.c_str());
+        ImGui::EndChild();
         ImGui::End();
         return;
     }
-
-    // --- Toolbar -----------------------------------------------------------
-    const bool busy = runner_.busy();
-    if (ImGui::Button("Refresh")) discPlanDirty_ = true;
-    ImGui::SameLine();
-    ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Export ISO")) runner_.exportIso(projectForBuild());
-    ImGui::EndDisabled();
-    if (discPlan_.manualOrder) {
-        ImGui::SameLine();
-        if (ImGui::Button("Reset to automatic order")) {
-            isoexport::saveManualOrder(project_, {});
-            discPlanDirty_ = true;
-        }
-    }
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(150.0f));
-    ImGui::Combo("##capacity", &discCapacity_, "Fit to data\0CD-R (700 MB)\0DVD-5 (4.7 GB)\0");
 
     const uint32_t kCdSectors = 360000, kDvd5Sectors = 2298496;
     uint32_t capSectors = discPlan_.totalSectors;
     if (discCapacity_ == 1) capSectors = std::max(capSectors, kCdSectors);
     if (discCapacity_ == 2) capSectors = std::max(capSectors, kDvd5Sectors);
-
     uint64_t dataBytes = 0;
-    for (const auto& it : discPlan_.items) dataBytes += it.size;
-    ImGui::SameLine();
-    ImGui::Text("%zu files, %s data, image %s", discPlan_.items.size(),
-                discPrettySize(dataBytes).c_str(),
-                discPrettySize((uint64_t)discPlan_.totalSectors * 2048).c_str());
-    if ((discCapacity_ == 1 && discPlan_.totalSectors > kCdSectors) ||
-        (discCapacity_ == 2 && discPlan_.totalSectors > kDvd5Sectors)) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "- does not fit this disc!");
-    }
-    if (!discPlanWarnings_.empty()) {
-        if (ImGui::CollapsingHeader("Name warnings"))
-            ImGui::TextWrapped("%s", discPlanWarnings_.c_str());
-    }
-    ImGui::Separator();
+    int moved = 0;
+    for (const auto& it : discPlan_.items) dataBytes += it.size, moved += it.pinned ? 1 : 0;
 
-    // --- Left: file table in burn order, drag rows to reorder ---------------
-    const float discPaneW =
-        std::max(scaled(280.0f), ImGui::GetContentRegionAvail().x * 0.38f);
-    ImGui::BeginChild("##discfiles",
-                      ImVec2(ImGui::GetContentRegionAvail().x - discPaneW - scaled(8.0f), 0));
-    ImGui::TextDisabled("Drag rows to change the disc order (saved to iso-layout.txt).");
-    if (ImGui::BeginTable("##disctable", 5,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
-                              ImGuiTableFlags_ScrollY)) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, scaled(28.0f));
-        ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("Group", ImGuiTableColumnFlags_WidthFixed, scaled(100.0f));
-        ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, scaled(72.0f));
-        ImGui::TableSetupColumn("LBA", ImGuiTableColumnFlags_WidthFixed, scaled(64.0f));
-        ImGui::TableHeadersRow();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool stacked = avail.x < scaled(760);
+    const float discW = stacked ? avail.x : ImClamp(avail.x * 0.42f, scaled(320), scaled(480));
+    const float filesH = stacked ? ImMax(scaled(220), avail.y * 0.45f) : avail.y;
 
-        int dragSrc = -1, dragDst = -1;
-        for (int i = 0; i < (int)discPlan_.items.size(); ++i) {
-            const auto& it = discPlan_.items[i];
-            const bool isBoot = it.group == "boot";
-            ImGui::PushID(i);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            char idx[16];
-            snprintf(idx, sizeof(idx), "%d", i);
-            if (ImGui::Selectable(idx, discSelected_ == i,
-                                  ImGuiSelectableFlags_SpanAllColumns))
-                discSelected_ = i;
-            if (!isBoot && ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload("DISC_FILE", &i, sizeof(int));
-                ImGui::TextUnformatted(it.relPath.c_str());
-                ImGui::EndDragDropSource();
-            }
-            if (!isBoot && ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("DISC_FILE")) {
-                    dragSrc = *(const int*)pl->Data;
-                    dragDst = i;
-                }
-                ImGui::EndDragDropTarget();
-            }
-            ImGui::TableNextColumn();
-            if (it.pinned) {
-                ImGui::TextDisabled("*");
-                ImGui::SameLine(0.0f, scaled(3.0f));
-            }
-            ImGui::TextUnformatted(it.isoPath.c_str());
-            ImGui::TableNextColumn();
-            const ImU32 col = discGroupColor(it.group);
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(col), "%s", it.group.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(discPrettySize(it.size).c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%u", it.lba);
-            ImGui::PopID();
+    // --- files, grouped by load stage --------------------------------------------
+    ui::BeginCard("##discfiles_card", ImVec2(stacked ? avail.x : avail.x - discW - gap, filesH));
+    {
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "%d", (int)discPlan_.items.size());
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Files in disc order");
         }
-        ImGui::EndTable();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", cnt);
+        if (discPlan_.manualOrder || moved > 0) {
+            char mv[32];
+            std::snprintf(mv, sizeof(mv), "%d moved by hand", moved);
+            const float rw = ImGui::CalcTextSize("Reset to automatic").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            const float bw = ImGui::CalcTextSize(mv).x + fs;
+            ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + fs, ImGui::GetWindowContentRegionMax().x - rw - bw - gap));
+            ui::Badge(mv, 1);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pinned in iso-layout.txt instead of following the group rules.");
+            ImGui::SameLine(0.0f, gap);
+            if (ui::GhostButton("Reset to automatic")) {
+                isoexport::saveManualOrder(project_, {});
+                discPlanDirty_ = true;
+            }
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("Automatic order = load order: what boot and the first scene read sits together, so "
+                           "the laser seeks less. Drag a file to override (saved to iso-layout.txt).");
+        ImGui::PopStyleColor();
+        if (!discPlanWarnings_.empty()) {
+            if (ui::Section("Name warnings")) ImGui::TextWrapped("%s", discPlanWarnings_.c_str());
+        }
+        ImGui::Separator();
 
+        ImGui::BeginChild("##discfiles", ImVec2(0, 0));
+        int dragSrc = -1, dragDst = -1;
+        const float rowH = ImGui::GetTextLineHeight() + fs * 0.7f;
+        const float sizeX = ImGui::GetContentRegionAvail().x - fs * 9.0f, lbaX = ImGui::GetContentRegionAvail().x - fs * 3.8f;
+        std::string startScene;
+        if (project_.startScene >= 0 && project_.startScene < (int)project_.scenes.size())
+            startScene = project_.scenes[project_.startScene].name;
+        for (int i = 0; i < (int)discPlan_.items.size();) {
+            // One group = a run of items with the same group (the plan keeps
+            // them together; a hand-moved file can split a run, which then
+            // simply shows its group twice).
+            const std::string grp = discPlan_.items[i].group;
+            int end = i;
+            uint64_t bytes = 0;
+            while (end < (int)discPlan_.items.size() && discPlan_.items[end].group == grp) bytes += discPlan_.items[end++].size;
+            ImGui::PushID(i);
+            const bool open = !discCollapsed_.count(grp);
+            {
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float w = ImGui::GetContentRegionAvail().x;
+                const std::string id = grp + "##grp";
+                if (ImGui::InvisibleButton(id.c_str(), ImVec2(w, rowH + fs * 0.3f))) {
+                    if (open) discCollapsed_.insert(grp);
+                    else discCollapsed_.erase(grp);
+                }
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const float cy = p.y + (rowH + fs * 0.3f) * 0.5f;
+                ImGui::RenderArrow(dl, ImVec2(p.x + 2.0f, cy - fs * 0.35f), ImGui::GetColorU32(sem.textDim),
+                                   open ? ImGuiDir_Down : ImGuiDir_Right, 0.7f);
+                dl->AddRectFilled(ImVec2(p.x + fs * 1.2f, cy - fs * 0.25f), ImVec2(p.x + fs * 1.7f, cy + fs * 0.25f),
+                                  discGroupColor(grp), 2.0f);
+                float x = p.x + fs * 2.1f;
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    dl->AddText(ImVec2(x, cy - fs * 0.5f), ImGui::GetColorU32(sem.text), grp.c_str());
+                    x += ImGui::CalcTextSize(grp.c_str()).x + fs * 0.6f;
+                }
+                const char* mean = nullptr;
+                const std::string m = discGroupMeaning(grp, startScene);
+                mean = m.c_str();
+                char cntBuf[16];
+                std::snprintf(cntBuf, sizeof(cntBuf), "%d", end - i);
+                const float rightStart = p.x + sizeX - fs * 4.5f;
+                dl->PushClipRect(ImVec2(x, p.y), ImVec2(rightStart - fs, p.y + rowH + fs), true);
+                dl->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(x, cy - fs * 0.45f), ImGui::GetColorU32(sem.textDim), mean);
+                dl->PopClipRect();
+                // Count where a file row's "moved" sits, total in the size column.
+                dl->AddText(ImVec2(p.x + sizeX - fs * 3.5f - ImGui::CalcTextSize(cntBuf).x, cy - fs * 0.5f),
+                            ImGui::GetColorU32(sem.textDim), cntBuf);
+                ui::FontScope mono(ui::monoFont());
+                const std::string tot = discPrettySize(bytes);
+                dl->AddText(ImVec2(p.x + sizeX + fs * 2.5f - ImGui::CalcTextSize(tot.c_str()).x, cy - fs * 0.5f),
+                            ImGui::GetColorU32(sem.text), tot.c_str());
+            }
+            if (open) {
+                for (int k = i; k < end; ++k) {
+                    const auto& it = discPlan_.items[k];
+                    const bool isBoot = it.group == "boot";
+                    ImGui::PushID(k);
+                    const ImVec2 p = ImGui::GetCursorScreenPos();
+                    const float w = ImGui::GetContentRegionAvail().x;
+                    // The label is the row's ID and script name (the disc path);
+                    // drawn transparent, the columns are drawn over it.
+                    const std::string rid = it.isoPath + "##file";
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
+                    if (ImGui::Selectable(rid.c_str(), discSelected_ == k, 0, ImVec2(w, rowH))) discSelected_ = k;
+                    ImGui::PopStyleColor();
+                    if (!isBoot && ImGui::BeginDragDropSource()) {
+                        ImGui::SetDragDropPayload("DISC_FILE", &k, sizeof(int));
+                        ImGui::TextUnformatted(it.relPath.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    if (!isBoot && ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("DISC_FILE")) {
+                            dragSrc = *(const int*)pl->Data;
+                            dragDst = k;
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (ImGui::IsItemHovered() && !isBoot) ImGui::SetTooltip("Drag to move it on the disc.");
+                    // The Selectable's own label is drawn; overlay mono path,
+                    // the moved badge, size and LBA in columns.
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const float ty = p.y + (rowH - fs) * 0.5f;
+                    if (!isBoot)
+                        for (int r = 0; r < 3; ++r)
+                            for (int c = 0; c < 2; ++c)
+                                dl->AddCircleFilled(ImVec2(p.x + fs * 0.5f + c * fs * 0.3f, p.y + rowH * 0.5f + (r - 1) * fs * 0.28f),
+                                                    fs * 0.06f + 0.5f, ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.5f)));
+                    if (it.pinned) {
+                        const ImVec2 bs = ImGui::CalcTextSize("moved");
+                        const float bx = p.x + sizeX - fs * 5.5f;
+                        dl->AddRectFilled(ImVec2(bx, ty - 1.0f), ImVec2(bx + bs.x + fs * 0.8f, ty + fs + 1.0f),
+                                          ImGui::GetColorU32(ImVec4(sem.warn.x, sem.warn.y, sem.warn.z, 0.16f)), fs);
+                        dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(bx + fs * 0.4f, ty + fs * 0.05f), ImGui::GetColorU32(sem.warn), "moved");
+                    }
+                    ui::FontScope mono(ui::monoFont());
+                    dl->PushClipRect(ImVec2(p.x, p.y), ImVec2(p.x + sizeX - fs * 6.0f, p.y + rowH), true);
+                    dl->AddText(ImVec2(p.x + fs * 1.3f, ty), ImGui::GetColorU32(sem.text),
+                                it.relPath.empty() ? it.isoPath.c_str() : it.relPath.c_str());
+                    dl->PopClipRect();
+                    const std::string sz = discPrettySize(it.size);
+                    char lba[24];
+                    std::snprintf(lba, sizeof(lba), "%u", it.lba);
+                    dl->AddText(ImVec2(p.x + sizeX - ImGui::CalcTextSize(sz.c_str()).x + fs * 2.5f, ty), ImGui::GetColorU32(sem.textDim), sz.c_str());
+                    dl->AddText(ImVec2(p.x + w - ImGui::CalcTextSize(lba).x - fs * 0.3f, ty), ImGui::GetColorU32(sem.textDim), lba);
+                    (void)lbaX;
+                    ImGui::PopID();
+                }
+            }
+            ImGui::PopID();
+            i = end;
+        }
         if (dragSrc >= 0 && dragDst >= 0 && dragSrc != dragDst) {
             // Move src to dst in display order, then persist every non-boot
             // path - the whole visible order becomes the explicit one.
             std::vector<isoexport::PlanItem> items = discPlan_.items;
-            isoexport::PlanItem moved = items[dragSrc];
+            isoexport::PlanItem mv = items[dragSrc];
             items.erase(items.begin() + dragSrc);
-            items.insert(items.begin() + dragDst, moved);
+            items.insert(items.begin() + dragDst, mv);
             std::vector<std::string> rels;
             for (const auto& it : items)
                 if (it.group != "boot") rels.push_back(it.relPath);
@@ -16769,167 +16916,215 @@ void App::drawDiscLayoutWindow() {
             discPlanDirty_ = true;
             discSelected_ = dragDst;
         }
+        ImGui::EndChild();
     }
-    ImGui::EndChild();
-    ImGui::SameLine();
+    ui::EndCard();
+    if (!stacked) ImGui::SameLine(0.0f, gap);
 
-    // --- Right: the disc ----------------------------------------------------
-    // Drawn the way data actually sits on a PS2 disc: a spiral track that
-    // starts at the hub and winds outward, approximated as concentric track
-    // rings with a constant pitch. Like the real thing (constant linear
-    // density), an outer turn holds more data than an inner one, so
-    // LBA -> radius follows the area formula r = sqrt(rIn^2 + f*(rOut^2-rIn^2)).
-    // A small file is a short arc on one track; a big one is a band of turns.
-    ImGui::BeginChild("##discview", ImVec2(0, 0));
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float legendH = ImGui::GetTextLineHeightWithSpacing() * 2.4f;
-    const float side = std::min(avail.x, std::max(scaled(120.0f), avail.y - legendH));
-    const ImVec2 c(origin.x + avail.x * 0.5f, origin.y + side * 0.5f);
-    const float rOut = side * 0.48f;
-    const float rIn = side * 0.165f;
-    const float kTop = -1.5707963f, kTau = 6.2831853f;
-
-    const int tracks = std::max(24, (int)((rOut - rIn) / 3.0f));
-    const float pitch = (rOut - rIn) / (float)tracks;
-    const double areaSpan = (double)rOut * rOut - (double)rIn * rIn;
-    // LBA of the spiral position at radius r (area-proportional fill)
-    auto lbaAtR = [&](float r) {
-        return (double)capSectors * ((double)r * r - (double)rIn * rIn) / areaSpan;
-    };
-
-    // Segment list covering the whole capacity: metadata, files, free space.
-    struct Seg {
-        double begin, end;
-        ImU32 col;
-        int item;  // index into items, or -1 metadata / -2 free
-    };
-    std::vector<Seg> segs;
-    segs.push_back({0.0, (double)discPlan_.dataStartLba, IM_COL32(120, 120, 128, 255), -1});
-    for (int i = 0; i < (int)discPlan_.items.size(); ++i) {
-        const auto& it = discPlan_.items[i];
-        segs.push_back({(double)it.lba, (double)(it.lba + std::max(it.sectors, 1u)),
-                        discGroupColor(it.group), i});
-    }
-    segs.push_back({(double)discPlan_.totalSectors, (double)capSectors,
-                    IM_COL32(46, 46, 50, 255), -2});
-
-    // Mouse -> track -> LBA -> segment (for hover/click before drawing)
-    const ImVec2 mouse = ImGui::GetIO().MousePos;
-    const float mdx = mouse.x - c.x, mdy = mouse.y - c.y;
-    const float mr = std::sqrt(mdx * mdx + mdy * mdy);
-    float ma = std::atan2(mdy, mdx) - kTop;
-    while (ma < 0.0f) ma += kTau;
-    const bool overDisc = ImGui::IsWindowHovered() && mr >= rIn && mr <= rOut;
-    int hovered = -1;
-    bool hoverMeta = false, hoverFree = false;
-    if (overDisc) {
-        const int k = std::min(tracks - 1, std::max(0, (int)((mr - rIn) / pitch)));
-        const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
-        const double lba = t0 + (t1 - t0) * (ma / kTau);
-        for (const auto& s : segs)
-            if (lba >= s.begin && lba < s.end) {
-                hovered = s.item;
-                hoverMeta = s.item == -1;
-                hoverFree = s.item == -2;
-            }
-    }
-
-    // Track rings, inside out; a ring is split into arcs where segments
-    // begin/end mid-turn. Angles stay continuous across turns: an LBA's
-    // angle is its fraction of the turn it lives on, measured from the top.
-    size_t cursor = 0;
-    for (int k = 0; k < tracks; ++k) {
-        const float rc = rIn + (k + 0.5f) * pitch;
-        const double t0 = lbaAtR(rIn + k * pitch);
-        const double t1 = std::max(t0 + 1.0, lbaAtR(rIn + (k + 1) * pitch));
-        while (cursor > 0 && segs[cursor].begin > t0) --cursor;  // capacity changed
-        size_t s = cursor;
-        while (s < segs.size() && segs[s].end <= t0) ++s;
-        cursor = s;
-        for (; s < segs.size() && segs[s].begin < t1; ++s) {
-            const double b0 = std::max(segs[s].begin, t0), b1 = std::min(segs[s].end, t1);
-            if (b1 <= b0) continue;
-            float a0 = kTop + (float)((b0 - t0) / (t1 - t0)) * kTau;
-            float a1 = kTop + (float)((b1 - t0) / (t1 - t0)) * kTau;
-            // keep hairline files visible on their track
-            if (segs[s].item >= 0) a1 = std::max(a1, a0 + 0.03f);
-            ImU32 col = segs[s].col;
-            if (segs[s].item >= 0 &&
-                (segs[s].item == hovered || segs[s].item == discSelected_))
-                col = discBrighten(col, segs[s].item == discSelected_ ? 0.45f : 0.3f);
-            dl->PathArcTo(c, rc, a0, a1);
-            dl->PathStroke(col, 0, pitch + 0.75f);
-        }
-    }
-    dl->AddCircle(c, rIn - pitch * 0.5f, IM_COL32(20, 20, 22, 255), 64, 1.5f);
-    dl->AddCircle(c, rOut + pitch * 0.5f, IM_COL32(20, 20, 22, 255), 96, 1.5f);
-
-    // Selection marker: radial tick at the file's first sector + a pointer
-    // ring so even a hairline arc deep in the band is findable.
-    if (discSelected_ >= 0 && discSelected_ < (int)discPlan_.items.size()) {
-        const auto& it = discPlan_.items[discSelected_];
-        const float rSel = (float)std::sqrt((double)rIn * rIn +
-                                            (double)it.lba / (double)capSectors * areaSpan);
-        const int k = std::min(tracks - 1, std::max(0, (int)((rSel - rIn) / pitch)));
-        const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
-        const float a = kTop + (float)(((double)it.lba - t0) / (t1 - t0)) * kTau;
-        const float rc = rIn + (k + 0.5f) * pitch;
-        const ImVec2 dir(std::cos(a), std::sin(a));
-        dl->AddLine(ImVec2(c.x + dir.x * (rc - pitch), c.y + dir.y * (rc - pitch)),
-                    ImVec2(c.x + dir.x * (rc + pitch), c.y + dir.y * (rc + pitch)),
-                    IM_COL32(255, 255, 255, 230), 2.0f);
-        dl->AddCircle(ImVec2(c.x + dir.x * rc, c.y + dir.y * rc), pitch * 1.6f,
-                      IM_COL32(255, 255, 255, 200), 24, 1.5f);
-    }
-
-    // center label
+    // --- the disc ------------------------------------------------------------------
+    ui::BeginCard("##discview_card", ImVec2(0, stacked ? ImMax(scaled(320), avail.y - filesH - ImGui::GetStyle().ItemSpacing.y) : avail.y));
     {
-        char mid[64];
-        snprintf(mid, sizeof(mid), "%s", discPrettySize(dataBytes).c_str());
-        const ImVec2 ts = ImGui::CalcTextSize(mid);
-        dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y), IM_COL32(220, 220, 220, 255), mid);
-        char pct[64];
-        snprintf(pct, sizeof(pct), "%.1f%% of disc",
-                 100.0 * (double)discPlan_.totalSectors / (double)capSectors);
-        const ImVec2 ts2 = ImGui::CalcTextSize(pct);
-        dl->AddText(ImVec2(c.x - ts2.x * 0.5f, c.y + 2.0f), IM_COL32(140, 140, 140, 255), pct);
-    }
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Disc");
+        }
+        const char* caps[] = {"Fit to data", "CD-R 700 MB", "DVD-5"};
+        const float segW = ImMin(ImGui::GetContentRegionAvail().x - fs * 3.0f, scaled(300));
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - segW);
+        ui::Segmented("##capacity", caps, 3, &discCapacity_, segW);
 
-    if (hovered >= 0) {
-        const auto& it = discPlan_.items[hovered];
-        ImGui::BeginTooltip();
-        ImGui::TextUnformatted(it.isoPath.c_str());
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(discGroupColor(it.group)), "%s%s",
-                           it.group.c_str(), it.pinned ? " (pinned)" : "");
-        ImGui::Text("%s, LBA %u-%u", discPrettySize(it.size).c_str(), it.lba,
-                    it.lba + std::max(it.sectors, 1u) - 1);
-        ImGui::EndTooltip();
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) discSelected_ = hovered;
-    } else if (hoverMeta) {
-        ImGui::SetTooltip("ISO9660 metadata (volume descriptor, path tables, directories)");
-    } else if (hoverFree) {
-        ImGui::SetTooltip("Free space");
-    }
+        // Footer reserve: info card, legend, image line + Export.
+        const float footH = ImGui::GetFrameHeightWithSpacing() * 2.0f + fs * 8.0f;
+        ImGui::BeginChild("##discview", ImVec2(0, -footH));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const ImVec2 av = ImGui::GetContentRegionAvail();
+        const float side = std::max(scaled(120.0f), std::min(av.x, av.y));
+        const ImVec2 c(origin.x + av.x * 0.5f, origin.y + av.y * 0.5f);
+        const float rOut = side * 0.48f;
+        const float rIn = side * 0.165f;
+        const float kTop = -1.5707963f, kTau = 6.2831853f;
 
-    // legend under the disc, in first-appearance order
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + side + 6.0f));
-    std::vector<std::string> groups;
-    for (const auto& it : discPlan_.items)
-        if (std::find(groups.begin(), groups.end(), it.group) == groups.end())
-            groups.push_back(it.group);
-    for (size_t i = 0; i < groups.size(); ++i) {
-        if (i) ImGui::SameLine();
-        const ImU32 col = discGroupColor(groups[i]);
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        dl->AddRectFilled(p, ImVec2(p.x + 10.0f, p.y + 10.0f), col, 2.0f);
-        ImGui::Dummy(ImVec2(12.0f, 10.0f));
-        ImGui::SameLine();
-        ImGui::TextUnformatted(groups[i].c_str());
+        // Drawn the way data sits on a PS2 disc: a spiral from the hub
+        // outward, approximated as concentric rings of constant pitch; an
+        // outer turn holds more data (r = sqrt(rIn^2 + f*(rOut^2-rIn^2))).
+        const int tracks = std::max(24, (int)((rOut - rIn) / 3.0f));
+        const float pitch = (rOut - rIn) / (float)tracks;
+        const double areaSpan = (double)rOut * rOut - (double)rIn * rIn;
+        auto lbaAtR = [&](float r) { return (double)capSectors * ((double)r * r - (double)rIn * rIn) / areaSpan; };
+        struct Seg {
+            double begin, end;
+            ImU32 col;
+            int item;  // index into items, or -1 metadata / -2 free
+        };
+        std::vector<Seg> segs;
+        segs.push_back({0.0, (double)discPlan_.dataStartLba, ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.7f)), -1});
+        for (int i = 0; i < (int)discPlan_.items.size(); ++i) {
+            const auto& it = discPlan_.items[i];
+            segs.push_back({(double)it.lba, (double)(it.lba + std::max(it.sectors, 1u)), discGroupColor(it.group), i});
+        }
+        segs.push_back({(double)discPlan_.totalSectors, (double)capSectors, ImGui::GetColorU32(sem.field), -2});
+
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const float mdx = mouse.x - c.x, mdy = mouse.y - c.y;
+        const float mr = std::sqrt(mdx * mdx + mdy * mdy);
+        float ma = std::atan2(mdy, mdx) - kTop;
+        while (ma < 0.0f) ma += kTau;
+        const bool overDisc = ImGui::IsWindowHovered() && mr >= rIn && mr <= rOut;
+        int hovered = -1;
+        bool hoverMeta = false, hoverFree = false;
+        if (overDisc) {
+            const int k = std::min(tracks - 1, std::max(0, (int)((mr - rIn) / pitch)));
+            const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
+            const double lba = t0 + (t1 - t0) * (ma / kTau);
+            for (const auto& s : segs)
+                if (lba >= s.begin && lba < s.end) {
+                    hovered = s.item;
+                    hoverMeta = s.item == -1;
+                    hoverFree = s.item == -2;
+                }
+        }
+        size_t cursor = 0;
+        for (int k = 0; k < tracks; ++k) {
+            const float rc = rIn + (k + 0.5f) * pitch;
+            const double t0 = lbaAtR(rIn + k * pitch);
+            const double t1 = std::max(t0 + 1.0, lbaAtR(rIn + (k + 1) * pitch));
+            while (cursor > 0 && segs[cursor].begin > t0) --cursor;
+            size_t s = cursor;
+            while (s < segs.size() && segs[s].end <= t0) ++s;
+            cursor = s;
+            for (; s < segs.size() && segs[s].begin < t1; ++s) {
+                const double b0 = std::max(segs[s].begin, t0), b1 = std::min(segs[s].end, t1);
+                if (b1 <= b0) continue;
+                float a0 = kTop + (float)((b0 - t0) / (t1 - t0)) * kTau;
+                float a1 = kTop + (float)((b1 - t0) / (t1 - t0)) * kTau;
+                if (segs[s].item >= 0) a1 = std::max(a1, a0 + 0.03f);  // keep hairline files visible
+                ImU32 col = segs[s].col;
+                if (segs[s].item >= 0 && (segs[s].item == hovered || segs[s].item == discSelected_))
+                    col = discBrighten(col, segs[s].item == discSelected_ ? 0.45f : 0.3f);
+                dl->PathArcTo(c, rc, a0, a1);
+                dl->PathStroke(col, 0, pitch + 0.75f);
+            }
+        }
+        dl->AddCircle(c, rIn - pitch * 0.5f, ImGui::GetColorU32(sem.ground), 64, 1.5f);
+        dl->AddCircle(c, rOut + pitch * 0.5f, ImGui::GetColorU32(sem.ground), 96, 1.5f);
+        if (discSelected_ >= 0 && discSelected_ < (int)discPlan_.items.size()) {
+            // A radial tick at the file's first sector + a ring, so even a
+            // hairline arc deep in the band is findable.
+            const auto& it = discPlan_.items[discSelected_];
+            const float rSel = (float)std::sqrt((double)rIn * rIn + (double)it.lba / (double)capSectors * areaSpan);
+            const int k = std::min(tracks - 1, std::max(0, (int)((rSel - rIn) / pitch)));
+            const double t0 = lbaAtR(rIn + k * pitch), t1 = lbaAtR(rIn + (k + 1) * pitch);
+            const float a = kTop + (float)(((double)it.lba - t0) / (t1 - t0)) * kTau;
+            const float rc = rIn + (k + 0.5f) * pitch;
+            const ImVec2 dir(std::cos(a), std::sin(a));
+            dl->AddLine(ImVec2(c.x + dir.x * (rc - pitch), c.y + dir.y * (rc - pitch)),
+                        ImVec2(c.x + dir.x * (rc + pitch), c.y + dir.y * (rc + pitch)), IM_COL32(255, 255, 255, 230), 2.0f);
+            dl->AddCircle(ImVec2(c.x + dir.x * rc, c.y + dir.y * rc), pitch * 1.6f, IM_COL32(255, 255, 255, 200), 24, 1.5f);
+        }
+        {
+            const std::string mid = discPrettySize((uint64_t)discPlan_.totalSectors * 2048);
+            ui::FontScope bold(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(mid.c_str());
+            dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y - ts.y), ImGui::GetColorU32(sem.text), mid.c_str());
+        }
+        {
+            const char* sub = "whole image";
+            const ImVec2 ts = ImGui::CalcTextSize(sub);
+            dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y + 2.0f), ImGui::GetColorU32(sem.textDim), sub);
+        }
+        if (hovered >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) discSelected_ = hovered;
+        else if (hoverMeta) ImGui::SetTooltip("ISO9660 metadata (volume descriptor, path tables, directories)");
+        else if (hoverFree) ImGui::SetTooltip("Free space");
+        ImGui::Dummy(av);
+        ImGui::EndChild();
+
+        // Info card: the hovered file, else the selected one - anchored, not a
+        // tooltip that follows the mouse.
+        const int info = hovered >= 0 ? hovered : discSelected_;
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const float h = fs * 3.0f;
+            ImDrawList* fdl = ImGui::GetWindowDrawList();
+            fdl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), 8.0f);
+            if (info >= 0 && info < (int)discPlan_.items.size()) {
+                const auto& it = discPlan_.items[info];
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    fdl->AddText(ImVec2(p.x + fs * 0.7f, p.y + fs * 0.45f), ImGui::GetColorU32(sem.text), it.isoPath.c_str());
+                }
+                char line[160];
+                std::snprintf(line, sizeof(line), "%s · %s · LBA %u-%u%s", it.group.c_str(), discPrettySize(it.size).c_str(),
+                              it.lba, it.lba + std::max(it.sectors, 1u) - 1, it.pinned ? " · moved by hand" : "");
+                fdl->AddText(ImVec2(p.x + fs * 0.7f, p.y + fs * 1.6f), ImGui::GetColorU32(sem.textDim), line);
+            } else {
+                fdl->AddText(ImVec2(p.x + fs * 0.7f, p.y + fs * 1.0f), ImGui::GetColorU32(sem.textDim),
+                             "Point at the disc or pick a file to see where it sits.");
+            }
+            ImGui::Dummy(ImVec2(w, h));
+        }
+        // Legend, in first-appearance order.
+        {
+            std::vector<std::string> groups;
+            for (const auto& it : discPlan_.items)
+                if (std::find(groups.begin(), groups.end(), it.group) == groups.end()) groups.push_back(it.group);
+            bool first = true;
+            for (const std::string& g : groups) {
+                const float cw = ImGui::CalcTextSize(g.c_str()).x + fs * 1.8f;
+                if (!first && ImGui::GetItemRectMax().x + gap + cw < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+                    ImGui::SameLine(0.0f, gap * 0.6f);
+                first = false;
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float h = ImGui::GetTextLineHeight() + 6.0f;
+                ImDrawList* ldl = ImGui::GetWindowDrawList();
+                ldl->AddRectFilled(p, ImVec2(p.x + cw, p.y + h), ImGui::GetColorU32(sem.surface), h * 0.5f);
+                ldl->AddRectFilled(ImVec2(p.x + fs * 0.5f, p.y + h * 0.5f - fs * 0.22f),
+                                   ImVec2(p.x + fs * 0.94f, p.y + h * 0.5f + fs * 0.22f), discGroupColor(g), 2.0f);
+                ldl->AddText(ImVec2(p.x + fs * 1.2f, p.y + 3.0f), ImGui::GetColorU32(sem.text), g.c_str());
+                ImGui::Dummy(ImVec2(cw, h));
+            }
+        }
+        ImGui::Separator();
+        // Footer: the image size, the fit statement and the action.
+        {
+            const uint64_t img = (uint64_t)discPlan_.totalSectors * 2048;
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Image");
+            ImGui::SameLine();
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextUnformatted(discPrettySize(img).c_str());
+            }
+            ImGui::SameLine();
+            const uint32_t capOf = discCapacity_ == 1 ? kCdSectors : (discCapacity_ == 2 ? kDvd5Sectors : 0);
+            const char* capName = discCapacity_ == 1 ? "a CD-R" : "a DVD-5";
+            char fit[96];
+            if (capOf == 0) {
+                std::snprintf(fit, sizeof(fit), "· %.1f%% of a CD-R", 100.0 * discPlan_.totalSectors / kCdSectors);
+                ImGui::TextDisabled("%s", fit);
+            } else if (discPlan_.totalSectors > capOf) {
+                std::snprintf(fit, sizeof(fit), "· %s over %s",
+                              discPrettySize((uint64_t)(discPlan_.totalSectors - capOf) * 2048).c_str(), capName);
+                ImGui::TextColored(sem.danger, "%s", fit);
+            } else {
+                std::snprintf(fit, sizeof(fit), "· %.1f%% of %s, %s free", 100.0 * discPlan_.totalSectors / capOf, capName,
+                              discPrettySize((uint64_t)(capOf - discPlan_.totalSectors) * 2048).c_str());
+                ImGui::TextDisabled("%s", fit);
+            }
+            const char* exp = "Export ISO";
+            const float ew = ImGui::CalcTextSize(exp).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < ew) ImGui::NewLine();
+            ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ew));
+            if (ui::PrimaryButton(exp, 0.0f, !busy)) runner_.exportIso(projectForBuild());
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(busy ? "A build is running." : "Writes the image in this order (Project > Export PS2 ISO).");
+        }
+        (void)dataBytes;
     }
-    ImGui::TextDisabled("* = pinned by iso-layout.txt; inner rim = disc start (lowest LBA)");
-    ImGui::EndChild();
+    ui::EndCard();
 
     ImGui::End();
 }
