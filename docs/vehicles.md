@@ -41,27 +41,46 @@ can instead use a material whose name contains `paint`.
 
 ## The Vehicle Editor
 
-Choose **Global defaults** for settings shared by new vehicles, or choose a
-vehicle to edit it. Changing one inherited control creates a local override
-for that field. **Use defaults** resets the current section. Model, wheel
-geometry, paint, LOD and exit offset stay local to each definition.
+The window is three columns: the vehicle list, the **live preview** in the
+middle, and the settings. The list starts with **Global defaults** (the base
+every vehicle inherits from), then each vehicle with a silhouette in its paint
+colour, its model file and how many values it customises ("all defaults",
+"22 custom"); **+** adds a vehicle, right-click one for *Duplicate* and
+*Delete*.
+
+Changing an inherited value creates a local override for that one field, and
+the inspector shows it **on the row**: a dot after the caption and a reset
+arrow that puts that single value back to Global defaults; inherited values
+keep a dim caption. **Reset to defaults** at the top of a tab resets every
+custom value of that section. Model, wheel geometry, paint, LOD and exit
+offset stay local to each definition; the measured wheel placement carries a
+`model` badge and **Re-measure** takes the model's numbers back.
 
 | Tab | Main controls |
 |---|---|
-| Model | Model, wheel roles, front direction, paint and glass |
-| Driving | Acceleration, speed, steering, grip, suspension, gearbox and nitrous |
-| Damage | Visual and performance damage, dents, loose parts and power loss |
-| Driver | Cameras, HUD and exit position |
-| Sounds | Engine loops, pitch curves, tyre squeal and gear shift |
-| Effects | Headlights, lamp glow, skid marks and tyre smoke |
+| Model | Model, paint, the import summary, front direction and the wheel table |
+| Handling | Wheel placement (measured), power and speed, steering and grip, road surfaces, suspension, gearbox, nitrous, fast wheel swap - each a collapsible section |
+| Damage | Visual and performance damage, dents, loose parts, power loss and test hits |
+| Feel | Driver (cameras, HUD, controls card, exit position), Sounds (engine loops, pitch curves, tyre squeal, gear shift) and Effects (headlights, skid marks, tyre smoke, lamp glow, speed feel, exhaust) |
 | Cost | Triangle budgets, submissions, fast wheels and far model |
 
-The **Live preview** uses the baked body and wheels. Drag to orbit, scroll to
-zoom, move **Steering**, or enable **Spin wheels**. The Damage tab can apply
-test hits and repair the preview. **Listen to engine** and **Revs** audition
-the current sound tuning without driving the game.
+The **live preview** uses the baked body and wheels. Drag to orbit, scroll to
+zoom. Its overlay has *Reset view*, **Spin wheels** and **Wheels & measures**,
+which tags each wheel with its position and role (FL *steer*, RL *drive*...)
+and draws the measured wheelbase under the car; hovering a row of the Model
+tab's wheel table rings that wheel. The **Baked cost** card (triangles, draw
+submissions, the far tier) stays visible whatever tab you are on. Under the
+preview, **Speed**, **Steering** and **Revs** scrub the pose and the engine;
+**Listen to engine** auditions the current sound tuning without driving the
+game. The Damage tab can apply test hits and repair the preview.
 
-![Vehicle Editor live preview](img/vehicle-live-preview.png)
+**Drive it** (top right) drives the first placed instance of the vehicle in the
+active scene with the same simulation the console runs (W/S/A/D, Space, E);
+the card under the preview then shows the telemetry, and *Stop driving* puts
+the car back where it was. With no instance placed the button is disabled and
+says why.
+
+![The Vehicle Editor on vehicle-playground: Pica Turbo selected, the preview with Wheels & measures tags and the wheelbase, the Baked cost card, the scrubbers, and the Handling tab with measured (model) and custom (dot) values.](img/vehicle-live-preview.png)
 
 ## Driving and handling
 
@@ -156,7 +175,7 @@ recording across the whole range without losing the selected high-rev sample
 or its settings. The Sounds tab also sets volumes, tyre squeal and gear shift.
 
 Use short, clean, steady-RPM loops; the build encodes continuous roles as
-looping PS2 audio. **Listen to engine** in Live preview follows the same pitch
+looping PS2 audio. **Listen to engine** under the preview follows the same pitch
 and crossfade controls. The preview uses host audio, while the game plays the
 encoded samples on SPU2.
 
@@ -183,7 +202,7 @@ repaired. The HUD shows damage when relevant.
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp
-materials. Skid marks and tyre smoke respond to slip. The Effects tab accepts
+materials. Skid marks and tyre smoke respond to slip. Feel > Effects accepts
 built-in effects, materials, or a particle-library smoke effect. **Body shine**
 uses a reflection texture or the sky (with the city as boxes when *Reflect static
 scenery as boxes* is on, and a flat-colour ground that costs ~2 ms less a turning
@@ -196,7 +215,7 @@ flames as speed rises. The Driver tab controls the speedometer and HUD scale.
 
 ### Controls card
 
-*Driver > Controls card on entry* shows a short list of what to press the first
+*Feel > Driver > Controls card on entry* shows a short list of what to press the first
 time the player gets into each car (each definition, once per boot). The card is
 built while the game runs, so it always matches what is actually set up:
 
@@ -239,7 +258,7 @@ the steps.
 
 A model with no markers keeps the old behaviour: two pipes guessed a quarter of
 the track apart under the rear bumper, and one centred pop per upshift. The
-Effects tab says which one a car has. **Exhaust smoke** (Effects > Exhaust)
+Feel > Effects says which one a car has. **Exhaust smoke** (Feel > Effects > Exhaust)
 scales the smoke, 0 switches it off; it puffs only from cars that are driven
 (by the player or an AI route) within about 35 units of the camera, thicker on
 the throttle, and shares the tyre-smoke pool, so it costs no draw submission.

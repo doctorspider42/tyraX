@@ -2179,6 +2179,12 @@ private:
     bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
     bool vehiclePreviewFast_ = false;
     bool vehicleBudgetEdit_ = false;
+    // Vehicle Editor view state: inspector tab (0 Model, 1 Handling, 2 Damage,
+    // 3 Feel, 4 Cost), the "Wheels & measures" overlay, and the wheel row the
+    // pointer is over in the Model tab (-1 none) - the preview rings it.
+    int vehicleTab_ = 1;
+    bool vehicleShowMeasures_ = true;
+    int vehicleHoverWheel_ = -1;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
     // frame - so the window shows the last result and re-runs it only when
