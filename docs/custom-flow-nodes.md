@@ -28,12 +28,12 @@ see [Moving nodes to another project](#moving-nodes-to-another-project).
 
 ## Quick start
 
-1. Open the **Flow Graph** tab → **Custom nodes… ▸ New starter node**. This
+1. Open the **Flow Graph** tab → the **`</>`** button (*Custom nodes*) ▸ **New starter node**. This
    writes `flow-nodes/example.flownode` (a working "Nearest Object" C++-backed
    node) and reloads.
-2. Edit the file (format below), then **Custom nodes… ▸ Reload from folder**.
-   The node appears in the add-menu under its `category`.
-3. Right-click the canvas → your category → your node. Wire it up, build. Your
+2. Edit the file (format below), then **`</>` ▸ Reload from folder**.
+   The node appears in the add-node palette under its `category`.
+3. Press Space on the canvas (or right-click it), type the node's name, Enter. Wire it up, build. Your
    code lands in `src/gen/flow_graph.gen.cpp` exactly where the node runs.
 
 ## File format

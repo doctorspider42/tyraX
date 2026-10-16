@@ -57,9 +57,20 @@ The Flow Graph window becomes a live instrument the moment the game reports:
 - a **breakpoint** shows as a red dot on the node's title bar; the one the game
   actually stopped on turns yellow.
 
-Right-click a node for *Set breakpoint* / *Fire now in the running game*, or use
-the Debugger panel's **Nodes** page, which lists every runnable node of the graph
-being edited with its hit count, breakpoint checkbox and Fire button.
+Click in the gutter just left of a node's title to set or clear a breakpoint;
+a trigger's title carries a **Fire** button. Right-click a node for the same
+*Set breakpoint* / *Fire now in the running game*, or use the Debugger panel's
+**Nodes** page, which lists every runnable node of the graph being edited with
+its hit count, breakpoint checkbox and Fire button.
+
+While the game is halted the canvas shows a transport bar — *Stopped at
+Do Once · breakpoint*, **Continue** (F10), **Step node**, **Step frame**
+(F11) — and *Follows selection* becomes *Follows the halt*: the graph that
+stopped opens by itself with the node selected. The left list sorts the
+scene's graphs by activity (a dot = ran in the last second, ×N = fires since
+boot, a red dot = has a breakpoint), and the inspector's **Live** tab shows
+why it stopped, the save values and variables the graph touches (previous →
+now), every breakpoint in the scene, and what Live Logic can patch.
 
 ### The chip
 

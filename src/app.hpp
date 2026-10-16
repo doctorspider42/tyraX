@@ -2114,10 +2114,44 @@ private:
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
-    // "Graph of" picker: list only objects that already own nodes (the ones
-    // the list marks with a *). View state, per session - like the Scene
-    // panel's filters above.
-    bool flowOnlyWithNodes_ = false;
+    // The graph follows the selected object (and, while the Live Debugger is
+    // halted, the graph that stopped). Remembers what it last followed so a
+    // graph picked by hand stays until the selection actually changes.
+    bool flowFollowSel_ = true;
+    int flowFollowedSel_ = -2;
+    int flowFollowedBreak_ = -1;
+    // Left list "Graphs in <scene>": its width, filter text, and whether the
+    // objects without logic are listed too. View state, per session.
+    float flowListW_ = 0.0f;
+    float flowInspW_ = 0.0f;
+    std::string flowListFilter_;
+    std::string flowSwitchFilter_;  // the graph switcher popup's own filter
+    bool flowListAll_ = false;
+    // Inspector tab while the Live Debugger is reporting (0 node, 1 live).
+    int flowInspTab_ = 0;
+    bool flowInspWasLive_ = false;
+    // Add-node palette (Space, right-click, or a wire dropped on empty canvas):
+    // the query, the category chip (-1 all), the highlighted row, where the
+    // node lands, and the pin a dropped wire started at (-1 none) - the
+    // palette then lists only nodes that can take it and wires the new one.
+    std::string flowPalQuery_;
+    int flowPalCat_ = -1;
+    int flowPalSel_ = 0;
+    bool flowPalOpen_ = false;
+    bool flowPalFocus_ = false;
+    bool flowPalMoreCats_ = false;
+    ImVec2 flowPalPos_ = ImVec2(0, 0);
+    int flowPalFromPin_ = -1;
+    std::vector<std::string> flowRecent_;  // node type keys, newest first
+    // Frame-all / select requests carried to the frame that can do them
+    // (node sizes are known only after the canvas has been drawn once).
+    int flowFrameAllReq_ = 0;  // frames to wait; 0 = none
+    int flowSelectReq_ = -1;   // node id to select next frame
+    // Live Logic per-graph capability, cached per (graph, edit serial).
+    int flowCapObj_ = -1;
+    uint64_t flowCapSerial_ = ~0ull;
+    bool flowCapPatchable_ = true;
+    std::vector<std::string> flowCapReasons_;
     // Set every frame by drawFlowGraphWindow(): the Flow Graph window (or one of
     // its children) has keyboard focus, so Ctrl+C/V copy nodes, not scene objects.
     bool flowGraphFocused_ = false;

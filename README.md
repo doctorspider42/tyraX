@@ -393,7 +393,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **Gameplay & logic**
 
-- **Flow graph** — visual logic (triggers → actions), extensible with your own
+- **[Flow graph](docs/flow-graph.md)** — visual logic (triggers → actions), extensible with your own
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.

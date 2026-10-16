@@ -1316,5 +1316,98 @@ void LegendSwatch(ImU32 col, const char* text) {
 }
 // --- end runtime-a ---
 
+// --- screens-a ---------------------------------------------------------------
+
+float StatusPillWidth(const char* label) {
+    return ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetFontSize() * 1.9f;
+}
+
+bool StatusPill(const char* label, int kind) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float w = StatusPillWidth(label), h = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const ImVec4 base = ImGui::ColorConvertU32ToFloat4(kindCol(kind));
+    const float r = h * 0.5f;
+    if (kind == 4) {
+        dl->AddRectFilled(p, q, c32(sem.surface, 0.6f + 0.4f * t), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+    } else {
+        dl->AddRectFilled(p, q, c32(base, 0.12f + 0.08f * t), r);
+        dl->AddRect(p, q, c32(base, 0.45f), r);
+    }
+    dl->AddCircleFilled(ImVec2(p.x + fs * 0.75f, p.y + h * 0.5f), fs * 0.2f, kindCol(kind));
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    dl->AddText(ImVec2(p.x + fs * 1.2f, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                kind == 4 ? c32(sem.textDim) : c32(mixv(base, sem.text, 0.25f)), label, end);
+    return pressed;
+}
+
+bool GlyphButton(const char* label, Glyph g, float size, const char* tooltip, bool active) {
+    const theme::Semantics& sem = theme::semantics();
+    const float s = size > 0.0f ? size : ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(s, s));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + s, p.y + s);
+    const float r = ImGui::GetStyle().FrameRounding;
+    if (active) dl->AddRectFilled(p, q, c32(sem.accent, 0.22f), r);
+    else if (t > 0.0f) dl->AddRectFilled(p, q, c32(sem.surface, 0.9f * t), r);
+    DrawGlyph(dl, g, ImVec2(p.x + s * 0.5f, p.y + s * 0.5f), s * 0.55f,
+              active ? c32(sem.accent) : c32(mixv(sem.textDim, sem.text, t)));
+    if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tooltip);
+    return pressed;
+}
+
+void ValueChip(const char* text, bool dim) {
+    const theme::Semantics& sem = theme::semantics();
+    FontScope mono(monoFont());
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float padX = fs * 0.4f, h = ImGui::GetTextLineHeight() + fs * 0.2f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + ts.x + padX * 2.0f, p.y + h), c32(sem.field), fs * 0.25f);
+    dl->AddText(ImVec2(p.x + padX, p.y + (h - ts.y) * 0.5f), dim ? c32(sem.textDim) : c32(sem.text), text);
+    ImGui::Dummy(ImVec2(ts.x + padX * 2.0f, h));
+}
+
+bool RecordButton(const char* label, bool recording, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float h = ImGui::GetFrameHeight() * 1.45f;
+    const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(ImMax(1.0f, w), h));
+    ImGui::EndDisabled();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    float a = enabled ? 0.85f + 0.15f * t : 0.35f;
+    if (recording) a = 0.55f + 0.3f * (0.5f + 0.5f * std::sin((float)ImGui::GetTime() * 5.0f));
+    dl->AddRectFilled(p, q, c32(sem.danger, a), r);
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    FontScope bold(boldFont());
+    const ImVec2 ts = ImGui::CalcTextSize(label, end);
+    const float mark = fs * 0.62f, gap = fs * 0.5f;
+    const float x = p.x + (w - ts.x - mark - gap) * 0.5f, cy = p.y + h * 0.5f;
+    const ImU32 ink = c32(sem.ground);
+    if (recording)
+        dl->AddRectFilled(ImVec2(x, cy - mark * 0.5f), ImVec2(x + mark, cy + mark * 0.5f), ink, 2.0f);
+    else
+        dl->AddCircleFilled(ImVec2(x + mark * 0.5f, cy), mark * 0.5f, ink);
+    dl->AddText(ImVec2(x + mark + gap, cy - ts.y * 0.5f), ink, label, end);
+    return pressed && enabled;
+}
+
+// --- end screens-a -----------------------------------------------------------
+
 }  // namespace ui
 // --- end screens-c ---

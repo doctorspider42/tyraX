@@ -137,6 +137,9 @@ a Mac) finds any command, object or window by name.
 
 - [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
   objects: lifecycle, ScriptContext reference, globals, performance.
+- [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
+  graph that follows the selection, the add-node search, compact nodes with an
+  inspector, problems, Frame all / Tidy, and the live-debugging view.
 - [Custom flow-graph nodes](custom-flow-nodes.md) — your own action nodes in
   `.flownode` text files: inline C++ or a real function with typed pins.
 - [Streaming layers](streaming-layers.md) — GTA3-style interior streaming:

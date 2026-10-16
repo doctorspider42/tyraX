@@ -255,4 +255,31 @@ void Meter(const float* fracs, const ImU32* cols, int n, float height = 0.0f);
 void LegendSwatch(ImU32 col, const char* text);
 // --- end runtime-a ---
 
+// --- screens-a ---------------------------------------------------------------
+
+/** A status pill for a header ("Edits need a build · 3 nodes", "Live · 30 Hz",
+ * "0 problems"): a dot and the text on a pill tinted by `kind` (as StatusLine;
+ * 4 = dim). An InvisibleButton named `label`; returns clicked. */
+bool StatusPill(const char* label, int kind);
+/** Width StatusPill(label) takes. */
+float StatusPillWidth(const char* label);
+
+/** A square ghost button showing glyph `g` (an InvisibleButton named `label`),
+ * accent-tinted while `active`; `tooltip` shows on hover. `size` 0 = one frame
+ * height. Returns clicked. */
+bool GlyphButton(const char* label, Glyph g, float size = 0.0f, const char* tooltip = nullptr,
+                 bool active = false);
+
+/** A value chip: `text` in the mono face on a small field-coloured pill at the
+ * cursor (a Dummy - not interactive). The compact way a node or a row shows
+ * the value it holds ("lenses", "3", "self"). `dim` greys the text. */
+void ValueChip(const char* text, bool dim = false);
+
+/** The one big action of a recorder: a danger-red bar with a dot and `label`,
+ * or - while `recording` - a square on a pulsing fill. `width` <= 0 fills the
+ * row. Returns clicked (never while disabled). */
+bool RecordButton(const char* label, bool recording, float width = -1.0f, bool enabled = true);
+
+// --- end screens-a -----------------------------------------------------------
+
 }  // namespace ui
