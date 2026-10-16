@@ -2247,6 +2247,10 @@ private:
     // bake / Delete bake, never per frame.
     std::string prefabBakeDiskKey_;
     std::string prefabBakeDiskPath_;
+    // Panel view state (not edits): the name/notes filter over the tile grid
+    // and whether the member list is expanded past its first rows.
+    char prefabSearch_[96] = {};
+    bool prefabMembersAll_ = false;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and

@@ -8358,6 +8358,157 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     return tex;
 }
 
+// --- assets-c: prefab thumbnails ---
+uint32_t Viewport::prefabThumb(const std::string& key,
+                               const std::vector<SceneObject>& members,
+                               bool render) {
+    if (!program_ || key.empty()) return 0;
+    const std::string cacheKey = "prefab:" + key;
+    auto cached = thumbCache_.find(cacheKey);
+    if (cached != thumbCache_.end()) return cached->second;
+    if (!render) return 0;
+
+    // What is drawn: the members a person would recognise the prefab by -
+    // geometry. Lights, markers, cameras and sound sources stay out (their
+    // editor gizmos would read as part of the building).
+    struct Item {
+        const SceneObject* o;
+        Mat4 m;
+        const ModelDraw* model;
+        AnimModelDraw* anim;
+        const MaterialDraw* mat;
+    };
+    std::vector<Item> items;
+    float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+    auto grow = [&](const Mat4& m, const float* lo, const float* hi) {
+        for (int c = 0; c < 8; ++c) {
+            const float x = (c & 1) ? hi[0] : lo[0];
+            const float y = (c & 2) ? hi[1] : lo[1];
+            const float z = (c & 4) ? hi[2] : lo[2];
+            const float w[3] = {m.m[0] * x + m.m[4] * y + m.m[8] * z + m.m[12],
+                                m.m[1] * x + m.m[5] * y + m.m[9] * z + m.m[13],
+                                m.m[2] * x + m.m[6] * y + m.m[10] * z + m.m[14]};
+            for (int a = 0; a < 3; ++a) {
+                mn[a] = std::min(mn[a], w[a]);
+                mx[a] = std::max(mx[a], w[a]);
+            }
+        }
+    };
+    for (const SceneObject& o : members) {
+        Item it{&o, modelMatrix(o), nullptr, nullptr, nullptr};
+        if (o.type == PrimitiveType::Model) {
+            if (isAnimatedModelPath(o.modelPath)) {
+                it.anim = animModelDraw(o.modelPath, o.materialPath);
+                if (!it.anim || !it.anim->ok) continue;
+                grow(it.m, it.anim->baked.min, it.anim->baked.max);
+            } else {
+                it.model = modelDraw(o.modelPath, o.materialPath);
+                if (!it.model || it.model->parts.empty()) continue;
+                grow(it.m, it.model->mn, it.model->mx);
+            }
+        } else if (o.type == PrimitiveType::Box || o.type == PrimitiveType::Sphere ||
+                   o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
+                   o.type == PrimitiveType::Plane) {
+            it.mat = materialDraw(o.materialPath);
+            static const float lo[3] = {-0.5f, -0.5f, -0.5f}, hi[3] = {0.5f, 0.5f, 0.5f};
+            grow(it.m, lo, hi);
+        } else {
+            continue;
+        }
+        items.push_back(it);
+    }
+    if (items.empty()) {
+        thumbCache_[cacheKey] = 0;
+        return 0;
+    }
+
+    const int s = kAssetThumbSize;
+    ensureThumbFramebuffer();
+    glBindFramebuffer(GL_FRAMEBUFFER, thumbFbo_);
+    glViewport(0, 0, s, s);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    useSceneProgram(false);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+    glUniform1i(uReflOn_, 0);
+    glUniform3f(uEmissive_, 0.0f, 0.0f, 0.0f);
+
+    const Vec3 center{(mn[0] + mx[0]) * 0.5f, (mn[1] + mx[1]) * 0.5f,
+                      (mn[2] + mx[2]) * 0.5f};
+    const float ex = mx[0] - mn[0], ey = mx[1] - mn[1], ez = mx[2] - mn[2];
+    const float radius = std::max(0.05f, 0.5f * std::sqrt(ex * ex + ey * ey + ez * ez));
+    const float dist = radius * 2.7f;  // a little looser than assetThumb: rooms are boxy
+    const float pitch = 28.0f * kPi / 180.0f, yaw = 35.0f * kPi / 180.0f;
+    const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
+                   center.y + dist * std::sin(pitch),
+                   center.z + dist * std::cos(pitch) * std::sin(yaw)};
+    const Mat4 viewProj =
+        mul(perspective(45.0f * kPi / 180.0f, 1.0f, std::max(0.01f, dist * 0.01f),
+                        dist + radius * 4.0f + 50.0f),
+            lookAt(eye, center, {0, 1, 0}));
+
+    auto draw = [&](const Mesh& mesh, const Mat4& m, float r, float g, float b,
+                    uint32_t texture, bool alpha) {
+        const Mat4 mvp = mul(viewProj, m);
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, m.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+    for (const Item& it : items) {
+        const SceneObject& o = *it.o;
+        if (it.anim) {
+            uploadAnimPose(*it.anim, 0, it.anim->baked.frameCount, 0.0f);
+            for (const AnimModelDraw::Part& part : it.anim->parts)
+                draw(part.mesh, it.m, o.color[0] * part.kd[0], o.color[1] * part.kd[1],
+                     o.color[2] * part.kd[2], part.tex, false);
+        } else if (it.model) {
+            for (const ModelPart& part : it.model->parts)
+                draw(part.mesh, it.m, o.color[0], o.color[1], o.color[2], part.tex,
+                     part.alpha);
+        } else {
+            const float kr = it.mat ? it.mat->kd[0] : 1.0f;
+            const float kg = it.mat ? it.mat->kd[1] : 1.0f;
+            const float kb = it.mat ? it.mat->kd[2] : 1.0f;
+            const Mesh& mesh = o.type == PrimitiveType::Plane
+                                   ? plane_
+                                   : primMesh(o.type, o.primDetail, o.primRings);
+            draw(mesh, it.m, o.color[0] * kr, o.color[1] * kg, o.color[2] * kb,
+                 it.mat ? it.mat->tex : 0, false);
+        }
+    }
+    glBindVertexArray(0);
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 0, 0, s, s, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    thumbCache_[cacheKey] = tex;
+    return tex;
+}
+// --- end assets-c ---
+
 // Ray/triangle sweep over the CPU copy of the last material-preview geometry.
 // Nearest hit wins; the hit's texture UV comes from barycentric interpolation
 // (the same UVs the GPU sampled, so the painted texel lands under the cursor).

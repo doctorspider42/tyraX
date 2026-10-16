@@ -492,12 +492,19 @@ bool PrimaryButtonText(const char* id, const char* text, float width, bool enabl
     ImFont* bf = boldFont() ? boldFont() : ImGui::GetFont();
     const float fsz = ImGui::GetFontSize();
     const ImVec2 ts = bf->CalcTextSizeA(fsz, FLT_MAX, 0.0f, text);
+// --- assets-c ---
+bool SecondaryButton(const char* label, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 ts = ImGui::CalcTextSize(label, end);
     const float h = ImGui::GetFrameHeight();
     float w = width > 0.0f ? width : ts.x + st.FramePadding.x * 2.6f;
     if (width < 0.0f) w = ImMax(ts.x + st.FramePadding.x * 2.0f, ImGui::GetContentRegionAvail().x);
     const ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::BeginDisabled(!enabled);
     const bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
     ImGui::EndDisabled();
     const bool hov = enabled && ImGui::IsItemHovered();
     const bool held = enabled && ImGui::IsItemActive();
@@ -528,6 +535,119 @@ bool NoteCard(int kind, const char* text) {
     dl->AddCircleFilled(ImVec2(p.x + fs * 0.8f, p.y + fs * 0.6f + fs * 0.5f), fs * 0.22f, col);
     ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.5f, p.y + fs * 0.6f));
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = st.FrameRounding;
+    const ImVec4 f = mixv(sem.surface, sem.text, held ? 0.12f : 0.06f * t);
+    dl->AddRectFilled(p, q, c32(f, enabled ? 1.0f : 0.5f), r);
+    dl->AddRect(p, q, c32(sem.border), r);
+    const ImU32 ink = enabled ? c32(sem.text) : c32(sem.textDim, 0.6f);
+    dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), ink, label, end);
+    return pressed && enabled;
+}
+
+bool HelpButton(const char* label, float size, const char* tooltip) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size));
+    const bool hov = ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
+    if (t > 0.0f)
+        dl->AddRectFilled(p, ImVec2(p.x + size, p.y + size), c32(sem.surface, 0.9f * t),
+                          ImGui::GetStyle().FrameRounding);
+    const ImU32 ink = hov ? c32(sem.text) : c32(sem.textDim);
+    dl->AddCircle(c, size * 0.3f, ink, 20, 1.3f);
+    const float fs = ImGui::GetFontSize() * 0.72f;
+    const ImVec2 qs = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, "?");
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(c.x - qs.x * 0.5f, c.y - qs.y * 0.5f), ink, "?");
+    if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tooltip);
+    return pressed;
+}
+
+bool ThumbTileEx(const char* label, ImTextureID tex, bool flipY, Glyph fallback, bool selected,
+                 float size, const char* caption, const char* note) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float capH = fs + 6.0f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size + capH));
+    const bool hov = ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    const ImVec2 q(p.x + size, p.y + size);
+    if (selected)
+        dl->AddRectFilled(ImVec2(p.x - 3, p.y - 3), ImVec2(q.x + 3, q.y + capH), c32(sem.accent, 0.10f),
+                          r + 2);
+    dl->AddRectFilled(p, q, c32(mixv(sem.ground, sem.field, 0.5f + 0.5f * t)), r);
+    if (tex)
+        dl->AddImageRounded(tex, ImVec2(p.x + 3, p.y + 3), ImVec2(q.x - 3, q.y - 3),
+                            ImVec2(0, flipY ? 1.0f : 0.0f), ImVec2(1, flipY ? 0.0f : 1.0f),
+                            IM_COL32_WHITE, r - 2.0f);
+    else
+        DrawGlyph(dl, fallback, ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size * 0.36f,
+                  c32(sem.textDim, 0.8f));
+    if (selected) dl->AddRect(p, q, c32(sem.accent), r, 0, 2.0f);
+    else dl->AddRect(p, q, c32(sem.border), r);
+    const char* cap = caption ? caption : label;
+    const char* end = caption ? nullptr : ImGui::FindRenderedTextEnd(label);
+    float noteW = 0.0f;
+    if (note && *note) {
+        FontScope mono(monoFont());
+        noteW = ImGui::CalcTextSize(note).x;
+        dl->AddText(ImVec2(q.x - noteW - 2.0f, q.y + 4.0f), c32(sem.textDim, 0.8f), note);
+        noteW += fs * 0.5f;
+    }
+    dl->PushClipRect(ImVec2(p.x, q.y), ImVec2(q.x - noteW, q.y + capH), true);
+    {
+        FontScope bold(selected ? boldFont() : nullptr);
+        dl->AddText(ImVec2(p.x + 2.0f, q.y + 4.0f),
+                    c32(selected ? sem.text : mixv(sem.text, sem.textDim, 0.3f)), cap, end);
+    }
+    dl->PopClipRect();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+        ImGui::CalcTextSize(cap, end).x > size - noteW - 4.0f)
+        ImGui::SetTooltip("%.*s", end ? (int)(end - cap) : (int)std::strlen(cap), cap);
+    return pressed;
+}
+
+void BadgeFlow(const char* text, int kind, bool first, const char* tooltip) {
+    const float fs = ImGui::GetFontSize() * 0.82f;
+    const float w = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text).x + fs;
+    if (!first) {
+        const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+        if (ImGui::GetItemRectMax().x + spacing + w <= right) ImGui::SameLine(0.0f, spacing);
+    }
+    Badge(text, kind);
+    if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
+        ImGui::TextUnformatted(tooltip);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+void Callout(int kind, const char* text) {
+    const float fs = ImGui::GetFontSize();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float padX = fs * 0.75f, padY = fs * 0.55f;
+    const float wrapW = ImMax(10.0f, w - padX * 2.0f - fs);
+    const ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, wrapW);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float h = ts.y + padY * 2.0f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = kindCol(kind);
+    const ImVec4 cv = ImGui::ColorConvertU32ToFloat4(col);
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(cv, 0.10f), r);
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), c32(cv, 0.35f), r);
+    dl->AddCircle(ImVec2(p.x + padX + fs * 0.3f, p.y + padY + fs * 0.5f), fs * 0.3f, col, 16, 1.4f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + padX + fs, p.y + padY));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrapW);
     ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
     ImGui::SetCursorScreenPos(p);
@@ -535,6 +655,22 @@ bool NoteCard(int kind, const char* text) {
     return ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
 }
 // --- end assets-a ---
+}
+
+void SwatchDot(ImU32 col, float d, bool glow) {
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(d, d));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 c(p.x + d * 0.5f, p.y + d * 0.5f);
+    if (glow) {
+        const ImVec4 cv = ImGui::ColorConvertU32ToFloat4(col);
+        for (int i = 4; i >= 1; --i)
+            dl->AddCircleFilled(c, d * 0.5f * (0.55f + 0.12f * (float)i), c32(cv, 0.12f), 24);
+    }
+    dl->AddCircleFilled(c, d * (glow ? 0.3f : 0.5f), col, 24);
+}
+// --- end assets-c ---
+
 
 }  // namespace ui
 

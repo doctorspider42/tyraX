@@ -161,5 +161,35 @@ bool PrimaryButtonText(const char* id, const char* text, float width = 0.0f, boo
  * Returns true when it is hovered (for a tooltip with the long story). */
 bool NoteCard(int kind, const char* text);
 // --- end assets-a ---
+// --- assets-c ---
+// Pieces the Vehicle / Prefabs / Particle / Drone redesigns share.
+
+/** A secondary action next to a PrimaryButton (Replace, Duplicate, Save
+ * patch): surface fill and a hairline frame, so it reads as a button and not
+ * as text. Same contract as PrimaryButton. */
+bool SecondaryButton(const char* label, float width = 0.0f, bool enabled = true);
+
+/** A square "?" button (InvisibleButton named `label`) for a tool's docs link
+ * in its header row. `tooltip` may be null. Returns clicked. */
+bool HelpButton(const char* label, float size, const char* tooltip = nullptr);
+
+/** ThumbTile for textures that come out of a framebuffer (bottom-up: `flipY`),
+ * with an optional dim `note` drawn right-aligned on the caption line (a
+ * member count). Same ID/return contract as ThumbTile. */
+bool ThumbTileEx(const char* label, ImTextureID tex, bool flipY, Glyph fallback, bool selected,
+                 float size, const char* caption, const char* note);
+
+/** A Badge that flows: wraps to a new line when it would not fit after the
+ * previous item (`first` for the first of a run). `tooltip` may be null. */
+void BadgeFlow(const char* text, int kind, bool first, const char* tooltip = nullptr);
+
+/** An info card: a tinted rounded box (kind as StatusLine) with a ring and
+ * wrapped text, full width. */
+void Callout(int kind, const char* text);
+
+/** A colour dot `d` px across at the cursor, as an item (list rows: effect
+ * glows, layer colours, chord colours). `glow` adds a soft halo. */
+void SwatchDot(ImU32 col, float d, bool glow = false);
+// --- end assets-c ---
 
 }  // namespace ui

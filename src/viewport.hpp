@@ -633,6 +633,14 @@ public:
     // as 0 so an unreadable file is not retried every frame.
     uint32_t assetThumb(const std::string& relPath, bool render);
     static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
+    // --- assets-c: prefab thumbnails ---
+    // The Prefabs panel's tiles: a prefab's geometry members (primitives and
+    // models, in their colours; markers and lights left out) rendered the way
+    // assetThumb renders an asset, cached under `key` - the caller passes a
+    // content hash, so an edited prefab renders again. 0 = nothing drawable.
+    uint32_t prefabThumb(const std::string& key, const std::vector<SceneObject>& members,
+                         bool render);
+    // --- end assets-c ---
 
     // Source clip names of an animated model, in file order. Empty when the
     // file is missing or unusable. (The Animation Editor's clip list.)
