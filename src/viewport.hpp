@@ -250,6 +250,13 @@ public:
     void setGiProbes(const gibake::ProbeGrid& g);
     void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
     bool giProbesLoaded() const { return giDim_[0] > 0; }
+    // GI probe visualiser (the Ambience Editor's GI tab): every baked probe as
+    // a small diamond whose six tips are shaded with that probe's own light
+    // in that direction (L0 + 2/3 L1.n, the shader's formula minus the
+    // trilinear blend), so colour AND direction read; dead probes (inside
+    // geometry) as small dark ones. Editor overlay - never in the game view.
+    void setGiProbeView(bool on) { giProbeView_ = on; }
+    int giProbeCount(int* live = nullptr) const;
 
     // The TERRAIN takes GI from the baked terrain lightmap, not from the probe
     // grid - the same split the generated game makes (buildTerrainChunk's
@@ -1165,6 +1172,13 @@ private:
     bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
+    // setGiProbeView: the grid as set (CPU), and its marker mesh, rebuilt on
+    // the next draw after setGiProbes.
+    bool giProbeView_ = false;
+    gibake::ProbeGrid giGrid_;
+    Mesh giProbeMesh_;
+    bool giProbeMeshDirty_ = true;
+    void buildGiProbeMesh();
     void uploadGiProbes();
     // The two baked lightmaps, read PER PIXEL by the fragment shader
     // (docs/global-illumination.md, "The editor viewport"): the terrain map

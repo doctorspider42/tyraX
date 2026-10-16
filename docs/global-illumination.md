@@ -16,7 +16,12 @@ header, **Quality** with a *Draft / Final / Custom* choice (Draft = 32 rays, 1
 bounce, for blocking out; Final = 128 rays, 2 bounces; anything else reads as
 Custom) above the sliders, each with its meaning written underneath, and **Light
 probes** with what the grid costs for the current scene (grid size, probe
-count, EE RAM). On the right, the **Bake** column, which never scrolls away: a
+count, EE RAM) and **Show probes in viewport**: every probe the scene's bake
+holds as a small diamond over the scene, each of its six tips shaded with the
+light that probe sampled in that direction (`L0 + 2/3 L1·n`, the formula below
+without the trilinear blend), dead probes as small dark ones; the line under
+it counts baked / live / dead. It is view state (not saved) and never shows in
+the tool previews' game view. On the right, the **Bake** column, which never scrolls away: a
 state card with **Bake this scene** / **Bake all scenes** (or, while baking, the
 progress, the stage - bounce *n* of *m*, lightmap, probes - the elapsed time and
 **Cancel**), every scene with a *baked / stale / not baked* badge and what its

@@ -1815,6 +1815,7 @@ void Viewport::shutdown() {
     for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     terrainLayerMeshes_.clear();
     destroyMesh(navOverlayMesh_);
+    destroyMesh(giProbeMesh_);
     destroyMesh(axes_);
     destroyMesh(box_);
     destroyMesh(sphere_);
@@ -3406,7 +3407,71 @@ bool Viewport::placementRaycast(float u, float v,
 //
 // GL_NEAREST is deliberate: hardware filtering would interpolate ACROSS the
 // coefficient tiles (L0 into L1x), so the shader does its own trilinear.
+int Viewport::giProbeCount(int* live) const {
+    if (live) *live = 0;
+    if (giGrid_.empty()) return 0;
+    if (live)
+        for (uint8_t l : giGrid_.live) *live += l ? 1 : 0;
+    return giGrid_.count();
+}
+
+void Viewport::buildGiProbeMesh() {
+    giProbeMeshDirty_ = false;
+    destroyMesh(giProbeMesh_);
+    const gibake::ProbeGrid& g = giGrid_;
+    if (g.empty() || (int)g.live.size() < g.count() ||
+        g.sh.size() < (size_t)g.count() * 12)
+        return;
+    // Marker size: a fraction of the tightest grid step, so neighbours never
+    // touch whatever the spacing.
+    float minStep = 1e30f;
+    for (int k = 0; k < 3; ++k)
+        if (g.dim[k] > 1 && g.step[k] > 1e-4f) minStep = std::min(minStep, g.step[k]);
+    if (minStep > 1e29f) minStep = 1.0f;
+    const float r = 0.14f * minStep;
+    static const float kDir[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+                                     {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    // Octahedron faces: one +-X tip, one +-Y tip, one +-Z tip each.
+    static const int kFace[8][3] = {{0, 2, 4}, {4, 2, 1}, {1, 2, 5}, {5, 2, 0},
+                                    {4, 3, 0}, {1, 3, 4}, {5, 3, 1}, {0, 3, 5}};
+    const float dec = g.scale / 127.0f;
+    std::vector<float> v;
+    v.reserve((size_t)g.count() * 24 * 8);
+    for (int z = 0; z < g.dim[2]; ++z)
+        for (int y = 0; y < g.dim[1]; ++y)
+            for (int x = 0; x < g.dim[0]; ++x) {
+                const int idx = x + g.dim[0] * (y + g.dim[1] * z);
+                const bool live = g.live[(size_t)idx] != 0;
+                const float c[3] = {g.origin[0] + x * g.step[0], g.origin[1] + y * g.step[1],
+                                    g.origin[2] + z * g.step[2]};
+                const float rr = live ? r : r * 0.5f;
+                float col[6][3];
+                for (int t = 0; t < 6; ++t)
+                    for (int k = 0; k < 3; ++k) {
+                        if (!live) {
+                            col[t][k] = 0.12f;
+                            continue;
+                        }
+                        const int8_t* sh = &g.sh[(size_t)idx * 12];
+                        float val = sh[k] * dec +
+                                    (2.0f / 3.0f) * dec *
+                                        (sh[3 + k] * kDir[t][0] + sh[6 + k] * kDir[t][1] +
+                                         sh[9 + k] * kDir[t][2]);
+                        col[t][k] = std::min(1.0f, std::max(0.0f, val));
+                    }
+                for (const auto& f : kFace)
+                    for (int corner : f) {
+                        v.insert(v.end(), {c[0] + kDir[corner][0] * rr, c[1] + kDir[corner][1] * rr,
+                                           c[2] + kDir[corner][2] * rr, col[corner][0],
+                                           col[corner][1], col[corner][2], 0.0f, 0.0f});
+                    }
+            }
+    giProbeMesh_ = uploadMesh(v);
+}
+
 void Viewport::setGiProbes(const gibake::ProbeGrid& g) {
+    giGrid_ = g;
+    giProbeMeshDirty_ = true;
     const bool empty = g.empty();
     if (empty) {
         giDim_[0] = giDim_[1] = giDim_[2] = 0;
@@ -7061,6 +7126,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const Mat4 m = mul(translation(hp[0], hp[1], hp[2]), scaleM(r, r, r));
         draw(wireSphere_, GL_LINES, mul(viewProj, m), active ? 1.0f : 0.9f,
              active ? 0.95f : 0.7f, active ? 0.4f : 0.2f);
+    }
+
+    // GI probe visualiser (setGiProbeView): one draw, vertex colours unlit.
+    if (overlays && giProbeView_) {
+        if (giProbeMeshDirty_) buildGiProbeMesh();
+        if (giProbeMesh_.vertexCount)
+            draw(giProbeMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f);
     }
 
     // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as

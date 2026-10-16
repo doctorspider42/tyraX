@@ -2247,6 +2247,10 @@ private:
     // Vehicle Editor preview: Near (tier 0) or Far (the far tier the console
     // swaps to past farDistance). View state.
     bool vehiclePreviewFar_ = false;
+    // Ambience Editor > Global illumination > "Show probes in viewport":
+    // the baked probe grid drawn over the scene (Viewport::setGiProbeView).
+    // View state, session only.
+    bool giShowProbes_ = false;
     int vehicleHoverWheel_ = -1;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a

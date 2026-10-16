@@ -2122,6 +2122,23 @@ void App::drawGiBakeSection() {
         }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
+        // The probes the active scene's bake holds, in the viewport - view
+        // state, so it stays usable while a bake runs or GI is switched off.
+        ImGui::Spacing();
+        ui::Switch("Show probes in viewport", &giShowProbes_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Each baked probe as a small diamond, its tips shaded with the light\n"
+                              "that probe sampled in that direction. Small dark ones are dead\n"
+                              "(inside geometry - they weigh nothing).");
+        {
+            int live = 0;
+            const int n = viewport_.giProbeCount(&live);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + labelW + gap);
+            if (n > 0)
+                ImGui::TextDisabled("%d baked · %d live · %d dead", n, live, n - live);
+            else
+                ImGui::TextDisabled("No probes baked for this scene.");
+        }
         ImGui::EndChild();
     }
     ui::EndCard();

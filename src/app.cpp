@@ -3408,6 +3408,7 @@ void App::drawViewportWindow() {
         updateShadowDecals();
         updateNavOverlay();
         viewport_.setCollisionOverlay(showCollisionBoxes_);
+        viewport_.setGiProbeView(giShowProbes_);
         viewport_.setModelCollision(&project_.modelCollision);
         updateBatchOverlay();
         updateProcPreview();
