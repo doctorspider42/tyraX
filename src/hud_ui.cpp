@@ -1336,6 +1336,37 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
     }
 
     if (ui::Combo("Mouse button", &b.mouse, "(none)\0Left\0Right\0Middle\0")) changed = true;
+    // Press to set: the next click ON the button, with whichever mouse button,
+    // is the binding (b.mouse: 1 left, 2 right, 3 middle). Capturing on the
+    // button itself rather than anywhere keeps the click from also landing on
+    // some other widget; a click elsewhere or Esc cancels.
+    {
+        const bool capturing = inputCapture_ == 3;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        const bool pressed = ImGui::Button(capturing ? "Click here...##mousecap" : "Press to set##mouse",
+                                           ImVec2(capW, 0));
+        const bool over = ImGui::IsItemHovered();
+        if (capturing) {
+            int got = 0;
+            if (pressed) got = 1;  // a left click completes as the button's own press
+            else if (over && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) got = 2;
+            else if (over && ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) got = 3;
+            if (got) {
+                b.mouse = got;
+                inputCapture_ = 0;
+                changed = true;
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                       (!over && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+                                  ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+                                  ImGui::IsMouseClicked(ImGuiMouseButton_Middle)))) {
+                inputCapture_ = 0;
+            }
+            if (inputCapture_ == 3 && over)
+                ImGui::SetTooltip("Left, right or middle click - Esc cancels");
+        } else if (pressed) {
+            inputCapture_ = 3;
+        }
+    }
     return changed;
 }
 
