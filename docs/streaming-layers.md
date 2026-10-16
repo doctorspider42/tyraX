@@ -42,7 +42,8 @@ with layers the list is grouped into one folder per layer (plus
 layer's eye, exactly like the checkbox here (the chip's swatch goes hollow and
 its name dim while the layer is hidden). A single object can be hidden on its
 own with the eye at the right end of its row (shown on hover, and always while
-it is off) - that one is session view state: it is not saved and not undone.
+it is off). Like a layer's eye it is saved with the project and undoable, and
+it is editor-only: a hidden object is still in the game.
 
 Assign an object to a layer with the **Layer** combo in the Properties
 window (`<none>` = no layer), or drag its Outliner row onto a layer folder. Objects without a layer are always resident:

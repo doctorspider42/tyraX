@@ -204,8 +204,9 @@ bool MoreButton(const char* label, float size);
  * `names` that was alone in its dock node last frame asks that node for no tab
  * bar (ImGuiDockNodeFlags_NoTabBar through its window class, so nothing is
  * written into a saved layout); the others get their tabs back. Opt-in by
- * name because a window that hides its tab must also draw a PanelHeader (or
- * need none, like the Viewport). Window names never change. */
+ * name because a window that hides its tab must also draw a PanelHeader
+ * whenever nothing else on it names it (the Viewport draws one over its image,
+ * Properties when no single object heads it). Window names never change. */
 void PanelChromeNewFrame(const char* const* names, int count);
 
 /** True when the current window is docked with its tab strip hidden - the

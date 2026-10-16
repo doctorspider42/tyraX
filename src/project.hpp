@@ -948,6 +948,12 @@ struct SceneObject {
     std::string prefabSource;
     // Scene-local, editor-only rigid selection group; empty = independent.
     std::string editorGroup;
+    // Hidden in the EDITOR by its own Outliner eye (docs/streaming-layers.md):
+    // the viewport skips it for drawing and picking, the Outliner dims it.
+    // Editor-only like a layer's editorVisible - codegen, bakes and the game
+    // never read it, so a hidden object is still in the build. Saved (written
+    // only when true) and undoable like any other edit.
+    bool editorHidden = false;
 
     // The note a Comment object carries (docs/comments.md): free text, any
     // length, editor-only. Nothing downstream reads it - not codegen, not a
@@ -1693,7 +1699,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
-           a.commentText == b.commentText;
+           a.editorHidden == b.editorHidden && a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).

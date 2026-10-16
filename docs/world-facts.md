@@ -185,12 +185,22 @@ same `CanEnterBasement` gates a door, a dialogue line, an NPC's behaviour and
 a flow graph; without it that condition is copied into four graphs and three
 of them go stale the first time the design moves.
 
+The *Queries* tab is the catalog's shape again: the list on the left (a filter,
+**+ Query**, and each query with a green or red dot for what it answers right
+now), the selected query on the right — its name, what it means, the
+condition, *Why?* and *Used by* (the queries, rules and computed facts that
+name it, each a click away). A group row reads as a keyword (*ALL of*) with
+its rows hanging under it on a guide line; in a narrow window a comparison
+puts its operator and value on a second line rather than cutting the fact's
+name short.
+
 An empty ALL is true and an empty ANY is false — the same arithmetic in the
 editor and on the console, so the preview cannot disagree with the game.
 
-**Why?** Under every query and rule is a live explanation: the condition tree
-with the value each leaf actually read, and the child that decided each group
-marked. It reads the running game when one is attached and the catalog's
+**Why?** Under every query and rule is a live explanation: *true right now* /
+*false right now*, then the condition tree with the value each leaf actually
+read, a green or red dot per row, and the child that decided each group in
+full ink (the others dim). It reads the running game when one is attached and the catalog's
 defaults otherwise, so it answers with the game off. That diagnostic is why a
 condition here is a tree rather than an expression string — the same structure
 compiles, evaluates in the editor, and explains itself.
@@ -218,8 +228,13 @@ to it: the example puts *PowerSettles* (which brings a tripped plant back)
 above *AlarmWhileOverloaded* (which re-asserts the alarm every frame the plant
 is tripped), so the frame the plant recovers, the alarm rule already sees the
 new state and does not raise it one more time. Reversed, the alarm would
-flicker on for a frame after every recovery. Drag a rule up or down when its
-answer depends on another's.
+flicker on for a frame after every recovery. Drag a rule up or down in the
+*Rules* list when its answer depends on another's (the list says so: *Runs top
+to bottom*; reordering is off while the list is filtered). Each row shows how
+it runs (*on true*, *every frame*, *once*, or *off*) and a green dot while its
+condition holds; the rule itself has an *Enabled* switch, *Runs* as a
+segmented choice with its consequence in one line under it, *When*, *Then*
+and *Why?*.
 
 The editor detects **reaction cycles** (rule A writes what rule B reads, and
 back) and reports the chain as a warning. It settles rather than hangs, but it
@@ -242,6 +257,12 @@ It reads the running game through the **Live Debugger** channel
 preference on. With nothing attached it shows the catalog's own defaults,
 which is still what a new game would start at.
 
+The tab is one table: the fact with its type mark, its value
+(green when it comes from the running game), what it keeps, an **Override**
+switch with the held value next to it, and who changed it last. A filter
+narrows it, and the held overrides are counted above it with *Clear all
+overrides*.
+
 **Override** holds a fact at a value. It is re-asserted every frame until
 cleared, not applied once — a fact a rule rewrites continuously would
 otherwise flicker back before anyone could see it.
@@ -257,7 +278,10 @@ A **scenario** is a saved set of fact values — *"generator repaired, Marta
 saved, player has no key"*. Applying one pushes it into the running game as
 blackboard overrides, so a situation twenty minutes deep can be looked at now.
 *Capture from the running game* is the fast way to make one: play into the
-situation once and press it.
+situation once and press it. The *Scenarios* tab lists each with its number of
+values; the selected one shows **Apply to the running game** (with why it is
+unavailable when no debug build is running) and its values as a table - each
+fact with its type mark and a value widget of its type.
 
 ## Validation
 

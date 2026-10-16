@@ -3170,6 +3170,25 @@ void App::drawViewportWindow() {
     ImGui::SetScrollX(0.0f);
     ImGui::SetScrollY(0.0f);
 
+    // Alone in its dock node the panel has no tab (ui::PanelChromeNewFrame),
+    // so it names itself with a header strip like the other panels - which is
+    // also the grab handle that undocks it. The window has no padding (the
+    // image is full-bleed), so the strip is a padded child; its grab still
+    // moves the Viewport's node (PanelHeader acts on the root window).
+    const bool untabbed = ui::PanelIsUntabbed();
+    if (untabbed) {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float stripH = ImGui::GetFrameHeight() + st.WindowPadding.y * 2.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(st.WindowPadding.x, st.WindowPadding.y));
+        ImGui::BeginChild("##viewport_header", ImVec2(0.0f, stripH),
+                          ImGuiChildFlags_AlwaysUseWindowPadding,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                              ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoNav);
+        ImGui::PopStyleVar();
+        ui::PanelHeader("Viewport", project_.active().name.c_str());
+        ImGui::EndChild();
+    }
+
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
         // Color grading preview: the preset selected in the Color Grading
@@ -3457,11 +3476,14 @@ void App::drawViewportWindow() {
         // Flip vertically: GL texture origin is bottom-left. Drawn by hand
         // over a Dummy (the same id-less item ImGui::Image submits, so hover,
         // the drop target and the test-engine rect below are unchanged) to
-        // round its bottom corners with the panel card's (DockNodeRounding).
+        // round its bottom corners with the panel card's (DockNodeRounding) -
+        // and, under the header strip of an untabbed panel, its top ones too:
+        // the image is then an inset card of its own.
         ImGui::Dummy(avail);
         ImGui::GetWindowDrawList()->AddImageRounded(
             (ImTextureID)(intptr_t)tex, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0, 1),
-            ImVec2(1, 0), IM_COL32_WHITE, ImGui::GetStyle().DockNodeRounding, ImDrawFlags_RoundCornersBottom);
+            ImVec2(1, 0), IM_COL32_WHITE, ImGui::GetStyle().DockNodeRounding,
+            untabbed ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersBottom);
 #ifdef IMGUI_ENABLE_TEST_ENGINE
         // Image has no item ID: expose its rectangle to unattended picking tests.
         if (GImGui->TestEngineHookItems) {
@@ -6891,7 +6913,6 @@ void App::closeProject() {
     // The input recorder's staging is keyed by a path INSIDE this project, so
     // it must not survive into whichever project opens next.
     replayArm_ = ReplayArm::None;
-    hiddenObjects_.clear();  // ids are only unique within one project
     replayFile_.clear();
     replayFiles_.clear();
     replayScanAt_ = 0.0;
@@ -9947,7 +9968,7 @@ void App::drawSceneSection() {
         auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
-            const bool ownHidden = hiddenObjects_.count(o.id) != 0;
+            const bool ownHidden = o.editorHidden;
             // Inside a prefab group the provenance is already stated by the
             // group header; outside one (a member dragged onto another layer,
             // or a copy pasted somewhere else) the row has to say it itself.
@@ -10289,9 +10310,11 @@ void App::drawSceneSection() {
         }
 
         if (eyeToggled >= 0 && eyeToggled < (int)project_.objects().size()) {
-            // View state, not an edit (hiddenObjects_): no commit, no undo step.
-            const std::string& id = project_.objects()[eyeToggled].id;
-            if (!hiddenObjects_.erase(id)) hiddenObjects_.insert(id);
+            // Saved with the object (SceneObject::editorHidden) and undoable,
+            // like the layer chips below: one commit per click.
+            SceneObject& eo = project_.objects()[eyeToggled];
+            eo.editorHidden = !eo.editorHidden;
+            layerCommitted = true;
         }
 
         if (dropHit) {
@@ -10317,7 +10340,7 @@ void App::drawSceneSection() {
 // layer whose editor eye is off - the viewport skips it (render and picking)
 // and the object list dims it. Unknown layer names count as visible.
 bool App::isObjectHiddenInEditor(const SceneObject& o) const {
-    if (!hiddenObjects_.empty() && hiddenObjects_.count(o.id)) return true;
+    if (o.editorHidden) return true;
     if (o.layer.empty()) return false;
     for (const SceneLayer& l : project_.active().layers)
         if (l.name == o.layer) return !l.editorVisible;
