@@ -6271,10 +6271,17 @@ bool parseObject(const std::string& body, SceneObject& out) {
 // loaded from objects/<id>.json in list order (the merge-friendly split - one
 // file per object). A referenced object file that is missing or malformed is
 // skipped (the object is dropped) rather than aborting the load.
+// The cancel flag of the load() running on THIS thread (null = not
+// cancellable); thread_local so a load on a worker and one on the main thread
+// cannot see each other's.
+static thread_local const std::atomic<bool>* tlLoadCancel = nullptr;
+static bool loadCancelled() { return tlLoadCancel && tlLoadCancel->load(); }
+
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
     if (objs.type != json::Value::Type::Array) return;
     for (const auto& jid : objs.arr) {
+        if (loadCancelled()) return;
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
         std::ifstream f(objectPath(p, id), std::ios::binary);
@@ -7903,6 +7910,16 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
     return true;
 }
 
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel) {
+    struct Scope {
+        explicit Scope(const std::atomic<bool>* c) { tlLoadCancel = c; }
+        ~Scope() { tlLoadCancel = nullptr; }
+    } scope(cancel);
+    std::string err = load(out, projectDir);
+    if (err.empty() && loadCancelled()) err = kLoadCancelled;
+    return err;
+}
+
 std::string load(Project& out, const std::string& projectDir) {
     // The project is defined by a single <name>.tyra file in the directory.
     fs::path tyraPath;
@@ -8018,6 +8035,7 @@ std::string load(Project& out, const std::string& projectDir) {
             }
             readSceneVisuals(js, sc);
             out.scenes.push_back(std::move(sc));
+            if (loadCancelled()) return kLoadCancelled;
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
@@ -8095,6 +8113,7 @@ std::string load(Project& out, const std::string& projectDir) {
     // has no saveMenu entry and would otherwise bake no save panel at all.
     ensureSaveMenu(out);
 
+    if (loadCancelled()) return kLoadCancelled;
     loadHeights(out);
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers

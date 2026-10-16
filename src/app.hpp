@@ -1659,6 +1659,16 @@ private:
     bool projectLoadCancel_ = false;  // honoured at the next stage boundary
     std::string projectLoadError_;  // non-empty = the card shows the failure
     std::unique_ptr<Project> projectLoadPending_;  // stage 0's result
+    // Stage 0 runs project::load on this thread (projectLoadTick); the flag
+    // stops it between object files. projectLoadJoin waits for it and, after
+    // a cancel, restores the registries the abandoned read replaced.
+    std::thread projectLoadThread_;
+    std::atomic<bool> projectLoadAbort_{false};
+    std::atomic<bool> projectLoadReady_{false};
+    bool projectLoadResultTaken_ = true;
+    std::unique_ptr<Project> projectLoadResult_;  // written by the thread
+    std::string projectLoadResultErr_;            // written by the thread
+    void projectLoadJoin();
     int projectLoadObjects_ = 0, projectLoadScenes_ = 0, projectLoadTerrains_ = 0;
     double projectLoadStarted_ = 0.0;
     // The start page: drawn INSTEAD of the docked layout while nothing is open

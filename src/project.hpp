@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -4906,6 +4907,12 @@ std::vector<roadgen::CrossingRoad> crossingRoads(
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).
 std::string load(Project& out, const std::string& projectDir);
+// The same, abandoned between object files (and before the heightmaps) once
+// *cancel turns true: returns kLoadCancelled and `out` is to be discarded.
+// For the Opening Project screen, which runs the load on a worker so its
+// Cancel can be pressed mid-load (App::projectLoadTick).
+inline constexpr const char* kLoadCancelled = "Opening cancelled";
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel);
 
 // Writes the single <name>.tyra project file. Editor-side state (selection,
 // gizmo, view mode) and the window layout are taken from the Project fields.

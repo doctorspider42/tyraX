@@ -821,6 +821,8 @@ int App::run(const std::string& initialProjectDir) {
     // render thread writes into droneRenderResult_. Both must be done before
     // anything they touch is destroyed.
     droneAudition(false);
+    // A project read still running (quit from the Opening Project screen).
+    projectLoadJoin();
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
     // ...and the BLSS coverage estimate, for the plainer reason that a joinable
@@ -6522,6 +6524,7 @@ void App::drawRecentProjectsMenu() {
 
 void App::openProjectAt(const std::string& dir, bool fromRecent) {
     if (projectLoading_) return;
+    projectLoadJoin();  // a cancelled read still finishing in the background
 
     projectLoadDir_ = dir;
     // The manifest's name (what the project is called), else the folder's.
@@ -6533,6 +6536,7 @@ void App::openProjectAt(const std::string& dir, bool fromRecent) {
     projectLoadStage_ = 0;
     projectLoadDrawn_ = 0;
     projectLoadCancel_ = false;
+    projectLoadAbort_ = false;
     projectLoadError_.clear();
     projectLoadPending_.reset();
     projectLoadObjects_ = projectLoadScenes_ = projectLoadTerrains_ = 0;
@@ -6542,14 +6546,46 @@ void App::openProjectAt(const std::string& dir, bool fromRecent) {
     projectLoadShowUntil_ = glfwGetTime() + 0.25;
 }
 
-// Loading runs in two stages on the main thread, each AFTER the loading card
-// has been drawn and presented, so the card can tick off what is done:
-//   0: project::load - the .tyra, every objects/<id>.json, the heightmaps;
-//   1: migrations (may ask), the viewport (meshes, textures) and attach.
-// Neither stage can be interrupted, so Cancel takes effect at the boundary.
+// Waits for the stage-0 reader thread, if one ran. When its result was not
+// taken (a cancel), the custom flow-node / screen-effect / menu-style
+// registries it filled belong to a project that is not open: they are put back
+// for the project that is (or cleared to the built-ins with none open).
+void App::projectLoadJoin() {
+    if (!projectLoadThread_.joinable()) return;
+    projectLoadAbort_ = true;
+    projectLoadThread_.join();
+    projectLoadResult_.reset();
+    if (projectLoadResultTaken_) return;
+    projectLoadResultTaken_ = true;
+    if (hasProject_) {
+        flownode::loadForProject(project_.dir);
+        screenfx::loadForProject(project_.dir);
+        menustyle::loadForProject(project_.dir);
+    } else {
+        customFlowNodes().clear();
+        customScreenEffects().clear();
+        menustyle::loadForProject(std::string());  // the built-ins only
+    }
+}
+
+// Loading runs in two stages, each AFTER the loading card has been drawn and
+// presented, so the card can tick off what is done:
+//   0: project::load - the .tyra, every objects/<id>.json, the heightmaps - on
+//      a worker, so the card stays live and Cancel works MID-load (the reader
+//      checks the flag between object files). The registries it replaces are
+//      read by nothing while this card covers the editor (drawUI returns
+//      right after it), and projectLoadJoin restores them after a cancel;
+//   1: migrations (may ask), the viewport (meshes, textures) and attach - on
+//      the main thread (GL, the OS dialog), so not interruptible: Cancel is
+//      off once it starts.
 void App::projectLoadTick() {
     if (!projectLoading_ || !projectLoadError_.empty()) return;
     if (projectLoadCancel_) {
+        projectLoadAbort_ = true;
+        // The reader stops at its next object file; until then the card says
+        // "Cancelling" and the editor stays as it was.
+        if (projectLoadThread_.joinable() && !projectLoadReady_) return;
+        projectLoadJoin();
         projectLoadPending_.reset();
         projectLoading_ = false;
         statusMessage_ = "Opening " + projectLoadName_ + " cancelled";
@@ -6572,8 +6608,21 @@ void App::projectLoadTick() {
     };
 
     if (projectLoadStage_ == 0) {
-        auto loaded = std::make_unique<Project>();
-        const std::string err = project::load(*loaded, projectLoadDir_);
+        if (!projectLoadThread_.joinable()) {
+            projectLoadReady_ = false;
+            projectLoadResultTaken_ = false;
+            projectLoadResult_ = std::make_unique<Project>();
+            projectLoadThread_ = std::thread([this, dir = projectLoadDir_] {
+                projectLoadResultErr_ = project::load(*projectLoadResult_, dir, &projectLoadAbort_);
+                projectLoadReady_ = true;
+            });
+            return;
+        }
+        if (!projectLoadReady_) return;  // still reading; the card keeps drawing
+        projectLoadThread_.join();
+        projectLoadResultTaken_ = true;
+        std::unique_ptr<Project> loaded = std::move(projectLoadResult_);
+        const std::string err = projectLoadResultErr_;
         if (!err.empty()) {
             fail(err);
             return;
@@ -6824,11 +6873,18 @@ void App::drawProjectLoadingScreen() {
         }
         const float bw = ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.0f;
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
-        ImGui::BeginDisabled(projectLoadCancel_);
-        if (ImGui::Button("Cancel")) projectLoadCancel_ = true;
+        // Cancel works while the files are read (stage 0, on a worker); the
+        // viewport/attach step runs on this thread and cannot be stopped.
+        ImGui::BeginDisabled(projectLoadCancel_ || projectLoadStage_ != 0);
+        if (ImGui::Button(projectLoadCancel_ ? "Cancelling###load_cancel" : "Cancel###load_cancel") ||
+            (!projectLoadCancel_ && projectLoadStage_ == 0 && ImGui::IsKeyPressed(ImGuiKey_Escape)))
+            projectLoadCancel_ = true;
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Back to the start page - takes effect when the current step ends");
+            ImGui::SetTooltip("%s", projectLoadStage_ != 0
+                                        ? "Preparing the viewport - this last step cannot be stopped"
+                                        : hasProject_ ? "Stop opening it and go back to the open project (Esc)"
+                                                      : "Stop opening it and go back to the start page (Esc)");
     }
     ImGui::EndChild();
     ImGui::End();
