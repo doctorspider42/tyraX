@@ -95,9 +95,9 @@ box, chooses between:
 The skip screen is an ordinary menu, so it is authored, styled and previewed
 like every other one — *Tools > Menu Editor*, with the whole
 [stylesheet](menu-styles.md) language available. One menu per project carries
-the role, marked with the **Cutscene skip screen** tick box.
+the role, marked with the **Cutscene skip screen** switch on the *Opens* tab.
 
-The fastest way to get one is **+ Skip screen** in the Menu Editor's menu list.
+The fastest way to get one is **New > + Skip screen** in the Menu Editor's menu list.
 It scaffolds a two-row confirmation already marked with the role:
 
 ```
@@ -114,7 +114,7 @@ where it froze and it carries on. Only the **Skip cutscene** row action ends it.
 If a cutscene is set to *Ask first* and the project has no skip screen, the
 press skips on the spot. Swallowing it and doing nothing would read as a broken
 button; the Cutscene Director says so in amber next to the dropdown, and the
-Menu Editor marks an unreachable *Skip cutscene* row with `(!)`.
+Menu Editor flags an unreachable *Skip cutscene* row in amber ("Unreachable: this is not the skip screen").
 
 ### Ending a cutscene from a graph
 

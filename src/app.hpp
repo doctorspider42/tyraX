@@ -2760,6 +2760,15 @@ private:
     int animEdSpeed_ = 1;            // preview speed: 0 = 0.5x, 1 = 1x, 2 = 2x
     int animEdTimelineDrag_ = 0;     // 1 trim start, 2 trim end, 3 playhead
 
+    // A "used by / started by / handled by" link the screen editors show: a
+    // line of text and where a click goes - a menu (Menu Editor) or one
+    // object's flow graph.
+    struct ToolRef {
+        std::string text;
+        int menu = -1;
+        int scene = -1, object = -1;
+    };
+
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
     bool showMenusEditor_ = false;
@@ -2790,7 +2799,6 @@ private:
     // from; the file on disk is only written by Save. Style edits get their OWN
     // undo stack - a stylesheet is not project data, so commitChange() must not
     // see them (the Material Editor made the same call).
-    void drawMenuPreview(const GameMenu& m);
     // The preview in three parts, because it is drawn in two windows and must
     // not become two previews: refresh owns the bake, controls the mode picker
     // and the simulated cursor, draw the image. The texture is shared - a
@@ -2799,8 +2807,6 @@ private:
                               int row) const;
     void menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir);
     void menuPreviewRefresh(const GameMenu& m);
-    void menuPreviewControls(const GameMenu& m, int& mode);
-    void menuPreviewDraw(const GameMenu& m, int mode, float zoom);
     void drawMenuPreviewWindow();
     void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
     void drawMenuStyleText(GameMenu& m, bool& projectChanged);
@@ -2865,7 +2871,18 @@ private:
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
-    int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    // Menu Editor preview: 0 = panel texels, 1.. = that supported display
+    // mode (in game frame); -1 = not chosen yet (opens on the boot mode).
+    int menuPreviewMode_ = -1;
+    int menuPreviewLastMode_ = 0;  // the frame's mode while showing texels
+    double menuPreviewBakedAt_ = -1.0;  // ImGui time of the last preview bake
+    int menuEdTab_ = 0;               // Rows / Opens / Layout / Style / Stylesheet
+    bool menuEdTabForce_ = true;
+    std::vector<ToolRef> menuEventHandlers(const std::string& event) const;
+    std::vector<ToolRef> menuOpenedBy(const std::string& menu) const;
+    void drawMenuRowsTab(GameMenu& m, bool& changed);
+    void drawMenuRowOptions(MenuEntry& en, bool& changed);
+    void drawMenuLayoutTab(GameMenu& m, bool& changed);
     // Preview aspect: 0 = follow the project (Preferences > Widescreen), 1 =
     // force 4:3, 2 = force 16:9 - the safe-area overlay's Aspect control, for
     // the same reason. Widescreen is anamorphic, so it changes what a baked
@@ -2953,14 +2970,6 @@ private:
     bool crTabForce_ = true;      // crTab_ changed in code: select it this frame
     bool crPreviewSeek_ = true;   // move the playhead to the first content
     bool crImportRequest_ = false;  // open the import picker outside the popup
-    // A "used by / started by / handled by" link the screen editors show: a
-    // line of text and where a click goes - a menu (Menu Editor) or one
-    // object's flow graph.
-    struct ToolRef {
-        std::string text;
-        int menu = -1;
-        int scene = -1, object = -1;
-    };
     std::vector<ToolRef> creditsStartedBy(const std::string& roll) const;
     // Shows that object's graph in the Flow Graph window (active scene only;
     // anything else says where it is in the status bar).

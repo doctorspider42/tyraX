@@ -70,7 +70,7 @@ menu#pause { panel { width: 256px; } }   /* this menu only */
 normal one - it does not restate it.
 
 **Classes**: `row.myname` styles the rows whose *Class* field says `myname`
-(set per row in the Menu Editor's Content tab). Free text; a class nothing
+(set per row in the Menu Editor's Rows tab, under the row's Style / description fold). Free text; a class nothing
 defines simply styles like any other row.
 
 **Menu scope**: `menu#pause { ... }` applies only to the menu called `pause`.
