@@ -52,6 +52,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
 | `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), merged-title-bar controls (`drawTitleBarControls`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
+| `menu_actions.cpp/.hpp` | 126 | `menuact::BeginMenu/EndMenu/MenuItem` - plain ImGui when drawing, a harvest pass for the command palette (every main-menu item must use them) | editor-ui-and-conventions |
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
 | `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |

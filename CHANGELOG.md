@@ -56,6 +56,13 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - Hiding an object with the Outliner's eye is saved with the project and can be undone (editor only - the game still draws it).
 - Menus and popups are fully opaque in the Graphite, Boot screen and Memory card themes.
 - UI scripting: a `drop <target> <file> [dx,dy]` step simulates a file dropped from the OS.
+- **Run** in the top bar reads "Running 00:42" while your game is up in PCSX2 or on the PS2; hover it to Stop.
+- The Debugger no longer says the game "stopped reporting" after you close it, relaunch it, or open a project whose game ran earlier.
+- **Live session**: Host and Join keep separate port and join-code fields; the Session panel can **Follow** a participant's camera.
+- **Edit > Preferences**: *Test connection* checks the ps2link IP without deploying.
+- Opening a project can be cancelled while it loads (Cancel or Esc).
+- **Input Map**: *Press to set* for the mouse button.
+- The **command palette** (Ctrl/Cmd+K) finds every menu command, with its menu path and shortcut.
 ## 1.172.2 - 2026-10-16
 
 ### Releases

@@ -18,18 +18,15 @@ driven on macOS only. Open:
 - **macOS title bar by hand**: drag the empty bar, double-click it, click File
   and the other menus in the top ~28 pt (the enlarged title-bar container must
   not swallow them) - synthetic events could not test this.
-- **Game-running state on Run** ("Running 00:42") needs a Runner-side
-  "emulator running" signal; **PS2 budget meters** need a scene VRAM/RAM
-  estimate first.
-- **Command palette registry**: commands are a hand-written list in
-  palette_ui.cpp; a shared action registry would expose every menu item.
+- **PS2 budget meters** in the status bar need a scene VRAM/RAM estimate first.
 - **Tool windows - what the redesign round left** (each tool's commit says why):
   - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
     download/install, a second editor joining a session and the phone camera
     with a real phone - built from code + docs, not seen end to end here;
-  - "Follow" a session peer's camera (presence lacks the camera), ps2link
-    "Test connection", cancelling a project load mid-step, a mouse-button
-    capture in Input Map;
+  - Run's "Running" state, session Follow and ps2link *Test connection* were
+    driven with a fake emulator, two editors on loopback and a Python
+    listener - not a real PCSX2 boot, a second machine or a console; cancelling
+    a load while another project is open is untested;
   - `docs/img/hardware-timeline.png` is still on the old chrome (needs a
     `bin/hardware-trace.csv` captured on a console); `vehicle-live-preview.png`
     and `asset-browser.png` predate the Near | Far and orbit controls;

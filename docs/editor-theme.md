@@ -156,10 +156,11 @@ A few things worth knowing because they are decisions rather than defaults:
   built-in recipe - so it is the Layout menu one click closer, and your own
   arrangement of each is kept. With little room the labels go and the icons
   stay. **Ctrl+K** (Cmd+K on a Mac), or the magnifier before the build
-  profile, opens the **command palette**: type to find a command (save, build,
-  run, stop, preferences, new scene, the build profile...), an object of the
-  active scene (Enter selects it and centres the camera on it), a scene, a
-  window, a workspace or a documentation page (opened on GitHub). Arrows move,
+  profile, opens the **command palette**: type to find any menu command (shown with
+  its menu path and shortcut - the palette reads the menus themselves, so it
+  never misses one), the top bar's Run / Stop / build profile, New scene, an
+  object of the active scene (Enter selects it and centres the camera on it),
+  a scene or a documentation page (opened on GitHub). Arrows move,
   Enter runs, Esc closes; Ctrl+Enter (Cmd+Return) opens the AI Assistant with
   the query as its draft.
 - **The Outliner** filters by single-select chips (All, Models, Primitives,
