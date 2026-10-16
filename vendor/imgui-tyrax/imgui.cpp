@@ -1600,6 +1600,7 @@ ImGuiStyle::ImGuiStyle()
     DockingNodeHasCloseButton   = true;             // Docking nodes have their own CloseButton() to close all docked windows.
     DockingSeparatorSize        = 2.0f;             // Thickness of resizing border between docked windows
     DockNodeRounding            = 0.0f;             // TYRAX: 0 = upstream (round only where a node touches its host)
+    TabPillInset                = 0.0f;             // TYRAX: 0 = upstream tab shape
     MouseCursorScale            = 1.0f;             // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
     AntiAliasedLines            = true;             // Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU.
     AntiAliasedLinesUseTex      = true;             // Enable anti-aliased lines/borders using textures where possible. Require backend to render with bilinear filtering (NOT point/nearest filtering).
@@ -1677,6 +1678,7 @@ void ImGuiStyle::ScaleAllSizes(float scale_factor)
     SeparatorTextPadding = ImTrunc(SeparatorTextPadding * scale_factor);
     DockingSeparatorSize = ImTrunc(DockingSeparatorSize * scale_factor);
     DockNodeRounding = ImTrunc(DockNodeRounding * scale_factor); // TYRAX
+    TabPillInset = ImTrunc(TabPillInset * scale_factor); // TYRAX
     DisplayWindowPadding = ImTrunc(DisplayWindowPadding * scale_factor);
     DisplaySafeAreaPadding = ImTrunc(DisplaySafeAreaPadding * scale_factor);
     MouseCursorScale = ImTrunc(MouseCursorScale * scale_factor);

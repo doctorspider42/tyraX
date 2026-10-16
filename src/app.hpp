@@ -1928,9 +1928,16 @@ private:
     std::vector<int> pickMenu_;
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
-    // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
+    // sceneFilterCat_ is one of the outliner's filter-chip categories (Models,
+    // Primitives, Lights... - outlinerCategory() in app.cpp), or -1 for All.
     std::string sceneFilterName_;
-    int sceneFilterType_ = -1;
+    int sceneFilterCat_ = -1;
+    // Objects hidden in the editor one by one (the outliner row's eye), by
+    // OBJECT ID like scrollGhostsOff_. View state for the session, like a
+    // layer's eye is for the layer: the viewport skips them (render and
+    // picking) through isObjectHiddenInEditor, nothing reaches the .tyra or
+    // the game. Cleared by closeProject.
+    std::set<std::string> hiddenObjects_;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.

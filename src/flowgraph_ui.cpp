@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "widgets.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -124,6 +125,7 @@ void App::drawFlowGraphWindow() {
         return project_.objects()[i].name +
                (project_.objects()[i].flowGraph.empty() ? "" : " *");
     };
+    ui::PanelInlineTitle("Flow Graph");  // only while alone in its dock node (no tab)
     ImGui::SetNextItemWidth(scaled(220.0f));
     if (ImGui::BeginCombo("Graph of", graphLabel(flowGraphObject_).c_str())) {
         // Most of a scene is props with no logic, so the interesting entries

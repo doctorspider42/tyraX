@@ -11048,6 +11048,14 @@ void ImGui::TabItemBackground(ImDrawList* draw_list, const ImRect& bb, ImGuiTabI
     const float rounding = ImMax(0.0f, ImMin((flags & ImGuiTabItemFlags_Button) ? g.Style.FrameRounding : g.Style.TabRounding, width * 0.5f - 1.0f));
     const float y1 = bb.Min.y + 1.0f; // Leave a bit of room in title bars.
     const float y2 = bb.Max.y - g.Style.TabBarBorderSize;
+    if (g.Style.TabPillInset > 0.0f && !(flags & ImGuiTabItemFlags_Button)) // TYRAX: tabs as quiet pills
+    {
+        if ((col & IM_COL32_A_MASK) == 0) // TYRAX
+            return; // TYRAX: a transparent tab is just its label
+        const ImVec2 p0(bb.Min.x, bb.Min.y + g.Style.TabPillInset), p1(bb.Max.x, y2 - g.Style.TabPillInset); // TYRAX
+        draw_list->AddRectFilled(p0, p1, col, ImMin(rounding, (p1.y - p0.y) * 0.5f)); // TYRAX
+        return; // TYRAX
+    }
     draw_list->AddRectFilled(bb.Min, ImVec2(bb.Max.x, y2), col, rounding, ImDrawFlags_RoundCornersTop);
     if (g.Style.TabBorderSize > 0.0f)
     {
@@ -11150,7 +11158,10 @@ void ImGui::TabItemLabelAndCloseButton(ImDrawList* draw_list, const ImRect& bb, 
         }
     }
     LogSetNextTextDecoration("/", "\\");
+    const bool dim_label = g.Style.TabPillInset > 0.0f && !is_contents_visible && !is_hovered; // TYRAX: a quiet tab's label is dim
+    if (dim_label) PushStyleColor(ImGuiCol_Text, g.Style.Colors[ImGuiCol_TextDisabled]); // TYRAX
     RenderTextEllipsis(draw_list, text_ellipsis_clip_bb.Min, text_ellipsis_clip_bb.Max, ellipsis_max_x, label, label_end, &label_size);
+    if (dim_label) PopStyleColor(); // TYRAX
 
 #if 0
     if (!is_contents_visible)

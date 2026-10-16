@@ -149,9 +149,9 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_FrameBgActive] = mix(field, p.accent, 0.16f);
 
     // A docked panel's title/tab strip is part of the card, not a band over
-    // it: the same fill as the page, with the active one barely lifted.
+    // it: the same fill as the page, focused or not.
     c[ImGuiCol_TitleBg] = p.bg;
-    c[ImGuiCol_TitleBgActive] = mix(p.bg, p.raised, 0.6f);
+    c[ImGuiCol_TitleBgActive] = p.bg;  // the strip of pills stays the card
     c[ImGuiCol_TitleBgCollapsed] = p.bg;
     // The menu bar sits on the ground with the panels, not on a band of its
     // own - the top of the window is the app's frame, the panels its content.
@@ -192,17 +192,18 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_ResizeGripActive] = p.accent;
     c[ImGuiCol_InputTextCursor] = p.accent;
 
-    // Docking tabs: the SELECTED tab is the page colour, so it reads as the
-    // front edge of the panel below it, and the accent overline is what says
-    // which one is active. Unselected tabs sit between page and raised.
-    const ImVec4 tabIdle = mix(p.bg, p.raised, 0.65f);
-    c[ImGuiCol_Tab] = tabIdle;
-    c[ImGuiCol_TabHovered] = mix(tabIdle, p.accent, 0.25f);
-    c[ImGuiCol_TabSelected] = p.bg;
-    c[ImGuiCol_TabSelectedOverline] = p.accent;
-    c[ImGuiCol_TabDimmed] = mix(p.bg, p.raised, 0.35f);
-    c[ImGuiCol_TabDimmedSelected] = p.bg;
-    c[ImGuiCol_TabDimmedSelectedOverline] = fade(p.accent, 0.40f);
+    // Tabs are quiet pills (style.TabPillInset, an in-tree ImGui patch): the
+    // selected one a surface-filled pill, the others just their label in the
+    // dim text colour, no overline. A panel alone in its dock node shows no
+    // tab at all (ui::PanelChromeNewFrame) - tabs only ever appear where there
+    // is a choice to make, so they should not shout.
+    c[ImGuiCol_Tab] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TabHovered] = fade(p.surface, 0.70f);
+    c[ImGuiCol_TabSelected] = p.surface;
+    c[ImGuiCol_TabSelectedOverline] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TabDimmed] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TabDimmedSelected] = mix(p.bg, p.surface, 0.70f);
+    c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0, 0, 0, 0);
     c[ImGuiCol_DockingPreview] = fade(p.accent, 0.35f);
     // The void behind an empty dock node is the ground the panels float on,
     // so an unfilled layout looks deliberate rather than broken.
@@ -261,8 +262,11 @@ void applyMetrics(ImGuiStyle& s) {
     s.ImageRounding = 4.0f;
     s.TabRounding = 6.0f;
     s.TabBorderSize = 0.0f;
-    s.TabBarBorderSize = 1.0f;
-    s.TabBarOverlineSize = 2.0f;
+    // Pills: no line under the strip, no accent overline (the filled pill says
+    // which tab is in front), inset 3 px top and bottom.
+    s.TabBarBorderSize = 0.0f;
+    s.TabBarOverlineSize = 0.0f;
+    s.TabPillInset = 3.0f;
     s.MenuItemRounding = 5.0f;
     // The gap between docked panels. Wide enough to read as a gap (the panels
     // become separate cards on the ground colour - pushDockspaceColors) and to

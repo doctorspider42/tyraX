@@ -906,8 +906,19 @@ void App::drawUI() {
     }
 
     ImGuizmo::BeginFrame();
+    // A panel alone in its dock node shows no tab strip - it draws its own
+    // header (ui::PanelHeader) - and no node shows ImGui's window-menu
+    // triangle. Only windows that name themselves are listed: any other
+    // window keeps its tab, which is the only title it has. Must run before
+    // DockSpaceOverViewport, which is where the node flags are merged.
+    {
+        static const char* const kSelfTitled[] = {"Project",    "Properties", "Viewport",
+                                                  "Output",     "Debug",      "Flow Graph"};
+        ui::PanelChromeNewFrame(kSelfTitled, IM_ARRAYSIZE(kSelfTitled));
+    }
     theme::pushDockspaceColors();  // panels as cards on the ground colour
-    ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+    ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+                                                     ImGuiDockNodeFlags_NoWindowMenuButton);
     theme::popDockspaceColors();
 
     // Terrain-layer edits (material/tint/Size/add/remove) rebuild the layer
@@ -5161,17 +5172,26 @@ void App::drawProjectWindow() {
     // One page at a time, picked on the left rail (drawRail): a stack of
     // collapsing headers made every section share 600 px, and the object list
     // - the one that wants the height - got 130 of them.
+    //
+    // The header row names the PAGE, not the window: alone in its dock node
+    // the panel has no tab (ui::PanelChromeNewFrame), so "Project" over
+    // "Outliner" is gone; the row is also the grab handle that undocks it.
     {
         static const char* const kTitles[] = {"Outliner", "Layers", "Assets", "Audio", "Scripts"};
         const int page = leftPage_ >= 0 && leftPage_ < 5 ? leftPage_ : 0;
-        ui::FontScope bold(ui::boldFont());
-        ImGui::TextUnformatted(kTitles[page]);
+        std::string count;
+        if (page == 0) count = std::to_string(project_.objects().size());
+        if (page == 1) count = std::to_string(project_.active().layers.size());
+        ui::PanelHeader(kTitles[page], count.c_str(), page == 0 ? 1 : 0);
         if (page == 0) {
-            ImGui::SameLine();
-            ui::FontScope plain(nullptr);
-            ImGui::TextDisabled("%d", (int)project_.objects().size());
+            // Still labelled "+ Add object": scripts and docs name it so.
+            if (ui::PanelHeaderButton("+ Add object", ui::Glyph::Plus, "Add object"))
+                ImGui::OpenPopup("##add_object");
+            if (ImGui::BeginPopup("##add_object")) {
+                drawAddObjectMenu();
+                ImGui::EndPopup();
+            }
         }
-        ImGui::Spacing();
         switch (page) {
             default:
             case 0: drawSceneSection(); break;
@@ -6028,6 +6048,7 @@ void App::closeProject() {
     // The input recorder's staging is keyed by a path INSIDE this project, so
     // it must not survive into whichever project opens next.
     replayArm_ = ReplayArm::None;
+    hiddenObjects_.clear();  // ids are only unique within one project
     replayFile_.clear();
     replayFiles_.clear();
     replayScanAt_ = 0.0;
@@ -8664,72 +8685,98 @@ void App::drawAddObjectMenu() {
             "graph editor - the object itself is just the box it works in.");
 }
 
-void App::drawSceneSection() {
+namespace {
+// The outliner's filter chips: object types grouped by what an author looks
+// for in a list, not by how the engine stores them - "the lights", "the
+// cameras" - so a scene of thirty primitive kinds still fits one row of chips.
+enum OutlinerCat {
+    kCatModels, kCatPrimitives, kCatLights, kCatAreas, kCatAudio, kCatCameras, kCatOther,
+    kCatCount
+};
+const char* const kOutlinerCatNames[kCatCount] = {"Models", "Primitives", "Lights", "Areas",
+                                                  "Audio",  "Cameras",    "Other"};
 
-    if (ImGui::Button("+ Add object"))
-        ImGui::OpenPopup("##add_object");
-    if (ImGui::BeginPopup("##add_object")) {
-        drawAddObjectMenu();
-        ImGui::EndPopup();
+int outlinerCategory(PrimitiveType t) {
+    switch (t) {
+        case PrimitiveType::Model:
+        case PrimitiveType::Vehicle: return kCatModels;
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::Decal:
+        case PrimitiveType::Mirror: return kCatPrimitives;
+        case PrimitiveType::PointLight: return kCatLights;
+        // Volumes the player walks into: triggers, teleports, the save box.
+        case PrimitiveType::Area:
+        case PrimitiveType::Portal:
+        case PrimitiveType::SavePoint: return kCatAreas;
+        case PrimitiveType::SoundEmitter: return kCatAudio;
+        case PrimitiveType::Camera: return kCatCameras;
+        default: return kCatOther;  // player, spawn, empty, emitter, road, ...
     }
+}
 
+// A layer's swatch: a stable colour from its place in the scene's layer list,
+// taken from the theme's semantic colours so it moves with the theme. Shared
+// by the outliner's layer folders and the Layers strip under the list.
+ImU32 layerSwatch(int li) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec4 c[] = {sem.accent, sem.ok, sem.warn, sem.special, sem.danger, sem.axisY};
+    return ImGui::GetColorU32(c[(li < 0 ? 0 : li) % IM_ARRAYSIZE(c)]);
+}
+}  // namespace
+
+void App::drawSceneSection() {
+    // The page's header (drawProjectWindow) carries the "+ Add object" button.
     if (project_.objects().empty()) {
-        ImGui::TextDisabled("No objects - add a primitive above.");
+        ImGui::TextDisabled("No objects - add one with the + above.");
     } else {
         SceneData& sc = project_.active();
-        // With layers, the list groups objects under a collapsible node per
-        // layer (plus an Unassigned group); without layers it stays flat.
+        // With layers, the list groups objects under a collapsible folder per
+        // layer (plus an Unassigned folder); without layers it stays flat.
         const bool grouped = !sc.layers.empty();
+        const theme::Semantics& sem = theme::semantics();
 
-        // --- filters: name search + object type ------------------------------
-        // A scene outgrows a 130 px list long before it outgrows a PS2, so the
-        // list carries the Asset Browser's two filters. Both are pure view
-        // state - nothing below edits the model, and the selection is left
-        // alone (a filtered-out object stays selected and stays editable in
-        // Properties).
-        ImGui::SetNextItemWidth(-scaled(112.0f));
+        // --- filters: name search + category chips -------------------------------
+        // A scene outgrows a short list long before it outgrows a PS2, so the list
+        // carries the Asset Browser's two filters. Both are pure view state -
+        // nothing below edits the model, and the selection is left alone (a
+        // filtered-out object stays selected and stays editable in Properties).
+        ImGui::SetNextItemWidth(-FLT_MIN);
         char search[128];
         std::snprintf(search, sizeof(search), "%s", sceneFilterName_.c_str());
-        if (ImGui::InputTextWithHint("##objsearch", "Search name...", search,
-                                     sizeof(search)))
+        if (ImGui::InputTextWithHint("##objsearch", "Search name...", search, sizeof(search)))
             sceneFilterName_ = search;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-FLT_MIN);
-        // Only the types the scene actually contains are offered, each with its
-        // count - a filter that can only come back empty is not worth a row.
-        // The names are the ones the object rows print, so the two agree.
-        const char* typePreview =
-            sceneFilterType_ < 0 ? "All types"
-                                 : primitiveTypeName((PrimitiveType)sceneFilterType_);
-        if (ImGui::BeginCombo("##objtype", typePreview)) {
-            int counts[kPrimitiveTypeCount] = {};
-            for (const SceneObject& o : sc.objects) {
-                const int t = (int)o.type;
-                if (t >= 0 && t < kPrimitiveTypeCount) ++counts[t];
+        {
+            // Only the categories the scene contains get a chip, each with its
+            // count - a filter that can only come back empty is not worth one.
+            // Single-select, like the type combo it replaced: All, or one.
+            int counts[kCatCount] = {};
+            for (const SceneObject& o : sc.objects) ++counts[outlinerCategory(o.type)];
+            if (sceneFilterCat_ >= 0 && (sceneFilterCat_ >= kCatCount || !counts[sceneFilterCat_]))
+                sceneFilterCat_ = -1;  // the last one of that kind was deleted
+            ImGui::PushID("##objchips");
+            if (ui::FilterChip("All", sceneFilterCat_ < 0)) sceneFilterCat_ = -1;
+            for (int c = 0; c < kCatCount; ++c) {
+                if (!counts[c]) continue;
+                ui::ChipFlow(ui::FilterChipWidth(kOutlinerCatNames[c], counts[c]), false);
+                if (ui::FilterChip(kOutlinerCatNames[c], sceneFilterCat_ == c, counts[c]))
+                    sceneFilterCat_ = sceneFilterCat_ == c ? -1 : c;
             }
-            if (ImGui::Selectable("All types", sceneFilterType_ < 0))
-                sceneFilterType_ = -1;
-            for (int t = 0; t < kPrimitiveTypeCount; ++t) {
-                if (!counts[t]) continue;
-                const std::string lbl =
-                    std::string(primitiveTypeName((PrimitiveType)t)) + "  (" +
-                    std::to_string(counts[t]) + ")##objtype" + std::to_string(t);
-                if (ImGui::Selectable(lbl.c_str(), sceneFilterType_ == t))
-                    sceneFilterType_ = t;
-            }
-            ImGui::EndCombo();
+            ImGui::PopID();
         }
 
-        const bool filtering = !sceneFilterName_.empty() || sceneFilterType_ >= 0;
+        const bool filtering = !sceneFilterName_.empty() || sceneFilterCat_ >= 0;
         auto lowered = [](std::string s) {
             for (char& c : s) c = (char)tolower((unsigned char)c);
             return s;
         };
         const std::string needle = lowered(sceneFilterName_);
         auto passesFilter = [&](const SceneObject& o) {
-            if (sceneFilterType_ >= 0 && (int)o.type != sceneFilterType_) return false;
-            return needle.empty() ||
-                   lowered(o.name).find(needle) != std::string::npos ||
+            if (sceneFilterCat_ >= 0 && outlinerCategory(o.type) != sceneFilterCat_) return false;
+            return needle.empty() || lowered(o.name).find(needle) != std::string::npos ||
                    lowered(o.editorGroup).find(needle) != std::string::npos;
         };
 
@@ -8744,34 +8791,40 @@ void App::drawSceneSection() {
         int dropObj = -1;
         std::string dropLayer;
         bool dropHit = false;
+        int eyeToggled = -1;
+
+        const float rowH = ImGui::GetFrameHeight() * 0.92f;
+        const float eyeSz = rowH;
 
         // One object row: Selectable with the existing multi-select clicks and
-        // hidden dimming, doubling as a drag source for layer reassignment.
-        // Ctrl/Shift+click extends the selection; plain click replaces it.
+        // hidden dimming, doubling as a drag source for layer reassignment, with
+        // the object's own eye at its right end. Ctrl/Shift+click extends the
+        // selection; plain click replaces it.
         auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
+            const bool ownHidden = hiddenObjects_.count(o.id) != 0;
             // Inside a prefab group the provenance is already stated by the
             // group header; outside one (a member dragged onto another layer,
             // or a copy pasted somewhere else) the row has to say it itself.
             const bool tag = !o.prefabSource.empty() && !inPrefabGroup;
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
                                 (tag ? "  [" + o.prefabSource + "]" : "") +
-                                (hidden ? "  [hidden]" : "") + "##obj" +
-                                std::to_string(i);
+                                (hidden ? "  [hidden]" : "") + "##obj" + std::to_string(i);
             // The row's text is drawn by hand - a type icon, the name, the type
             // dim on the right - but the Selectable keeps the full
             // "name  (type)" label: it is the ID and what scripts name a row
-            // by. Its own text is pushed transparent instead.
-            const float rowH = ImGui::GetFrameHeight() * 0.92f;
+            // by. Its own text is pushed transparent instead. The eye drawn over
+            // its right end needs the overlap allowance or the row eats its click.
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
+            ImGui::SetNextItemAllowOverlap();
             const bool rowClicked =
                 ImGui::Selectable(label.c_str(), isSelected(i), 0, ImVec2(0.0f, rowH));
             ImGui::PopStyleColor();
+            const bool rowHovered = ImGui::IsItemHovered();
+            const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
             {
-                const theme::Semantics& sem = theme::semantics();
                 ImDrawList* rdl = ImGui::GetWindowDrawList();
-                const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
                 const float cy = (r0.y + r1.y) * 0.5f;
                 const float ic = ImGui::GetFontSize();
                 ui::Glyph g = ui::Glyph::Box;
@@ -8798,15 +8851,15 @@ void App::drawSceneSection() {
                 const float ty = cy - ImGui::GetTextLineHeight() * 0.5f;
                 std::string shown = o.name;
                 if (tag) shown += "  [" + o.prefabSource + "]";
-                if (hidden) shown += "  [hidden]";
+                // The type moves left of the eye's slot, so the two never overlap.
                 const char* typeTxt = primitiveTypeName(o.type);
                 const float typeW = ImGui::CalcTextSize(typeTxt).x;
-                const float typeX = r1.x - typeW - scaled(6.0f);
+                const float typeX = r1.x - eyeSz - typeW - scaled(6.0f);
                 rdl->PushClipRect(r0, ImVec2(typeX - scaled(6.0f), r1.y), true);
                 rdl->AddText(ImVec2(x0 + ic + scaled(8.0f), ty), nameCol, shown.c_str());
                 rdl->PopClipRect();
                 ImVec4 tc = sem.textDim;
-                tc.w *= 0.75f;
+                tc.w *= hidden ? 0.45f : 0.75f;
                 rdl->AddText(ImVec2(typeX, ty), ImGui::GetColorU32(tc), typeTxt);
             }
             if (rowClicked) {
@@ -8818,12 +8871,19 @@ void App::drawSceneSection() {
             // by (`expect-checked "Project/<name>  (<type>)"`); a Selectable
             // reports none of it on its own.
             uiscript::markLastItemChecked(isSelected(i));
+            if (grouped && ImGui::BeginDragDropSource()) {
+                ImGui::SetDragDropPayload("SCENE_OBJECT", &i, sizeof(int));
+                const int n =
+                    (isSelected(i) && selection_.size() > 1) ? (int)selection_.size() : 1;
+                if (n > 1) ImGui::Text("Move %d objects", n);
+                else ImGui::TextUnformatted(o.name.c_str());
+                ImGui::EndDragDropSource();
+            }
             // Session presence: a colored dot per participant who has this
-            // object selected (their peer color), right-aligned on the row.
+            // object selected (their peer color), right-aligned before the eye.
             if (!peerPresence_.empty()) {
-                float dotX = ImGui::GetItemRectMax().x - scaled(10.0f);
-                const float dotY =
-                    (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
+                float dotX = r1.x - eyeSz - scaled(10.0f);
+                const float dotY = (r0.y + r1.y) * 0.5f;
                 for (const auto& [peerId, pp] : peerPresence_) {
                     if (pp.scene != project_.activeScene) continue;
                     if (std::find(pp.sel.begin(), pp.sel.end(), o.id) == pp.sel.end())
@@ -8837,14 +8897,15 @@ void App::drawSceneSection() {
                     dotX -= scaled(9.0f);
                 }
             }
-            if (grouped && ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload("SCENE_OBJECT", &i, sizeof(int));
-                const int n =
-                    (isSelected(i) && selection_.size() > 1) ? (int)selection_.size() : 1;
-                if (n > 1) ImGui::Text("Move %d objects", n);
-                else ImGui::TextUnformatted(o.name.c_str());
-                ImGui::EndDragDropSource();
-            }
+            // The object's own eye: on hover, or always while it is off. Its
+            // label is what a script toggles it by ("Visible: <name>"), checked
+            // while the object shows.
+            // On the row's own line, so the next row starts where it would have.
+            ImGui::SameLine();
+            ImGui::SetCursorScreenPos(ImVec2(r1.x - eyeSz, r0.y + (r1.y - r0.y - eyeSz) * 0.5f));
+            const std::string eyeLabel = "Visible: " + o.name + "##eye" + std::to_string(i);
+            if (ui::EyeToggle(eyeLabel.c_str(), !ownHidden, eyeSz, ownHidden || rowHovered))
+                eyeToggled = i;
         };
 
         // Turn the just-submitted item into a drop target for object rows.
@@ -8858,10 +8919,50 @@ void App::drawSceneSection() {
             ImGui::EndDragDropTarget();
         };
 
-        // Objects stamped from a prefab collapse into one node per prefab -
-        // the same shape as the layer groups above them, and for the same
+        // A group as a folder: the tree node keeps its "name  (count)" label (the
+        // ID after ### stays put while the count changes, so a folder does not
+        // spring open again whenever an object is added) and draws a folder in
+        // `tint`, the name in the heading cut and the count dim, by hand.
+        auto folderRow = [&](const std::string& label, const std::string& name, int count,
+                             ImGuiTreeNodeFlags flags, ImVec4 tint, bool dim) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
+            const bool open = ImGui::TreeNodeEx(
+                label.c_str(), flags | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding);
+            ImGui::PopStyleColor();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
+            const ImGuiStyle& st = ImGui::GetStyle();
+            const float fs = ImGui::GetFontSize();
+            const float cy = (r0.y + r1.y) * 0.5f;
+            ImVec4 arrow = sem.textDim;
+            arrow.w *= 0.8f;
+            // Where TreeNodeBehavior would have put its own (now transparent) arrow.
+            ImGui::RenderArrow(dl, ImVec2(r0.x + st.FramePadding.x, cy - fs * 0.5f + fs * 0.15f),
+                               ImGui::GetColorU32(arrow), open ? ImGuiDir_Down : ImGuiDir_Right, 0.70f);
+            float x = r0.x + fs + st.FramePadding.x * 2.0f;
+            if (dim) tint.w *= 0.45f;
+            ui::DrawGlyph(dl, ui::Glyph::Folder, ImVec2(x + fs * 0.5f, cy), fs * 0.86f,
+                          ImGui::GetColorU32(tint));
+            x += fs + scaled(6.0f);
+            const float ty = cy - ImGui::GetTextLineHeight() * 0.5f;
+            {
+                ui::FontScope bold(ui::boldFont());
+                dl->PushClipRect(r0, r1, true);
+                dl->AddText(ImVec2(x, ty), ImGui::GetColorU32(dim ? sem.textDim : sem.text), name.c_str());
+                x += ImGui::CalcTextSize(name.c_str()).x;
+            }
+            ImVec4 cc = sem.textDim;
+            cc.w *= 0.85f;
+            dl->AddText(ImVec2(x + st.ItemInnerSpacing.x * 1.5f, ty), ImGui::GetColorU32(cc),
+                        std::to_string(count).c_str());
+            dl->PopClipRect();
+            return open;
+        };
+
+        // Objects stamped from a prefab collapse into one folder per prefab -
+        // the same shape as the layer folders around them, and for the same
         // reason: twenty slabs that arrived together are one thing in the
-        // author's head and twenty rows in a flat list. The group sits at the
+        // author's head and twenty rows in a flat list. The folder sits at the
         // position of its FIRST member, so the list keeps scene order instead
         // of quietly sorting itself, and it starts CLOSED (collapsing them is
         // the point - a scene of 27 prefab rooms is otherwise 500 rows). Click
@@ -8888,16 +8989,13 @@ void App::drawSceneSection() {
                         (project_.objects()[j].editorGroup.empty() && project_.objects()[j].prefabSource == src)) members.push_back(j);
                 bool allSel = true;
                 for (int j : members) allSel &= isSelected(j);
-                ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
-                                            ImGuiTreeNodeFlags_OpenOnArrow |
+                ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_OpenOnArrow |
                                             ImGuiTreeNodeFlags_OpenOnDoubleClick;
                 if (allSel) pflags |= ImGuiTreeNodeFlags_Selected;
-                const std::string header = src + "  (" +
-                                           std::to_string(members.size()) +
-                                           ")##pfgrp" + std::to_string(i);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.80f, 0.96f, 1.0f));
-                const bool open = ImGui::TreeNodeEx(header.c_str(), pflags);
-                ImGui::PopStyleColor();
+                const std::string header = src + "  (" + std::to_string(members.size()) +
+                                           ")###pfgrp" + key;
+                const bool open = folderRow(header, src, (int)members.size(), pflags,
+                                            persistent ? sem.text : sem.accent, false);
                 if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
                     if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)
                         for (int j : members) { if (!isSelected(j)) toggleSelect(j); }
@@ -8931,8 +9029,8 @@ void App::drawSceneSection() {
         };
 
         // Indices of the scene's objects, in order, that pass `keep` AND the
-        // search/type filters - one place, so every group is filtered the same
-        // way and the counts below cannot disagree with the rows.
+        // search/category filters - one place, so every group is filtered the
+        // same way and the counts below cannot disagree with the rows.
         auto indicesWhere = [&](auto keep) {
             std::vector<int> out;
             for (int i = 0; i < (int)project_.objects().size(); ++i) {
@@ -8942,41 +9040,51 @@ void App::drawSceneSection() {
             return out;
         };
 
-        // The list takes the page's height, less the hint lines under it.
-        const int footLines = (filtering ? 1 : 0) + (grouped ? 1 : 0) + 1;
-        const float listH = ImMax(scaled(grouped ? 220.0f : 130.0f),
-                                  ImGui::GetContentRegionAvail().y -
-                                      footLines * ImGui::GetFrameHeightWithSpacing());
+        // The list takes the page's height, less what sits under it: the filter
+        // line, and the Layers strip (its chips flow, so count its rows).
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float footH = filtering ? ImGui::GetFrameHeightWithSpacing() : 0.0f;
+        if (grouped) {
+            const float availW = ImGui::GetContentRegionAvail().x;
+            const float gap = st.ItemInnerSpacing.x;
+            float x = ImGui::CalcTextSize("Layers").x;
+            int lines = 1;
+            for (const SceneLayer& l : sc.layers) {
+                const float w = ui::LayerChipWidth(l.name.c_str());
+                if (x + gap + w > availW) { ++lines; x = w; }
+                else x += gap + w;
+            }
+            // A row is as tall as the "Layers" caption (one frame), chips are less.
+            footH += st.ItemSpacing.y * 2.0f + lines * ImGui::GetFrameHeightWithSpacing();
+        }
+        const float listH =
+            ImMax(scaled(140.0f), ImGui::GetContentRegionAvail().y - footH);
         ImGui::BeginChild("##objects", ImVec2(0, listH), ImGuiChildFlags_None);
         if (!grouped) {
-            const std::vector<int> rows =
-                indicesWhere([](const SceneObject&) { return true; });
+            const std::vector<int> rows = indicesWhere([](const SceneObject&) { return true; });
             if (rows.empty()) ImGui::TextDisabled("No object matches the filter.");
             emitRows(rows);
         } else {
-            const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
-                                              ImGuiTreeNodeFlags_SpanAvailWidth;
+            const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen;
             for (int li = 0; li < (int)sc.layers.size(); ++li) {
                 const SceneLayer& l = sc.layers[li];
-                // The count follows the filter, so an open group and its header
-                // tell the same story. Empty groups stay listed: they are still
+                // The count follows the filter, so an open folder and its header
+                // tell the same story. Empty folders stay listed: they are still
                 // drop targets for a layer reassignment.
                 int count = 0;
                 for (const SceneObject& o : sc.objects)
                     if (o.layer == l.name && passesFilter(o)) ++count;
-                std::string header = l.name + "  (" + std::to_string(count) + ")" +
-                                     (l.editorVisible ? "" : "  [hidden]") +
-                                     "##layergrp" + std::to_string(li);
-                if (!l.editorVisible)
-                    ImGui::PushStyleColor(ImGuiCol_Text,
-                                          ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-                const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
-                if (!l.editorVisible) ImGui::PopStyleColor();
+                const std::string header = l.name + "  (" + std::to_string(count) + ")" +
+                                           (l.editorVisible ? "" : "  [hidden]") +
+                                           "###layergrp" + std::to_string(li);
+                const bool open = folderRow(header, l.name, count, gflags,
+                                            ImGui::ColorConvertU32ToFloat4(layerSwatch(li)),
+                                            !l.editorVisible);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Drag objects onto a layer to assign them.");
                 dropTarget(l.name);
                 if (open) {
-                    emitRows(indicesWhere([&](const SceneObject& o) {
-                        return o.layer == l.name;
-                    }));
+                    emitRows(indicesWhere([&](const SceneObject& o) { return o.layer == l.name; }));
                     ImGui::TreePop();
                 }
             }
@@ -8984,11 +9092,11 @@ void App::drawSceneSection() {
             // Unassigned: no layer, or a stale name left by a deleted layer.
             int count = 0;
             for (const SceneObject& o : sc.objects)
-                if ((o.layer.empty() || !layerExists(o.layer)) && passesFilter(o))
-                    ++count;
-            std::string header =
-                "Unassigned  (" + std::to_string(count) + ")##layergrp_none";
-            const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
+                if ((o.layer.empty() || !layerExists(o.layer)) && passesFilter(o)) ++count;
+            const std::string header = "Unassigned  (" + std::to_string(count) + ")###layergrp_none";
+            const bool open = folderRow(header, "Unassigned", count, gflags, sem.textDim, false);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Always in memory. Drag objects onto a layer to assign them.");
             dropTarget("");
             if (open) {
                 emitRows(indicesWhere([&](const SceneObject& o) {
@@ -9002,19 +9110,45 @@ void App::drawSceneSection() {
         // What a filter hides has to be stated, or a scene reads as smaller
         // than it is - with the way back out on the same line.
         if (filtering) {
-            const int shown =
-                (int)indicesWhere([](const SceneObject&) { return true; }).size();
-            ImGui::TextDisabled("%d of %d objects shown", shown,
-                                (int)sc.objects.size());
+            const int shown = (int)indicesWhere([](const SceneObject&) { return true; }).size();
+            ImGui::TextDisabled("%d of %d objects shown", shown, (int)sc.objects.size());
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear filters")) {
                 sceneFilterName_.clear();
-                sceneFilterType_ = -1;
+                sceneFilterCat_ = -1;
             }
         }
 
-        if (grouped)
-            ImGui::TextDisabled("Drag objects onto a layer to assign them.");
+        // The Layers strip: every layer of the scene as a chip - its swatch and
+        // name, dimmed while hidden - and a click flips its editor eye, the very
+        // edit the Layers page's eye checkbox makes (and commits).
+        bool layerCommitted = false;
+        if (grouped) {
+            ImGui::Dummy(ImVec2(0.0f, st.ItemSpacing.y));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Layers");
+            ImGui::PushID("##layerstrip");
+            for (int li = 0; li < (int)sc.layers.size(); ++li) {
+                SceneLayer& l = sc.layers[li];
+                ImGui::PushID(li);
+                ui::ChipFlow(ui::LayerChipWidth(l.name.c_str()), false);
+                if (ui::LayerChip(l.name.c_str(), layerSwatch(li), l.editorVisible)) {
+                    l.editorVisible = !l.editorVisible;
+                    layerCommitted = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(l.editorVisible ? "Shown in the editor - click to hide"
+                                                      : "Hidden in the editor - click to show");
+                ImGui::PopID();
+            }
+            ImGui::PopID();
+        }
+
+        if (eyeToggled >= 0 && eyeToggled < (int)project_.objects().size()) {
+            // View state, not an edit (hiddenObjects_): no commit, no undo step.
+            const std::string& id = project_.objects()[eyeToggled].id;
+            if (!hiddenObjects_.erase(id)) hiddenObjects_.insert(id);
+        }
 
         if (dropHit) {
             // Move the whole selection when the dragged object is part of it.
@@ -9029,21 +9163,17 @@ void App::drawSceneSection() {
                     changed = true;
                 }
             }
-            if (changed) commitChange();
+            if (changed) layerCommitted = true;
         }
+        if (layerCommitted) commitChange();
     }
-
-    if (selection_.size() > 1)
-        ImGui::TextDisabled("%d objects selected - edit shared fields in Properties.",
-                            (int)selection_.size());
-    else if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
-        ImGui::TextDisabled("Edit the selection in the Properties window.");
 }
 
-// True when the object sits on a layer whose editor eye is off - the
-// viewport skips it (render and picking) and the object list dims it.
-// Unknown layer names count as visible.
+// True when the object's own eye (the outliner row) is off or it sits on a
+// layer whose editor eye is off - the viewport skips it (render and picking)
+// and the object list dims it. Unknown layer names count as visible.
 bool App::isObjectHiddenInEditor(const SceneObject& o) const {
+    if (!hiddenObjects_.empty() && hiddenObjects_.count(o.id)) return true;
     if (o.layer.empty()) return false;
     for (const SceneLayer& l : project_.active().layers)
         if (l.name == o.layer) return !l.editorVisible;
@@ -13882,6 +14012,7 @@ void App::drawLogTabBadge(const LogView& v) {
 void App::drawOutputWindow() {
     ImGui::Begin("Output", nullptr, logTabFlags("Output", logOut_));
     drawLogTabBadge(logOut_);
+    ui::PanelInlineTitle("Output");  // only while alone in its dock node (no tab)
     logSetText(logOut_, runner_.log());
 
     // One header row: the panel's actions on the left, the filter on the right.
@@ -13959,6 +14090,7 @@ void App::drawDebugWindow() {
     // written on the host fs by the running ELF); Emulator log = PCSX2's
     // console (emulog.txt).
     const char* sources[] = {"Game log", "Emulator log"};
+    ui::PanelInlineTitle("Debug");  // only while alone in its dock node (no tab)
     ImGui::SetNextItemWidth(scaled(120));
     if (ImGui::Combo("##Source", &debugLogSource_, sources, 2)) {
         logSetText(logDbg_, std::string());  // don't show the other source's content

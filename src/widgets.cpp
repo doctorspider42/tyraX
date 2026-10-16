@@ -440,6 +440,28 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             dl->AddCircleFilled(P(0.35f, -0.45f), s * 0.22f, col);
             dl->AddCircleFilled(P(-0.35f, 0.45f), s * 0.22f, col);
             break;
+        case Glyph::Plus:
+            dl->AddLine(P(-0.75f, 0), P(0.75f, 0), col, th);
+            dl->AddLine(P(0, -0.75f), P(0, 0.75f), col, th);
+            break;
+        case Glyph::Eye:
+        case Glyph::EyeOff: {
+            // An almond of two quadratic arcs and a filled pupil; the "off"
+            // eye is struck through.
+            dl->PathLineTo(P(-0.95f, 0));
+            dl->PathBezierQuadraticCurveTo(P(0, -0.95f), P(0.95f, 0));
+            dl->PathBezierQuadraticCurveTo(P(0, 0.95f), P(-0.95f, 0));
+            dl->PathStroke(col, ImDrawFlags_Closed, th);
+            dl->AddCircleFilled(c, s * 0.26f, col);
+            if (g == Glyph::EyeOff) dl->AddLine(P(-0.8f, 0.8f), P(0.8f, -0.8f), col, th);
+            break;
+        }
+        case Glyph::Folder: {
+            const ImVec2 f[6] = {P(-0.9f, -0.6f), P(-0.25f, -0.6f), P(-0.05f, -0.38f),
+                                 P(0.9f, -0.38f), P(0.9f, 0.7f),    P(-0.9f, 0.7f)};
+            dl->AddPolyline(f, 6, col, ImDrawFlags_Closed, th);
+            break;
+        }
         case Glyph::Gear: {
             const float r = s * 0.5f;
             dl->AddCircle(c, r, col, 16, th);
@@ -965,6 +987,232 @@ bool MoreButton(const char* label, float size) {
     const ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
     for (int i = -1; i <= 1; ++i)
         dl->AddCircleFilled(ImVec2(c.x + gap * (float)i, c.y), dr, ImGui::GetColorU32(sem.text), 10);
+    return pressed;
+}
+
+// --- panel headers / outliner ---------------------------------------------
+namespace {
+// The slots PanelHeader reserved for its buttons (one header at a time).
+ImVec2 gSlotPos;
+float gSlotSize = 0.0f, gSlotGap = 0.0f;
+int gSlotNext = 0;
+
+// While the panel is untabbed, dragging the item just submitted undocks the
+// panel - the same call ImGui's own hidden-tab-bar triangle makes, so the
+// panel then floats and docks anywhere like one dragged by its tab.
+// Only while untabbed: a tabbed panel has its tab (which undocks that one
+// window, not the whole node), and a floating one its title bar - ImGui only
+// offers dock targets to a window dragged by its top frame-height
+// (BeginDockableDragDropSource), so a header further down could move a
+// floating panel but never dock it again.
+void grabHandleBehaviour() {
+    if (!PanelIsUntabbed()) return;
+    ImGuiWindow* win = ImGui::GetCurrentWindow()->RootWindow;
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+        ImGui::StartMouseMovingWindowOrNode(win, win->DockNode, true);
+}
+
+float chipHeight() {
+    return IM_TRUNC(ImGui::GetTextLineHeight() + ImGui::GetStyle().FramePadding.y * 1.2f);
+}
+float chipPadX() { return IM_TRUNC(ImGui::GetFontSize() * 0.6f); }
+}  // namespace
+
+void PanelChromeNewFrame(const char* const* names, int count) {
+    for (int i = 0; i < count; ++i) {
+        ImGuiWindow* w = ImGui::FindWindowByName(names[i]);
+        if (!w) continue;
+        // The window class's override is merged into its node's flags by the
+        // node update inside DockSpaceOverViewport - this frame, before the
+        // panel's own Begin - and, unlike the node's own flags, never reaches
+        // a saved layout. A second window docked in brings the tabs back.
+        ImGuiDockNodeFlags& f = w->WindowClass.DockNodeFlagsOverrideSet;
+        if (w->DockNode && w->DockNode->Windows.Size == 1)
+            f |= ImGuiDockNodeFlags_NoTabBar;
+        else
+            f &= ~ImGuiDockNodeFlags_NoTabBar;
+    }
+}
+
+bool PanelIsUntabbed() {
+    const ImGuiWindow* w = ImGui::GetCurrentWindowRead();
+    if (!w) return false;
+    w = w->RootWindow;
+    return w->DockIsActive && w->DockNode &&
+           (w->DockNode->IsNoTabBar() || w->DockNode->IsHiddenTabBar());
+}
+
+void PanelHeader(const char* title, const char* count, int buttons) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float rowH = ImGui::GetFrameHeight();
+    const float availW = ImGui::GetContentRegionAvail().x;
+    gSlotSize = rowH;
+    gSlotGap = IM_TRUNC(st.ItemInnerSpacing.x * 0.5f);
+    gSlotNext = 0;
+    const float slotsW = buttons > 0 ? buttons * gSlotSize + (buttons - 1) * gSlotGap : 0.0f;
+    gSlotPos = ImVec2(p0.x + availW - slotsW, p0.y);
+
+    ImGui::InvisibleButton(
+        "Move panel##panel_grab",
+        ImVec2(ImMax(1.0f, availW - slotsW - (buttons > 0 ? st.ItemSpacing.x : 0.0f)), rowH));
+    grabHandleBehaviour();
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float x = p0.x;
+    {
+        FontScope bold(gBold);
+        const float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
+        dl->AddText(ImVec2(x, ty), ImGui::GetColorU32(sem.text), title);
+        x += ImGui::CalcTextSize(title).x;
+    }
+    if (count && *count) {
+        const float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
+        dl->AddText(ImVec2(x + st.ItemInnerSpacing.x * 1.5f, ty), fadeCol(sem.textDim, 0.85f), count);
+    }
+}
+
+bool PanelHeaderButton(const char* label, Glyph g, const char* tooltip) {
+    const theme::Semantics& sem = theme::semantics();
+    // On the header's line (SameLine), so the row ends after the last button
+    // and nothing has to put the cursor back.
+    const ImVec2 p(gSlotPos.x + gSlotNext * (gSlotSize + gSlotGap), gSlotPos.y);
+    ++gSlotNext;
+    ImGui::SameLine();
+    ImGui::SetCursorScreenPos(p);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(gSlotSize, gSlotSize));
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hovered, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + gSlotSize, p.y + gSlotSize);
+    const float r = ImGui::GetStyle().FrameRounding;
+    if (held) dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.16f)), r);
+    else if (t > 0.0f) dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f * t)), r);
+    const ImU32 ink = hovered || held ? ImGui::GetColorU32(sem.text) : fadeCol(sem.text, 0.72f);
+    DrawGlyph(dl, g, ImVec2(p.x + gSlotSize * 0.5f, p.y + gSlotSize * 0.5f), gSlotSize * 0.46f, ink);
+    if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tooltip);
+    return pressed;
+}
+
+void PanelInlineTitle(const char* title) {
+    if (!PanelIsUntabbed()) return;
+    const theme::Semantics& sem = theme::semantics();
+    FontScope bold(gBold);
+    const ImVec2 ts = ImGui::CalcTextSize(title);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    ImGui::InvisibleButton("Move panel##panel_grab", ImVec2(ts.x, h));
+    grabHandleBehaviour();
+    ImGui::GetWindowDrawList()->AddText(ImVec2(p.x, p.y + (h - ts.y) * 0.5f),
+                                        ImGui::GetColorU32(sem.text), title);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 2.0f);
+}
+
+float FilterChipWidth(const char* label, int count) {
+    float w = ImGui::CalcTextSize(label, nullptr, true).x + chipPadX() * 2.0f;
+    if (count >= 0) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d", count);
+        w += ImGui::CalcTextSize(buf).x + ImGui::GetStyle().ItemInnerSpacing.x;
+    }
+    return w;
+}
+
+bool FilterChip(const char* label, bool selected, int count) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = FilterChipWidth(label, count), h = chipHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const ImGuiID id = ImGui::GetItemID();
+    ImGuiContext& g = *GImGui;
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label,
+                                g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                    (selected ? ImGuiItemStatusFlags_Checked : 0));
+    const float t = theme::hoverAnim(id, ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = h * 0.5f;
+    if (selected) {
+        dl->AddRectFilled(p, q, fadeCol(sem.accent, 0.22f), r);
+        dl->AddRect(p, q, fadeCol(sem.accent, 0.55f), r);
+    } else {
+        if (t > 0.0f) dl->AddRectFilled(p, q, fadeCol(sem.surface, t), r);
+        dl->AddRect(p, q, ImGui::GetColorU32(sem.border), r);
+    }
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
+    float x = p.x + chipPadX();
+    dl->AddText(ImVec2(x, ty), selected ? ImGui::GetColorU32(sem.text) : fadeCol(sem.text, 0.80f), label,
+                end);
+    if (count >= 0) {
+        x += ImGui::CalcTextSize(label, end).x + ImGui::GetStyle().ItemInnerSpacing.x;
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d", count);
+        dl->AddText(ImVec2(x, ty), fadeCol(sem.textDim, 0.85f), buf);
+    }
+    return pressed;
+}
+
+float LayerChipWidth(const char* label) {
+    return ImGui::CalcTextSize(label, nullptr, true).x + chipPadX() * 2.0f +
+           ImGui::GetFontSize() * 0.6f + ImGui::GetStyle().ItemInnerSpacing.x;
+}
+
+bool LayerChip(const char* label, ImU32 colour, bool visible) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = LayerChipWidth(label), h = chipHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const ImGuiID id = ImGui::GetItemID();
+    ImGuiContext& g = *GImGui;
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label,
+                                g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                    (visible ? ImGuiItemStatusFlags_Checked : 0));
+    const float t = theme::hoverAnim(id, ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = h * 0.5f;
+    if (t > 0.0f) dl->AddRectFilled(p, q, fadeCol(sem.surface, t), r);
+    dl->AddRect(p, q, ImGui::GetColorU32(sem.border), r);
+    // The swatch is filled while the layer shows and an outline while it is
+    // hidden, so the state reads without relying on the dimmed text alone.
+    const float sq = IM_TRUNC(ImGui::GetFontSize() * 0.6f);
+    const ImVec2 s0(p.x + chipPadX(), p.y + IM_TRUNC((h - sq) * 0.5f)), s1(s0.x + sq, s0.y + sq);
+    if (visible) dl->AddRectFilled(s0, s1, colour, 2.0f);
+    else dl->AddRect(s0, s1, colour, 2.0f, 0, 1.2f);
+    const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
+    dl->AddText(ImVec2(s1.x + ImGui::GetStyle().ItemInnerSpacing.x, ty),
+                visible ? fadeCol(sem.text, 0.85f) : fadeCol(sem.textDim, 0.60f), label,
+                ImGui::FindRenderedTextEnd(label));
+    return pressed;
+}
+
+void ChipFlow(float w, bool first) {
+    if (first) return;
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
+bool EyeToggle(const char* label, bool visible, float size, bool show) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size));
+    const ImGuiID id = ImGui::GetItemID();
+    ImGuiContext& g = *GImGui;
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label,
+                                g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                    (visible ? ImGuiItemStatusFlags_Checked : 0));
+    const bool hovered = ImGui::IsItemHovered();
+    if (show || hovered) {
+        const ImU32 ink = hovered ? ImGui::GetColorU32(sem.text)
+                                  : fadeCol(sem.textDim, visible ? 0.9f : 0.75f);
+        DrawGlyph(ImGui::GetWindowDrawList(), visible ? Glyph::Eye : Glyph::EyeOff,
+                  ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size * 0.62f, ink);
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(visible ? "Hide in the editor" : "Show in the editor");
     return pressed;
 }
 

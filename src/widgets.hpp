@@ -91,7 +91,9 @@ enum class Glyph {
     Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear, Box,
     // object types (the outliner) and the left rail's pages
     Person, Bulb, Camera, Speaker, Area, Comment, Sparkle, Flag,
-    List, Layers, Music, Code, Sliders
+    List, Layers, Music, Code, Sliders,
+    // panel headers and the outliner
+    Plus, Eye, EyeOff, Folder
 };
 
 /** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */
@@ -197,5 +199,63 @@ void EndQuietTabBar();
 
 /** A square "..." button (InvisibleButton named `label`). Returns clicked. */
 bool MoreButton(const char* label, float size);
+// --- panel headers / outliner ---------------------------------------------
+// A docked panel that is ALONE in its dock node shows no ImGui tab strip (and
+// no window-menu triangle): it names itself with a header row instead. Nodes
+// holding several windows keep their tabs - drawn as quiet pills by the theme
+// (ImGuiStyle::TabPillInset, vendor/imgui-tyrax/TYRAX-PATCHES.md).
+
+/** Once per frame, BEFORE DockSpaceOverViewport: every window named in
+ * `names` that was alone in its dock node last frame asks that node for no tab
+ * bar (ImGuiDockNodeFlags_NoTabBar through its window class, so nothing is
+ * written into a saved layout); the others get their tabs back. Opt-in by
+ * name because a window that hides its tab must also draw a PanelHeader (or
+ * need none, like the Viewport). Window names never change. */
+void PanelChromeNewFrame(const char* const* names, int count);
+
+/** True when the current window is docked with its tab strip hidden - the
+ * window then has no name on screen unless it draws one itself. */
+bool PanelIsUntabbed();
+
+/** The header row of a panel: `title` in the heading cut, `count` (may be
+ * null) dim after it, and room for `buttons` PanelHeaderButton icons at the
+ * right end (call them right after, left to right). While the panel is
+ * untabbed, the empty part of the row is its grab handle: dragging it undocks
+ * the panel exactly like dragging its tab would, so it can be re-docked. */
+void PanelHeader(const char* title, const char* count = nullptr, int buttons = 0);
+
+/** One square icon button in the slots PanelHeader reserved, `label` is the
+ * ID and --ui-script name. Returns clicked. */
+bool PanelHeaderButton(const char* label, Glyph g, const char* tooltip = nullptr);
+
+/** Inline variant for panels whose first row is a toolbar (Output, Debug,
+ * Flow Graph): only while untabbed, `title` in the heading cut followed by
+ * SameLine - the same grab handle as PanelHeader's. */
+void PanelInlineTitle(const char* title);
+
+/** A single-select filter chip: `label` (the ID, the --ui-script name and the
+ * text) with `count` dim after it when >= 0. Reported to --ui-script as
+ * checkable with `selected` as its state. Returns clicked. Chips flow:
+ * SameLine is done by the caller via ChipFlow. */
+bool FilterChip(const char* label, bool selected, int count = -1);
+
+/** Width a FilterChip with this label/count takes. */
+float FilterChipWidth(const char* label, int count = -1);
+
+/** A layer chip: a colour square, the name, dimmed (and the square hollow)
+ * while `visible` is false. Reported as checkable with `visible`. Returns
+ * clicked. */
+bool LayerChip(const char* label, ImU32 colour, bool visible);
+float LayerChipWidth(const char* label);
+
+/** Before a chip of width `w`: SameLine when it still fits on this row (not
+ * for the first chip of a run, `first`). */
+void ChipFlow(float w, bool first);
+
+/** An eye toggle `size` px square at the cursor (an InvisibleButton named
+ * `label`); `visible` picks the open or struck-through eye. Reported as
+ * checkable with `visible`. Drawn only when `show` (the hit box is always
+ * there). Returns clicked. */
+bool EyeToggle(const char* label, bool visible, float size, bool show);
 
 }  // namespace ui

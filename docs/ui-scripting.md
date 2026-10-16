@@ -211,6 +211,17 @@ hold, and clears when the editor exits. Neither window was ever focused.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
+- **A panel alone in its dock node has no tab** (it draws its own header -
+  [editor-theme.md](editor-theme.md)), so a dock tab is only there to click
+  when the node holds several windows; a bare `click Project` reaches the
+  menu-bar *Project* menu unless the Project panel is tabbed with another.
+  The header row is nameable as `"<Window>/Move panel"`: `drag
+  "Project/Move panel" <dx> <dy>` undocks the panel and, dropped on another
+  node's centre, docks it there as a tab. The Outliner's chips (`All`,
+  `Models`, `Lights`...), its layer chips (the layer's name) and each row's eye
+  (`"Visible: <name>"`) report a checked state, so they pair with
+  `expect-checked`; qualify the chips with `Project/` - the left rail has an
+  `Audio` button too.
 - **A widget inside an unselected tab does not exist. Select the tab first.**
   `BeginTabItem` returns false for every tab but the front one and its body is
   never submitted, so nothing in it reaches the registry: `dump` does not list
