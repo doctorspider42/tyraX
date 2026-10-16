@@ -2244,6 +2244,9 @@ private:
     // pointer is over in the Model tab (-1 none) - the preview rings it.
     int vehicleTab_ = 1;
     bool vehicleShowMeasures_ = true;
+    // Vehicle Editor preview: Near (tier 0) or Far (the far tier the console
+    // swaps to past farDistance). View state.
+    bool vehiclePreviewFar_ = false;
     int vehicleHoverWheel_ = -1;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
