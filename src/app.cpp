@@ -6423,21 +6423,76 @@ void App::openProjectAt(const std::string& dir, bool fromRecent) {
     if (projectLoading_) return;
 
     projectLoadDir_ = dir;
-    projectLoadName_ = std::filesystem::path(dir).filename().string();
+    // The manifest's name (what the project is called), else the folder's.
+    projectLoadName_ = projectManifestName(dir);
+    if (projectLoadName_.empty()) projectLoadName_ = std::filesystem::path(dir).filename().string();
     if (projectLoadName_.empty()) projectLoadName_ = dir;
     projectLoadFromRecent_ = fromRecent;
     projectLoading_ = true;
+    projectLoadStage_ = 0;
+    projectLoadDrawn_ = 0;
+    projectLoadCancel_ = false;
+    projectLoadError_.clear();
+    projectLoadPending_.reset();
+    projectLoadObjects_ = projectLoadScenes_ = projectLoadTerrains_ = 0;
+    projectLoadStarted_ = glfwGetTime();
     // Even a tiny project gets a readable transition instead of a one-frame
-    // flash. A genuinely large one simply keeps the same screen animating.
+    // flash. A genuinely large one simply keeps the same screen up.
     projectLoadShowUntil_ = glfwGetTime() + 0.25;
 }
 
+// Loading runs in two stages on the main thread, each AFTER the loading card
+// has been drawn and presented, so the card can tick off what is done:
+//   0: project::load - the .tyra, every objects/<id>.json, the heightmaps;
+//   1: migrations (may ask), the viewport (meshes, textures) and attach.
+// Neither stage can be interrupted, so Cancel takes effect at the boundary.
 void App::projectLoadTick() {
-    if (!projectLoading_ || glfwGetTime() < projectLoadShowUntil_) return;
+    if (!projectLoading_ || !projectLoadError_.empty()) return;
+    if (projectLoadCancel_) {
+        projectLoadPending_.reset();
+        projectLoading_ = false;
+        statusMessage_ = "Opening " + projectLoadName_ + " cancelled";
+        return;
+    }
+    if (glfwGetTime() < projectLoadShowUntil_ || projectLoadDrawn_ < 1) return;
 
-    Project p;
-    std::string err = project::load(p, projectLoadDir_);
+    // A failure stays on the card (what failed, where, a way back) instead of
+    // an OS box over a screen that no longer shows what happened.
+    auto fail = [&](const std::string& e) {
+        // A missing recent entry stays in the list, but refresh its badge now:
+        // an unplugged drive may return later and forgetting it is the user's call.
+        if (projectLoadFromRecent_) {
+            const std::string key = recentProjectKey(projectLoadDir_);
+            for (RecentProject& r : recentProjects_)
+                if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+        }
+        projectLoadPending_.reset();
+        projectLoadError_ = e.empty() ? std::string("Unknown error") : e;
+    };
 
+    if (projectLoadStage_ == 0) {
+        auto loaded = std::make_unique<Project>();
+        const std::string err = project::load(*loaded, projectLoadDir_);
+        if (!err.empty()) {
+            fail(err);
+            return;
+        }
+        projectLoadScenes_ = (int)loaded->scenes.size();
+        projectLoadObjects_ = 0;
+        projectLoadTerrains_ = 0;
+        for (const SceneData& sc : loaded->scenes) {
+            projectLoadObjects_ += (int)sc.objects.size();
+            if (sc.terrain.enabled) ++projectLoadTerrains_;
+        }
+        if (!loaded->name.empty()) projectLoadName_ = loaded->name;
+        projectLoadPending_ = std::move(loaded);
+        projectLoadStage_ = 1;
+        projectLoadDrawn_ = 0;  // show the ticks before the next stage blocks
+        return;
+    }
+
+    Project& p = *projectLoadPending_;
+    std::string err;
     // Format gate. load() already refused a file from a NEWER editor (the
     // message names both versions), so every open path that funnels through
     // here - the CLI argument, the Open dialog, the recent list - inherits it.
@@ -6489,19 +6544,12 @@ void App::projectLoadTick() {
     }
 
     if (!err.empty()) {
-        // A missing recent entry stays in the list, but refresh its badge now:
-        // an unplugged drive may return later and forgetting it is the user's call.
-        if (projectLoadFromRecent_) {
-            const std::string key = recentProjectKey(projectLoadDir_);
-            for (RecentProject& r : recentProjects_)
-                if (recentProjectKey(r.dir) == key) probeRecentProject(r);
-        }
-        projectLoading_ = false;
-        platform::errorBox("Open Project", err);
+        fail(err);
         return;
     }
 
-    project_ = p;
+    project_ = std::move(p);
+    projectLoadPending_.reset();
     hasProject_ = true;
     applyProjectToViewport();
     attachProject();  // resets dirty + window title
@@ -6511,46 +6559,178 @@ void App::projectLoadTick() {
 }
 
 void App::drawProjectLoadingScreen() {
+    const theme::Semantics& sem = theme::semantics();
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->Pos);
     ImGui::SetNextWindowSize(vp->Size);
     ImGui::SetNextWindowViewport(vp->ID);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.045f, 0.065f, 1.0f));
-    const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, sem.ground);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                   ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
     ImGui::Begin("Opening Project##project_load", nullptr, flags);
-
-    const char spinner[] = {'|', '/', '-', '\\'};
-    const char spin = spinner[(int)(ImGui::GetTime() * 10.0) & 3];
-    const char* phase = "Reading project and preparing workspace...";
-    const std::string heading = "Opening " + projectLoadName_;
-    const float panelW = scaled(440.0f);
-    const float panelH = scaled(150.0f);
-    ImGui::SetCursorPos(ImVec2((vp->Size.x - panelW) * 0.5f,
-                               (vp->Size.y - panelH) * 0.5f));
-    ImGui::BeginGroup();
-    const float headingW = ImGui::CalcTextSize(heading.c_str()).x;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - headingW) * 0.5f);
-    ImGui::TextUnformatted(heading.c_str());
-    ImGui::Spacing();
-    const std::string status = std::string(1, spin) + "  " + phase;
-    const float statusW = ImGui::CalcTextSize(status.c_str()).x;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - statusW) * 0.5f);
-    ImGui::TextDisabled("%s", status.c_str());
-    ImGui::Spacing();
-    // The loader cannot report truthful byte counts, so animate an explicitly
-    // indeterminate bar instead of inventing a percentage.
-    const float wave = (float)std::fmod(ImGui::GetTime() * 0.55, 1.0);
-    ImGui::ProgressBar(wave, ImVec2(panelW, scaled(8.0f)), "");
-    ImGui::EndGroup();
-
-    ImGui::End();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
+    ++projectLoadDrawn_;
+
+    const float fs = ImGui::GetFontSize();
+    const bool failed = !projectLoadError_.empty();
+    const float cardW = ImMin(scaled(440.0f), vp->Size.x - scaled(32));
+    const float rowH = fs * 1.75f;
+    const float cardH = failed ? fs * 13.0f : fs * 7.0f + rowH * 4 + fs * 3.2f;
+    ImGui::SetCursorPos(ImVec2((vp->Size.x - cardW) * 0.5f, ImMax(scaled(16), (vp->Size.y - cardH) * 0.45f)));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.surface);
+    ImGui::PushStyleColor(ImGuiCol_Border, sem.border);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, scaled(14));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(26), scaled(24)));
+    ImGui::BeginChild("##load_card", ImVec2(cardW, 0),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding |
+                          ImGuiChildFlags_AutoResizeY);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Header: the app mark, "Opening", the project's name, where it is.
+    {
+        const float iconS = fs * 2.6f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (const unsigned int tex = appIconTexture())
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, ImVec2(p.x + iconS, p.y + iconS), ImVec2(0, 0),
+                                ImVec2(1, 1), IM_COL32_WHITE, scaled(8));
+        const float tx = p.x + iconS + scaled(14);
+        dl->AddText(ImVec2(tx, p.y - scaled(2)), ImGui::GetColorU32(sem.textDim),
+                    failed ? "Could not open" : "Opening");
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.25f);
+            dl->AddText(ImVec2(tx, p.y + fs * 0.95f), ImGui::GetColorU32(sem.text), projectLoadName_.c_str());
+            ImGui::PopFont();
+        }
+        std::string where = projectLoadDir_;
+        const std::string home = platform::homeDir().string();
+        if (!home.empty() && where.size() > home.size() && where.compare(0, home.size(), home) == 0)
+            where = "~" + where.substr(home.size());
+        if (projectLoadScenes_ > 0)
+            where += "  -  " + std::to_string(projectLoadScenes_) + (projectLoadScenes_ == 1 ? " scene" : " scenes");
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushFont(nullptr, fs * 0.85f);
+            const std::string shown = ellipsizePathLeft(where, cardW - scaled(52) - iconS - scaled(14));
+            dl->AddText(ImVec2(tx, p.y + fs * 2.45f), ImGui::GetColorU32(sem.textDim), shown.c_str());
+            ImGui::PopFont();
+        }
+        ImGui::Dummy(ImVec2(0, iconS + scaled(14)));
+    }
+
+    if (failed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(projectLoadError_.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(10)));
+        if (ui::PrimaryButton("Back to start")) {
+            projectLoading_ = false;
+            projectLoadError_.clear();
+        }
+        ImGui::SameLine();
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(projectLoadDir_, ec);
+        if (exists && ImGui::Button("Show in folder")) platform::revealInFileManager(projectLoadDir_);
+        if (exists) {
+            ImGui::SameLine();
+            if (ImGui::Button("Try again")) {
+                const std::string dir = projectLoadDir_;
+                const bool recent = projectLoadFromRecent_;
+                projectLoading_ = false;
+                openProjectAt(dir, recent);
+            }
+        }
+    } else {
+        // Progress: indeterminate inside a stage - the loader has no honest
+        // fraction - but the bar stands at the stage boundary it has passed.
+        const float frac = projectLoadStage_ == 0 ? 0.0f : 0.6f;
+        {
+            const float w = ImGui::GetContentRegionAvail().x;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float bh = scaled(4);
+            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + bh), ImGui::GetColorU32(sem.field), bh);
+            if (frac > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + w * frac, p.y + bh), ImGui::GetColorU32(sem.accent), bh);
+            const float t = std::fmod((float)ImGui::GetTime() * 0.7f, 1.0f);
+            const float x0 = p.x + w * frac, span = w * (1.0f - frac), seg = span * 0.3f;
+            const float sx = x0 - seg + (span + seg) * t;
+            dl->PushClipRect(ImVec2(x0, p.y), ImVec2(p.x + w, p.y + bh), true);
+            dl->AddRectFilled(ImVec2(sx, p.y), ImVec2(sx + seg, p.y + bh),
+                              ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.5f)), bh);
+            dl->PopClipRect();
+            ImGui::Dummy(ImVec2(w, bh + scaled(12)));
+        }
+        // Phases: done ticks, the current one spinning, pending dim.
+        struct Phase {
+            const char* label;
+            int state;  // 0 pending, 1 now, 2 done
+            std::string count;
+        };
+        const bool s1 = projectLoadStage_ >= 1;
+        const Phase phases[] = {
+            {"Project file", s1 ? 2 : 1, ""},
+            {"Objects", s1 ? 2 : 1, s1 ? std::to_string(projectLoadObjects_) : std::string()},
+            {"Terrain", s1 ? 2 : 1,
+             s1 ? (projectLoadTerrains_ == 0 ? std::string("none")
+                   : std::to_string(projectLoadTerrains_) + (projectLoadTerrains_ == 1 ? " heightmap" : " heightmaps"))
+                : std::string()},
+            {"Workspace", s1 ? 1 : 0, s1 ? std::string("meshes, textures") : std::string()},
+        };
+        for (const Phase& ph : phases) {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const ImVec2 c(p.x + fs * 0.5f, p.y + rowH * 0.5f);
+            if (ph.state == 2) {
+                dl->AddCircleFilled(c, fs * 0.5f,
+                                    ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, 0.16f)), 20);
+                ui::CheckMark(dl, c, fs * 0.8f, ImGui::GetColorU32(sem.ok));
+            } else if (ph.state == 1) {
+                ui::Spinner(dl, c, fs * 0.42f);
+            } else {
+                dl->AddCircle(c, fs * 0.45f, ImGui::GetColorU32(sem.border), 20, 1.5f);
+            }
+            ImVec4 cv = ph.state == 1 ? sem.text : sem.textDim;
+            if (ph.state == 0) cv.w *= 0.7f;
+            const ImU32 col = ImGui::GetColorU32(cv);
+            dl->AddText(ImVec2(p.x + fs * 1.6f, p.y + (rowH - fs) * 0.5f), col, ph.label);
+            if (!ph.count.empty()) {
+                ui::FontScope mono(ui::monoFont());
+                const float cw = ImGui::CalcTextSize(ph.count.c_str()).x;
+                dl->AddText(ImVec2(p.x + w - cw, p.y + (rowH - fs) * 0.5f),
+                            ImGui::GetColorU32(ph.state == 1 ? sem.accent : sem.textDim), ph.count.c_str());
+            }
+            ImGui::Dummy(ImVec2(w, rowH));
+        }
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+        char el[32];
+        std::snprintf(el, sizeof(el), "%.1f s", glfwGetTime() - projectLoadStarted_);
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted(el);
+            ImGui::PopStyleColor();
+        }
+        const float bw = ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
+        ImGui::BeginDisabled(projectLoadCancel_);
+        if (ImGui::Button("Cancel")) projectLoadCancel_ = true;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Back to the start page - takes effect when the current step ends");
+    }
+    ImGui::EndChild();
+    ImGui::End();
 }
 
 void App::requestOpenProject() {

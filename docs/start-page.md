@@ -83,6 +83,29 @@ On the right:
 
 The project opens as soon as it is created.
 
+## Opening a project
+
+Opening a project (from the start page, *File > Open*, the recent list or the
+command line) shows a card with the project's name - the one in its `.tyra`
+file, not just the folder's - where it is and how many scenes it has, and the
+steps of loading: **Project file**, **Objects** (with the count), **Terrain**
+(heightmaps) and **Workspace** (the viewport's meshes and textures). Finished
+steps get a tick, the running one a spinner; the bar does not pretend to know
+a percentage inside a step. The time so far is in the corner.
+
+![The Opening card: project name and folder, the four loading steps and
+Cancel.](img/opening-project.png)
+
+**Cancel** returns to the start page. Loading cannot be interrupted in the
+middle of a step, so it takes effect when the current one ends.
+
+When opening fails (a damaged `.tyra`, a project from a newer editor, a
+migration you declined), the card turns into the error: what failed, and
+**Back to start**, **Show in folder** and **Try again** - instead of an OS
+dialog over a screen that no longer says what was being opened. A project in
+an older format still asks before migrating, as before
+([format versioning](format-versioning.md)).
+
 ## Setup chips
 
 The strip at the bottom says what the first Run will need, before it fails:

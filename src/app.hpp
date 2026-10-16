@@ -1635,6 +1635,13 @@ private:
     double projectLoadShowUntil_ = 0.0;
     std::string projectLoadDir_;
     std::string projectLoadName_;
+    int projectLoadStage_ = 0;      // 0 = read the files, 1 = migrate + attach
+    int projectLoadDrawn_ = 0;      // card frames presented since the stage began
+    bool projectLoadCancel_ = false;  // honoured at the next stage boundary
+    std::string projectLoadError_;  // non-empty = the card shows the failure
+    std::unique_ptr<Project> projectLoadPending_;  // stage 0's result
+    int projectLoadObjects_ = 0, projectLoadScenes_ = 0, projectLoadTerrains_ = 0;
+    double projectLoadStarted_ = 0.0;
     // The start page: drawn INSTEAD of the docked layout while nothing is open
     // (drawUI keeps the dockspace alive but hidden). Recent projects on the
     // left, the bundled examples on the right, setup chips at the bottom.
