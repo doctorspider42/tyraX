@@ -1010,19 +1010,20 @@ private:
     // Every run is a subprocess of the editor's own binary (blss_ui.hpp says
     // why) and every number drawn is parsed out of its output.
     void drawBlssWindow();
-    void drawBlssHeader();
+    void drawBlssTitleRow();       // proof-of-concept badge, Net / Corpus chips
+    void drawBlssVerdictBanner();  // the answer first, with Plain/Neural + Use in this project
+    void drawBlssQuestionCards();  // the three checks as cards
+    void drawBlssJobStrip();       // the output pane as one line
+    void blssAskPicture();
+    void blssAskCorpus();
     // The corpus switch (project vs the built-in bestiary) and the one-line
-    // reminder of which one a table came from. Drawn in the header, read by
-    // every verb through blssCommonArgs().
+    // reminder of which one a table came from. Drawn in the Corpus chip's
+    // popup, read by every verb through blssCommonArgs().
     void drawBlssCorpusChoice();
     void drawBlssCorpusReminder();
-    // THE HAPPY PATH, and it is above the tabs because it is the only question
-    // most people have: one button that runs the NET-FREE `--blss-eval` on this
-    // project and answers "will this scene benefit" in plain language. It needs
-    // no trained network, which is the whole point - the window used to tell
-    // people to run Evaluate first, and Evaluate could not run without a net
-    // that only Train could produce.
-    void drawBlssHappyPath();
+    // THE HAPPY PATH (the question cards): the NET-FREE `--blss-eval` answers
+    // "will this scene benefit" with no trained network - the window used to
+    // send people to Evaluate, which could not run without a net.
     // THE OTHER HALF OF THE HAPPY PATH: will the scene get FASTER. BLSS trades
     // GS fill for EE work at a measured price, so the answer is entirely a
     // question about overdraw - and blss::measureCoverage() counts a project's
@@ -2694,6 +2695,11 @@ private:
     // thumbnails are click-through to Compare, and a strip that showed the
     // pictures but could not get you to them would be decoration.
     int blssTabSelect_ = -1;
+    int blssTab_ = 0;                // the work tab shown (BlssTab)
+    bool blssShowOutput_ = false;    // the job strip expanded into the raw output
+    bool blssShowDetails_ = false;   // the long story under the banner
+    double blssAnsweredAt_[3] = {-1.0, -1.0, -1.0};  // ImGui time each check landed
+    double blssSeenQ_ = -2.0, blssSeenS_ = -2.0, blssSeenH_ = -2.0;
     // The comparison PNGs --blss-eval --dump wrote, as GL textures. The PIXELS
     // are kept as well, because the difference view is computed from them on
     // the CPU - ~900 KB each at 512x448, nine of them.
