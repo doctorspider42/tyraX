@@ -12287,247 +12287,510 @@ static bool gradingWheel(const char* id, float* rgb, float lo, float hi,
     return finished;
 }
 
-// Color Grading window (Tools > Color Grading): preset list on the left,
-// DaVinci-style controls for the selected preset on the right. The viewport
-// previews the selected preset live with the same quantized math the PS2 GS
-// runs, so what you see is what the console draws.
+// How many full-screen sprites a compiled grade costs the GS. A TWIN of
+// RendererCorePostFx::gradingQuads (vendor/tyra): equal gains collapse to one
+// sprite, unequal ones take one per channel off 128; positive and negative
+// lift are a pass each; the mix is one. Change one and change the other.
+static int gradingSpriteCount(const CompiledGrading& cg) {
+    int n = 0;
+    if (cg.gain[0] == cg.gain[1] && cg.gain[1] == cg.gain[2]) n += cg.gain[0] != 128 ? 1 : 0;
+    else
+        for (int c = 0; c < 3; ++c) n += cg.gain[c] != 128 ? 1 : 0;
+    bool pos = false, neg = false;
+    for (int c = 0; c < 3; ++c) pos |= cg.lift[c] > 0, neg |= cg.lift[c] < 0;
+    return n + (pos ? 1 : 0) + (neg ? 1 : 0) + (cg.mixAmt > 0 ? 1 : 0);
+}
+
+// The quick looks ("Start from"). Each REPLACES every value of the look.
+struct QuickLook {
+    const char* label;
+    const char* slug;  // the name a new look made from it gets
+    float bright, contrast, sat, temp, tint[3], tintAmt;
+};
+static const QuickLook kQuickLooks[] = {
+    {"Warm", "warm", 1.05f, 1.05f, 1.0f, 0.45f, {1.0f, 0.75f, 0.45f}, 0.10f},
+    {"Cool night", "cool-night", 0.85f, 1.10f, 0.85f, -0.45f, {0.15f, 0.25f, 0.60f}, 0.22f},
+    {"Sepia", "sepia", 1.0f, 1.0f, 0.30f, 0.10f, {1.0f, 0.84f, 0.62f}, 0.35f},
+    {"Faded", "faded", 1.10f, 0.80f, 0.70f, 0.0f, {1.0f, 1.0f, 1.0f}, 0.0f},
+    {"Neutral", "neutral", 1.0f, 1.0f, 1.0f, 0.0f, {1.0f, 0.85f, 0.6f}, 0.0f},
+};
+static void applyQuickLook(ColorGradingPreset& g, const QuickLook& q) {
+    g.brightness = q.bright, g.contrast = q.contrast, g.saturation = q.sat, g.temperature = q.temp;
+    for (int c = 0; c < 3; ++c) g.tint[c] = q.tint[c], g.lift[c] = 0.0f, g.gain[c] = 1.0f;
+    g.tintAmount = q.tintAmt;
+}
+// Which quick look a preset still IS (every value equal), or -1 once edited.
+// Derived, not stored: the provenance line needs no format change.
+static int quickLookOf(const ColorGradingPreset& g) {
+    for (int i = 0; i < IM_ARRAYSIZE(kQuickLooks); ++i) {
+        ColorGradingPreset t = g;
+        applyQuickLook(t, kQuickLooks[i]);
+        if (t == g) return i;
+    }
+    return -1;
+}
+
+// Color Grading window (Tools > Color Grading; docs/color-grading.md): looks
+// list | preview | controls. The preview is the viewport's own last frame
+// before and after the grade pass (Viewport::gradingFrames) with a draggable
+// split, so a look is judged on the scene beside its controls instead of in a
+// viewport the window covers. The viewport previews the selected look with
+// the same quantized math the PS2 GS runs.
 void App::drawGradingWindow() {
     if (!showGradingEditor_ || !hasProject_) return;
+    if (!toolDockReady("Color Grading")) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(520)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1000), scaled(680)), ImGuiCond_FirstUseEver);
+    if (takeToolFocus("Color Grading")) ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("Color Grading", &showGradingEditor_)) {
         ImGui::End();
         return;
     }
 
     bool changed = false;
-    // Belt and braces (the Save/Menu Editor idiom): `changed` is set by hand at
-    // each widget, so the next one added here can forget it. The section
-    // comparison cannot be forgotten. Per-scene grading assignments also live
-    // in project_.scenes, which the undo snapshot covers on its own.
-    const std::string beforeSection =
-        project::sectionJson(project_, project::Section::Gradings);
-    auto commitIfEdited = [&] {
-        if (changed ||
-            project::sectionJson(project_, project::Section::Gradings) != beforeSection)
-            commitChange();
-    };
+    // Belt and braces (the Save/Menu Editor idiom): `changed` is set by hand
+    // at each widget, so the next one added here can forget it. The section
+    // comparison cannot be forgotten.
+    const std::string beforeSection = project::sectionJson(project_, project::Section::Gradings);
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    if (selectedGrading_ >= (int)project_.gradings.size()) selectedGrading_ = -1;
 
-    // --- left: preset list -------------------------------------------------
-    ImGui::BeginChild("##grading_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
-    if (ImGui::Button("+ New preset", ImVec2(-1, 0))) {
-        int counter = 0;
-        std::string name;
-        for (;;) {
-            name = "look-" + std::to_string(++counter);
+    auto uniqueName = [&](const std::string& base) {
+        std::string name = base;
+        for (int n = 2;; ++n) {
             bool taken = false;
-            for (const auto& g : project_.gradings) taken |= (g.name == name);
-            if (!taken) break;
+            for (const auto& g : project_.gradings) taken |= g.name == name;
+            if (!taken) return name;
+            name = base + "-" + std::to_string(n);
         }
+    };
+    auto newLook = [&](int quick) {
         ColorGradingPreset g;
-        g.name = name;
+        if (quick >= 0) applyQuickLook(g, kQuickLooks[quick]);
+        g.name = uniqueName(quick >= 0 ? kQuickLooks[quick].slug : "look");
         project_.gradings.push_back(std::move(g));
         selectedGrading_ = (int)project_.gradings.size() - 1;
         changed = true;
-    }
-    ImGui::Separator();
-    for (int i = 0; i < (int)project_.gradings.size(); ++i) {
-        ImGui::PushID(i);
-        std::string tag = project_.gradings[i].name;
-        if (project_.defaultGrading == i) tag += "  [default]";
-        if (ImGui::Selectable(tag.c_str(), selectedGrading_ == i))
-            selectedGrading_ = i;
-        ImGui::PopID();
-    }
-    if (project_.gradings.empty())
-        ImGui::TextDisabled("No presets yet.\nA preset is a full-screen\n"
-                            "look (a few GS sprites\nper frame - no EE cost).");
-    ImGui::EndChild();
-
-    ImGui::SameLine();
-
-    // --- right: selected preset editor --------------------------------------
-    ImGui::BeginChild("##grading_edit", ImVec2(0, 0));
-    if (selectedGrading_ < 0 || selectedGrading_ >= (int)project_.gradings.size()) {
-        ImGui::TextDisabled("Select a preset on the left (or create one).");
-        ImGui::TextDisabled("\nApply presets in the game with:");
-        ImGui::BulletText("\"Default at game start\" on a preset");
-        ImGui::BulletText("the Set Color Grading flow node (category \"Scene\")");
-        ImGui::EndChild();
-        ImGui::End();
-        commitIfEdited();
-        return;
-    }
-    ColorGradingPreset& g = project_.gradings[selectedGrading_];
-
-    char nameBuf[64];
-    std::snprintf(nameBuf, sizeof(nameBuf), "%s", g.name.c_str());
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-        // keep Set Color Grading flow nodes pointing here
-        for (SceneData& sc : project_.scenes)
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
+    };
+    // Where each look is used: game start, and every Set Color Grading node.
+    auto usersOf = [&](int idx) {
+        std::vector<std::string> out;
+        if (idx < 0 || idx >= (int)project_.gradings.size()) return out;
+        if (project_.defaultGrading == idx) out.push_back("game start");
+        const std::string& nm = project_.gradings[idx].name;
+        for (const SceneData& sc : project_.scenes)
+            for (const SceneObject& o : sc.objects)
+                for (const FlowNode& fn : o.flowGraph.nodes) {
                     const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::GradingName &&
-                        fn.str == g.name)
-                        fn.str = nameBuf;
+                    if (ft && ft->strKind == FlowParamKind::GradingName && fn.str == nm)
+                        out.push_back(sc.name + " / " + o.name);
                 }
-        g.name = nameBuf;
+        return out;
+    };
+
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool narrow = avail.x < scaled(900);   // list folds into a picker
+    const bool stacked = avail.x < scaled(640);  // controls go under the preview
+    const float listW = narrow ? 0.0f : ImClamp(avail.x * 0.19f, scaled(180), scaled(230));
+    const float ctrlW = stacked ? avail.x : ImClamp(avail.x * 0.3f, scaled(280), scaled(340));
+    int deleteIdx = -1, dupIdx = -1;
+
+    // --- looks -------------------------------------------------------------------
+    if (!narrow) {
+        ui::BeginCard("##grading_list", ImVec2(listW, avail.y));
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "%d", (int)project_.gradings.size());
+        ui::Caption("Looks", cnt);
+        if (ui::GhostButton("+ New preset", -1.0f)) newLook(-1);
+        const float footH = fs * 7.0f;
+        ImGui::BeginChild("##grading_rows", ImVec2(0, -footH));
+        const float rowH = scaled(44);
+        auto row = [&](int i) {  // -1 = "None", the ungraded reference
+            ImGui::PushID(i + 1);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const std::string id = (i < 0 ? std::string("None") : project_.gradings[i].name) + "##look";
+            if (ImGui::InvisibleButton(id.c_str(), ImVec2(w, rowH))) selectedGrading_ = i;
+            const bool sel = selectedGrading_ == i, hov = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            if (sel) {
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.14f)), 8.0f);
+                dl->AddRect(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.35f)), 8.0f);
+            } else if (hov) {
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(sem.surface), 8.0f);
+            }
+            // Thumbnail: a sky/ground swatch pair run through the look's GS math.
+            const float th = rowH - scaled(12);
+            const ImVec2 t0(p.x + scaled(6), p.y + scaled(6)), t1(t0.x + th * 1.4f, t0.y + th);
+            auto graded = [&](int r, int gch, int b) {
+                if (i < 0) return IM_COL32(r, gch, b, 255);
+                const CompiledGrading cg = compileGrading(project_.gradings[i]);
+                int v[3] = {r, gch, b};
+                for (int c = 0; c < 3; ++c) {
+                    int x = ImClamp((v[c] * cg.gain[c]) >> 7, 0, 255);
+                    x = ImClamp(x + cg.lift[c], 0, 255);
+                    x = ImClamp(x + (((cg.mixColor[c] - x) * cg.mixAmt) >> 7), 0, 255);
+                    v[c] = x;
+                }
+                return IM_COL32(v[0], v[1], v[2], 255);
+            };
+            const float mid = t0.y + th * 0.5f;
+            dl->AddRectFilled(t0, ImVec2(t1.x, mid), graded(150, 180, 220), 4.0f, ImDrawFlags_RoundCornersTop);
+            dl->AddRectFilled(ImVec2(t0.x, mid), t1, graded(120, 92, 64), 4.0f, ImDrawFlags_RoundCornersBottom);
+            const float x = t1.x + scaled(8);
+            std::string sub;
+            const char* badge = nullptr;
+            if (i < 0) sub = "no pass";
+            else {
+                const CompiledGrading cg = compileGrading(project_.gradings[i]);
+                const int q = quickLookOf(project_.gradings[i]);
+                sub = (q >= 0 ? std::string("from ") + kQuickLooks[q].label : std::string("custom")) + " · " +
+                      std::to_string(gradingSpriteCount(cg)) + " sprites";
+                if (project_.defaultGrading == i) badge = "start";
+            }
+            const float bw = badge ? ImGui::CalcTextSize(badge).x + fs : 0.0f;
+            dl->PushClipRect(ImVec2(x, p.y), ImVec2(p.x + w - bw - 4.0f, p.y + rowH), true);
+            dl->AddText(ImVec2(x, p.y + rowH * 0.5f - fs * 1.05f), ImGui::GetColorU32(sem.text),
+                        i < 0 ? "None" : project_.gradings[i].name.c_str());
+            {
+                ui::FontScope mono(ui::monoFont());
+                dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(x, p.y + rowH * 0.5f + fs * 0.1f),
+                            ImGui::GetColorU32(sem.textDim), sub.c_str());
+            }
+            dl->PopClipRect();
+            if (badge) {
+                ImGui::SetCursorScreenPos(ImVec2(p.x + w - bw, p.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f));
+                ui::Badge(badge, 0);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + 2.0f));
+            ImGui::Dummy(ImVec2(1, 1));
+            ImGui::PopID();
+        };
+        row(-1);
+        for (int i = 0; i < (int)project_.gradings.size(); ++i) row(i);
+        ImGui::EndChild();
+        ui::Caption("Used by");
+        const std::vector<std::string> users = usersOf(selectedGrading_);
+        if (selectedGrading_ < 0) ImGui::TextDisabled("Pick a look to see where it is used.");
+        else if (users.empty()) ImGui::TextDisabled("Not used yet.");
+        else
+            for (const std::string& u : users) ui::Badge(u.c_str(), 4);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("Switch looks at runtime with the Set Color Grading flow node.");
+        ImGui::PopStyleColor();
+        ui::EndCard();
+        ImGui::SameLine(0.0f, gap);
     }
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Duplicate")) {
-        ColorGradingPreset copy = g;
-        std::string base = copy.name;
-        for (int n = 2;; ++n) {
-            copy.name = base + "-" + std::to_string(n);
-            bool taken = false;
-            for (const auto& other : project_.gradings)
-                taken |= (other.name == copy.name);
-            if (!taken) break;
+
+    // --- preview ---------------------------------------------------------------
+    if (stacked) ImGui::BeginChild("##grading_stack", ImVec2(0, avail.y));
+    const float heroW = stacked ? ImGui::GetContentRegionAvail().x : ImMax(scaled(240), avail.x - listW - ctrlW - gap * (narrow ? 1.0f : 2.0f));
+    const float heroH = stacked ? ImMax(scaled(300), heroW * 0.9f + fs * 7.0f) : avail.y;
+    ui::BeginCard("##grading_hero", ImVec2(heroW, heroH));
+    {
+        const bool have = selectedGrading_ >= 0 && selectedGrading_ < (int)project_.gradings.size();
+        if (narrow) {
+            ImGui::SetNextItemWidth(ImMin(scaled(200), ImGui::GetContentRegionAvail().x * 0.5f));
+            if (ImGui::BeginCombo("##look_pick", have ? project_.gradings[selectedGrading_].name.c_str() : "None")) {
+                if (ImGui::Selectable("None (no pass)##pick", !have)) selectedGrading_ = -1;
+                for (int i = 0; i < (int)project_.gradings.size(); ++i) {
+                    std::string r = project_.gradings[i].name + (project_.defaultGrading == i ? "  (start)" : "") + "##pick";
+                    if (ImGui::Selectable(r.c_str(), selectedGrading_ == i)) selectedGrading_ = i;
+                }
+                ImGui::Separator();
+                if (ImGui::Selectable("+ New preset")) newLook(-1);
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
         }
+        // View mode and the live preview switch.
+        {
+            const char* modes[] = {"Split", "After", "Before"};
+            ui::Segmented("##grade_view", modes, 3, &gradingView_, scaled(180));
+            const float swW = ImGui::CalcTextSize("Preview in viewport").x + fs * 2.6f;
+            ImGui::SameLine(0.0f, gap);
+            if (ImGui::GetContentRegionAvail().x < swW) ImGui::NewLine();
+            ui::Switch("Preview in viewport", &gradingPreview_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The viewport shows the selected look while this window is open.");
+        }
+        const float stripH = ImGui::GetFrameHeight() * 2.0f + fs;
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float h = ImMax(scaled(120), ImGui::GetContentRegionAvail().y - stripH - fs * (have ? 0.5f : 5.0f));
+        uint32_t before = 0, after = 0;
+        int iw = 0, ih = 0;
+        const bool frames = viewport_.gradingFrames(before, after, iw, ih) && iw > 0 && ih > 0;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImGui::InvisibleButton("Grading preview", ImVec2(w, h));
+        if (frames) {
+            // Aspect-fit the frame; drag anywhere to move the split.
+            const float s = ImMin(w / iw, h / ih);
+            const ImVec2 sz(iw * s, ih * s);
+            const ImVec2 a(p.x + (w - sz.x) * 0.5f, p.y + (h - sz.y) * 0.5f), b(a.x + sz.x, a.y + sz.y);
+            if (ImGui::IsItemActive())
+                gradingSplit_ = ImClamp((ImGui::GetIO().MousePos.x - a.x) / sz.x, 0.0f, 1.0f);
+            const bool graded = have && gradingPreview_ && after != before;
+            const float split = !graded ? 0.0f : (gradingView_ == 0 ? gradingSplit_ : (gradingView_ == 1 ? 0.0f : 1.0f));
+            const float sx = a.x + sz.x * split;
+            // GL images are bottom-up: v runs 1 -> 0 down the screen.
+            if (split > 0.0f)
+                dl->AddImage((ImTextureID)(intptr_t)before, a, ImVec2(sx, b.y), ImVec2(0, 1), ImVec2(split, 0));
+            if (split < 1.0f)
+                dl->AddImage((ImTextureID)(intptr_t)(graded ? after : before), ImVec2(sx, a.y), b, ImVec2(split, 1),
+                             ImVec2(1, 0));
+            auto chip = [&](ImVec2 at, const char* text, bool right) {
+                const ImVec2 ts = ImGui::CalcTextSize(text);
+                const ImVec2 c0(right ? at.x - ts.x - fs * 1.2f : at.x, at.y);
+                const ImVec2 c1(c0.x + ts.x + fs * 1.2f, c0.y + fs * 1.8f);
+                dl->AddRectFilled(c0, c1, IM_COL32(12, 14, 19, 200), 7.0f);
+                dl->AddText(ImVec2(c0.x + fs * 0.6f, c0.y + fs * 0.4f), ImGui::GetColorU32(sem.text), text);
+            };
+            if (graded && gradingView_ == 0) {
+                dl->AddLine(ImVec2(sx, a.y), ImVec2(sx, b.y), IM_COL32(255, 255, 255, 230), 2.0f);
+                const ImVec2 hc(sx, (a.y + b.y) * 0.5f);
+                dl->AddCircleFilled(hc, fs * 1.0f, IM_COL32(255, 255, 255, 240), 24);
+                dl->AddTriangleFilled(ImVec2(hc.x - fs * 0.25f, hc.y - fs * 0.3f), ImVec2(hc.x - fs * 0.25f, hc.y + fs * 0.3f),
+                                      ImVec2(hc.x - fs * 0.6f, hc.y), IM_COL32(20, 22, 28, 255));
+                dl->AddTriangleFilled(ImVec2(hc.x + fs * 0.25f, hc.y - fs * 0.3f), ImVec2(hc.x + fs * 0.6f, hc.y),
+                                      ImVec2(hc.x + fs * 0.25f, hc.y + fs * 0.3f), IM_COL32(20, 22, 28, 255));
+                const float need = ImGui::CalcTextSize("Before").x +
+                                   ImGui::CalcTextSize(project_.gradings[selectedGrading_].name.c_str()).x + fs * 5.0f;
+                if (sz.x > need) chip(ImVec2(a.x + fs * 0.6f, a.y + fs * 0.6f), "Before", false);
+            }
+            if (have && graded && gradingView_ != 2)
+                chip(ImVec2(b.x - fs * 0.6f, a.y + fs * 0.6f), project_.gradings[selectedGrading_].name.c_str(), true);
+            else if (!have)
+                chip(ImVec2(a.x + fs * 0.6f, a.y + fs * 0.6f), "Ungraded", false);
+            else if (!gradingPreview_)
+                chip(ImVec2(a.x + fs * 0.6f, a.y + fs * 0.6f), "Preview in viewport is off", false);
+            if (ImGui::IsItemHovered() && graded && gradingView_ == 0)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        } else {
+            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), 8.0f);
+            const char* t = "The preview shows the viewport's frame - show the Viewport to fill it.";
+            const ImVec2 ts = ImGui::CalcTextSize(t);
+            dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + h * 0.5f), ImGui::GetColorU32(sem.textDim), t);
+        }
+
+        if (!have && project_.gradings.empty()) {
+            // Empty state: the first click makes a NAMED look from a start.
+            ImGui::Spacing();
+            ui::Caption("Start a look from");
+            bool first = true;
+            for (int i = 0; i < IM_ARRAYSIZE(kQuickLooks) - 1; ++i) {
+                ui::ChipFlow(ui::FilterChipWidth(kQuickLooks[i].label), first);
+                first = false;
+                if (ui::FilterChip(kQuickLooks[i].label, false)) newLook(i);
+            }
+            ImGui::TextDisabled("A look is a few full-screen GS sprites - no EE cost.");
+        } else if (have) {
+            // The GS pass this look compiles to - the exact numbers the console
+            // blends with (RendererCorePostFx::setGrading), and its cost.
+            const ColorGradingPreset& g = project_.gradings[selectedGrading_];
+            const CompiledGrading cg = compileGrading(g);
+            ImGui::Spacing();
+            ImGui::TextDisabled("GS PASS");
+            ImGui::SameLine();
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextWrapped("gain %d/%d/%d  lift %+d/%+d/%+d  mix %d%%", cg.gain[0], cg.gain[1], cg.gain[2], cg.lift[0],
+                            cg.lift[1], cg.lift[2], cg.mixAmt * 100 / 128);
+            }
+            ImGui::SameLine();
+            {
+                const ImVec2 sp = ImGui::GetCursorScreenPos();
+                const float ss = fs * 0.8f;
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(sp.x, sp.y + (ImGui::GetTextLineHeight() - ss) * 0.5f + 2.0f),
+                                                          ImVec2(sp.x + ss, sp.y + (ImGui::GetTextLineHeight() + ss) * 0.5f + 2.0f),
+                                                          IM_COL32(cg.mixColor[0], cg.mixColor[1], cg.mixColor[2], 255), 2.0f);
+                ImGui::Dummy(ImVec2(ss, ss));
+            }
+            char cost[48];
+            if (cg.neutral()) std::snprintf(cost, sizeof(cost), "neutral - skipped");
+            else std::snprintf(cost, sizeof(cost), "%d sprites · 0 EE ms", gradingSpriteCount(cg));
+            const float bw = ImGui::CalcTextSize(cost).x + fs;
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < bw) ImGui::NewLine();
+            ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - bw));
+            ui::Badge(cost, 0);
+        }
+    }
+    ui::EndCard();
+    if (!stacked) ImGui::SameLine(0.0f, gap);
+
+    // --- controls --------------------------------------------------------------
+    ui::BeginCard("##grading_edit", ImVec2(0, stacked ? ImMax(scaled(480), avail.y - heroH) : avail.y));
+    if (selectedGrading_ < 0 || selectedGrading_ >= (int)project_.gradings.size()) {
+        ui::EmptyState(ui::Glyph::Sparkle, project_.gradings.empty() ? "No looks yet" : "None - the ungraded frame",
+                       project_.gradings.empty()
+                           ? "A look is a full-screen grade the GS applies with a few sprites. Start one "
+                             "from a quick look under the preview."
+                           : "The reference: what the game draws with no grade. Pick a look to edit it.");
+    } else {
+        ColorGradingPreset& g = project_.gradings[selectedGrading_];
+        // Header: the name (editable) with duplicate / delete.
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", g.name.c_str());
+            const float bw = ImGui::CalcTextSize("Duplicate").x + ImGui::CalcTextSize("Delete").x + fs * 4.0f;
+            ImGui::SetNextItemWidth(ImMax(scaled(100), ImGui::GetContentRegionAvail().x - bw));
+            {
+                ui::FontScope bold(ui::boldFont());
+                if (ImGui::InputText("##Name", nameBuf, sizeof(nameBuf))) {
+                    // keep Set Color Grading flow nodes pointing here
+                    for (SceneData& sc : project_.scenes)
+                        for (SceneObject& o : sc.objects)
+                            for (FlowNode& fn : o.flowGraph.nodes) {
+                                const FlowNodeType* ft = flowNodeType(fn.type);
+                                if (ft && ft->strKind == FlowParamKind::GradingName && fn.str == g.name)
+                                    fn.str = nameBuf;
+                            }
+                    g.name = nameBuf;
+                }
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            if (ui::GhostButton("Duplicate")) dupIdx = selectedGrading_;
+            ImGui::SameLine(0.0f, 2.0f);
+            if (ui::DangerButton("Delete")) deleteIdx = selectedGrading_;
+        }
+        ImGui::BeginChild("##grading_body", ImVec2(0, 0));
+        ui::InspectorRows rows(scaled(90), scaled(110));
+        bool isDefault = project_.defaultGrading == selectedGrading_;
+        if (ui::Switch("Use at game start (until a Set Color Grading node switches it)", &isDefault)) {
+            project_.defaultGrading = isDefault ? selectedGrading_ : -1;
+            changed = true;
+        }
+        ImGui::Spacing();
+        ui::Caption("Start from", "replaces the values · undoable");
+        {
+            const int cur = quickLookOf(g);
+            bool first = true;
+            for (int i = 0; i < IM_ARRAYSIZE(kQuickLooks); ++i) {
+                ui::ChipFlow(ui::FilterChipWidth(kQuickLooks[i].label), first);
+                first = false;
+                if (ui::FilterChip(kQuickLooks[i].label, cur == i)) {
+                    applyQuickLook(g, kQuickLooks[i]);
+                    changed = true;
+                }
+            }
+        }
+        ImGui::Spacing();
+        {
+            const float y0 = ImGui::GetCursorPosY();
+            ui::Caption("Look");
+            const ImVec2 after = ImGui::GetCursorPos();
+            const float rw = ImGui::CalcTextSize("Reset").x;
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - rw, y0));
+            if (ImGui::TextLink("Reset")) {
+                applyQuickLook(g, kQuickLooks[IM_ARRAYSIZE(kQuickLooks) - 1]);
+                changed = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to neutral (keeps the name).");
+            ImGui::SetCursorPos(after);
+        }
+        ui::SliderFloat("Brightness", &g.brightness, 0.0f, 2.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ui::SliderFloat("Contrast", &g.contrast, 0.0f, 2.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ui::SliderFloat("Saturation", &g.saturation, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("An approximation: the GS has no per-pixel luma, so desaturating mixes\n"
+                 "toward mid-grey (it flattens a little too).");
+        ui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%+.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        {
+            // The temperature track's colour cue: blue -> neutral -> orange.
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            const float y = b.y - 2.0f, mx = (a.x + b.x) * 0.5f;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilledMultiColor(ImVec2(a.x + 2, y), ImVec2(mx, b.y), IM_COL32(90, 140, 255, 255),
+                                        IM_COL32(200, 200, 200, 255), IM_COL32(200, 200, 200, 255), IM_COL32(90, 140, 255, 255));
+            dl->AddRectFilledMultiColor(ImVec2(mx, y), ImVec2(b.x - 2, b.y), IM_COL32(200, 200, 200, 255),
+                                        IM_COL32(255, 150, 60, 255), IM_COL32(255, 150, 60, 255), IM_COL32(200, 200, 200, 255));
+        }
+        ui::ColorHex("Tint", g.tint);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ui::SliderFloat("Tint amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        ImGui::Spacing();
+        ui::Caption("Wheels", "no gamma on the GS");
+        // Two Resolve-style trackballs side by side: the wheel carries the
+        // between-channel tint, the slider under it the master level, the
+        // drag row the exact numbers. All three edit the same floats.
+        auto wheelColumn = [&](const char* id, const char* title, const char* sub, float* rgb, float lo, float hi,
+                               float wheelRange, float width) {
+            ImGui::BeginGroup();
+            ImGui::PushID(id);
+            const float wheel = 108.0f * uiScaleApplied_;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImMax(0.0f, (width - wheel) * 0.5f));
+            changed |= gradingWheel(id, rgb, lo, hi, wheelRange, uiScaleApplied_);
+            {
+                const std::string t = std::string(title);
+                const float tw = ImGui::CalcTextSize(title).x + ImGui::CalcTextSize(sub).x;
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImMax(0.0f, (width - tw) * 0.5f));
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    ImGui::TextUnformatted(title);
+                }
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::TextDisabled("%s", sub);
+            }
+            float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+            ImGui::SetNextItemWidth(width);
+            if (ImGui::SliderFloat("##master", &master, lo, hi, "%.2f")) {
+                const float old = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
+                for (int i = 0; i < 3; ++i) rgb[i] = ImClamp(rgb[i] + master - old, lo, hi);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master: all three channels together");
+            ImGui::SetNextItemWidth(width);
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::DragFloat3("##rgb", rgb, 0.005f, lo, hi, "%.2f");
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::PopID();
+            ImGui::EndGroup();
+        };
+        const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+        wheelColumn("Lift (shadows)", "Lift", " · shadows", g.lift, -0.5f, 0.5f, 0.35f, colW);
+        ImGui::SameLine(0.0f, gap);
+        wheelColumn("Gain (highlights)", "Gain", " · highlights", g.gain, 0.0f, 2.0f, 0.75f, colW);
+        ImGui::EndChild();
+    }
+    ui::EndCard();
+    if (stacked) ImGui::EndChild();
+
+    if (dupIdx >= 0) {
+        ColorGradingPreset copy = project_.gradings[dupIdx];
+        copy.name = uniqueName(copy.name + "-2");
         project_.gradings.push_back(std::move(copy));
         selectedGrading_ = (int)project_.gradings.size() - 1;
         changed = true;
     }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Delete")) {
+    if (deleteIdx >= 0) {
+        const std::string gone = project_.gradings[deleteIdx].name;
         for (SceneData& sc : project_.scenes)
             for (SceneObject& o : sc.objects)
                 for (FlowNode& fn : o.flowGraph.nodes) {
                     const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::GradingName &&
-                        fn.str == g.name)
-                        fn.str.clear();
+                    if (ft && ft->strKind == FlowParamKind::GradingName && fn.str == gone) fn.str.clear();
                 }
-        if (project_.defaultGrading == selectedGrading_) project_.defaultGrading = -1;
-        else if (project_.defaultGrading > selectedGrading_) --project_.defaultGrading;
-        project_.gradings.erase(project_.gradings.begin() + selectedGrading_);
+        if (project_.defaultGrading == deleteIdx) project_.defaultGrading = -1;
+        else if (project_.defaultGrading > deleteIdx) --project_.defaultGrading;
+        project_.gradings.erase(project_.gradings.begin() + deleteIdx);
         selectedGrading_ = -1;
-        commitChange();
-        ImGui::EndChild();
-        ImGui::End();
-        return;
-    }
-
-    bool isDefault = project_.defaultGrading == selectedGrading_;
-    if (ImGui::Checkbox("Default at game start", &isDefault)) {
-        project_.defaultGrading = isDefault ? selectedGrading_ : -1;
         changed = true;
     }
-    ImGui::SameLine(0.0f, scaled(24.0f));
-    ImGui::Checkbox("Preview in viewport", &gradingPreview_);
-
-    ImGui::SeparatorText("Quick looks");
-    auto quick = [&](const char* label, float bright, float contrast, float sat,
-                     float temp, float tr, float tg, float tb, float tintAmt) {
-        if (ImGui::SmallButton(label)) {
-            g.brightness = bright;
-            g.contrast = contrast;
-            g.saturation = sat;
-            g.temperature = temp;
-            g.tint[0] = tr, g.tint[1] = tg, g.tint[2] = tb;
-            g.tintAmount = tintAmt;
-            for (int c = 0; c < 3; ++c) g.lift[c] = 0.0f, g.gain[c] = 1.0f;
-            changed = true;
-        }
-    };
-    quick("Warm", 1.05f, 1.05f, 1.0f, 0.45f, 1.0f, 0.75f, 0.45f, 0.10f);
-    ImGui::SameLine();
-    quick("Cool night", 0.85f, 1.10f, 0.85f, -0.45f, 0.15f, 0.25f, 0.60f, 0.22f);
-    ImGui::SameLine();
-    quick("Sepia", 1.0f, 1.0f, 0.30f, 0.10f, 1.0f, 0.84f, 0.62f, 0.35f);
-    ImGui::SameLine();
-    quick("Faded", 1.10f, 0.80f, 0.70f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Neutral")) {
-        const std::string keep = g.name;
-        g = ColorGradingPreset{};
-        g.name = keep;
-        changed = true;
-    }
-
-    ImGui::SeparatorText("Look");
-    ImGui::SliderFloat("Brightness", &g.brightness, 0.0f, 2.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Contrast", &g.contrast, 0.0f, 2.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SliderFloat("Saturation", &g.saturation, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Approximation: the GS has no per-pixel luma, so\n"
-                          "desaturation mixes toward mid-gray (flattens a bit).");
-    ImGui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    ImGui::SeparatorText("Tint");
-    ImGui::ColorEdit3("Color", g.tint, ImGuiColorEditFlags_NoInputs);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(160.0f));
-    ImGui::SliderFloat("Amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    ImGui::SeparatorText("Color wheels");
-    // Two Resolve-style trackballs: the wheel carries the between-channel
-    // tint, the slider under it the common (master) level, the drag row the
-    // exact numbers. All three edit the same lift/gain floats.
-    auto wheelColumn = [&](const char* label, float* rgb, float lo, float hi,
-                           float wheelRange) {
-        const float width = scaled(108.0f);
-        ImGui::BeginGroup();
-        ImGui::PushID(label);
-        const float tw = ImGui::CalcTextSize(label).x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
-                             (width - (tw < width ? tw : width)) * 0.5f);
-        ImGui::TextUnformatted(label);
-        changed |= gradingWheel(label, rgb, lo, hi, wheelRange, uiScaleApplied_);
-        float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
-        ImGui::SetNextItemWidth(width);
-        if (ImGui::SliderFloat("##master", &master, lo, hi, "%.2f")) {
-            const float old = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
-            for (int i = 0; i < 3; ++i) {
-                rgb[i] += master - old;
-                rgb[i] = rgb[i] < lo ? lo : (rgb[i] > hi ? hi : rgb[i]);
-            }
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Master: all three channels together");
-        ImGui::SetNextItemWidth(width);
-        ImGui::DragFloat3("##rgb", rgb, 0.005f, lo, hi, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::PopID();
-        ImGui::EndGroup();
-    };
-    wheelColumn("Lift (shadows)", g.lift, -0.5f, 0.5f, 0.35f);
-    ImGui::SameLine(0.0f, scaled(28.0f));
-    wheelColumn("Gain (highlights)", g.gain, 0.0f, 2.0f, 0.75f);
-
-    // The exact GS numbers this preset compiles to (scene_data.hpp /
-    // RendererCorePostFx::setGrading) - also what the viewport previews.
-    const CompiledGrading cg = compileGrading(g);
-    ImGui::Spacing();
-    ImGui::TextDisabled("GS pass: gain %d/%d/%d  lift %+d/%+d/%+d  mix %d%% -> "
-                        "(%d,%d,%d)  |  %s",
-                        cg.gain[0], cg.gain[1], cg.gain[2], cg.lift[0], cg.lift[1],
-                        cg.lift[2], cg.mixAmt * 100 / 128, cg.mixColor[0],
-                        cg.mixColor[1], cg.mixColor[2],
-                        cg.neutral() ? "neutral (skipped)" : "3-6 sprites, GS only");
-
-    ImGui::EndChild();
     ImGui::End();
-
-    commitIfEdited();
+    if (changed || project::sectionJson(project_, project::Section::Gradings) != beforeSection) commitChange();
 }
 
-// Ambience Editor (Tools > Ambience Editor): preset list on the left, the
-// sky / lighting / fog controls for the selected preset on the right. A preset
-// is a scene's "mood" bundle; scenes pick one in Scene > Preferences (empty =
-// the default), and the Set Ambience flow node repaints the sky at runtime.
-// These controls used to live in Project Preferences.
 // "HH:MM" for an hour in [0, 24).
 static std::string ambHourText(float hour) {
     const float h = ambience::wrap24(hour);

@@ -7201,9 +7201,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         lastImageFbo_ = gradeFbo_;
         sceneTex = gradeTex_;
+        lastGraded_ = gradingOn_;
     } else {
         lastImageFbo_ = fbo_;
+        lastGraded_ = false;
     }
+    lastSceneW_ = width;
+    lastSceneH_ = height;
     lastImageW_ = width;
     lastImageH_ = height;
 

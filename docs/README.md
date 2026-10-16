@@ -124,6 +124,9 @@ a Mac) finds any command, object or window by name.
   bake follows, sun and moon arcs, the runtime clock.
 - [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
   by the day/night cycle and reflected in car paint.
+- [Color grading](color-grading.md) — full-screen looks the GS applies with a
+  few sprites; the window's before/after preview, quick looks and what the GS
+  can and cannot do.
 - [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
   one full-screen blend and no VRAM; what the amount means, why it belongs under
   the HUD, and the Set Motion Blur node.

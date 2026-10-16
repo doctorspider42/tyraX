@@ -3044,6 +3044,8 @@ private:
     bool showGradingEditor_ = false;
     int selectedGrading_ = -1;
     bool gradingPreview_ = true;
+    int gradingView_ = 0;          // Color Grading preview: 0 split, 1 after, 2 before
+    float gradingSplit_ = 0.5f;    // where the before/after split sits, 0..1
 
     // Ambience Editor (Tools > Ambience Editor): selected sky/light/fog preset
     // and whether the viewport previews the edited preset over the scene's.

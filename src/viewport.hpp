@@ -449,6 +449,20 @@ public:
     // frame) and row-flipped into top-down order on the way out.
     // maxW/maxH cap the long edges; the source aspect is preserved. False when
     // nothing has been rendered yet.
+    // Color Grading window's before/after preview: the LAST render()'s scene
+    // image before the grade pass (`before`) and after it (`after` - the same
+    // texture when no grade ran), GL textures in bottom-up orientation, and
+    // their size. No second scene pass: the window shows the frame the
+    // viewport just drew. False when nothing has been rendered yet.
+    bool gradingFrames(uint32_t& before, uint32_t& after, int& w, int& h) const {
+        if (!colorTex_ || lastSceneW_ <= 0) return false;
+        before = colorTex_;
+        after = lastGraded_ ? gradeTex_ : colorTex_;
+        w = lastSceneW_;
+        h = lastSceneH_;
+        return true;
+    }
+
     bool grabPreviewRgb(int maxW, int maxH, std::vector<unsigned char>& outRgb,
                         int& outW, int& outH);
 
@@ -1456,6 +1470,10 @@ private:
     // and its size - the source grabPreviewRgb blits from, so the phone sees
     // the graded picture too. 0 = nothing rendered yet.
     uint32_t lastImageFbo_ = 0;
+    // gradingFrames: did the last render() run the colour-grade math, and the
+    // size of its scene target (the GS size in the PS2 output mode).
+    bool lastGraded_ = false;
+    int lastSceneW_ = 0, lastSceneH_ = 0;
     int lastImageW_ = 0, lastImageH_ = 0;
 
     // PS2 output mode: the panel-sized presentation target the GS image is
