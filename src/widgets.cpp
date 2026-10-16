@@ -5,9 +5,15 @@
 #include <imgui_internal.h>
 
 #include <cfloat>
+#include <cmath>
 
 namespace ui {
 namespace {
+
+ImU32 fadeCol(ImVec4 c, float a) {
+    c.w *= a;
+    return ImGui::GetColorU32(c);
+}
 
 ImFont* gBold = nullptr;
 ImFont* gMono = nullptr;
@@ -95,6 +101,154 @@ bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vma
     }
     ImGui::EndGroup();
     return changed;
+}
+
+void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
+    const float s = size * 0.5f;            // half extent
+    const float th = ImMax(1.3f, size * 0.085f);
+    auto P = [&](float x, float y) { return ImVec2(c.x + x * s, c.y + y * s); };
+    auto head = [&](ImVec2 tip, float dx, float dy) {  // arrowhead pointing (dx,dy)
+        const float l = s * 0.38f;
+        const float nx = -dy, ny = dx;
+        dl->AddTriangleFilled(tip, ImVec2(tip.x - dx * l + nx * l * 0.6f, tip.y - dy * l + ny * l * 0.6f),
+                              ImVec2(tip.x - dx * l - nx * l * 0.6f, tip.y - dy * l - ny * l * 0.6f), col);
+    };
+    switch (g) {
+        case Glyph::Move:
+            dl->AddLine(P(-0.8f, 0), P(0.8f, 0), col, th);
+            dl->AddLine(P(0, -0.8f), P(0, 0.8f), col, th);
+            head(P(1.0f, 0), 1, 0);
+            head(P(-1.0f, 0), -1, 0);
+            head(P(0, 1.0f), 0, 1);
+            head(P(0, -1.0f), 0, -1);
+            break;
+        case Glyph::Rotate: {
+            const float r = s * 0.72f;
+            dl->PathArcTo(c, r, 3.14159f * 0.15f, 3.14159f * 1.62f, 24);
+            dl->PathStroke(col, 0, th);
+            const float a = 3.14159f * 1.62f;
+            const ImVec2 tip(c.x + std::cos(a) * r, c.y + std::sin(a) * r);
+            head(ImVec2(tip.x + s * 0.12f, tip.y + s * 0.02f), 1.0f, 0.25f);
+            break;
+        }
+        case Glyph::Scale:
+            dl->AddRect(P(-0.85f, 0.15f), P(-0.15f, 0.85f), col, s * 0.08f, 0, th);
+            dl->AddLine(P(-0.05f, 0.05f), P(0.7f, -0.7f), col, th);
+            dl->AddLine(P(0.2f, -0.85f), P(0.85f, -0.85f), col, th);
+            dl->AddLine(P(0.85f, -0.85f), P(0.85f, -0.2f), col, th);
+            break;
+        case Glyph::Sculpt: {
+            const ImVec2 pts[5] = {P(-0.95f, 0.7f), P(-0.35f, -0.35f), P(0.0f, 0.15f),
+                                   P(0.4f, -0.6f), P(0.95f, 0.7f)};
+            dl->AddPolyline(pts, 5, col, 0, th);
+            dl->AddLine(P(-0.95f, 0.7f), P(0.95f, 0.7f), col, th);
+            break;
+        }
+        case Glyph::Paint:
+            dl->AddLine(P(0.85f, -0.85f), P(-0.05f, 0.05f), col, th * 1.1f);
+            dl->AddCircleFilled(P(-0.38f, 0.42f), s * 0.36f, col, 16);
+            break;
+        case Glyph::Measure: {
+            const ImVec2 a = P(-0.95f, -0.35f), b = P(0.95f, 0.35f);
+            dl->AddRect(a, b, col, s * 0.08f, 0, th);
+            for (int i = 1; i < 5; ++i) {
+                const float x = -0.95f + 1.9f * i / 5.0f;
+                dl->AddLine(P(x, -0.35f), P(x, i % 2 ? -0.02f : 0.1f), col, th * 0.8f);
+            }
+            break;
+        }
+        case Glyph::Snap:
+            dl->AddLine(P(0, -0.9f), P(0, 0.2f), col, th);
+            head(P(0, 0.42f), 0, 1);
+            dl->AddLine(P(-0.9f, 0.78f), P(0.9f, 0.78f), col, th);
+            break;
+        case Glyph::Gear: {
+            const float r = s * 0.5f;
+            dl->AddCircle(c, r, col, 16, th);
+            for (int i = 0; i < 8; ++i) {
+                const float t = (float)i / 8.0f * 6.2831853f;
+                dl->AddLine(ImVec2(c.x + std::cos(t) * r, c.y + std::sin(t) * r),
+                            ImVec2(c.x + std::cos(t) * s * 0.85f, c.y + std::sin(t) * s * 0.85f), col,
+                            th);
+            }
+            break;
+        }
+    }
+}
+
+float OverlayRowHeight() { return ImGui::GetFrameHeight(); }
+float OverlayPad() { return IM_TRUNC(ImGui::GetFontSize() * 0.22f); }
+float OverlayTextWidth(const char* text) {
+    return ImGui::CalcTextSize(text).x + ImGui::GetStyle().FramePadding.x * 1.6f;
+}
+
+void OverlayPanel(ImDrawList* dl, ImVec2 min, ImVec2 max) {
+    const theme::Semantics& sem = theme::semantics();
+    const float r = ImGui::GetStyle().FrameRounding + OverlayPad();
+    // No blur in ImGui: a near-opaque ground keeps text readable over any
+    // scene, a soft shadow lifts the card off it.
+    dl->AddRectFilled(ImVec2(min.x, min.y + 2.0f), ImVec2(max.x, max.y + 3.0f),
+                      IM_COL32(0, 0, 0, 70), r);
+    ImVec4 bg = sem.ground;
+    bg.w = 0.88f;
+    dl->AddRectFilled(min, max, ImGui::GetColorU32(bg), r);
+    dl->AddRect(min, max, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f)), r);
+}
+
+bool OverlayIconButton(const char* label, Glyph g, float size, bool active, bool enabled,
+                       const char* key) {
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size)) && enabled;
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered(), 12.0f);
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec2 q(p.x + size, p.y + size);
+    if (active)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(sem.accent), r);
+    else if (held)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.16f)), r);
+    else if (t > 0.0f)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f * t)), r);
+    const ImU32 ink = !enabled ? fadeCol(sem.textDim, 0.45f)
+                      : active ? ImGui::GetColorU32(sem.ground)
+                               : ImGui::GetColorU32(sem.text);
+    DrawGlyph(dl, g, ImVec2(p.x + size * 0.5f, p.y + size * 0.5f), size * 0.46f, ink);
+    if (key && enabled) {
+        ImFont* f = gMono ? gMono : ImGui::GetFont();
+        const float fs = ImGui::GetFontSize() * 0.6f;
+        const ImVec2 ks = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, key);
+        ImVec4 kc = active ? sem.ground : sem.textDim;
+        kc.w *= 0.85f;
+        dl->AddText(f, fs, ImVec2(q.x - ks.x - size * 0.08f, q.y - ks.y - size * 0.04f),
+                    ImGui::GetColorU32(kc), key);
+    }
+    return pressed;
+}
+
+bool OverlayTextButton(const char* label, const char* text, bool active, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = OverlayTextWidth(text), h = OverlayRowHeight();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h)) && enabled;
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered(), 12.0f);
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec2 q(p.x + w, p.y + h);
+    if (active)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.22f)), r);
+    if (held)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.16f)), r);
+    else if (t > 0.0f)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f * t)), r);
+    const ImU32 ink = !enabled ? fadeCol(sem.textDim, 0.5f)
+                      : active ? ImGui::GetColorU32(sem.text)
+                               : fadeCol(sem.text, 0.82f);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), ink, text);
+    return pressed;
 }
 
 }  // namespace ui

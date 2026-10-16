@@ -122,6 +122,15 @@ A few things worth knowing because they are decisions rather than defaults:
   build state and the LIVE / DBG / LOGIC / SESSION chips on the left, the last
   status message after them, and the scene's object and selection counts and
   the interface scale on the right. Both are drawn in `src/shell_ui.cpp`.
+- **The viewport's controls float on cards.** Top left, one vertical tool
+  palette: Move, Rotate, Scale | Sculpt, Paint | Measure, Surface snap - icons
+  with their shortcut in the corner, the active tool filled with the accent.
+  Bottom left, the gear and a card with Center view, Center selection, the
+  projection and the look-through camera; bottom right, the World | Camera
+  axis switch (it moves up a row when the viewport is too narrow for both).
+  The cards are near-opaque ground with a hairline and a soft shadow - ImGui
+  has no blur, and text must stay readable over any scene. Their buttons keep
+  the old labels ("Move (1)", "Center view", ...) as IDs.
 - **Hover highlights fade in** (~80 ms) on the hand-drawn top-bar controls and
   status chips. Sweeping the cursor across a row of icons is the most common
   thing anyone does with that bar, and a hard rectangle appearing under each one

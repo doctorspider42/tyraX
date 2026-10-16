@@ -3880,140 +3880,165 @@ void App::drawViewportWindow() {
             }
         }
 
-        // --- Tools overlay (top-left corner of the viewport) ---
-        // Transform gizmo modes + the sculpt toggle share this row; they map to
-        // the 1-4 shortcuts. Render mode and the TV-safe frames now live in the
-        // menu bar (View menu); the gizmo axis space and the camera-recenter
-        // buttons sit in the bottom corners below.
-        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 8));
-        const char* toolNames[] = {"Move (1)", "Rotate (2)", "Scale (3)"};
-        for (int i = 0; i < 3; ++i) {
-            if (i) ImGui::SameLine();
-            const bool active = gizmoOp_ == i;
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::SmallButton(toolNames[i])) gizmoOp_ = i;
-            if (active) ImGui::PopStyleColor();
-        }
-
-        // Terrain brushes stay with the tools (shortcuts 4/6). Grabbing either
-        // one opens the Terrain Editor window - the tool's options live there.
-        // Both are dead in a scene with no terrain (docs/terrain.md): there is
-        // no ground to sculpt or paint, and the Terrain Editor is where it is
-        // created again.
+        // --- Tool palette (top-left corner of the viewport) ---
+        // One vertical card: the transform gizmo modes, the two terrain
+        // brushes, then the measuring tape and surface snapping - each with
+        // its shortcut in the corner. Labels are the old buttons' ("Move (1)"
+        // ...): they are the IDs scripts and docs name. Render mode and the
+        // TV-safe frames live in the View menu; the camera controls and the
+        // gizmo axis space are the bottom cards.
         const bool hasTerrain = project_.active().terrain.enabled;
-        ImGui::SameLine(0.0f, 24.0f);
-        ImGui::BeginDisabled(!hasTerrain);
-        if (sculptMode_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Sculpt (4)")) {
-            sculptMode_ = !sculptMode_;
-            if (sculptMode_) {
-                paintMode_ = false;  // one terrain brush at a time
-                showTerrainEditor_ = true;
+        const float ovPad = ui::OverlayPad();
+        const float ovMargin = scaled(10.0f);
+        const float toolBtn = IM_TRUNC(ImGui::GetFrameHeight() * 1.22f);
+        float toolsRight = imgPos.x + ovMargin;
+        {
+            const int nBtn = 8, nSep = 3;
+            const float sepH = scaled(9.0f);
+            const ImVec2 p0(imgPos.x + ovMargin, imgPos.y + ovMargin);
+            const ImVec2 p1(p0.x + toolBtn + ovPad * 2.0f,
+                            p0.y + ovPad * 2.0f + toolBtn * nBtn + sepH * nSep);
+            if (p1.y < imgPos.y + avail.y - ovMargin) {
+                ImDrawList* odl = ImGui::GetWindowDrawList();
+                ui::OverlayPanel(odl, p0, p1);
+                toolsRight = p1.x;
+                float y = p0.y + ovPad;
+                auto sep = [&] {
+                    const float my = y + sepH * 0.5f;
+                    odl->AddLine(ImVec2(p0.x + ovPad * 2.0f, my), ImVec2(p1.x - ovPad * 2.0f, my),
+                                 IM_COL32(255, 255, 255, 24), 1.0f);
+                    y += sepH;
+                };
+                auto btn = [&](const char* label, ui::Glyph g, bool active, bool enabled,
+                               const char* key) {
+                    ImGui::SetCursorScreenPos(ImVec2(p0.x + ovPad, y));
+                    y += toolBtn;
+                    return ui::OverlayIconButton(label, g, toolBtn, active, enabled, key);
+                };
+                static const char* const kToolTips[3] = {
+                    "Move (1) - drag the gizmo's arrows or planes",
+                    "Rotate (2) - drag the gizmo's rings",
+                    "Scale (3) - drag the gizmo's handles"};
+                const char* toolNames[] = {"Move (1)", "Rotate (2)", "Scale (3)"};
+                const ui::Glyph toolGlyphs[] = {ui::Glyph::Move, ui::Glyph::Rotate, ui::Glyph::Scale};
+                const char* toolKeys[] = {"1", "2", "3"};
+                for (int i = 0; i < 3; ++i) {
+                    if (btn(toolNames[i], toolGlyphs[i], gizmoOp_ == i, true, toolKeys[i]))
+                        gizmoOp_ = i;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kToolTips[i]);
+                }
+                sep();
+                // Terrain brushes (shortcuts 4/6). Grabbing either opens the
+                // Terrain Editor - the tool's options live there. Dead in a
+                // scene with no terrain (docs/terrain.md).
+                if (btn("Sculpt (4)", ui::Glyph::Sculpt, sculptMode_, hasTerrain, "4")) {
+                    sculptMode_ = !sculptMode_;
+                    if (sculptMode_) {
+                        paintMode_ = false;  // one terrain brush at a time
+                        showTerrainEditor_ = true;
+                    }
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", hasTerrain ? "Sculpt the terrain (4)"
+                                                       : "This scene has no terrain - create it "
+                                                         "in the Terrain Editor");
+                if (btn("Paint (6)", ui::Glyph::Paint, paintMode_, hasTerrain, "6")) {
+                    paintMode_ = !paintMode_;
+                    if (paintMode_) {
+                        sculptMode_ = false;
+                        showTerrainEditor_ = true;  // add layers there if none exist yet
+                    }
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", hasTerrain ? "Paint terrain layers (6)"
+                                                       : "This scene has no terrain - create it "
+                                                         "in the Terrain Editor");
+                sep();
+                // Measuring tape: how far apart two points in the scene are,
+                // in units and (via the world scale) in meters.
+                if (btn("Measure (7)", ui::Glyph::Measure, measureMode_, true, "7")) {
+                    measureMode_ = !measureMode_;
+                    measurePoints_ = 0;
+                    if (measureMode_) sculptMode_ = paintMode_ = false;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Measure (7): click a point, then a second one - the distance\n"
+                        "is shown in world units and in meters (Preferences > World >\n"
+                        "Units per meter). Click again to start over, Esc clears.");
+                // Surface snapping: inserted / pasted objects rest on what is
+                // under them. A machine-global preference, mirrored in View.
+                if (btn("Surface snap", ui::Glyph::Snap, placementSnap_, true, nullptr)) {
+                    placementSnap_ = !placementSnap_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Surface snap: inserted and pasted objects rest on the surface\n"
+                        "under them (the terrain, or the top of the object below)\n"
+                        "instead of sinking into it. End drops the selection to the floor.");
+                sep();  // keeps the card's bottom padding even
             }
         }
-        if (sculptMode_) ImGui::PopStyleColor();
-        ImGui::SameLine();
-        if (paintMode_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Paint (6)")) {
-            paintMode_ = !paintMode_;
-            if (paintMode_) {
-                sculptMode_ = false;
-                showTerrainEditor_ = true;  // add layers there if none exist yet
-            }
-        }
-        if (paintMode_) ImGui::PopStyleColor();
-        ImGui::EndDisabled();
-        if (!hasTerrain &&
-            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("This scene has no terrain - create it in the "
-                              "Terrain Editor");
-
-        // Surface snapping: inserted / pasted objects rest on what is under
-        // them. A machine-global preference, mirrored in the View menu.
-        ImGui::SameLine(0.0f, 24.0f);
-        if (placementSnap_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Surface snap")) {
-            placementSnap_ = !placementSnap_;
-            saveGlobalConfig();
-        }
-        if (placementSnap_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Inserted and pasted objects rest on the surface under them\n"
-                "(the terrain, or the top of the object below) instead of\n"
-                "sinking into it. End drops the selection to the floor.");
-
-        // Measuring tape: how far apart two points in the scene actually are,
-        // in units and (via the world scale) in meters.
-        ImGui::SameLine();
-        if (measureMode_)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::SmallButton("Measure (7)")) {
-            measureMode_ = !measureMode_;
-            measurePoints_ = 0;
-            if (measureMode_) sculptMode_ = paintMode_ = false;
-        }
-        if (measureMode_) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Click a point, then a second one: the distance is shown in\n"
-                "world units and in meters (Preferences > World > Units per\n"
-                "meter). Click again to start over, Esc clears, the button\n"
-                "or 7 leaves the tool.");
+        const float topRowX = toolsRight + scaled(10.0f);
 
         // While a paste is in flight, say so where the eye already is.
         if (pastePending_) {
-            ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+            ImGui::SetCursorScreenPos(ImVec2(topRowX, imgPos.y + ovMargin));
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
                                "Placing paste - click to drop, Ctrl+V to drop, "
                                "Esc to cancel");
         }
 
-        // Geometry for the bottom-corner overlays. SmallButton keeps
-        // FramePadding.x, so its width is the label plus twice that padding.
-        auto smallBtnW = [](const char* s) {
-            return ImGui::CalcTextSize(s).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        };
-        const float bottomY = imgPos.y + avail.y - ImGui::GetFrameHeight() - 8.0f;
-
-        // --- Camera recenter (bottom-left, after the gear) ---
-        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + viewportGearSpan(), bottomY));
-        if (ImGui::SmallButton("Center view")) viewport_.resetView();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Reset the camera to the terrain center\n"
-                              "with the default orientation and zoom.");
+        // --- Bottom cards: camera (left, after the gear) and axis space ---
+        const float rowH = ui::OverlayRowHeight();
+        const float cardH = rowH + ovPad * 2.0f;
+        const float cardY = imgPos.y + avail.y - cardH - ovMargin;
+        float leftCardRight = imgPos.x;
         {
             const bool objSel = selectedObject_ >= 0 &&
                                 selectedObject_ < (int)project_.objects().size();
-            ImGui::SameLine();
-            ImGui::BeginDisabled(!objSel);
-            if (ImGui::SmallButton("Center selection") && objSel) {
+            const std::string projLbl =
+                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
+            bool anyCam = !lookThroughCam_.empty();
+            for (const SceneObject& o : project_.objects())
+                if (o.type == PrimitiveType::Camera) {
+                    anyCam = true;
+                    break;
+                }
+            const std::string viewLbl =
+                "View: " + (lookThroughCam_.empty() ? std::string("Free") : lookThroughCam_);
+            float w = ui::OverlayTextWidth("Center view") + ui::OverlayTextWidth("Center selection") +
+                      ui::OverlayTextWidth(projLbl.c_str());
+            if (anyCam) w += ui::OverlayTextWidth(viewLbl.c_str());
+            const ImVec2 c0(imgPos.x + viewportGearSpan(), cardY);
+            ImDrawList* odl = ImGui::GetWindowDrawList();
+            ui::OverlayPanel(odl, c0, ImVec2(c0.x + w + ovPad * 2.0f, c0.y + cardH));
+            leftCardRight = c0.x + w + ovPad * 2.0f;
+            float x = c0.x + ovPad;
+            auto at = [&](const char* text) {
+                ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
+                x += ui::OverlayTextWidth(text);
+            };
+            at("Center view");
+            if (ui::OverlayTextButton("Center view", "Center view", false)) viewport_.resetView();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Reset the camera to the terrain center\n"
+                                  "with the default orientation and zoom.");
+            at("Center selection");
+            if (ui::OverlayTextButton("Center selection", "Center selection", false, objSel) && objSel) {
                 viewport_.setTarget(project_.objects()[selectedObject_].position);
                 navFocusedIndex_ = selectedObject_;  // keep orbit-around-selection in sync
             }
-            ImGui::EndDisabled();
             if (objSel && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Move the camera pivot to the selected object.");
-        }
 
-        // --- Camera projection (next to the recenter buttons) ---
-        // Perspective / parallel + the six locked axis views. The numpad
-        // shortcuts below do the same; this button is the discoverable half
-        // (and the only one on a keyboard without a numpad).
-        {
-            ImGui::SameLine(0.0f, 16.0f);
-            const std::string projLbl =
-                std::string("Proj: ") + Viewport::projectionName(viewport_.projection());
-            if (ImGui::SmallButton(projLbl.c_str())) ImGui::OpenPopup("##projection");
+            // Camera projection: perspective / parallel + the six locked axis
+            // views. The numpad shortcuts do the same; this is the
+            // discoverable half.
+            at(projLbl.c_str());
+            if (ui::OverlayTextButton(projLbl.c_str(), projLbl.c_str(), false))
+                ImGui::OpenPopup("##projection");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Camera projection. Orthographic drops the perspective\n"
@@ -4023,33 +4048,20 @@ void App::drawViewportWindow() {
                     "the lock and goes back to the projection you came from.");
             if (ImGui::BeginPopup("##projection")) {
                 for (int i = 0; i < Viewport::kProjectionCount; ++i) {
-                    const Viewport::Projection p = (Viewport::Projection)i;
+                    const Viewport::Projection pr = (Viewport::Projection)i;
                     if (i == 2) ImGui::Separator();  // free modes | axis views
-                    if (ImGui::MenuItem(Viewport::projectionName(p), nullptr,
-                                        viewport_.projection() == p))
-                        setViewProjection(p);
+                    if (ImGui::MenuItem(Viewport::projectionName(pr), nullptr,
+                                        viewport_.projection() == pr))
+                        setViewProjection(pr);
                 }
                 ImGui::EndPopup();
             }
-        }
 
-        // --- Look-through camera (next to the recenter buttons) ---
-        // Shown as soon as the scene has a Camera entity: render the preview
-        // from a chosen camera (its pose + FOV, live), "Free" returns to the
-        // orbit camera. The Cutscene Director camera preview overrides it.
-        {
-            bool anyCam = !lookThroughCam_.empty();
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera) {
-                    anyCam = true;
-                    break;
-                }
+            // Look-through camera: shown once the scene has a Camera entity.
+            // The Cutscene Director camera preview overrides it.
             if (anyCam) {
-                ImGui::SameLine(0.0f, 16.0f);
-                const std::string viewLbl =
-                    "View: " + (lookThroughCam_.empty() ? std::string("Free")
-                                                        : lookThroughCam_);
-                if (ImGui::SmallButton(viewLbl.c_str()))
+                at(viewLbl.c_str());
+                if (ui::OverlayTextButton(viewLbl.c_str(), viewLbl.c_str(), !lookThroughCam_.empty()))
                     ImGui::OpenPopup("##lookthrough");
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
@@ -4057,39 +4069,40 @@ void App::drawViewportWindow() {
                         "position, rotation and FOV, followed live). Pick\n"
                         "\"Free camera\" to return to the orbit camera.");
                 if (ImGui::BeginPopup("##lookthrough")) {
-                    if (ImGui::MenuItem("Free camera", nullptr,
-                                        lookThroughCam_.empty()))
+                    if (ImGui::MenuItem("Free camera", nullptr, lookThroughCam_.empty()))
                         lookThroughCam_.clear();
                     ImGui::Separator();
                     for (const SceneObject& o : project_.objects())
                         if (o.type == PrimitiveType::Camera)
-                            if (ImGui::MenuItem(o.name.c_str(), nullptr,
-                                                o.name == lookThroughCam_))
+                            if (ImGui::MenuItem(o.name.c_str(), nullptr, o.name == lookThroughCam_))
                                 lookThroughCam_ = o.name;
                     ImGui::EndPopup();
                 }
             }
         }
 
-        // --- Gizmo axis space (bottom-right) ---
-        const char* spaceNames[] = {"World", "Camera"};
-        const char* spaceTips[] = {
-            "Absolute axes: move and rotate along the world X/Y/Z.\n"
-            "Scale always works on the object's own axes. Toggle with 5.",
-            "Camera-relative axes: move along the view right/up/forward\n"
-            "and rotate around them; scale is uniform. Toggle with 5."};
-        const float spaceW = smallBtnW(spaceNames[0]) + ImGui::GetStyle().ItemSpacing.x +
-                             smallBtnW(spaceNames[1]);
-        ImGui::SetCursorScreenPos(ImVec2(imgPos.x + avail.x - spaceW - 8.0f, bottomY));
-        for (int i = 0; i < 2; ++i) {
-            if (i) ImGui::SameLine();
-            const bool active = gizmoSpace_ == i;
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::SmallButton(spaceNames[i])) gizmoSpace_ = i;
-            if (active) ImGui::PopStyleColor();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
+        // --- Gizmo axis space (bottom-right card, a two-way switch) ---
+        {
+            const char* spaceNames[] = {"World", "Camera"};
+            const char* spaceTips[] = {
+                "Absolute axes: move and rotate along the world X/Y/Z.\n"
+                "Scale always works on the object's own axes. Toggle with 5.",
+                "Camera-relative axes: move along the view right/up/forward\n"
+                "and rotate around them; scale is uniform. Toggle with 5."};
+            const float w = ui::OverlayTextWidth(spaceNames[0]) + ui::OverlayTextWidth(spaceNames[1]);
+            // A narrow viewport: stack it above the camera card's row end
+            // rather than on top of it.
+            const float x0 = imgPos.x + avail.x - ovMargin - w - ovPad * 2.0f;
+            const bool stack = x0 < leftCardRight + scaled(6.0f);
+            const ImVec2 c0(x0, stack ? cardY - cardH - scaled(6.0f) : cardY);
+            ui::OverlayPanel(ImGui::GetWindowDrawList(), c0, ImVec2(c0.x + w + ovPad * 2.0f, c0.y + cardH));
+            float x = c0.x + ovPad;
+            for (int i = 0; i < 2; ++i) {
+                ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
+                x += ui::OverlayTextWidth(spaceNames[i]);
+                if (ui::OverlayTextButton(spaceNames[i], spaceNames[i], gizmoSpace_ == i)) gizmoSpace_ = i;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", spaceTips[i]);
+            }
         }
 
         // Quick brush controls for both terrain modes - the same variables the
@@ -4097,7 +4110,7 @@ void App::drawViewportWindow() {
         // with the map (see brushMaxRadius/sculptMaxStrength); logarithmic so
         // small maps keep fine control. [ and ] resize the brush from the keys.
         if (sculptMode_ || paintMode_) {
-            ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + 32));
+            ImGui::SetCursorScreenPos(ImVec2(topRowX, imgPos.y + ovMargin));
             ImGui::SetNextItemWidth(scaled(140));
             ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
                                brushMaxRadius(project_), "%.1f",
@@ -4362,40 +4375,30 @@ void App::drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size) {
 // The gear is square and as tall as the bottom row's slot, and sits at the same
 // baseline - see viewportGearSpan().
 float App::viewportGearSpan() const {
-    return 8.0f + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+    // The gear's card plus the gap to the camera card after it.
+    return scaled(10.0f) + ui::OverlayRowHeight() + ui::OverlayPad() * 2.0f + scaled(6.0f);
 }
 
 bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
-    // The inset and the height are the bottom row's, not the gear's own: the
-    // two are one row and any disagreement here puts the gear back on top of
+    // A square card the height of the bottom cards, on their row: the two
+    // read as one bar, and any disagreement here puts the gear on top of
     // "Center view".
-    const float pad = 8.0f;
-    const float btn = ImGui::GetFrameHeight();
+    const float pad = scaled(10.0f);
+    const float btn = ui::OverlayRowHeight() + ui::OverlayPad() * 2.0f;
     if (size.x < btn * 4.0f || size.y < btn * 4.0f) return false;
-    // The row's baseline, then centred on it: a SmallButton is only a font tall,
-    // so a square gear left at the same top edge would hang below the row.
-    const float rowTop = pos.y + size.y - btn - pad;
-    const float top = rowTop + (ImGui::GetFontSize() - btn) * 0.5f;
-    ImGui::SetCursorScreenPos(ImVec2(pos.x + pad, top));
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.35f));
-    const bool clicked = ImGui::Button("##viewgear", ImVec2(btn, btn));
-    ImGui::PopStyleColor();
+    const float top = pos.y + size.y - btn - pad;
+    const ImVec2 p0(pos.x + pad, top);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ui::OverlayPanel(dl, p0, ImVec2(p0.x + btn, p0.y + btn));
+    ImGui::SetCursorScreenPos(p0);
+    const bool clicked = ImGui::InvisibleButton("##viewgear", ImVec2(btn, btn));
     const bool hovered = ImGui::IsItemHovered();
-    // A gear glyph is not in the default font, so draw one: a ring plus teeth.
-    {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 c(pos.x + pad + btn * 0.5f, top + btn * 0.5f);
-        const ImU32 col = IM_COL32(235, 235, 235, hovered ? 255 : 190);
-        const float r = btn * 0.26f;
-        dl->AddCircle(c, r, col, 12, scaled(1.6f));
-        for (int i = 0; i < 6; ++i) {
-            const float t = (float)i / 6.0f * 6.2831853f;
-            const float cx = std::cos(t), sy = std::sin(t);
-            dl->AddLine(ImVec2(c.x + cx * r, c.y + sy * r),
-                        ImVec2(c.x + cx * (r + btn * 0.14f), c.y + sy * (r + btn * 0.14f)),
-                        col, scaled(1.6f));
-        }
-    }
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hovered, 12.0f);
+    if (t > 0.0f)
+        dl->AddRectFilled(p0, ImVec2(p0.x + btn, p0.y + btn), IM_COL32(255, 255, 255, (int)(20 * t)),
+                          ImGui::GetStyle().FrameRounding + ui::OverlayPad());
+    ui::DrawGlyph(dl, ui::Glyph::Gear, ImVec2(p0.x + btn * 0.5f, p0.y + btn * 0.5f), btn * 0.5f,
+                  ImGui::GetColorU32(theme::semantics().text));
     if (hovered) ImGui::SetTooltip("Viewport output and guides");
     if (clicked) ImGui::OpenPopup("##viewguides");
     if (ImGui::BeginPopup("##viewguides")) {

@@ -5529,6 +5529,8 @@
 // breadcrumb (App::selectScene), Unsaved marker, profile pill, PCSX2|PS2
 // segmented target, Build, filled Run + caret, Stop; App::drawStatusBar is a
 // viewport side bar holding the build/live chips (same ##tb_* ids, same labels).
+// Viewport overlays: ui::OverlayPanel cards + OverlayIconButton (ui::Glyph) /
+// OverlayTextButton replace the SmallButton rows, same labels as IDs.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

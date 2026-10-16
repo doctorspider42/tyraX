@@ -49,4 +49,35 @@ void LogoMark(ImDrawList* dl, ImVec2 p, float size);
 bool AxisDrag3(const char* label, float v[3], float speed = 1.0f, float vmin = 0.0f,
                float vmax = 0.0f, const char* fmt = "%.3f");
 
+// --- viewport overlays ----------------------------------------------------
+// Controls that float over the 3D view: grouped on a translucent card
+// (OverlayPanel) so they read as one tool palette, not loose buttons on top of
+// the scene. Each button is an InvisibleButton named by `label` - the label
+// is the ID and the --ui-script name, exactly as the SmallButton it replaces.
+
+enum class Glyph { Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear };
+
+/** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */
+void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col);
+
+/** Height of an overlay text button / segmented row (one frame). */
+float OverlayRowHeight();
+/** Inner padding of an OverlayPanel around its buttons. */
+float OverlayPad();
+/** Width an OverlayTextButton showing `text` takes. */
+float OverlayTextWidth(const char* text);
+
+/** The translucent card behind a group of overlay controls. */
+void OverlayPanel(ImDrawList* dl, ImVec2 min, ImVec2 max);
+
+/** A square icon button at the cursor: accent fill when `active`, a faded
+ * hover otherwise, dimmed when disabled; `key` (may be null) is drawn small in
+ * the corner. Returns clicked (never while disabled). */
+bool OverlayIconButton(const char* label, Glyph g, float size, bool active, bool enabled,
+                       const char* key);
+
+/** A text button at the cursor showing `text` (ID = `label`), accent-tinted
+ * when `active`. Returns clicked. */
+bool OverlayTextButton(const char* label, const char* text, bool active, bool enabled = true);
+
 }  // namespace ui
