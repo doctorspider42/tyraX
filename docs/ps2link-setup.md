@@ -418,6 +418,15 @@ tyrax-editor --build <projectDir> --run-ps2 192.168.1.42
 bar's **PCSX2 | PS2** switch picks the target for the Run button (and F5) — Run
 turns **blue** when the console is the target and green for PCSX2.
 
+While this project's game is up on the selected target — the deploy's
+`ps2client` file server alive, or a PCSX2 whose command line names this
+project's ELF (never "any PCSX2") — Run reads **Running 00:42** with the time
+since the launch, and hovering it turns it into **Stop**: a click stops the
+game exactly like the Stop square beside it. F5/F6 and the run menu's *Run*
+still rebuild and restart it. The check runs on the Runner's own thread about
+once a second, so the label can trail a launch or an exit by a second; a PCSX2
+started by hand on this ELF counts too, timed from when the editor first saw it.
+
 What the editor does, in order:
 
 1. clears the previous `ps2client` — **its own**, and only its own

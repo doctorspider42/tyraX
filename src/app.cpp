@@ -979,6 +979,10 @@ void App::drawUI() {
     // World tools open docked beside the Viewport, not floating over it.
     if (hasProject_) dockToolWindows(dockspace);
 
+    // Is this project's game up (PCSX2 on its ELF / a ps2link deploy)? The
+    // scan runs on the Runner's own thread; this only names the project.
+    runner_.watchGame(hasProject_ ? &project_ : nullptr);
+
     // Watch the running game's log for a fresh assertion dump (throttled).
     pollGameError();
 

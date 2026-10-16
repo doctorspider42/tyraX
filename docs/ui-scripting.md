@@ -104,6 +104,10 @@ Two things keep scripts written for the old menu bar working:
   as written. A bare `Project` is still the Project panel's dock tab and a bare
   `Scene` the Scene workspace button on the top bar; the menus are
   `"##MainMenuBar/Project"` and `"##MainMenuBar/Scene"`.
+- **The top bar's run controls** are `"##MainMenuBar/Run"` (the Run button;
+  `expect-checked` on it = this project's game is running, the *Running 00:42*
+  state, and a click then stops it), `"Run options"` (its caret menu) and
+  `"##MainMenuBar/Stop"`.
 - **The popup reports its items under `##MainMenuBar`**, the window the menus
   used to sit in (it is really an anonymous `##Popup_<hash>` window), so
   `dump` lists `[##MainMenuBar] File` while it is open and the qualified names
