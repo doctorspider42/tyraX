@@ -5,11 +5,27 @@ A **loading screen** is what the game shows while a scene loads — at boot (the
 screens, each with a background color, images, texts and **progress bars**,
 then assign one per scene or set a project default.
 
-![A loading screen with one text label and a continuous progress bar, previewed at 65 percent.](img/loading-screen-editor.png)
+![The Loading Screens window: the boot sequence strip (Tyra logo, + Splash image, the loading screen, the start scene), the screen list with its "Used by" line and back-to-front elements, the preview with the selected progress bar at 65 percent, and the bar's inspector.](img/loading-screen-editor.png)
 
 Open it from **Tools > Loading Screens** (or the button in *Project >
-Preferences*). The master switch is *Project > Preferences > "Loading screen
-between scenes"* — off, scenes cut straight in.
+Preferences*). **Show between scenes** at the top right is the master switch
+(the same setting as *Project > Preferences > "Loading screen between
+scenes"*) — off, scenes cut straight in.
+
+The window answers "what does the player see from power-on?" in one strip
+across the top, the **Boot sequence**: *Tyra logo* (2 s, the engine's) → your
+splash cards (or **+ Splash image**) → the loading screen the start scene
+shows ("while Aster loads · real progress", *Built-in* or *No loading screen*)
+→ the start scene. Click a splash card to edit it, drag it sideways to
+reorder; click the loading-screen card to select that screen.
+
+Below it, three columns: **Screens** (each with *default* when it is the
+project default, and under the selected one a **Used by** line - the scenes
+that pick it and those that inherit it as the default; an unused screen says
+*Not shown anywhere* with a *Make default* link) and the selected screen's
+elements **back to front** with one **+ Add** (image, text, progress bar);
+the **preview** in the middle; the **inspector** on the right. The first
+screen you create becomes the default, so it is shown straight away.
 
 ## Anatomy of a screen
 
@@ -24,9 +40,14 @@ Drawn back-to-front:
    or a tip line.
 4. **Progress bars** — see below.
 
-Elements sit in the middle column; select one to edit it on the right. The
-**preview** at the bottom renders at 512×448 aspect, with a *Preview progress*
-slider so you can see the bars at any fraction without running the game.
+Select an element in the list or click it in the **preview** (512×448):
+drag it to move it, drag a corner handle to resize an image or a bar about its
+centre. Under the preview, **Load progress** scrubs the bars to any fraction,
+and **Play load** simulates a load - the bar steps the way the game presents
+it (a frame every ~1/24 of the work, unevenly paced). *Background* in the
+list selects the screen itself: name, background colour, *Default at game
+start*, and the **Scenes** that name it (one switch per scene - the same field
+as *Scene > Preferences > Loading screen*), plus Duplicate / Delete.
 
 ## Progress bars
 
@@ -64,8 +85,8 @@ loading screens or not.)
 
 ## Boot splash screens
 
-The **Boot splash screens** collapsing header at the top of the window lists
-images shown at startup, in order, **after the Tyra logo and before the loading
+The splash cards of the **Boot sequence** strip are images shown at startup,
+in order, **after the Tyra logo and before the loading
 screen** — a studio / publisher / "presents" card. Each splash is:
 
 - an **image** (PNG, imported into `res/hud/`, baked to a PS2-valid size like
@@ -74,8 +95,8 @@ screen** — a studio / publisher / "presents" card. Each splash is:
 - a **duration** in seconds (0.1–10).
 
 Splashes are project-wide and **independent of the loading-screen master
-toggle** — they always play when defined. Only images for now. *Move up* /
-*Move down* reorder them; list order is play order. They compile to a
+toggle** — they always play when defined. Only images for now. Drag a card
+sideways to reorder; strip order is play order. They compile to a
 `SPLASHES[]` table in `inc/loading_data.gen.hpp` and render from the game loop
 like everything above, so each shows for its full (vsync-paced) duration.
 
@@ -109,6 +130,8 @@ The player uses the chosen scene's spawn point and that scene's loading screen.
 
 - **Per scene** — *Scene > Preferences > Loading screen*: a screen by name, or
   `<default>` to inherit the project default.
+- **From the Loading Screens window** — select the screen's *Background* row
+  and switch a scene on under *Scenes*.
 - **Project default** — mark a screen "Default at game start" in the Loading
   Screens editor. Scenes that don't name their own use it (including the start
   scene at boot).

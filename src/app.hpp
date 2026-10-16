@@ -1488,17 +1488,16 @@ private:
     // looped animations; `hits` (may be null) receives every box drawn.
     void drawHudFrame(ImDrawList* dl, ImVec2 fMin, ImVec2 fSize, bool editing,
                       float clock, std::vector<HudHit>* hits);
-    // Loading Screens (Tools > Loading Screens): named loading screens (bg
-    // color + images + baked texts + progress bars) assignable per scene, with
-    // a 2D preview driven by a simulated load fraction.
+    // Loading Screens (Tools > Loading Screens): the boot sequence strip
+    // (logo -> splashes -> loading screen -> start scene), named loading
+    // screens (bg color + images + baked texts + progress bars) assignable
+    // per scene, edited in place on a 2D preview driven by a load fraction.
     void drawLoadingScreenWindow();
-    // Collapsing "Boot splash screens" section at the top of the Loading
-    // Screens window: a list of images shown at startup, each for a set time.
-    // Returns true when something changed (the caller saves).
-    bool drawSplashSection();
-    // Draws the 512x448-space loading-screen preview into the current ImGui
-    // window (background, images, texts, bars honoring `fraction`).
-    void drawLoadingPreview(const LoadingScreenDef& ls, float fraction);
+    // Draws a loading screen into the 512x448-space frame at p0/size (bars at
+    // `fraction`); `hits` (may be null) receives each element's box (HudHit
+    // sel 0 image / 1 text / 2 bar).
+    void drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fraction, ImVec2 p0,
+                          ImVec2 size, std::vector<HudHit>* hits);
     // Property editor for a single progress bar (returns true on change).
     bool loadingBarControls(LoadingBar& b);
     // Material Editor (Tools > Material Editor): authors the .mtl files the
@@ -2804,13 +2803,16 @@ private:
     int selectedDayKey_ = -1;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
-    // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
+    // element within it (lsSelKind_: 0 image / 1 text / 2 bar / 3 the screen
+    // itself / 4 the boot splash selectedSplash_; lsSelIdx_ into
     // that element vector) + the preview's simulated load fraction.
     bool showLoadingEditor_ = false;
     int selectedLoadingScreen_ = -1;
-    int lsSelKind_ = 0;
+    int lsSelKind_ = 3;
     int lsSelIdx_ = -1;
     float lsPreviewProgress_ = 0.65f;
+    double lsPlayT0_ = -1.0;  // simulated load running since (< 0 = not)
+    int lsDragMode_ = 0;      // preview drag: 0 none, 1 move, 2..5 a corner
     int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
 
     // Credits Editor (Tools > Credits Editor, docs/credits.md): the selected
