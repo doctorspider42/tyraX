@@ -31,8 +31,11 @@ firewall must allow the port. **Start hosting <project>** starts it.
 ![The Join side: the pasted invite already split into address, port and join
 code.](img/collaboration-join.png)
 
-**Join**: paste the invite into *Invite* - the address, port and code fill
-themselves in (a plain `host:port` or address works too; type the code then).
+**Join**: paste the invite into *Invite* - the address, *Port* and *Join code*
+fill themselves in (a plain `host:port` or address works too; type the code
+then). The Join side's port and code are its own: joining somebody on 7800
+leaves the port and code this editor hosts with untouched, and the other way
+round.
 **Join** transfers the whole project the first time (a bar with files and MB
 and the file in flight); joining again later fetches only what changed. When
 the sync finishes the project opens and every edit streams both ways live. If

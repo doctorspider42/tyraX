@@ -7650,22 +7650,30 @@ void App::drawHostSessionModal() {
             if (ImGui::InputTextWithHint("##invite", "tyrax-join://... or 192.168.0.28:7797", sessionInvite_,
                                          sizeof(sessionInvite_))) {
                 std::string host, code;
-                int port = sessionPort_;
+                int port = sessionJoinPort_;
                 parseInvite(sessionInvite_, host, port, code);
                 std::snprintf(sessionAddr_, sizeof(sessionAddr_), "%s", host.c_str());
-                sessionPort_ = ImClamp(port, 1024, 65535);
-                if (!code.empty()) std::snprintf(sessionCode_, sizeof(sessionCode_), "%s", code.c_str());
+                sessionJoinPort_ = ImClamp(port, 1024, 65535);
+                if (!code.empty()) std::snprintf(sessionJoinCode_, sizeof(sessionJoinCode_), "%s", code.c_str());
             }
             if (sessionAddr_[0]) {
                 ImGui::SetCursorPosX(colX);
                 ui::FontScope mono(ui::monoFont());
                 ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-                ImGui::Text("%s : %d", sessionAddr_, sessionPort_);
+                ImGui::Text("%s : %d", sessionAddr_, sessionJoinPort_);
                 ImGui::PopStyleColor();
             }
+            // The HOST's port - its own field, so joining someone on 7800
+            // does not move the port this editor hosts on (and back).
+            rowCaption("Port");
+            ImGui::SetNextItemWidth(scaled(110));
+            ImGui::InputInt("##join_port", &sessionJoinPort_, 0, 0);
+            sessionJoinPort_ = ImClamp(sessionJoinPort_, 1024, 65535);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The port the host listens on - an invite fills it in");
             rowCaption("Join code");
             ImGui::SetNextItemWidth(scaled(140));
-            ImGui::InputText("##join_code", sessionCode_, sizeof(sessionCode_));
+            ImGui::InputText("##join_code", sessionJoinCode_, sizeof(sessionJoinCode_));
             nameRow();
             if (hasProject_ && dirty_) {
                 ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
@@ -7691,7 +7699,7 @@ void App::drawHostSessionModal() {
         canPrimary = hasProject_ && sessionName_[0];
     } else {
         primary = "Join";
-        canPrimary = !busy && sessionAddr_[0] && sessionCode_[0] && sessionName_[0];
+        canPrimary = !busy && sessionAddr_[0] && sessionJoinCode_[0] && sessionName_[0];
     }
     const float pw = ImGui::CalcTextSize(primary.c_str()).x + st.FramePadding.x * 2.6f;
     const float cw = ImGui::CalcTextSize("Cancel").x + st.FramePadding.x * 2.0f;
@@ -7714,8 +7722,8 @@ void App::drawHostSessionModal() {
             sessionError_.clear();
             session::JoinConfig cfg;
             cfg.address = sessionAddr_;
-            cfg.port = (uint16_t)sessionPort_;
-            cfg.joinCode = sessionCode_;
+            cfg.port = (uint16_t)sessionJoinPort_;
+            cfg.joinCode = sessionJoinCode_;
             cfg.displayName = sessionName_;
             cfg.cacheRoot = globalSessionCacheDir_;
             // Remember the typed name for future sessions (editor.ini).
@@ -7802,7 +7810,7 @@ void App::drawSessionWindow() {
             ImGui::Text("%s", ip.c_str());
             ImGui::SameLine(0.0f, 0.0f);
             ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-            ImGui::Text(":%d", sessionPort_);
+            ImGui::Text(":%d", hosting ? sessionPort_ : sessionJoinPort_);
             ImGui::PopStyleColor();
             if (hosting) {
                 ImGui::SameLine();

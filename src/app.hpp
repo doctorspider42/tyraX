@@ -1952,8 +1952,10 @@ private:
     bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
     char sessionName_[48] = "";
     char sessionAddr_[128] = "";
-    int sessionPort_ = 7797;
-    char sessionCode_[16] = "";
+    int sessionPort_ = 7797;      // the port this editor HOSTS on
+    int sessionJoinPort_ = 7797;  // the port of the host it joins (Join segment)
+    char sessionCode_[16] = "";      // the code this editor hosts with
+    char sessionJoinCode_[16] = "";  // the code typed / pasted to join
     std::string sessionError_;      // inline error in the join modal
     int sessionTab_ = 0;            // the Live session modal: 0 Host, 1 Join
     char sessionInvite_[256] = "";  // pasted invite / host:port (parsed live)
