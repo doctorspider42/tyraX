@@ -8399,7 +8399,15 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
     // Collect what to draw first: an unreadable file caches a 0 and never
     // touches the framebuffer.
     const ModelDraw* model = isObj ? modelDraw(relPath, "") : nullptr;
+    // A .glb/.fbx bakes on a worker (animModelDraw returns nullptr until it
+    // lands). That is NOT "unreadable": caching the 0 here made every model
+    // nothing in the scene had baked yet - the vehicle bodies, whose scene
+    // draw is the .tmdl - keep an empty tile for the session. Collect a
+    // finished bake (render() may not run while a tool covers the viewport)
+    // and come back next frame.
+    if (isAnim) animBakeCollect();
     AnimModelDraw* anim = isAnim ? animModelDraw(relPath, "") : nullptr;
+    if (isAnim && !anim) return 0;
     const MaterialDraw* material = isMtl ? materialDraw(relPath) : nullptr;
     if (isObj && (!model || model->parts.empty())) model = nullptr;
     if (isAnim && anim && !anim->ok) anim = nullptr;
