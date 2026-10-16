@@ -109,7 +109,8 @@ A few things worth knowing because they are decisions rather than defaults:
   a header row instead: the title in the heading cut, a dim count, and icon
   buttons on the right (`ui::PanelHeader` / `ui::PanelHeaderButton`). The
   Project panel's header names its page ("Outliner 81") and carries the **+**
-  that adds an object. The header's empty part is the grab handle: drag it to
+  that adds an object; the Viewport (header strip over the image, which then
+  rounds all four corners) and Properties name themselves the same way. The header's empty part is the grab handle: drag it to
   undock the panel and drop it on any node, exactly as you would drag a tab.
   This is opt-in per window (`ui::PanelChromeNewFrame` in `drawUI`) and is never
   written into a saved layout, because it goes through the window class's
@@ -164,7 +165,8 @@ A few things worth knowing because they are decisions rather than defaults:
 - **The Outliner** filters by single-select chips (All, Models, Primitives,
   Lights, Areas, Audio, Cameras, Other), shows layers, prefabs and groups as
   folders with counts, gives each row an eye (on hover, or always while off)
-  that hides that object for the session, and ends in a strip of layer chips
+  that hides that object in the editor (saved with the object as
+  `editorHidden` and undoable; the game still draws it), and ends in a strip of layer chips
   that toggle a layer's editor visibility.
 - **The left rail picks the Project panel's page.** Outliner, Layers, Assets,
   Audio (music and sounds) and Scripts each get the whole panel instead of

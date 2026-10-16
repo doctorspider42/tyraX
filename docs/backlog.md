@@ -18,38 +18,25 @@ driven on macOS only. Open:
 - **macOS title bar by hand**: drag the empty bar, double-click it, click File
   and the other menus in the top ~28 pt (the enlarged title-bar container must
   not swallow them) - synthetic events could not test this.
-- **Retake `docs/img/editor-themes.png`** (still the 1.172 palette) and check
-  Boot screen / Memory card / ImGui dark against the new metrics; the logo
-  menu's popup is slightly translucent (PopupBg alpha).
-- **A lone Viewport or Properties panel** has no header: the Viewport cannot be
-  dragged out by one, its image's top corners stay square, and Properties with
-  nothing selected shows no title.
-- **Outliner eye** is session-only view state (`hiddenObjects_`); saving it
-  needs a `SceneObject` field + `kFormatVersion` bump.
 - **Game-running state on Run** ("Running 00:42") needs a Runner-side
   "emulator running" signal; **PS2 budget meters** need a scene VRAM/RAM
   estimate first.
 - **Command palette registry**: commands are a hand-written list in
   palette_ui.cpp; a shared action registry would expose every menu item.
 - **Tool windows - what the redesign round left** (each tool's commit says why):
-  - previews that still draw editor markers or the last viewport frame (Cutscene
-    shot preview, Color Grading split, UI Editor scene background) - a
-    "game view" flag / gizmo-free offscreen pass in `Viewport::render`;
-  - clip playback in the import preview; a skeleton overlay in the Animation
-    Editor; Vehicle Editor near/far toggle; drag-to-orbit in the Asset Browser
-    inspector; a probe visualiser for GI;
   - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
     download/install, a second editor joining a session and the phone camera
     with a real phone - built from code + docs, not seen end to end here;
-  - World Facts' Queries / Rules / Scenarios / Blackboard bodies and the Drone
-    Generator's inner tabs got only the shell; Material Editor smart-mask
-    block and per-layer thumbnails;
   - "Follow" a session peer's camera (presence lacks the camera), ps2link
     "Test connection", cancelling a project load mid-step, a mouse-button
-    capture in Input Map, drag-and-drop of PNGs onto the UI Editor;
-  - screenshots still on the old chrome: procedural-rules/preview/baked/frozen,
-    neural-upscaler-developer, static-batches-overlay, hardware-timeline;
-  - vehicle `.glb` asset thumbnails come out empty (`assetThumb`).
+    capture in Input Map;
+  - `docs/img/hardware-timeline.png` is still on the old chrome (needs a
+    `bin/hardware-trace.csv` captured on a console); `vehicle-live-preview.png`
+    and `asset-browser.png` predate the Near | Far and orbit controls;
+  - the import preview and the Animation Editor share one anim-preview
+    framebuffer (both visible while a clip plays = the same pose);
+  - Properties: the Player's Walk/Run/Sprint rows draw their caption right of
+    the field (clipped); AxisDrag3 tags touch their values in a narrow panel.
 
 ## Separate remaining runtime settings from compilation decisions
 

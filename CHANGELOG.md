@@ -42,6 +42,20 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - **Static Batches**: summary tiles, batch | detail, one-click fixes for objects drawn solo. **World Facts** opens in front with "used by and how". **VU Programs**: the micro-memory budget always on top. **Procedural**: per-node point counts, Auto-arrange, a bake-state card; canvas zoom now scales node text. **Neural Upscaler**: the verdict and its action first, the three checks as cards.
 - **Live session**: one Host | Join dialog with a copyable invite that fills Join when pasted, the right firewall note per OS, and a panel showing who is where. **Update dialog**: rendered notes, what installing does, a real download bar.
 - The showcase example's *Neon Dusk* drone now fits all its chords in its one minute.
+
+### Finishing touches
+
+- Cutscene Director's shot, Color Grading's before/after and the UI Editor's scene background show the scene as the game draws it - no grid, markers, gizmos or selection; Color Grading's preview also works with the viewport hidden.
+- **Asset Browser**: .glb/.fbx thumbnails (vehicle bodies, for example) no longer stay empty; drag the inspector's preview to orbit a model or material, wheel to zoom, double-click to reset.
+- **Vehicle Editor**: a Near | Far toggle shows the far body the console swaps to past the far distance. **Global illumination**: *Show probes in viewport* draws the baked probe grid, each probe coloured by its light.
+- **Import model**: play, pause and scrub an animated file's clips before importing. **Animation Editor**: *Bones* draws the skeleton over the preview.
+- **Material Editor**: the smart-mask controls are label-left with a two-handle Range, and each layer row shows a thumbnail of the layer. **Drone Generator**: every tab in the new look (dials, layer pills, voice chips, switches), and dial rows wrap in a narrow window.
+- **UI Editor**: drop PNG files from Finder or Explorer onto it to add image elements where you drop them.
+- **World Facts**: Queries, Rules, Scenarios and Blackboard follow the catalog's list | detail shape, with live true/false dots, a readable "Why?" tree and "Used by" for queries; drag rules to reorder them.
+- A Viewport or Properties panel alone in its dock area shows a header strip; drag it to undock the panel.
+- Hiding an object with the Outliner's eye is saved with the project and can be undone (editor only - the game still draws it).
+- Menus and popups are fully opaque in the Graphite, Boot screen and Memory card themes.
+- UI scripting: a `drop <target> <file> [dx,dy]` step simulates a file dropped from the OS.
 ## 1.172.2 - 2026-10-16
 
 ### Releases
