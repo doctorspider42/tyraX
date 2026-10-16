@@ -5,6 +5,13 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 1.172.1 - 2026-10-16
+
+### macOS
+
+- **The macOS download is here**: 1.172.0 went out without its `.dmg` (the packaging step missed a source file); this release carries both `tyrax-1.172.1-macos-arm64.dmg` and `-macos-x86_64.dmg`.
+- From source on a Mac, the first Build & Run no longer stops at the toolchain setup with `machorelink.c: No such file or directory`.
+
 ## 1.172.0 - 2026-10-12
 
 ### The macOS app
