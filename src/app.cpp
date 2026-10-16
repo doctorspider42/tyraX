@@ -7929,7 +7929,7 @@ bool App::drawRoadSurfaceCombo(const char* label, const char* id,
 
     bool changed = false;
     ImGui::SetNextItemWidth(scaled(300));
-    if (ImGui::BeginCombo(label, current.c_str())) {
+    if (ui::BeginCombo(label, current.c_str())) {
         if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
             !surfacePath.empty()) {
             surfacePath.clear();
@@ -8195,7 +8195,7 @@ bool App::drawMaterialCombo(SceneObject& o) {
     const bool canEdit = !o.materialPath.empty() || (isModel && !o.modelPath.empty());
     // Full item width, like every field under it, so the labels line up; the
     // Edit... button goes after the label instead of eating into the combo.
-    if (ImGui::BeginCombo("Material", current.c_str())) {
+    if (ui::BeginCombo("Material", current.c_str())) {
         if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
             !o.materialPath.empty()) {
             o.materialPath.clear();
@@ -8263,7 +8263,7 @@ bool App::drawMaterialCombo(SceneObject& o) {
             cur = "camera: " + o.textureFeed.substr(7);
         else if (o.textureFeed.rfind("mirror:", 0) == 0)
             cur = "mirror: " + o.textureFeed.substr(7);
-        if (ImGui::BeginCombo("Texture feed", cur.c_str())) {
+        if (ui::BeginCombo("Texture feed", cur.c_str())) {
             if (ImGui::Selectable("<none>", o.textureFeed.empty()) &&
                 !o.textureFeed.empty()) {
                 o.textureFeed.clear();

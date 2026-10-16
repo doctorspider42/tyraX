@@ -6,6 +6,7 @@
 
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
 
 namespace ui {
 namespace {
@@ -88,8 +89,10 @@ float Keycap(ImDrawList* dl, ImVec2 p, float h, const char* text) {
     return w;
 }
 
-bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vmax,
-               const char* fmt) {
+// The body; AxisDrag3 itself (adding the inspector-row layout) is defined with
+// the inspector rows below. `caption` false = the row drew the label already.
+static bool axisDrag3Body(const char* label, float v[3], float speed, float vmin, float vmax,
+                          const char* fmt, bool caption) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems) return false;
 
@@ -132,13 +135,17 @@ bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vma
     ImGui::PopID();
 
     const char* labelEnd = ImGui::FindRenderedTextEnd(label);
-    if (label != labelEnd) {
+    if (caption && label != labelEnd) {
         ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
         ImGui::TextEx(label, labelEnd);
     }
     ImGui::EndGroup();
     return changed;
 }
+
+// Row-layout hooks for Switch, defined with the inspector rows below.
+static bool switchRowWidth(float* avail);
+static void noteSwitchRow(const ImRect& caption, float textW);
 
 bool Switch(const char* label, bool* v) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -147,17 +154,41 @@ bool Switch(const char* label, bool* v) {
     const ImGuiStyle& style = g.Style;
     const ImGuiID id = window->GetID(label);
     const char* labelEnd = ImGui::FindRenderedTextEnd(label);
-    const ImVec2 labelSize = ImGui::CalcTextSize(label, labelEnd, false);
+
+    // "Name (what it does)": the name on the line, the parenthesis as a dim,
+    // smaller second line. Same item, same label - only the drawing splits.
+    const char* nameEnd = labelEnd;
+    const char* desc = nullptr;
+    if (labelEnd - label >= 4 && labelEnd[-1] == ')')
+        for (const char* c = label + 1; c + 2 < labelEnd; ++c)
+            if (c[0] == ' ' && c[1] == '(') {
+                nameEnd = c;
+                desc = c + 2;
+                break;
+            }
+    const char* descEnd = desc ? labelEnd - 1 : nullptr;
+    ImFont* font = ImGui::GetFont();
+    const float descFs = IM_TRUNC(g.FontSize * 0.86f);
+    const ImVec2 nameSize = ImGui::CalcTextSize(label, nameEnd, false);
+    const ImVec2 descSize = desc ? font->CalcTextSizeA(descFs, FLT_MAX, 0.0f, desc, descEnd) : ImVec2(0, 0);
 
     // Track: a pill one text line tall-ish and ~1.8x as wide, vertically centred
-    // on the row a checkbox would have occupied, so a switch drops into a
-    // checkbox's place without moving anything around it.
+    // on the row a checkbox would have occupied.
     const float rowH = ImGui::GetFrameHeight();
     const float trackH = IM_TRUNC(g.FontSize * 1.05f);
     const float trackW = IM_TRUNC(trackH * 1.8f);
     const ImVec2 pos = window->DC.CursorPos;
-    const ImRect total(pos, ImVec2(pos.x + trackW + (labelSize.x > 0.0f ? style.ItemInnerSpacing.x + labelSize.x : 0.0f),
-                                   pos.y + rowH));
+    const float descGap = IM_TRUNC(g.FontSize * 0.08f);
+    const float textH = g.FontSize + (desc ? descGap + descSize.y : 0.0f);
+    const float h = ImMax(rowH, textH + style.FramePadding.y * 2.0f);
+    // Inside inspector rows a switch is a settings-list row: text on the left,
+    // the switch at the row's right end, the whole row clickable.
+    float avail = 0.0f;
+    const bool row = nameSize.x > 0.0f && switchRowWidth(&avail);
+    const float textW = ImMax(nameSize.x, descSize.x);
+    const ImRect total(pos, ImVec2(pos.x + (row ? avail
+                                                : trackW + (nameSize.x > 0.0f ? style.ItemInnerSpacing.x + textW : 0.0f)),
+                                   pos.y + h));
     ImGui::ItemSize(total, style.FramePadding.y);
     if (!ImGui::ItemAdd(total, id)) {
         IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
@@ -184,7 +215,7 @@ bool Switch(const char* label, bool* v) {
     store->SetFloat(animId, t);
 
     ImDrawList* dl = window->DrawList;
-    const ImVec2 a(pos.x, pos.y + (rowH - trackH) * 0.5f);
+    const ImVec2 a(row ? total.Max.x - trackW : pos.x, pos.y + (rowH - trackH) * 0.5f);
     const ImVec2 b(a.x + trackW, a.y + trackH);
     ImVec4 off = sem.border;
     off = ImVec4(off.x * 1.25f, off.y * 1.25f, off.z * 1.25f, 1.0f);
@@ -200,11 +231,29 @@ bool Switch(const char* label, bool* v) {
     dl->AddCircleFilled(ImVec2(kx, a.y + trackH * 0.5f), kr, IM_COL32(255, 255, 255, 255), 20);
     ImGui::RenderNavCursor(total, id);
 
-    if (labelSize.x > 0.0f)
-        ImGui::RenderText(ImVec2(b.x + style.ItemInnerSpacing.x, pos.y + style.FramePadding.y), label, labelEnd);
+    if (nameSize.x > 0.0f) {
+        const float tx = row ? pos.x : b.x + style.ItemInnerSpacing.x;
+        const float tmax = row ? a.x - style.ItemInnerSpacing.x * 2.0f : total.Max.x;
+        const ImVec2 tp(tx, pos.y + style.FramePadding.y);
+        if (row)
+            ImGui::RenderTextEllipsis(dl, tp, ImVec2(tmax, tp.y + nameSize.y + 1.0f), tmax, label, nameEnd,
+                                      &nameSize);
+        else
+            ImGui::RenderText(tp, label, nameEnd);
+        if (desc) {
+            const ImVec2 dp(tx, tp.y + g.FontSize + descGap);  // before the push resizes g.FontSize
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushFont(nullptr, descFs);
+            ImGui::RenderTextEllipsis(dl, dp, ImVec2(tmax, dp.y + descSize.y + 1.0f), tmax, desc, descEnd,
+                                      &descSize);
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+        }
+    }
 
     IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
                                                (*v ? ImGuiItemStatusFlags_Checked : 0));
+    if (row) noteSwitchRow(ImRect(pos, ImVec2(a.x, pos.y + rowH)), nameSize.x);
     return pressed;
 }
 
@@ -551,5 +600,372 @@ void OverlayDivider(ImDrawList* dl, float x, float y0, float y1) {
     dl->AddLine(ImVec2(x, y0), ImVec2(x, y1), IM_COL32(255, 255, 255, 28), 1.0f);
 }
 // --- end viewport overlays (blur) ---
+
+// --- inspector rows (props) --------------------------------------------------
+namespace {
+
+struct RowScope {
+    ImGuiWindow* window = nullptr;
+    float minW = 0.0f, maxW = 0.0f;
+    // The row submitted last, for RowHelp.
+    ImGuiID lastId = 0;
+    ImRect lastRect, lastCaption;
+    float lastCaptionTextW = 0.0f;
+    int lastFrame = -1;
+};
+RowScope gRows[4];
+int gRowDepth = 0;
+
+RowScope* rowScope() {
+    if (gRowDepth <= 0) return nullptr;
+    RowScope& s = gRows[gRowDepth - 1];
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (w != s.window || w->SkipItems || w->DC.IsSameLine) return nullptr;
+    return &s;
+}
+
+float captionWidth(const RowScope& s, float avail) {
+    return IM_TRUNC(ImClamp(avail * 0.34f, s.minW, ImMax(s.minW, s.maxW)));
+}
+
+// One row in flight: the caption drawn, the cursor moved to the field column,
+// the width set, the widget's own right-hand label clipped away.
+struct Row {
+    ImGuiWindow* window = nullptr;
+    RowScope* scope = nullptr;
+    ImRect caption;
+    float textW = 0.0f;
+    float fieldX = 0.0f, fieldW = 0.0f;
+    bool clip = false;
+};
+
+void drawCaption(ImDrawList* dl, ImVec2 at, float maxX, const char* text, const char* end, ImVec4 col) {
+    const ImVec2 ts = ImGui::CalcTextSize(text, end);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::RenderTextEllipsis(dl, at, ImVec2(maxX, at.y + ts.y + 1.0f), maxX, text, end, &ts);
+    ImGui::PopStyleColor();
+}
+
+bool beginRow(const char* label, Row& r, bool clipLabel = true) {
+    RowScope* s = rowScope();
+    if (!s) return false;
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    if (end == label) return false;
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* w = g.CurrentWindow;
+    const ImGuiStyle& st = g.Style;
+    const ImVec2 p = w->DC.CursorPos;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float cw = captionWidth(*s, avail);
+    const float textMax = p.x + cw - st.ItemInnerSpacing.x * 2.0f;
+    drawCaption(w->DrawList, ImVec2(p.x, p.y + st.FramePadding.y), textMax, label, end,
+                theme::semantics().textDim);
+    r.window = w;
+    r.scope = s;
+    r.caption = ImRect(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()));
+    r.textW = ImGui::CalcTextSize(label, end).x;
+    // A caption cut short by the column says the whole of itself on hover.
+    // Before the widget: a tooltip call moves ImGui's "last item", and the
+    // caller asks the widget's IsItem* afterwards.
+    if (ImGui::CalcTextSize(label, end).x > textMax - p.x &&
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
+        ImGui::IsMouseHoveringRect(r.caption.Min, r.caption.Max))
+        ImGui::SetTooltip("%.*s", (int)(end - label), label);
+    r.fieldX = p.x + cw;
+    r.fieldW = ImMax(1.0f, avail - cw);
+    ImGui::SetCursorScreenPos(ImVec2(r.fieldX, p.y));
+    ImGui::SetNextItemWidth(r.fieldW);
+    if (clipLabel) {
+        ImGui::PushClipRect(ImVec2(r.fieldX, w->ClipRect.Min.y), ImVec2(r.fieldX + r.fieldW, w->ClipRect.Max.y),
+                            true);
+        r.clip = true;
+    }
+    return true;
+}
+
+void endRow(Row& r) {
+    if (!r.window) return;
+    if (r.clip) {
+        // A BeginCombo that opened leaves the POPUP current: pop the row's
+        // window by hand, the way ImGui::PopClipRect would.
+        if (ImGui::GetCurrentWindow() == r.window) {
+            ImGui::PopClipRect();
+        } else {
+            r.window->DrawList->PopClipRect();
+            r.window->ClipRect = r.window->DrawList->_ClipRectStack.back();
+        }
+    }
+    ImGuiContext& g = *GImGui;
+    r.scope->lastId = g.LastItemData.ID;
+    r.scope->lastRect = g.LastItemData.Rect;
+    r.scope->lastCaption = r.caption;
+    r.scope->lastCaptionTextW = r.textW;
+    r.scope->lastFrame = g.FrameCount;
+}
+
+}  // namespace
+
+// Used by Switch (defined above the row machinery).
+static bool switchRowWidth(float* avail) {
+    if (!rowScope()) return false;
+    *avail = ImGui::GetContentRegionAvail().x;
+    return true;
+}
+
+static void noteSwitchRow(const ImRect& caption, float textW) {
+    ImGuiContext& g = *GImGui;
+    RowScope& s = gRows[gRowDepth - 1];
+    s.lastId = g.LastItemData.ID;
+    s.lastRect = g.LastItemData.Rect;
+    s.lastCaption = caption;
+    s.lastCaptionTextW = textW;
+    s.lastFrame = g.FrameCount;
+}
+
+namespace {
+
+template <class F>
+bool rowWidget(const char* label, F&& widget) {
+    Row r;
+    beginRow(label, r);
+    const bool res = widget();
+    endRow(r);
+    return res;
+}
+
+}  // namespace
+
+InspectorRows::InspectorRows(float minLabelW, float maxLabelW) {
+    IM_ASSERT(gRowDepth < IM_ARRAYSIZE(gRows));
+    RowScope& s = gRows[gRowDepth++];
+    s = RowScope();
+    s.window = ImGui::GetCurrentWindow();
+    s.minW = minLabelW;
+    s.maxW = maxLabelW;
+}
+
+InspectorRows::~InspectorRows() {
+    if (gRowDepth > 0) --gRowDepth;
+}
+
+bool RowHelp(const char* tip) {
+    if (gRowDepth <= 0) return false;
+    RowScope& s = gRows[gRowDepth - 1];
+    ImGuiContext& g = *GImGui;
+    if (g.CurrentWindow != s.window || s.lastFrame != g.FrameCount || s.lastId != g.LastItemData.ID ||
+        s.lastRect.Min.x != g.LastItemData.Rect.Min.x || s.lastRect.Min.y != g.LastItemData.Rect.Min.y)
+        return false;
+    s.lastFrame = -1;  // one help per row
+    if (s.window->SkipItems) return true;
+    // A dotted underline under the caption: "there is more to read here".
+    const ImRect& c = s.lastCaption;
+    const float y = c.Min.y + g.Style.FramePadding.y + g.FontSize + 1.0f;
+    ImVec4 col = theme::semantics().textDim;
+    col.w *= 0.7f;
+    const ImU32 u = ImGui::GetColorU32(col);
+    const float x1 = c.Min.x + ImMin(c.GetWidth() - g.Style.ItemInnerSpacing.x * 2.0f, s.lastCaptionTextW);
+    for (float x = c.Min.x; x + 1.0f < x1; x += 3.0f)
+        s.window->DrawList->AddRectFilled(ImVec2(x, y), ImVec2(x + 1.0f, y + 1.0f), u);
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
+        ImGui::IsMouseHoveringRect(c.Min, c.Max))
+        ImGui::SetTooltip("%s", tip);
+    return true;
+}
+
+bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vmax, const char* fmt) {
+    Row r;
+    const bool row = beginRow(label, r, false);
+    const bool changed = axisDrag3Body(label, v, speed, vmin, vmax, fmt, !row);
+    endRow(r);
+    return changed;
+}
+
+bool InputText(const char* label, char* buf, size_t size, ImGuiInputTextFlags flags, ImGuiInputTextCallback cb,
+               void* user) {
+    return rowWidget(label, [&] { return ImGui::InputText(label, buf, size, flags, cb, user); });
+}
+bool BeginCombo(const char* label, const char* preview, ImGuiComboFlags flags) {
+    return rowWidget(label, [&] { return ImGui::BeginCombo(label, preview, flags); });
+}
+bool Combo(const char* label, int* cur, const char* const items[], int count, int maxHeight) {
+    return rowWidget(label, [&] { return ImGui::Combo(label, cur, items, count, maxHeight); });
+}
+bool Combo(const char* label, int* cur, const char* itemsZeroSeparated, int maxHeight) {
+    return rowWidget(label, [&] { return ImGui::Combo(label, cur, itemsZeroSeparated, maxHeight); });
+}
+bool DragFloat(const char* label, float* v, float speed, float vmin, float vmax, const char* fmt,
+               ImGuiSliderFlags flags) {
+    return rowWidget(label, [&] { return ImGui::DragFloat(label, v, speed, vmin, vmax, fmt, flags); });
+}
+bool DragFloat2(const char* label, float v[2], float speed, float vmin, float vmax, const char* fmt,
+                ImGuiSliderFlags flags) {
+    return rowWidget(label, [&] { return ImGui::DragFloat2(label, v, speed, vmin, vmax, fmt, flags); });
+}
+bool DragInt(const char* label, int* v, float speed, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
+    return rowWidget(label, [&] { return ImGui::DragInt(label, v, speed, vmin, vmax, fmt, flags); });
+}
+bool SliderFloat(const char* label, float* v, float vmin, float vmax, const char* fmt, ImGuiSliderFlags flags) {
+    return rowWidget(label, [&] { return ImGui::SliderFloat(label, v, vmin, vmax, fmt, flags); });
+}
+bool SliderInt(const char* label, int* v, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
+    return rowWidget(label, [&] { return ImGui::SliderInt(label, v, vmin, vmax, fmt, flags); });
+}
+
+bool ColorHex(const char* label, float col[3]) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems) return false;
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& st = g.Style;
+    const bool mixed = (g.CurrentItemFlags & ImGuiItemFlags_MixedValue) != 0;
+    Row r;
+    const bool row = beginRow(label, r, false);
+    const float fullW = row ? r.fieldW : ImGui::CalcItemWidth();
+    const float h = ImGui::GetFrameHeight();
+    const float swatchW = IM_TRUNC(h * 1.6f);
+    bool changed = false;
+
+    ImGui::BeginGroup();
+    // The swatch carries the label's ID: it is "the" colour control.
+    const ImVec4 c4(col[0], col[1], col[2], 1.0f);
+    const bool swatch = ImGui::ColorButton(label, c4, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoAlpha,
+                                           ImVec2(swatchW, h));
+    ImGui::PushID(label);
+    if (swatch) ImGui::OpenPopup("picker");
+    if (ImGui::BeginPopup("picker")) {
+        if (ImGui::ColorPicker3("##picker", col,
+                                ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |
+                                    ImGuiColorEditFlags_DisplayRGB)) {
+            changed = true;
+            // Not every inner picker widget marks itself edited; the group
+            // reports the end of the drag as an edit only if one did.
+            if (g.ActiveId) {
+                g.ActiveIdHasBeenEditedThisFrame = true;
+                g.ActiveIdHasBeenEditedBefore = true;
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGuiStorage* store = ImGui::GetStateStorage();
+    const ImGuiID openKey = ImGui::GetID("rgbopen");
+    bool open = store->GetBool(openKey, false);
+    ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
+    char hex[16];
+    if (mixed)
+        hex[0] = 0;
+    else
+        std::snprintf(hex, sizeof hex, "#%02X%02X%02X", (int)(ImSaturate(col[0]) * 255.0f + 0.5f),
+                      (int)(ImSaturate(col[1]) * 255.0f + 0.5f), (int)(ImSaturate(col[2]) * 255.0f + 0.5f));
+    ImGui::SetNextItemWidth(ImMax(1.0f, fullW - swatchW - h - st.ItemInnerSpacing.x * 2.0f));
+    {
+        FontScope mono(gMono);
+        if (ImGui::InputTextWithHint("##hex", mixed ? "mixed" : "", hex, sizeof hex,
+                                     ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_AutoSelectAll)) {
+            const char* s = hex[0] == '#' ? hex + 1 : hex;
+            unsigned v = 0;
+            int n = 0;
+            for (; s[n]; ++n) {
+                const char ch = s[n];
+                const int d = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1;
+                if (d < 0 || n >= 6) {
+                    n = -1;
+                    break;
+                }
+                v = v * 16 + (unsigned)d;
+            }
+            if (n == 6) {
+                col[0] = (float)((v >> 16) & 255) / 255.0f;
+                col[1] = (float)((v >> 8) & 255) / 255.0f;
+                col[2] = (float)(v & 255) / 255.0f;
+                changed = true;
+            }
+        }
+    }
+    ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
+    if (ImGui::ArrowButton("##rgb", open ? ImGuiDir_Down : ImGuiDir_Right)) {
+        open = !open;
+        store->SetBool(openKey, open);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(open ? "Hide the 0-255 fields" : "Edit as 0-255 RGB");
+    if (open) {
+        ImGui::SetNextItemWidth(fullW);
+        changed |= ImGui::ColorEdit3("##rgbfields", col,
+                                     ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_NoPicker |
+                                         ImGuiColorEditFlags_NoSmallPreview | ImGuiColorEditFlags_NoLabel |
+                                         ImGuiColorEditFlags_NoOptions);
+    }
+    ImGui::PopID();
+    if (!row) {
+        // Stock layout: the caption after the control, like ColorEdit3.
+        const char* end = ImGui::FindRenderedTextEnd(label);
+        if (end != label) {
+            ImGui::SameLine(0.0f, st.ItemInnerSpacing.x);
+            ImGui::TextEx(label, end);
+        }
+    }
+    ImGui::EndGroup();
+    endRow(r);
+    return changed;
+}
+
+bool BeginQuietTabBar(const char* id) {
+    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(1, 1, 1, 0.05f));
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmed, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
+    const bool open = ImGui::BeginTabBar(id, ImGuiTabBarFlags_FittingPolicyShrink);
+    if (open) {
+        // The bar's own bottom line is drawn in TabSelected (now clear): a
+        // hairline instead, the selected tab's underline drawn over it.
+        const ImRect bar = GImGui->CurrentTabBar->BarRect;
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(bar.Min.x, bar.Max.y - 0.5f), ImVec2(bar.Max.x, bar.Max.y - 0.5f),
+                                            ImGui::GetColorU32(ImGuiCol_Separator), 1.0f);
+    } else {
+        ImGui::PopStyleColor(7);
+    }
+    return open;
+}
+
+bool QuietTab(const char* label, bool selected, ImGuiTabItemFlags flags) {
+    const theme::Semantics& sem = theme::semantics();
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? sem.text : sem.textDim);
+    const bool open = ImGui::BeginTabItem(label, nullptr, flags);
+    ImGui::PopStyleColor();
+    if (open) {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        const float th = ImMax(2.0f, IM_TRUNC(ImGui::GetFontSize() * 0.12f));
+        const float inset = ImGui::GetStyle().FramePadding.x * 0.5f;
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(a.x + inset, b.y - th), ImVec2(b.x - inset, b.y),
+                                                  ImGui::GetColorU32(sem.accent), th * 0.5f);
+        ImGui::EndTabItem();
+    }
+    return open;
+}
+
+void EndQuietTabBar() {
+    ImGui::EndTabBar();
+    ImGui::PopStyleColor(7);
+}
+
+bool MoreButton(const char* label, float size) {
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec2 q(p.x + size, p.y + size);
+    if (ImGui::IsItemActive())
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.14f)), r);
+    else if (t > 0.0f)
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.08f * t)), r);
+    const float dr = ImMax(1.5f, size * 0.06f), gap = size * 0.2f;
+    const ImVec2 c(p.x + size * 0.5f, p.y + size * 0.5f);
+    for (int i = -1; i <= 1; ++i)
+        dl->AddCircleFilled(ImVec2(c.x + gap * (float)i, c.y), dr, ImGui::GetColorU32(sem.text), 10);
+    return pressed;
+}
 
 }  // namespace ui

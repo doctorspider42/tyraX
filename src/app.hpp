@@ -3375,6 +3375,11 @@ private:
     // when the Properties name edit ends.
     std::string objRenameFrom_;
     int objRenameIdx_ = -1;
+    // Properties tab of a solid object (0 Object, 1 Material, 2 Physics):
+    // remembered for the session, so selecting another object - or a light,
+    // which has no tabs - keeps the tab you were working in.
+    int propsTab_ = 0;
+    int propsTabFrame_ = -1;  // last frame the tab bar was drawn
 
     // Layers panel RAM readout: estimated resident bytes per layer name
     // ("" = the always-resident unassigned group). Parsing models/materials

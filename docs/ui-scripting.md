@@ -241,6 +241,21 @@ hold, and clears when the editor exits. Neither window was ever focused.
   Rendering / Player / Build), the Neural Upscaler window, the Menu Editor, the
   Material Editor and the World Facts window.
 
+  The **Properties panel** has tabs too, for a solid object (box, sphere,
+  cylinder, cone, plane, model, save point): **Object** (type, detail, Model,
+  Transform, Gameplay, Distance and LOD, Performance, Scripts), **Material**
+  (Color, Material, Texture feed, Lighting and shadows, VU program) and
+  **Physics** (Rigid body, Player collision). Other object types have no tabs.
+  The tab bar there is only a selector - the content is drawn after it, so
+  every field keeps its old id and the hash fallback still reaches its combos -
+  and the tab ids carry `##ptab` (`Object##ptab`...) so they never collide with
+  the *Material* section or combo. The tabs are submitted first, so the exact
+  label resolves to the tab: `click "Properties/Physics"; frames 5; click
+  "Properties/Physics (rigid body)"`. The chosen tab is kept for the session
+  across selections. The object's *Duplicate* and *Delete object* live in the
+  header's `...` menu: `click "Properties/Object actions"; click "Delete
+  object"`.
+
   **Project Preferences is a WINDOW, not a modal, since 1.20.0**, which changes
   three things for a script. Its footer button is `Close` and there is no `OK`
   or `Cancel` — the window applies every edit as it is made, so a run asserts by

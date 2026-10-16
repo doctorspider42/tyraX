@@ -23,6 +23,8 @@
 
 #include <imgui.h>
 
+#include "widgets.hpp"
+
 #include "platform.hpp"
 
 // ---------------------------------------------------------------------------
@@ -202,7 +204,11 @@ inline void inputTextProse(const char* id, std::string& value, bool* changed,
 // that reveals its explanation on hover, instead of unrolling a multi-paragraph
 // description inline. Keeps the dense Preferences dialogs from running several
 // screens tall - the same idiom the Layers list already uses.
+// Inside the Properties panel's label-left rows the help goes on the row's
+// caption instead (ui::RowHelp: dotted underline + hover), so a field can fill
+// the row without a marker being pushed off its end.
 inline void prefHelp(const char* tip) {
+    if (ui::RowHelp(tip)) return;
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);

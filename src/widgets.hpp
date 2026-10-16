@@ -60,7 +60,8 @@ float Keycap(ImDrawList* dl, ImVec2 p, float h, const char* text);
  * gizmo's colour at the field's left edge - and the value in the fixed-width
  * face, so digits do not jitter while dragging. Same signature, ID, return
  * value and group semantics as ImGui::DragFloat3 (the label is drawn after
- * the three fields), so it is a drop-in replacement. */
+ * the three fields), so it is a drop-in replacement. Inside InspectorRows
+ * the label is the row's caption instead. */
 bool AxisDrag3(const char* label, float v[3], float speed = 1.0f, float vmin = 0.0f,
                float vmax = 0.0f, const char* fmt = "%.3f");
 
@@ -69,7 +70,10 @@ bool AxisDrag3(const char* label, float v[3], float speed = 1.0f, float vmin = 0
 /** Checkbox's drop-in replacement drawn as a toggle switch: same label/ID,
  * same return value ("toggled this frame"), same ImGuiItemFlags_MixedValue
  * support (knob parked in the middle), and it reports itself to --ui-script
- * as checkable with its checked state, so `expect-checked` keeps working. */
+ * as checkable with its checked state, so `expect-checked` keeps working.
+ * A label "Name (description)" draws Name, then the description dim and
+ * smaller on a second line (same item, same ID). Inside InspectorRows it is a
+ * full-width settings row: text left, switch at the right end. */
 bool Switch(const char* label, bool* v);
 
 /** CollapsingHeader's drop-in replacement for inspector sections: no tinted
@@ -132,5 +136,66 @@ bool OverlayMenuButton(const char* label, const char* text, bool active, bool en
 /** A thin vertical divider between groups inside an overlay card. */
 void OverlayDivider(ImDrawList* dl, float x, float y0, float y1);
 // --- end viewport overlays (blur) ---
+
+// --- inspector rows (props) --------------------------------------------------
+// The Properties panel lays every labelled field out as a ROW: the caption in
+// a dim left column, the widget filling the rest. Stock ImGui puts the label on
+// the right, and a long label then decides how wide every field may be.
+//
+// The wrappers below keep each widget's exact label as its ID (and so its
+// --ui-script name and ImGui's saved state): the caption is drawn by the row,
+// the widget still receives the full label and its own right-hand caption is
+// clipped away - the same trick as the Properties header's "Name" field.
+// Outside an InspectorRows scope - or in a different window (popup, child), on
+// a SameLine, or with a "##"-only label - each wrapper is exactly the stock
+// widget, so they are safe to call anywhere.
+
+/** RAII: rows are on for the CURRENT window until the scope ends. The label
+ * column is ~a third of the row, clamped to [minLabelW, maxLabelW] px. */
+struct InspectorRows {
+    InspectorRows(float minLabelW, float maxLabelW);
+    ~InspectorRows();
+    InspectorRows(const InspectorRows&) = delete;
+    InspectorRows& operator=(const InspectorRows&) = delete;
+};
+
+/** Help for the row just submitted: the caption gets a dotted underline and
+ * shows `tip` on hover. Returns false (nothing done) when the last item was not
+ * a row - prefHelp then draws its usual "(?)". */
+bool RowHelp(const char* tip);
+
+bool InputText(const char* label, char* buf, size_t size, ImGuiInputTextFlags flags = 0,
+               ImGuiInputTextCallback cb = nullptr, void* user = nullptr);
+bool BeginCombo(const char* label, const char* preview, ImGuiComboFlags flags = 0);
+bool Combo(const char* label, int* cur, const char* const items[], int count, int maxHeight = -1);
+bool Combo(const char* label, int* cur, const char* itemsZeroSeparated, int maxHeight = -1);
+bool DragFloat(const char* label, float* v, float speed = 1.0f, float vmin = 0.0f, float vmax = 0.0f,
+               const char* fmt = "%.3f", ImGuiSliderFlags flags = 0);
+bool DragFloat2(const char* label, float v[2], float speed = 1.0f, float vmin = 0.0f, float vmax = 0.0f,
+                const char* fmt = "%.3f", ImGuiSliderFlags flags = 0);
+bool DragInt(const char* label, int* v, float speed = 1.0f, int vmin = 0, int vmax = 0,
+             const char* fmt = "%d", ImGuiSliderFlags flags = 0);
+bool SliderFloat(const char* label, float* v, float vmin, float vmax, const char* fmt = "%.3f",
+                 ImGuiSliderFlags flags = 0);
+bool SliderInt(const char* label, int* v, int vmin, int vmax, const char* fmt = "%d",
+               ImGuiSliderFlags flags = 0);
+
+/** ColorEdit3's replacement: a swatch (ID = `label`; click = picker popup), the
+ * value as #RRGGBB text, and a disclosure arrow for the 0-255 fields. One group,
+ * so IsItemDeactivatedAfterEdit() after it reports the end of an edit made in
+ * any of the three; ImGuiItemFlags_MixedValue shows "mixed". */
+bool ColorHex(const char* label, float col[3]);
+
+/** Quiet tabs: no tab fill, the selected one underlined in the accent over a
+ * hairline. A plain ImGui tab bar underneath (scripts click tabs by label). */
+bool BeginQuietTabBar(const char* id);
+/** One tab. `selected` = what the caller believes is selected (drawn bright).
+ * Returns BeginTabItem's result; the item is already ended (content is drawn by
+ * the caller after the bar, so it keeps its own ID scope). */
+bool QuietTab(const char* label, bool selected, ImGuiTabItemFlags flags = 0);
+void EndQuietTabBar();
+
+/** A square "..." button (InvisibleButton named `label`). Returns clicked. */
+bool MoreButton(const char* label, float size);
 
 }  // namespace ui
