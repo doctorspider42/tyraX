@@ -2410,6 +2410,18 @@ private:
     // the bake (which lags every edit) - the map lives beside HudTexture,
     // which is declared further down.
     void rebuildAtlasPreviews();
+    // The window's view state (session only): the page shown as the hero, the
+    // one texture the inspector edits (a member or a refused texture, by its
+    // res path), Baked/Slots, the member filter. atlasFreeSlots_ is derived
+    // with the plan: per page, the free slots of its most common member size
+    // still open on it (x, y, w, h in page pixels, gutter included) - the
+    // "how many more fit before a second page" answer.
+    int atlasPageSel_ = 0;
+    std::string atlasSel_;
+    std::string atlasHover_;  // the member row hovered last frame (lights its slot)
+    int atlasView_ = 0;  // 0 baked, 1 slots
+    char atlasFilter_[64] = {};
+    std::vector<std::vector<std::array<int, 4>>> atlasFreeSlots_;
     gibake::Baker giBaker_;
     // Baked shadow decals (docs/shadows.md). Async like the two bakers around
     // it; unlike them it writes only to disk, so there is nothing to apply
