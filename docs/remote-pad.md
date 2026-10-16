@@ -31,14 +31,35 @@ transport.
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
 4. Open *Tools > Remote Pad*.
 
-The panel is a DualShock: click and *hold* a button and the game sees it held —
-the state is announced for as long as the widget is down, not for the one frame
-of the click. The two sticks are sliders with a **Centre** next to each, because
-the generated walker reads the **analog sticks** and never the D-pad: a held
-`Up` does nothing at all, while a left stick left at −80 is a player who never
-stops walking. **Release all** drops everything.
+The panel is a drawn DualShock: shoulders on top, the d-pad on the left, the
+four face buttons on the right, Select / Start between them and two round
+sticks. Click and *hold* a button and the game sees it held — the state is
+announced for as long as the widget is down (and at least 0.12 s, so a quick
+click is still a press and a release). Held buttons glow.
 
-**Drive with the editor's keyboard** turns the panel into a controller:
+The **sticks** are dragged in two dimensions, the value shown under each as
+`-0.71, -0.42`. Released, a stick springs back to the centre like a real one —
+hold **Shift** while letting go and it stays where it is (the generated walker
+reads the **analog sticks** and never the D-pad, so a parked left stick is a
+player who keeps walking while you watch PCSX2); double-click centres it. A
+click on a stick without dragging presses **L3** / **R3**.
+
+**Shift-click holds a button** (a switch under the controller) makes Shift-click
+latch a button until you click it again — for charge moves and menus; a latched
+button carries an amber dot. **Release all** drops everything, latches included.
+
+The header says whether anything is listening: **Game listening · pad 1 · 25 Hz**
+(green) while the Live Debugger reports a running game, **No game running** with
+a *Run (F5)* button, **Writing · 25 Hz** when the Live Debugger is off (the
+editor then cannot tell), **Write failed** (red, the reason in the hover). A
+release profile or the preference off shows a card with the fix (*Switch to
+debug profile*, *Turn on Remote Pad*) instead of the controller.
+
+The footer shows the current moment as the equivalent `--pad` command line
+(`tyrax-editor --pad world-facts "hold Cross; stick l -90 -54; wait 1"`) and a
+**Copy** button that copies it with the project's full path.
+
+**Drive with the keyboard** turns the panel into a controller:
 
 | Key | Pad |
 |---|---|
@@ -50,10 +71,13 @@ stops walking. **Release all** drops everything.
 | `1` `2` / `3` `4` | L1 L2 / R1 R2 |
 
 The keys are read only while the Remote Pad window is **focused**, so typing
-anywhere else in the editor is unaffected. Focus that window, look at PCSX2, and
-play.
+anywhere else in the editor is unaffected. While they are captured the
+controller has a blue focus ring and says *Keys go to the game*; each button
+shows its key, and **Esc** gives the focus back. Focus that window, look at
+PCSX2, and play.
 
-*Pad 2* only does something in a multiplayer project (*Project > Preferences >
+*Pad 2* only does something in a multiplayer project (the segment is
+disabled in a single-player one, with the reason in its hover) (*Project > Preferences >
 Multiplayer*) — that is where the generated game opens the second connector.
 Start on pad 2 is what hot-joins player two, which makes the join path testable
 without a second physical controller.

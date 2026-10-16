@@ -134,7 +134,7 @@ tyrax-editor --ui-script ~/TyraProjects/mygame "frames 20; dump"
   [New Project] Project name  @ 1383,511 624x57  [input]
   [New Project] Claude Code  @ 1383,1201 300x57  [unchecked]
   [New Project] Create project  @ 1383,1438 360x57
-  [Remote Pad] Drive with the editor's keyboard  @ 84,942 741x57  [checked]
+  [Remote Pad] Drive with the keyboard (While this window has focus. PCSX2 never needs the focus.)  @ 72,489 288x40  [checked]
 ```
 
 That is the labels a script can use, the state it can assert, and the answer to

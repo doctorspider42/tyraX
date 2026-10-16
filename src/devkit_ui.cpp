@@ -4236,205 +4236,424 @@ void App::remotePadTick() {
         ++padSeq_, true);
 }
 
+// Tools > Remote Pad (docs/remote-pad.md): a drawn DualShock - shoulders on
+// top, d-pad left, the four face buttons as their shapes (this is the one
+// place the editor depicts real pad buttons), Select/Start between them and two
+// round sticks dragged in 2-D. A header pill says whether a game is listening,
+// keyboard capture is a switch with a visible focus ring and key caps printed
+// on the buttons, and the footer is Release all plus the same moment as a
+// --pad script line.
 void App::drawRemotePadWindow() {
     if (!showRemotePad_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(470), scaled(400)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(600), scaled(590)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Remote Pad", &showRemotePad_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
     if (!hasProject_) {
-        ImGui::TextDisabled("Open a project first.");
-        ImGui::End();
-        return;
-    }
-    if (project_.settings.buildProfile != "debug") {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "This project builds in the RELEASE profile.");
-        ImGui::TextWrapped(
-            "A release build carries no Remote Pad (the devkit's zero-cost "
-            "rule), so nothing here reaches the game. Switch the profile in "
-            "Project > Preferences > Build.");
-        ImGui::End();
-        return;
-    }
-    if (!project_.settings.remotePad) {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "The \"Remote Pad\" preference is off.");
-        ImGui::TextWrapped(
-            "Turn it on in Project > Preferences > Build and rebuild - the "
-            "poller is compiled into the game, so this needs a build, not just "
-            "a save.");
+        ui::EmptyState(ui::Glyph::Box, "No project open", "Open a project, then run a debug build.");
         ImGui::End();
         return;
     }
 
+    // --- preconditions: a card with the fix, not a wall of text
+    const bool debug = project_.settings.buildProfile == "debug";
+    if (!debug || !project_.settings.remotePad) {
+        ui::BeginCard("##padpre", ImVec2(0, 0));
+        ui::StatusLine(1, !debug ? "This project builds in the release profile."
+                                 : "The Remote Pad preference is off.");
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "%s",
+                           !debug ? "A release build carries no Remote Pad (the devkit's zero-cost rule), "
+                                    "so nothing here would reach the game."
+                                  : "The poller is compiled into the game, so turning it on needs a "
+                                    "build, not just a save.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (!debug) {
+            if (ui::PrimaryButton("Switch to debug profile")) {
+                project_.settings.buildProfile = "debug";
+                commitChange();
+            }
+        } else if (ui::PrimaryButton("Turn on Remote Pad")) {
+            project_.settings.remotePad = true;
+            commitChange();
+        }
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "then Build & Run (F5)");
+        ui::EndCard();
+        ImGui::End();
+        return;
+    }
+
+    const bool single = project_.settings.multiplayer == "off";
+    if (single) padTarget_ = 0;
     const int pi = padTarget_;
     livepad::State& st = padState_;
     const double now = ImGui::GetTime();
+    const bool shift = ImGui::GetIO().KeyShift;
+
+    // --- header: is anyone listening, and which port
+    {
+        const bool listening = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+        char pill[96];
+        int kind = 4;
+        if (!padStatus_.empty()) {
+            std::snprintf(pill, sizeof(pill), "Write failed");
+            kind = 2;
+        } else if (listening) {
+            std::snprintf(pill, sizeof(pill), "Game listening \xc2\xb7 pad %d \xc2\xb7 25 Hz", pi + 1);
+            kind = 0;
+        } else if (!project_.settings.liveDebug) {
+            std::snprintf(pill, sizeof(pill), "Writing \xc2\xb7 25 Hz");
+            kind = 3;
+        } else {
+            std::snprintf(pill, sizeof(pill), "No game running");
+        }
+        ImGui::AlignTextToFramePadding();
+        ui::StatePill(pill, kind);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s", !padStatus_.empty() ? padStatus_.c_str()
+                                    : listening ? "The game's debug channel is reporting, so it reads bin/livepad.bin."
+                                    : !project_.settings.liveDebug
+                                        ? "Writing bin/livepad.bin. Without the Live Debugger the editor\n"
+                                          "cannot tell whether a game is reading it."
+                                        : "Nothing is reporting - Build & Run (F5) a debug build.");
+        if (kind == 4 && !runner_.busy()) {
+            ImGui::SameLine();
+            if (ui::GhostButton("Run (F5)")) dbgBuildAndRun();
+        }
+        const char* ports[2] = {"Pad 1", "Pad 2"};
+        const float segW = scaled(130);
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - segW));
+        ImGui::BeginDisabled(single);
+        int port = pi;
+        if (ui::Segmented("##padport", ports, 2, &port, segW)) padTarget_ = port;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(single ? "Single player - turn on Multiplayer in Project Preferences\n"
+                                       "to open the second port."
+                                     : "Which connector the panel drives. Start on pad 2 hot-joins player two.");
+    }
+    ImGui::Spacing();
+
     // A click has to survive the trip: the state is snapshotted ~25 times a
-    // second and the game reads whatever it finds, so a 20 ms click could fall
-    // between two writes and never exist. Every press is therefore latched for
-    // kMinHold, which is also long enough for the game to see it as a press AND
-    // a release rather than a single ambiguous frame.
+    // second, so every press is latched for kMinHold - long enough for the
+    // game to see a press AND a release rather than one ambiguous frame.
     const double kMinHold = 0.12;
-    auto held = [&](const char* name, bool down) {
-        const int idx = livepad::buttonByName(name);
-        const uint32_t m = livepad::buttonBit(idx);
+    auto held = [&](int idx, bool down) {
         if (idx < 0) return;
+        const uint32_t m = livepad::buttonBit(idx);
         if (down && (st.buttons[pi] & m) == 0) padLatch_[pi][idx] = now + kMinHold;
-        if (down || now < padLatch_[pi][idx])
+        if (down || now < padLatch_[pi][idx] || padSticky_[pi][idx])
             st.buttons[pi] |= m;
         else
             st.buttons[pi] &= ~m;
     };
-    // A button is HELD while its widget is held down: that is the whole point -
-    // ImGui reports the mouse being down, we mirror it into the state and the
-    // ticker announces it.
-    auto padButton = [&](const char* label, const char* name, float w) {
-        const uint32_t m = livepad::buttonBit(livepad::buttonByName(name));
-        const bool on = (st.buttons[pi] & m) != 0;
-        if (on)
-            ImGui::PushStyleColor(
-                ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        ImGui::Button(label, ImVec2(w, scaled(26)));
-        if (on) ImGui::PopStyleColor();
-        held(name, ImGui::IsItemActive());
-    };
+    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    const bool capturing = padKeyboard_ && focused;
 
-    if (ImGui::RadioButton("Pad 1", padTarget_ == 0)) padTarget_ = 0;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Pad 2", padTarget_ == 1)) padTarget_ = 1;
-    ImGui::SameLine();
-    prefHelp(
-        "Pad 2 only does something in a multiplayer project (Project >\n"
-        "Preferences > Multiplayer) - that is where the generated game opens\n"
-        "the second connector. Start on pad 2 is what hot-joins player two.");
-    ImGui::SameLine();
-    if (ImGui::Button("Release all")) {
+    // --- the controller canvas, in the 560 x 330 design space
+    const float availW = ImGui::GetContentRegionAvail().x;
+    const float k = ImMin(availW / 560.0f, scaled(1.25f));
+    const float cw = 560.0f * k, ch = 330.0f * k;
+    const ImVec2 o = ImGui::GetCursorScreenPos();
+    auto P = [&](float x, float y) { return ImVec2(o.x + x * k, o.y + y * k); };
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.field), scaled(12));
+    if (capturing) {
+        dl->AddRect(ImVec2(o.x - 2, o.y - 2), ImVec2(o.x + cw + 2, o.y + ch + 2), dbgCol(sem.accent, 0.18f),
+                    scaled(13), 0, 5.0f);
+        dl->AddRect(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.accent, 0.6f), scaled(12), 0, 1.5f);
+    } else {
+        dl->AddRect(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.border), scaled(12));
+    }
+    // The silhouette.
+    dl->PathLineTo(P(150, 70));
+    dl->PathBezierCubicCurveTo(P(210, 58), P(350, 58), P(410, 70));
+    dl->PathBezierCubicCurveTo(P(470, 80), P(505, 110), P(520, 170));
+    dl->PathBezierCubicCurveTo(P(538, 240), P(528, 300), P(488, 306));
+    dl->PathBezierCubicCurveTo(P(452, 311), P(432, 270), P(404, 236));
+    dl->PathBezierCubicCurveTo(P(380, 210), P(180, 210), P(156, 236));
+    dl->PathBezierCubicCurveTo(P(128, 270), P(108, 311), P(72, 306));
+    dl->PathBezierCubicCurveTo(P(32, 300), P(22, 240), P(40, 170));
+    dl->PathBezierCubicCurveTo(P(55, 110), P(90, 80), P(150, 70));
+    dl->PathFillConcave(dbgCol(sem.surface));
+    dl->PathLineTo(P(150, 70));
+    dl->PathBezierCubicCurveTo(P(210, 58), P(350, 58), P(410, 70));
+    dl->PathBezierCubicCurveTo(P(470, 80), P(505, 110), P(520, 170));
+    dl->PathBezierCubicCurveTo(P(538, 240), P(528, 300), P(488, 306));
+    dl->PathBezierCubicCurveTo(P(452, 311), P(432, 270), P(404, 236));
+    dl->PathBezierCubicCurveTo(P(380, 210), P(180, 210), P(156, 236));
+    dl->PathBezierCubicCurveTo(P(128, 270), P(108, 311), P(72, 306));
+    dl->PathBezierCubicCurveTo(P(32, 300), P(22, 240), P(40, 170));
+    dl->PathBezierCubicCurveTo(P(55, 110), P(90, 80), P(150, 70));
+    dl->PathStroke(dbgCol(sem.border), ImDrawFlags_Closed, 1.5f);
+
+    enum Shape { Text, Arrow, Tri, Sq, Circ, Cross };
+    // One pad button: an InvisibleButton named `label` (the --ui-script name,
+    // "Remote Pad/Cross"), held while the mouse holds it.
+    auto padButton = [&](const char* label, const char* name, float x, float y, float w, float h,
+                         Shape shape, float dir, const char* key, bool round) {
+        const int idx = livepad::buttonByName(name);
+        const uint32_t m = livepad::buttonBit(idx);
+        ImGui::SetCursorScreenPos(P(x, y));
+        ImGui::InvisibleButton(label, ImVec2(w * k, h * k));
+        const bool active = ImGui::IsItemActive();
+        if (padShiftHold_ && shift && ImGui::IsItemClicked() && idx >= 0) {
+            padSticky_[pi][idx] = !padSticky_[pi][idx];
+        } else if (ImGui::IsItemClicked() && idx >= 0 && padSticky_[pi][idx]) {
+            padSticky_[pi][idx] = false;  // a plain click lets a latched button go
+        }
+        held(idx, active && !(padShiftHold_ && shift));
+        const bool on = (st.buttons[pi] & m) != 0;
+        const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        const ImVec2 a = P(x, y), b = P(x + w, y + h);
+        const float r = round ? (b.x - a.x) * 0.5f : scaled(7) * k;
+        if (on) dl->AddRectFilled(ImVec2(a.x - 3, a.y - 3), ImVec2(b.x + 3, b.y + 3), dbgCol(sem.accent, 0.18f), r + 3);
+        dl->AddRectFilled(a, b, on ? dbgCol(sem.accent, 0.28f) : dbgCol(t > 0 ? sem.border : sem.field, 1.0f), r);
+        dl->AddRect(a, b, on ? dbgCol(sem.accent) : dbgCol(sem.border, 1.5f), r, 0, on ? 1.5f : 1.0f);
+        const ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+        const float s = (b.y - a.y) * 0.24f;
+        const float th = ImMax(1.5f, 2.2f * k);
+        switch (shape) {
+            case Text: {
+                const char* end = ImGui::FindRenderedTextEnd(label);
+                const ImVec2 ts = ImGui::CalcTextSize(label, end);
+                dl->AddText(ImVec2(c.x - ts.x * 0.5f - (key && padKeyboard_ ? scaled(7) : 0), c.y - ts.y * 0.5f),
+                            dbgCol(on ? sem.text : sem.textDim, on ? 1.0f : 0.95f), label, end);
+                break;
+            }
+            case Arrow: {
+                const float cs = std::cos(dir), sn = std::sin(dir);
+                auto R = [&](float px, float py) { return ImVec2(c.x + px * cs - py * sn, c.y + px * sn + py * cs); };
+                dl->AddTriangleFilled(R(s, 0), R(-s * 0.7f, -s * 0.8f), R(-s * 0.7f, s * 0.8f),
+                                      dbgCol(on ? sem.text : sem.textDim));
+                break;
+            }
+            case Tri:
+                dl->AddTriangle(ImVec2(c.x, c.y - s * 1.1f), ImVec2(c.x + s * 1.1f, c.y + s * 0.8f),
+                                ImVec2(c.x - s * 1.1f, c.y + s * 0.8f), dbgCol(sem.ok), th);
+                break;
+            case Sq:
+                dl->AddRect(ImVec2(c.x - s * 0.9f, c.y - s * 0.9f), ImVec2(c.x + s * 0.9f, c.y + s * 0.9f),
+                            dbgCol(sem.special), 1.0f, 0, th);
+                break;
+            case Circ: dl->AddCircle(c, s, dbgCol(sem.danger), 20, th); break;
+            case Cross:
+                dl->AddLine(ImVec2(c.x - s * 0.85f, c.y - s * 0.85f), ImVec2(c.x + s * 0.85f, c.y + s * 0.85f),
+                            dbgCol(on ? sem.text : sem.accent), th);
+                dl->AddLine(ImVec2(c.x + s * 0.85f, c.y - s * 0.85f), ImVec2(c.x - s * 0.85f, c.y + s * 0.85f),
+                            dbgCol(on ? sem.text : sem.accent), th);
+                break;
+        }
+        if (idx >= 0 && padSticky_[pi][idx])
+            dl->AddCircleFilled(ImVec2(b.x - scaled(5) * k, a.y + scaled(5) * k), scaled(2.5f), dbgCol(sem.warn), 8);
+        // The key that drives it, printed small so the map is learnable.
+        if (key && padKeyboard_) {
+            const float fs = ImGui::GetFontSize() * 0.72f;
+            ImFont* f = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const ImVec2 ks = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, key);
+            const ImVec2 kp = shape == Text ? ImVec2(b.x - ks.x - scaled(6) * k, c.y - ks.y * 0.5f)
+                                            : ImVec2(c.x - ks.x * 0.5f, b.y + scaled(3));
+            dl->AddText(f, fs, kp, dbgCol(sem.textDim, 0.85f), key);
+        }
+    };
+    // shoulders
+    padButton("L2", "L2", 56, 14, 64, 28, Text, 0, "2", false);
+    padButton("L1", "L1", 126, 14, 64, 28, Text, 0, "1", false);
+    padButton("R1", "R1", 370, 14, 64, 28, Text, 0, "3", false);
+    padButton("R2", "R2", 440, 14, 64, 28, Text, 0, "4", false);
+    // d-pad
+    const float pi_ = 3.14159265f;
+    padButton("Up", "DpadUp", 106, 92, 36, 36, Arrow, -pi_ * 0.5f, nullptr, false);
+    padButton("Left", "DpadLeft", 70, 128, 36, 36, Arrow, pi_, nullptr, false);
+    padButton("Right", "DpadRight", 142, 128, 36, 36, Arrow, 0.0f, nullptr, false);
+    padButton("Down", "DpadDown", 106, 164, 36, 36, Arrow, pi_ * 0.5f, nullptr, false);
+    // face buttons
+    padButton("Triangle", "Triangle", 413, 88, 38, 38, Tri, 0, "R", true);
+    padButton("Square", "Square", 374, 127, 38, 38, Sq, 0, "Q", true);
+    padButton("Circle", "Circle", 452, 127, 38, 38, Circ, 0, "E", true);
+    padButton("Cross", "Cross", 413, 166, 38, 38, Cross, 0, "Spc", true);
+    // middle
+    padButton("Select", "Select", 202, 128, 70, 24, Text, 0, nullptr, false);
+    padButton("Start", "Start", 288, 128, 70, 24, Text, 0, nullptr, false);
+
+    // The sticks: drag in 2-D, the value shown as -1..1. Released, a stick
+    // springs back like a real one - unless Shift is held, which leaves it
+    // there (a player that keeps walking while you watch PCSX2). A click
+    // without a drag is L3 / R3; a double-click centres a parked stick.
+    auto stick = [&](const char* label, int side, float cx, float cy, const char* keys) {
+        const int base = side * 2;
+        const float R = 40.0f * k;
+        const ImVec2 c = P(cx, cy);
+        dl->AddCircleFilled(c, R, dbgCol(sem.field), 32);
+        dl->AddCircle(c, R, dbgCol(sem.border), 32);
+        dl->AddLine(ImVec2(c.x, c.y - R * 0.8f), ImVec2(c.x, c.y + R * 0.8f), dbgCol(sem.border, 0.6f));
+        dl->AddLine(ImVec2(c.x - R * 0.8f, c.y), ImVec2(c.x + R * 0.8f, c.y), dbgCol(sem.border, 0.6f));
+        ImGui::SetCursorScreenPos(ImVec2(c.x - R, c.y - R));
+        ImGui::InvisibleButton(label, ImVec2(R * 2, R * 2));
+        const int idx = livepad::buttonByName(label);
+        if (ImGui::IsItemActive()) {
+            const ImVec2 d(ImGui::GetMousePos().x - c.x, ImGui::GetMousePos().y - c.y);
+            const ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
+            if (std::fabs(drag.x) + std::fabs(drag.y) > 3.0f) padStickDragged_[side] = true;
+            if (padStickDragged_[side]) {
+                float x = d.x / (R * 0.75f), y = d.y / (R * 0.75f);
+                const float len = std::sqrt(x * x + y * y);
+                if (len > 1.0f) {
+                    x /= len;
+                    y /= len;
+                }
+                st.axes[pi][base] = (int8_t)lroundf(x * 127.0f);
+                st.axes[pi][base + 1] = (int8_t)lroundf(y * 127.0f);
+            }
+        }
+        if (ImGui::IsItemDeactivated()) {
+            if (!padStickDragged_[side]) held(idx, true);  // a click: tap L3 / R3
+            else if (!shift) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+            padStickDragged_[side] = false;
+        } else if (!ImGui::IsItemActive()) {
+            held(idx, false);
+        }
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+        const float vx = st.axes[pi][base] / 127.0f, vy = st.axes[pi][base + 1] / 127.0f;
+        const bool moved = st.axes[pi][base] != 0 || st.axes[pi][base + 1] != 0;
+        const bool pressed = idx >= 0 && (st.buttons[pi] & livepad::buttonBit(idx)) != 0;
+        const ImVec2 kn(c.x + vx * R * 0.58f, c.y + vy * R * 0.58f);
+        if (moved) dl->AddLine(c, kn, dbgCol(sem.accent), 2.0f);
+        dl->AddCircleFilled(kn, 13.0f * k, moved || pressed ? dbgCol(sem.accent, 0.35f) : dbgCol(sem.surface), 24);
+        dl->AddCircle(kn, 13.0f * k, moved || pressed ? dbgCol(sem.accent) : dbgCol(sem.border, 2.0f), 24, 1.5f);
+        char v[48];
+        std::snprintf(v, sizeof(v), "%c  %.2f, %.2f", side ? 'R' : 'L', vx, vy);
+        ImFont* f = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const float fs = ImGui::GetFontSize() * 0.85f;
+        const ImVec2 vs = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, v);
+        dl->AddText(f, fs, ImVec2(c.x - vs.x * 0.5f, c.y + R + scaled(6)), dbgCol(moved ? sem.accent : sem.textDim), v);
+        char hint[48];
+        std::snprintf(hint, sizeof(hint), "%s%sclick = %s", padKeyboard_ ? keys : "", padKeyboard_ ? " \xc2\xb7 " : "",
+                      label);
+        const float hs = ImGui::GetFontSize() * 0.8f;
+        const ImVec2 hz = ImGui::GetFont()->CalcTextSizeA(hs, FLT_MAX, 0.0f, hint);
+        dl->AddText(ImGui::GetFont(), hs, ImVec2(c.x - hz.x * 0.5f, c.y + R + scaled(6) + vs.y + 2.0f),
+                    dbgCol(sem.textDim, 0.8f), hint);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !ImGui::IsItemActive())
+            ImGui::SetTooltip("Drag to push the stick; it springs back on release.\n"
+                              "Shift while releasing leaves it there; double-click centres it.\n"
+                              "A click without a drag presses %s.", label);
+    };
+    stick("L3", 0, 210, 232, "WASD");
+    stick("R3", 1, 350, 232, "IJKL");
+
+    if (capturing) {
+        const float fs = ImGui::GetFontSize() * 0.85f;
+        const ImVec2 p = P(12, 330 - 22);
+        ui::DrawRtIcon(dl, ui::RtIcon::Keyboard, ImVec2(p.x + fs * 0.5f, p.y + fs * 0.55f), fs, dbgCol(sem.accent));
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(p.x + fs * 1.4f, p.y), dbgCol(sem.accent), "Keys go to the game");
+        const char* esc = "Esc releases";
+        const float ew = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, esc).x;
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(o.x + cw - ew - 12 * k, p.y), dbgCol(sem.textDim), esc);
+    }
+    ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + ch));
+    ImGui::Dummy(ImVec2(cw, scaled(8)));
+
+    // --- the keyboard: reaches the GAME while THIS window has focus, so PCSX2
+    // never needs it. Nothing is read while you type anywhere else.
+    ui::Switch("Drive with the keyboard (While this window has focus. PCSX2 never needs the focus.)",
+               &padKeyboard_);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("WASD / arrows = left stick, IJKL = right stick, Space = Cross,\n"
+                          "E = Circle, Q = Square, R = Triangle, Enter = Start,\n"
+                          "Backspace = Select, 1/2 = L1/L2, 3/4 = R1/R2. Esc lets go of the focus.");
+    ui::Switch("Shift-click holds a button (Until you click it again - for charge moves and menus.)",
+               &padShiftHold_);
+    if (capturing) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            ImGui::SetWindowFocus(nullptr);
+        } else {
+            struct KeyMap {
+                ImGuiKey key;
+                const char* button;
+            };
+            static const KeyMap kKeys[] = {
+                {ImGuiKey_Space, "Cross"},  {ImGuiKey_E, "Circle"},          {ImGuiKey_Q, "Square"},
+                {ImGuiKey_R, "Triangle"},   {ImGuiKey_Enter, "Start"},       {ImGuiKey_Backspace, "Select"},
+                {ImGuiKey_1, "L1"},         {ImGuiKey_2, "L2"},              {ImGuiKey_3, "R1"},
+                {ImGuiKey_4, "R2"},
+            };
+            for (const KeyMap& km : kKeys)
+                if (ImGui::IsKeyDown(km.key)) held(livepad::buttonByName(km.button), true);
+            auto axis = [](ImGuiKey neg, ImGuiKey pos, ImGuiKey neg2, ImGuiKey pos2) {
+                int v = 0;
+                if (ImGui::IsKeyDown(neg) || ImGui::IsKeyDown(neg2)) v -= 127;
+                if (ImGui::IsKeyDown(pos) || ImGui::IsKeyDown(pos2)) v += 127;
+                return (int8_t)v;
+            };
+            if (!padStickDragged_[0]) {
+                st.axes[pi][0] = axis(ImGuiKey_A, ImGuiKey_D, ImGuiKey_LeftArrow, ImGuiKey_RightArrow);
+                st.axes[pi][1] = axis(ImGuiKey_W, ImGuiKey_S, ImGuiKey_UpArrow, ImGuiKey_DownArrow);
+            }
+            if (!padStickDragged_[1]) {
+                st.axes[pi][2] = axis(ImGuiKey_J, ImGuiKey_L, ImGuiKey_J, ImGuiKey_L);
+                st.axes[pi][3] = axis(ImGuiKey_I, ImGuiKey_K, ImGuiKey_I, ImGuiKey_K);
+            }
+        }
+    }
+
+    // --- footer: the panic button, and this moment as a --pad script line
+    ImGui::Spacing();
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        dl->AddLine(a, ImVec2(a.x + ImGui::GetContentRegionAvail().x, a.y), dbgCol(sem.border));
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+    }
+    if (ui::DangerButton("Release all")) {
         padState_.clear();
         // The latches too, or a just-clicked button comes straight back.
         for (int p = 0; p < livepad::kPads; ++p)
-            for (int b = 0; b < 16; ++b) padLatch_[p][b] = 0.0;
+            for (int b = 0; b < 16; ++b) {
+                padLatch_[p][b] = 0.0;
+                padSticky_[p][b] = false;
+            }
     }
-
-    ImGui::Separator();
-
-    const float bw = scaled(62);
-    ImGui::BeginGroup();  // D-pad + left shoulders
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Up", "DpadUp", bw);
-    padButton("Left", "DpadLeft", bw);
-    ImGui::SameLine();
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Right", "DpadRight", bw);
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Down", "DpadDown", bw);
-    ImGui::Spacing();
-    padButton("L1", "L1", bw);
-    ImGui::SameLine();
-    padButton("L2", "L2", bw);
-    padButton("L3", "L3", bw);
-    ImGui::SameLine();
-    padButton("Select", "Select", bw);
-    ImGui::EndGroup();
-
-    ImGui::SameLine(0.0f, scaled(24));
-
-    ImGui::BeginGroup();  // face buttons + right shoulders
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Tri", "Triangle", bw);
-    padButton("Square", "Square", bw);
-    ImGui::SameLine();
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Circle", "Circle", bw);
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Cross", "Cross", bw);
-    ImGui::Spacing();
-    padButton("R1", "R1", bw);
-    ImGui::SameLine();
-    padButton("R2", "R2", bw);
-    padButton("R3", "R3", bw);
-    ImGui::SameLine();
-    padButton("Start", "Start", bw);
-    ImGui::EndGroup();
-
-    ImGui::Separator();
-
-    // The sticks are what the generated walker actually reads (it polls the
-    // analog sticks, never the D-pad - a held Up does nothing), so they get
-    // real sliders, each with a Centre: a slider left at -80 is a player who
-    // never stops walking.
-    auto stick = [&](const char* label, int base) {
-        int x = st.axes[pi][base], y = st.axes[pi][base + 1];
-        ImGui::PushID(label);
-        ImGui::TextUnformatted(label);
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::SliderInt("X", &x, -127, 127)) st.axes[pi][base] = (int8_t)x;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::SliderInt("Y", &y, -127, 127))
-            st.axes[pi][base + 1] = (int8_t)y;
-        ImGui::SameLine();
-        if (ImGui::Button("Centre")) {
-            st.axes[pi][base] = 0;
-            st.axes[pi][base + 1] = 0;
-        }
-        ImGui::PopID();
-    };
-    stick("Left stick (move)", 0);
-    stick("Right stick (look)", 2);
-
-    ImGui::Checkbox("Drive with the editor's keyboard", &padKeyboard_);
-    prefHelp(
-        "WASD / arrows = left stick, IJKL = right stick, Space = Cross,\n"
-        "E = Circle, Q = Square, R = Triangle, Enter = Start,\n"
-        "Backspace = Select, 1/2 = L1/L2, 3/4 = R1/R2. The keys reach the GAME\n"
-        "while THIS window is focused, so PCSX2 never needs the focus - that is\n"
-        "the whole point. Nothing is read while you are typing anywhere else in\n"
-        "the editor.");
-    if (padKeyboard_ &&
-        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        struct KeyMap {
-            ImGuiKey key;
-            const char* button;
-        };
-        static const KeyMap kKeys[] = {
-            {ImGuiKey_Space, "Cross"},  {ImGuiKey_E, "Circle"},
-            {ImGuiKey_Q, "Square"},     {ImGuiKey_R, "Triangle"},
-            {ImGuiKey_Enter, "Start"},  {ImGuiKey_Backspace, "Select"},
-            {ImGuiKey_1, "L1"},         {ImGuiKey_2, "L2"},
-            {ImGuiKey_3, "R1"},         {ImGuiKey_4, "R2"},
-        };
-        for (const KeyMap& k : kKeys) held(k.button, ImGui::IsKeyDown(k.key));
-        auto axis = [](ImGuiKey neg, ImGuiKey pos, ImGuiKey neg2, ImGuiKey pos2) {
-            int v = 0;
-            if (ImGui::IsKeyDown(neg) || ImGui::IsKeyDown(neg2)) v -= 127;
-            if (ImGui::IsKeyDown(pos) || ImGui::IsKeyDown(pos2)) v += 127;
-            return (int8_t)v;
-        };
-        st.axes[pi][0] =
-            axis(ImGuiKey_A, ImGuiKey_D, ImGuiKey_LeftArrow, ImGuiKey_RightArrow);
-        st.axes[pi][1] =
-            axis(ImGuiKey_W, ImGuiKey_S, ImGuiKey_UpArrow, ImGuiKey_DownArrow);
-        st.axes[pi][2] = axis(ImGuiKey_J, ImGuiKey_L, ImGuiKey_J, ImGuiKey_L);
-        st.axes[pi][3] = axis(ImGuiKey_I, ImGuiKey_K, ImGuiKey_I, ImGuiKey_K);
+    std::string script;
+    for (int p = 0; p < livepad::kPads; ++p) {
+        std::string part;
+        std::string btns;
+        for (int b = 0; b < 16; ++b)
+            if (st.buttons[p] & livepad::buttonBit(b)) btns += std::string(btns.empty() ? "" : ",") + kPadButtonNames[b];
+        if (!btns.empty()) part += "hold " + btns;
+        for (int s = 0; s < 2; ++s)
+            if (st.axes[p][s * 2] || st.axes[p][s * 2 + 1])
+                part += std::string(part.empty() ? "" : "; ") + "stick " + (s ? "r " : "l ") +
+                        std::to_string(st.axes[p][s * 2]) + " " + std::to_string(st.axes[p][s * 2 + 1]);
+        if (part.empty()) continue;
+        if (p == 1) part = "pad 2; " + part;
+        script += (script.empty() ? "" : "; ") + part;
     }
-
-    ImGui::Separator();
-    if (!padStatus_.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s",
-                           padStatus_.c_str());
-    else
-        ImGui::TextDisabled("Driving bin/livepad.bin at ~25 Hz.");
-    ImGui::TextDisabled("Same channel from a script:");
-    ImGui::TextDisabled("  tyrax-editor --pad <project> \"stick l 0 -127; wait 2\"");
+    if (script.empty()) script = "press cross";
+    script += "; wait 1";
+    const std::string line = "tyrax-editor --pad " + platform::shellArg(project_.dir) + " \"" + script + "\"";
+    ImGui::SameLine();
+    const float copyW = ImGui::GetFrameHeight();
+    {
+        ui::FontScope mono(ui::monoFont());
+        const float room = ImGui::GetContentRegionAvail().x - copyW - ImGui::GetStyle().ItemSpacing.x;
+        std::string shown = "tyrax-editor --pad " + project_.name + " \"" + script + "\"";
+        while (shown.size() > 8 && ImGui::CalcTextSize(shown.c_str()).x > room)
+            shown = shown.substr(0, shown.size() - 4) + "...";
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "%s", shown.c_str());
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("The same moment from a script (docs/remote-pad.md):\n%s", line.c_str());
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - copyW);
+    if (ui::IconButton("Copy script line", ui::RtIcon::Copy, copyW, "Copy as a --pad command line")) {
+        ImGui::SetClipboardText(line.c_str());
+        statusMessage_ = "Remote Pad script line copied";
+    }
     ImGui::End();
 }

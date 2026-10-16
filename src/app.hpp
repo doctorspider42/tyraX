@@ -4071,6 +4071,12 @@ private:
     // than the write interval would otherwise fall between two snapshots and
     // never be announced at all - "I clicked Cross and nothing happened".
     double padLatch_[livepad::kPads][16] = {};
+    // The drawn controller: shift-click latches a button until clicked again
+    // (when padShiftHold_ is on); a stick is dragged in 2-D and springs back
+    // on release unless Shift is held then.
+    bool padShiftHold_ = false;
+    bool padSticky_[livepad::kPads][16] = {};
+    bool padStickDragged_[2] = {false, false};
     std::string padStatus_;
     // A pad SCRIPT being played (docs/remote-pad.md's own language, parsed by
     // the same livepad::parseScript the --pad CLI uses). While one runs the
