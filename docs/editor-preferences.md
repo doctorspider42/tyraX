@@ -34,4 +34,3 @@ every page by name and description (try `ip`, `docker`, `model`).
 | **Collaboration** | *Display name* in [live sessions](collaboration.md) (empty = your system user name) and the *Joined-project cache* folder. |
 | **AI assistant** | *Backend*, *Model* (or Custom with a free *Model id*) and *Extended thinking*, used by the [AI Assistant](ai-chat.md) and [Generate with AI](ai-flow-graph.md). |
 | **Updates** | *Check for updates at startup*, *Check now*, and *Stop skipping* for a skipped version ([updates](updates.md)). |
-
