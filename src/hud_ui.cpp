@@ -38,6 +38,8 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "theme.hpp"
+#include "toolkit.hpp"
+#include "update.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -2388,7 +2390,8 @@ bool App::fontCombo(std::string& fontRef) {
     const std::string current =
         fontRef.empty() ? project_.defaultFontName() : fontRef;
     ImGui::SetNextItemWidth(scaled(200.0f));
-    if (ImGui::BeginCombo("Font", current.c_str())) {
+    // A label-left row inside ui::InspectorRows; the stock combo elsewhere.
+    if (ui::BeginCombo("Font", current.c_str())) {
         for (const GameFont& gf : project_.fonts) {
             if (ImGui::Selectable(gf.name.c_str(), gf.name == current)) {
                 fontRef = gf.name;
@@ -2461,28 +2464,26 @@ bool App::hudBakeControls(HudImage& h) {
         int cur = 0;
         for (int i = 0; i < 8; ++i)
             if (vals[i] == dim) { cur = i; break; }
-        if (ImGui::Combo(label, &cur, names, 8)) {
+        if (ui::Combo(label, &cur, names, 8)) {
             dim = vals[cur];
             changed = true;
         }
     };
 
-    ImGui::SeparatorText("Texture (baked for PS2)");
+    ui::Caption("Texture (baked for PS2)");
     int sw = 0, sh = 0;
     if (const HudTexture* t = hudTexture(h.imagePath)) { sw = t->w; sh = t->h; }
     if (sw > 0) {
         const bool bad = !isValid(sw) || !isValid(sh);
-        if (bad)
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
-                               "Source %dx%d is not a PS2 size", sw, sh);
-        else
+        if (bad) {
+            char b[64];
+            std::snprintf(b, sizeof(b), "Source %dx%d is not a PS2 size", sw, sh);
+            ui::StatusLine(1, b);
+        } else
             ImGui::TextDisabled("Source: %dx%d px", sw, sh);
     }
-    ImGui::PushItemWidth(90.0f * uiScaleApplied_);
     dimCombo("Width##texw", h.texW);
-    ImGui::SameLine();
     dimCombo("Height##texh", h.texH);
-    ImGui::PopItemWidth();
 
     // Colors: like the per-asset material quality, "(project default)"
     // follows Preferences > Textures; the others override - e.g. keep an
@@ -2493,7 +2494,7 @@ bool App::hudBakeControls(HudImage& h) {
                                    : 0;
     const char* qn[] = {"Project default", "Full color (32-bit)",
                         "256 colors (8-bit)", "16 colors (4-bit)"};
-    if (ImGui::Combo("Colors##hudq", &q, qn, 4)) {
+    if (ui::Combo("Colors##hudq", &q, qn, 4)) {
         h.texQuant = q == 1 ? "none" : q == 2 ? "8bit" : q == 3 ? "4bit" : "";
         changed = true;
     }
@@ -2513,19 +2514,20 @@ bool App::hudBakeControls(HudImage& h) {
                             colorLabel(effQ));
     else
         ImGui::TextDisabled("Baked: %dx%d, %s", bw, bh, colorLabel(effQ));
-    ImGui::TextDisabled(
-        "Resized at build (source in res/hud stays untouched). The\n"
-        "on-screen size above is separate - the sprite is stretched.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Resized at build (the source in res/hud stays untouched).\n"
+                          "The on-screen size is separate - the sprite is stretched.");
     return changed;
 }
 
 // UI Editor window (Tools > UI Editor): everything composited over the 3D
-// scene, as one reorderable "screen stack" - the HUD images plus three effect
-// layers (bloom+grading, film grain and motion blur). The stack order is the
-// game's draw order: entries above an effect layer stay crisp (e.g. the
-// crosshair over the bloom), entries below are composited with it. They are
-// separate entries so, say, bloom can sit under the HUD while grain overlays
-// the whole screen.
+// scene, as one reorderable "screen stack" - the HUD images plus the effect
+// layers (bloom+grading, film grain, motion blur, custom effects). The stack
+// order is the game's draw order: entries above an effect layer stay crisp
+// (e.g. the crosshair over the bloom), entries below are composited with it.
+// Three columns: the On screen list (true draw order, top = drawn last) | a
+// 512x448 preview edited in place (drag, corner handles, arrow nudge) | the
+// selected element's inspector.
 namespace {
 constexpr int kBloomMark = -2;
 constexpr int kGrainMark = -3;
@@ -2538,27 +2540,384 @@ constexpr int kFxMarkBase = -100;
 constexpr bool isFxMark(int e) { return e <= kFxMarkBase; }
 constexpr int fxMarkIndex(int e) { return kFxMarkBase - e; }
 constexpr int fxMark(int i) { return kFxMarkBase - i; }
+
+ImU32 tint(const ImVec4& c, float a = 1.0f) {
+    ImVec4 v = c;
+    v.w *= a;
+    return ImGui::GetColorU32(v);
+}
+
+// The kind badge the screen lists lead with: a letter on a tinted square
+// (T text, B bar, I image, P prompt, fx effect), coloured by meaning.
+void kindBadge(ImDrawList* dl, ImVec2 c, float s, const char* txt, const ImVec4& col) {
+    dl->AddRectFilled(ImVec2(c.x - s * 0.5f, c.y - s * 0.5f), ImVec2(c.x + s * 0.5f, c.y + s * 0.5f),
+                      tint(col, 0.16f), s * 0.28f);
+    ImFont* f = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+    const float fs = IM_TRUNC(s * 0.6f);
+    const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, txt);
+    dl->AddText(f, fs, ImVec2(IM_TRUNC(c.x - ts.x * 0.5f), IM_TRUNC(c.y - ts.y * 0.5f)), tint(col), txt);
+}
+
+struct RowResult {
+    bool clicked = false, active = false, hovered = false, eye = false;
+};
+
+// One row of a screen list: an InvisibleButton named `label` (the --ui-script
+// name; text after ## is not drawn), an optional drag grip, the kind badge,
+// the name, a dim `meta` on the right and, when `eyeOn` is given, an eye that
+// toggles "visible at game start" at the right end.
+RowResult screenRow(const char* label, const char* meta, const char* badge, const ImVec4& badgeCol,
+                    bool selected, bool dim, bool grip, const bool* eyeOn) {
+    const theme::Semantics& sem = theme::semantics();
+    RowResult r;
+    const float fs = ImGui::GetFontSize();
+    const float h = IM_TRUNC(ImGui::GetFrameHeight() + fs * 0.25f);
+    const float w = ImMax(1.0f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    if (eyeOn) ImGui::SetNextItemAllowOverlap();
+    r.clicked = ImGui::InvisibleButton(label, ImVec2(w, h));
+    r.active = ImGui::IsItemActive();
+    r.hovered = ImGui::IsItemHovered();
+    uiscript::markLastItemChecked(selected);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rr = ImGui::GetStyle().FrameRounding;
+    const ImVec2 q(p.x + w, p.y + h);
+    if (selected) {
+        dl->AddRectFilled(p, q, tint(sem.accent, 0.16f), rr);
+        dl->AddRect(p, q, tint(sem.accent, 0.33f), rr);
+    } else if (r.hovered) {
+        dl->AddRectFilled(p, q, tint(sem.surface, 0.8f), rr);
+    }
+    float x = p.x + fs * 0.4f;
+    const float cy = p.y + h * 0.5f;
+    if (grip) {
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 2; ++j)
+                dl->AddCircleFilled(ImVec2(x + fs * 0.12f + j * fs * 0.28f, cy + (i - 1) * fs * 0.28f),
+                                    ImMax(1.0f, fs * 0.08f), tint(sem.textDim, 0.55f));
+        x += fs * 0.8f;
+    }
+    const float bs = IM_TRUNC(fs * 1.2f);
+    kindBadge(dl, ImVec2(x + bs * 0.5f, cy), bs, badge, badgeCol);
+    x += bs + fs * 0.5f;
+    const float eyeS = IM_TRUNC(fs * 1.25f);
+    float right = q.x - fs * 0.4f - (eyeOn ? eyeS + fs * 0.25f : 0.0f);
+    if (meta && *meta) {
+        const float mfs = IM_TRUNC(fs * 0.86f);
+        const float mw = ImGui::GetFont()->CalcTextSizeA(mfs, FLT_MAX, 0.0f, meta).x;
+        dl->AddText(ImGui::GetFont(), mfs, ImVec2(right - mw, cy - mfs * 0.5f), tint(sem.textDim, 0.85f), meta);
+        right -= mw + fs * 0.5f;
+    }
+    dl->PushClipRect(ImVec2(x, p.y), ImVec2(ImMax(x, right), q.y), true);
+    dl->AddText(ImVec2(x, cy - fs * 0.5f),
+                dim ? tint(sem.textDim) : tint(sem.text, selected ? 1.0f : 0.88f), label,
+                ImGui::FindRenderedTextEnd(label));
+    dl->PopClipRect();
+    if (eyeOn) {
+        const ImVec2 back = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(q.x - fs * 0.3f - eyeS, cy - eyeS * 0.5f));
+        r.eye = ui::EyeToggle("Visible at game start", *eyeOn, eyeS, true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(*eyeOn ? "Visible at game start. Click: start hidden\n"
+                                       "(a flow node shows it)."
+                                     : "Hidden at game start (a flow node shows it).\n"
+                                       "Click: visible at start.");
+        ImGui::SetCursorScreenPos(back);
+    }
+    return r;
+}
+
+// A dim sub-heading of a screen list, with an optional note at the right.
+void listHead(const char* left, const char* right = nullptr) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float sfs = IM_TRUNC(fs * 0.86f);
+    const float w = ImGui::GetContentRegionAvail().x;
+    ImGui::Dummy(ImVec2(0.0f, fs * 0.25f));
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImFont* f = ImGui::GetFont();
+    dl->AddText(f, sfs, ImVec2(p.x + fs * 0.4f, p.y), tint(sem.textDim, 0.85f), left);
+    if (right) {
+        const float rw = f->CalcTextSizeA(sfs, FLT_MAX, 0.0f, right).x;
+        dl->AddText(f, sfs, ImVec2(p.x + w - rw - fs * 0.4f, p.y), tint(sem.textDim, 0.6f), right);
+    }
+    ImGui::Dummy(ImVec2(w, sfs + fs * 0.2f));
+}
+
+void dashedRect(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float dash) {
+    auto line = [&](float x0, float y0, float x1, float y1) {
+        const float len = std::sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+        if (len <= 0.0f) return;
+        const float ux = (x1 - x0) / len, uy = (y1 - y0) / len;
+        for (float t = 0.0f; t < len; t += dash * 2.0f) {
+            const float e = ImMin(t + dash, len);
+            dl->AddLine(ImVec2(x0 + ux * t, y0 + uy * t), ImVec2(x0 + ux * e, y0 + uy * e), col, 1.0f);
+        }
+    };
+    line(a.x, a.y, b.x, a.y);
+    line(b.x, a.y, b.x, b.y);
+    line(b.x, b.y, a.x, b.y);
+    line(a.x, b.y, a.x, a.y);
+}
+
+// Flow nodes that address a HUD element by name: how many, and in which
+// objects ("player-1", or "player-1 (level-2)" outside the first scene).
+struct HudRefs {
+    int nodes = 0;
+    std::vector<std::string> where;
+};
+HudRefs hudRefsOf(const Project& p, const std::string& name, bool isText, bool isBar) {
+    HudRefs r;
+    if (name.empty()) return r;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            int here = 0;
+            for (const FlowNode& fn : o.flowGraph.nodes) {
+                if (fn.str != name) continue;
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (!ft) continue;
+                if (ft->strKind == FlowParamKind::HudElementName ||
+                    (isBar && ft->strKind == FlowParamKind::HudBarName) ||
+                    (isText && ft->strKind == FlowParamKind::HudTextName))
+                    ++here;
+            }
+            if (here == 0) continue;
+            r.nodes += here;
+            r.where.push_back(&sc == &p.scenes.front() ? o.name : o.name + " (" + sc.name + ")");
+        }
+    return r;
+}
+
+std::string refsLine(const HudRefs& r) {
+    if (r.nodes == 0) return "no flow node uses it";
+    std::string s = "driven by " + std::to_string(r.nodes) + (r.nodes == 1 ? " node in " : " nodes in ");
+    s += r.where.size() == 1 ? r.where[0] : std::to_string(r.where.size()) + " objects";
+    return s;
+}
+
+const char* docsBase() { return "/blob/main/docs/"; }
 }  // namespace
+
+void App::drawHudFrame(ImDrawList* dl, ImVec2 fMin, ImVec2 fSize, bool editing, float clock,
+                       std::vector<HudHit>* hits) {
+    auto screenRect = [&](const float* pos, const float* size, ImVec2& pMin, ImVec2& pMax) {
+        const float w = size[0] / 512.0f * fSize.x;
+        const float h = size[1] / 448.0f * fSize.y;
+        const ImVec2 c(fMin.x + pos[0] * fSize.x, fMin.y + pos[1] * fSize.y);
+        pMin = ImVec2(c.x - w * 0.5f, c.y - h * 0.5f);
+        pMax = ImVec2(c.x + w * 0.5f, c.y + h * 0.5f);
+    };
+    // Play show / hide: the selected element runs its transition in, holds,
+    // runs it back out (hudanim::transition, the generated hudTransEval's
+    // twin), then rests shown again.
+    int trSel = -1, trIdx = -1;
+    float trP = 1.0f;
+    if (editing && uiTransPlayT0_ >= 0.0) {
+        const HudTransition* tr = nullptr;
+        int idx = -1;
+        if (uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < (int)project_.hud.size()) {
+            tr = &project_.hud[selectedHud_].transition;
+            idx = selectedHud_;
+        } else if (uiFxSel_ == 9 && selectedBar_ >= 0 && selectedBar_ < (int)project_.hudBars.size()) {
+            tr = &project_.hudBars[selectedBar_].transition;
+            idx = selectedBar_;
+        } else if (uiFxSel_ == 4 && selectedText_ >= 0 &&
+                   selectedText_ < (int)project_.hudTexts.size()) {
+            tr = &project_.hudTexts[selectedText_].transition;
+            idx = selectedText_;
+        }
+        if (!tr || tr->kind == hudanim::Cut) {
+            uiTransPlayT0_ = -1.0;
+        } else {
+            const float d = ImMax(0.05f, tr->duration), hold = 0.7f;
+            const float t = (float)(ImGui::GetTime() - uiTransPlayT0_);
+            float p = 1.0f;
+            if (t < d) p = t / d;
+            else if (t < d + hold) p = 1.0f;
+            else if (t < 2.0f * d + hold) p = 1.0f - (t - d - hold) / d;
+            else if (t < 2.0f * d + hold * 1.5f) p = 0.0f;
+            else uiTransPlayT0_ = -1.0;
+            trSel = uiFxSel_;
+            trIdx = idx;
+            trP = p;
+        }
+    }
+    // The looped animation an element carries is drawn through
+    // hudanim::evaluate - the same formula the generated game runs. A
+    // Blink's off phase draws nothing, like the console. Hit boxes are the
+    // element's REST box, so an animated element stays easy to grab.
+    auto pose = [&](int sel, int idx, const float* pos, const float* size, const HudAnim& anim,
+                    const HudTransition* trans, ImVec2& pMin, ImVec2& pMax, float& alpha) {
+        const hudanim::Motion m = hudanim::evaluate(anim.kind, anim.period, anim.amount, clock);
+        if (!m.visible) return false;
+        float dx = m.dx, dy = m.dy, sc = m.scale;
+        alpha = m.alpha;
+        if (trans && sel == trSel && idx == trIdx) {
+            if (trP <= 0.0f) return false;
+            hudanim::transition(trans->kind, trP, dx, dy, sc, alpha);
+            if (alpha <= 0.002f) return false;
+        }
+        const float sz[2] = {size[0] * sc, size[1] * sc};
+        const float ps[2] = {pos[0] + dx / 512.0f, pos[1] + dy / 448.0f};
+        screenRect(ps, sz, pMin, pMax);
+        return true;
+    };
+    auto push = [&](int sel, int idx, const float* pos, const float* size) {
+        if (!hits) return;
+        HudHit h;
+        h.sel = sel;
+        h.index = idx;
+        screenRect(pos, size, h.min, h.max);
+        hits->push_back(h);
+    };
+    auto tintOf = [](float alpha) { return IM_COL32(255, 255, 255, (int)(alpha * 255.0f + 0.5f)); };
+
+    for (int i = 0; i < (int)project_.hud.size(); ++i) {
+        const HudImage& hi = project_.hud[i];
+        // Hidden-at-start images show only while editing, dimmed, so they
+        // can still be placed.
+        if (!hi.visibleAtStart && !editing) continue;
+        push(0, i, hi.pos, hi.size);
+        ImVec2 pMin, pMax;
+        float alpha = 1.0f;
+        if (!pose(0, i, hi.pos, hi.size, hi.anim, &hi.transition, pMin, pMax, alpha)) continue;
+        if (!hi.visibleAtStart) alpha *= 0.35f;
+        if (const HudTexture* t = hudTexture(hi.imagePath))
+            dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax, ImVec2(0, 0), ImVec2(1, 1),
+                         tintOf(alpha));
+        else
+            dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
+    }
+    // Live bars, at their start value (or the UI Editor's preview fill for
+    // the selected one). Drawn above the stack like the game.
+    for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+        const HudBar& hb = project_.hudBars[i];
+        const bool isSel = editing && uiFxSel_ == 9 && i == selectedBar_;
+        if (!hb.visibleAtStart && !editing) continue;
+        push(9, i, hb.pos, hb.size);
+        ImVec2 pMin, pMax;
+        float alpha = 1.0f;
+        if (!pose(9, i, hb.pos, hb.size, hb.anim, &hb.transition, pMin, pMax, alpha)) continue;
+        if (!hb.visibleAtStart) alpha *= 0.35f;
+        float start = hb.startValue;
+        if (!hb.source.empty()) {
+            start = hb.minValue;
+            for (const SaveValue& sv : project_.saveValues)
+                if (sv.name == hb.source) start = sv.value;
+        }
+        const float frac = (isSel && hudBarPreview_ >= 0.0f)
+                               ? hudBarPreview_
+                               : hudanim::fraction(start, hb.minValue, hb.maxValue);
+        auto col = [&](const float* c) {
+            return IM_COL32((int)(c[0] * 255.0f + 0.5f), (int)(c[1] * 255.0f + 0.5f),
+                            (int)(c[2] * 255.0f + 0.5f), (int)(alpha * 255.0f + 0.5f));
+        };
+        const float bw = pMax.x - pMin.x, bh = pMax.y - pMin.y;
+        const HudTexture* fillTex =
+            hb.fillImage.imagePath.empty() ? nullptr : hudTexture(hb.fillImage.imagePath);
+        if (hb.kind == 0) {
+            dl->AddRectFilled(pMin, pMax, col(hb.bgColor));
+            const float fw = bw * frac;
+            const float fx = hb.rightToLeft ? pMax.x - fw : pMin.x;
+            if (fw > 0.5f) {
+                if (fillTex)
+                    dl->AddImage((ImTextureID)(intptr_t)fillTex->tex, ImVec2(fx, pMin.y),
+                                 ImVec2(fx + fw, pMax.y), ImVec2(hb.rightToLeft ? 1.0f - frac : 0.0f, 0),
+                                 ImVec2(hb.rightToLeft ? 1.0f : frac, 1), col(hb.fillColor));
+                else
+                    dl->AddRectFilled(ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y), col(hb.fillColor));
+            }
+        } else {
+            const int segs = hb.segments < 1 ? 1 : hb.segments;
+            const int lit = (int)(frac * segs + 0.001f);
+            const float gap = hb.spacing / 512.0f * fSize.x;
+            const float segW = (bw - gap * (segs - 1)) / segs;
+            for (int k = 0; k < segs; ++k) {
+                const int kk = hb.rightToLeft ? segs - 1 - k : k;
+                const float sx = pMin.x + kk * (segW + gap);
+                const float* c = (k < lit) ? hb.fillColor : hb.bgColor;
+                if (fillTex)
+                    dl->AddImage((ImTextureID)(intptr_t)fillTex->tex, ImVec2(sx, pMin.y),
+                                 ImVec2(sx + segW, pMax.y), ImVec2(0, 0), ImVec2(1, 1), col(c));
+                else
+                    dl->AddRectFilled(ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y), col(c));
+            }
+        }
+        if (!hb.frameImage.imagePath.empty()) {
+            if (const HudTexture* t = hudTexture(hb.frameImage.imagePath)) {
+                const float k = hb.size[0] > 0.0f ? bw / (hb.size[0] / 512.0f * fSize.x) : 1.0f;
+                const float fw = hb.frameImage.size[0] / 512.0f * fSize.x * k;
+                const float fh = hb.frameImage.size[1] / 448.0f * fSize.y * k;
+                const ImVec2 c(pMin.x + bw * 0.5f, pMin.y + bh * 0.5f);
+                dl->AddImage((ImTextureID)(intptr_t)t->tex, ImVec2(c.x - fw * 0.5f, c.y - fh * 0.5f),
+                             ImVec2(c.x + fw * 0.5f, c.y + fh * 0.5f), ImVec2(0, 0), ImVec2(1, 1),
+                             tintOf(alpha));
+            }
+        }
+    }
+    // The USE prompt (custom image or the embedded built-in sprite); in the
+    // game it only shows near usable objects - here it is a layout aid.
+    {
+        const HudImage& up = project_.usePrompt;
+        // Text mode wins over the image and is sized by its own bake - the
+        // same rule the build follows, so this preview matches.
+        const HudTexture* t = nullptr;
+        float size[2] = {up.size[0], up.size[1]};
+        if (project_.usePromptIsText && !project_.usePromptText.text.empty()) {
+            t = hudTextTexture(project_.usePromptText);
+            if (t) {
+                size[0] = (float)t->w;
+                size[1] = (float)t->h;
+            }
+        } else {
+            t = up.imagePath.empty() ? builtinUseTexture() : hudTexture(up.imagePath);
+        }
+        push(3, 0, up.pos, size);
+        ImVec2 pMin, pMax;
+        screenRect(up.pos, size, pMin, pMax);
+        if (t)
+            dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+        else
+            dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
+    }
+    // On-screen texts: the ones visible at game start (all of them, the
+    // hidden ones dimmed, while editing).
+    for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
+        const HudText& ht = project_.hudTexts[i];
+        if (!ht.visibleAtStart && !editing) continue;
+        if (const HudTexture* t = hudTextTexture(ht)) {
+            const float size[2] = {(float)t->w, (float)t->h};
+            push(4, i, ht.pos, size);
+            ImVec2 pMin, pMax;
+            float alpha = 1.0f;
+            if (!pose(4, i, ht.pos, size, ht.anim, &ht.transition, pMin, pMax, alpha)) continue;
+            if (!ht.visibleAtStart) alpha *= 0.35f;
+            dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax, ImVec2(0, 0), ImVec2(1, 1),
+                         tintOf(alpha));
+        }
+    }
+}
 
 void App::drawUiEditorWindow() {
     if (!showUiEditor_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), scaled(420)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1120), scaled(700)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
     bool changed = false;
     // Belt and braces (the Animation/Loading Screen idiom): a hand-set flag is
     // forgettable by the next widget added here, a section comparison is not.
-    const std::string beforeSection =
-        project::sectionJson(project_, project::Section::Hud);
+    const std::string beforeSection = project::sectionJson(project_, project::Section::Hud);
     const int n = (int)project_.hud.size();
 
     // Render-order stack (bottom of the screen list = drawn first): hud indices
-    // plus the two effect markers. A marker at layer L renders right before hud
+    // plus the effect markers. A marker at layer L renders right before hud
     // sprite L; layer -1 (or >= n) renders after every sprite (topmost). Bloom
     // before grain when they share a slot (grain composites over the graded,
     // bloomed image - the fixed internal order).
@@ -2575,13 +2934,11 @@ void App::drawUiEditorWindow() {
     };
     auto buildStack = [&]() {
         std::vector<int> s;
-        s.reserve(n + 2 + nFx);
+        s.reserve(n + 3 + nFx);
         for (int i = 0; i < n; ++i) {
             emitMarkers(s, i);
             s.push_back(i);
         }
-        // Topmost markers (layer -1 or >= n): bloom, grain, then effects in
-        // placement order.
         if (topmost(project_.hudMotionBlurLayer)) s.push_back(kMotionBlurMark);
         if (topmost(project_.hudBloomLayer)) s.push_back(kBloomMark);
         if (topmost(project_.hudGrainLayer)) s.push_back(kGrainMark);
@@ -2627,73 +2984,39 @@ void App::drawUiEditorWindow() {
     std::vector<int> order = buildStack();
     std::reverse(order.begin(), order.end());
 
-    // --- left: the screen stack ---------------------------------------------
-    ImGui::BeginChild("##ui_stack", ImVec2(230 * uiScaleApplied_, 0),
-                      ImGuiChildFlags_Borders);
-    if (ImGui::Button("Import image (PNG)...", ImVec2(-1, 0))) importHudImage();
-    ImGui::Checkbox("Show in viewport", &showHudInEditor_);
+    // Valid selection (stale indices after an undo / a peer edit read as none).
+    if (selectedHud_ >= n) selectedHud_ = -1;
+    if (selectedBar_ >= (int)project_.hudBars.size()) selectedBar_ = -1;
+    if (selectedText_ >= (int)project_.hudTexts.size()) selectedText_ = -1;
+    if (selectedFx_ >= nFx) selectedFx_ = -1;
 
-    // Triggerable on-screen texts. They draw above the whole HUD stack
-    // (under menus), so they sit above the reorderable list.
-    ImGui::SeparatorText("Texts");
-    for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
-        ImGui::PushID(1000 + i);
-        if (ImGui::Selectable(project_.hudTexts[i].name.c_str(),
-                              uiFxSel_ == 4 && selectedText_ == i)) {
-            uiFxSel_ = 4;
-            selectedText_ = i;
-        }
-        ImGui::PopID();
-    }
-    if (ImGui::SmallButton("+ Add text")) {
+    auto uniqueName = [](const std::string& base, auto taken) {
+        int suffix = 1;
+        while (taken(suffix == 1 ? base : base + "-" + std::to_string(suffix))) ++suffix;
+        return suffix == 1 ? base : base + "-" + std::to_string(suffix);
+    };
+    auto addText = [&]() {
         HudText t;
         // unique name: "text", "text-2", ... (referenced by flow nodes)
-        int suffix = 1;
-        auto taken = [&](const std::string& n) {
+        t.name = uniqueName("text", [&](const std::string& s) {
             for (const HudText& e : project_.hudTexts)
-                if (e.name == n) return true;
+                if (e.name == s) return true;
             return false;
-        };
-        while (taken(suffix == 1 ? "text" : "text-" + std::to_string(suffix)))
-            ++suffix;
-        t.name = suffix == 1 ? "text" : "text-" + std::to_string(suffix);
+        });
         project_.hudTexts.push_back(std::move(t));
         uiFxSel_ = 4;
         selectedText_ = (int)project_.hudTexts.size() - 1;
         changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Baked to PNG sprites at build (the PS2 engine has no font).\n"
-            "Show/hide them from the flow graph: Set Text Visible.");
-
-    // Live bars (docs/hud-animation.md). They draw above the whole stack,
-    // under the texts, so like the texts they sit outside the reorderable list.
-    ImGui::SeparatorText("Bars");
-    for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
-        ImGui::PushID(2000 + i);
-        if (ImGui::Selectable(project_.hudBars[i].name.c_str(),
-                              uiFxSel_ == 9 && selectedBar_ == i)) {
-            uiFxSel_ = 9;
-            selectedBar_ = i;
-        }
-        ImGui::PopID();
-    }
-    if (ImGui::SmallButton("+ Add bar")) {
+    };
+    auto addBar = [&]() {
         HudBar b;
-        int suffix = 1;
-        auto taken = [&](const std::string& n) {
+        b.name = uniqueName("bar", [&](const std::string& s) {
             for (const HudBar& e : project_.hudBars)
-                if (e.name == n) return true;
+                if (e.name == s) return true;
             return false;
-        };
-        while (taken(suffix == 1 ? "bar" : "bar-" + std::to_string(suffix)))
-            ++suffix;
-        b.name = suffix == 1 ? "bar" : "bar-" + std::to_string(suffix);
+        });
         // Stack new bars down the top-left corner instead of on top of each
-        // other, so three "+ Add bar" clicks are three visible bars.
+        // other, so three new bars are three visible bars.
         b.pos[0] = 0.22f;
         b.pos[1] = 0.08f + 0.05f * (float)project_.hudBars.size();
         project_.hudBars.push_back(std::move(b));
@@ -2701,479 +3024,856 @@ void App::drawUiEditorWindow() {
         selectedBar_ = (int)project_.hudBars.size() - 1;
         hudBarPreview_ = -1.0f;
         changed = true;
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Health, stamina, progress: a fill sized from a save value or the\n"
-            "Set HUD Bar node every frame. Nothing is baked - 2-4 sprites each.");
+    };
+    auto isPlaced = [&](const std::string& key) {
+        for (const ScreenFxPlacement& f : project_.screenFx)
+            if (f.key == key) return true;
+        return false;
+    };
+    auto addFx = [&](const CustomScreenFx* e) {
+        ScreenFxPlacement f;
+        f.key = e->key;
+        f.layer = -1;  // topmost by default
+        f.enabled = true;
+        for (int i = 0; i < 4; ++i) f.params[i] = e->paramDefault[i];
+        project_.screenFx.push_back(std::move(f));
+        uiFxSel_ = 5;
+        selectedFx_ = (int)project_.screenFx.size() - 1;
+        changed = true;
+    };
+    auto openDoc = [](const char* page) {
+        platform::openUrl(std::string("https://github.com/") + update::kRepo + docsBase() + page + ".md");
+    };
 
-    // Inline text icons. They belong to no single element - ANY text in the
-    // project can splice one in - so they get their own modal rather than a
-    // slot in the screen stack.
-    ImGui::SeparatorText("Button icons");
-    if (ImGui::SmallButton("Manage icons..."))
-        ImGui::OpenPopup("Button icons");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Images any text can splice in with a {{name}} placeholder:\n"
-            "\"Press {{cross}} to jump\". {{action:jump}} draws whatever\n"
-            "that action is bound to right now. Seeded with the pad buttons.");
-    drawTextIconsModal();
-
-    // Custom screen effects loaded from screen-effects/*.screenfx. Effects not
-    // yet placed in the stack are offered here with a "+ Add"; management
-    // (reload / scaffold / jump) mirrors the Flow Graph "Custom nodes..." menu.
-    ImGui::SeparatorText("Screen effects");
+    // --- header: preview options ---------------------------------------------
     {
-        auto isPlaced = [&](const std::string& key) {
-            for (const ScreenFxPlacement& f : project_.screenFx)
-                if (f.key == key) return true;
-            return false;
-        };
-        auto addToStack = [&](const CustomScreenFx* e) {
-            ScreenFxPlacement f;
-            f.key = e->key;
-            f.layer = -1;  // topmost by default
-            f.enabled = true;
-            for (int i = 0; i < 4; ++i) f.params[i] = e->paramDefault[i];
-            project_.screenFx.push_back(std::move(f));
-            uiFxSel_ = 5;
-            selectedFx_ = (int)project_.screenFx.size() - 1;
-            changed = true;
-        };
-        int unplaced = 0;
-        for (const auto& e : customScreenEffects()) {
-            if (isPlaced(e->key)) continue;
-            ++unplaced;
-            ImGui::PushID(("addfx" + e->key).c_str());
-            if (ImGui::SmallButton("+ Add")) addToStack(e.get());
-            ImGui::SameLine();
-            ImGui::TextUnformatted(e->title.c_str());
-            ImGui::PopID();
-        }
-        if (customScreenEffects().empty())
-            ImGui::TextDisabled("None. New starter effect below,\nor drop a "
-                                ".screenfx in screen-effects/.");
-        else if (unplaced == 0)
-            ImGui::TextDisabled("All %d effect(s) placed in the stack.",
-                                (int)customScreenEffects().size());
-
-        if (ImGui::SmallButton("Custom effects...")) ImGui::OpenPopup("##customfx");
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("HUD drawn over every scene");
+        static const char* kBg[] = {"Scene", "Checker", "Black"};
+        float segW = 6.0f;
+        for (const char* l : kBg) segW += ImGui::CalcTextSize(l).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        const float sp = ImGui::GetStyle().ItemSpacing.x;
+        const float swW = ImGui::CalcTextSize("In viewport").x + IM_TRUNC(fs * 1.05f) * 1.8f +
+                          ImGui::GetStyle().ItemInnerSpacing.x;
+        const float total = segW + sp + ui::FilterChipWidth("Animations") + sp +
+                            ui::FilterChipWidth("Safe area") + sp * 3.0f + swW;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + sp * 2.0f, right - total));
+        ui::Segmented("##uiprevbg", kBg, 3, &uiPrevBg_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("What the preview draws behind the HUD. Scene = the\n"
+                              "viewport's current frame.");
         ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Low-level full-screen effects (GS blits, like bloom/grain),\n"
-                "written in screen-effects/*.screenfx. See\n"
-                "docs/custom-screen-effects.md.");
-        if (ImGui::BeginPopup("##customfx")) {
-            ImGui::TextDisabled("%d loaded from screen-effects/",
-                                (int)customScreenEffects().size());
+        if (ui::FilterChip("Animations", uiPrevAnimate_)) uiPrevAnimate_ = !uiPrevAnimate_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Run the looped animations (Pulse, Bob...) in the\n"
+                              "preview, on the same formula the game uses.");
+        ImGui::SameLine();
+        if (ui::FilterChip("Safe area", uiPrevSafe_)) uiPrevSafe_ = !uiPrevSafe_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("The inner 90%% of the screen: what a CRT TV is sure to show.");
+        ImGui::SameLine(0.0f, sp * 2.0f);
+        ui::Switch("In viewport", &showHudInEditor_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Also draw the HUD over the 3D viewport (as the game\n"
+                              "starts: hidden-at-start elements are left out).");
+    }
+    ImGui::Dummy(ImVec2(0.0f, fs * 0.15f));
+
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float totalW = ImGui::GetContentRegionAvail().x;
+    const float leftW = ImMin(scaled(252), totalW * 0.28f);
+    const float rightW = ImMin(scaled(316), totalW * 0.34f);
+    const float midW = ImMax(scaled(120), totalW - leftW - rightW - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+
+    // --- left: On screen ------------------------------------------------------
+    ImGui::BeginChild("##ui_stack", ImVec2(leftW, bodyH), ImGuiChildFlags_None);
+    {
+        const int total = (int)project_.hudTexts.size() + (int)project_.hudBars.size() + n + nFx + 7;
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "%d", total);
+        const float addW = ImGui::CalcTextSize("Add").x + ImGui::GetStyle().FramePadding.x * 2.0f + fs;
+        ImGui::AlignTextToFramePadding();
+        const ImVec2 cp = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(1.0f, ImGui::GetFrameHeight()));
+        {
+            // Small caps caption without ui::Caption's hairline (the Add
+            // button shares the row).
+            ImFont* bf = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+            const float cfs = IM_TRUNC(fs * 0.78f);
+            const float y = cp.y + (ImGui::GetFrameHeight() - cfs) * 0.5f;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            float x = cp.x + fs * 0.3f;
+            for (const char* c = "ON SCREEN"; *c; ++c) {
+                const char s[2] = {*c, 0};
+                dl->AddText(bf, cfs, ImVec2(x, y), tint(sem.textDim), s);
+                x += bf->CalcTextSizeA(cfs, FLT_MAX, 0.0f, s).x + cfs * 0.08f;
+            }
+            dl->AddText(ImGui::GetFont(), cfs, ImVec2(x + cfs * 0.6f, y), tint(sem.textDim, 0.7f), cnt);
+        }
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - addW);
+        if (ImGui::Button("Add", ImVec2(addW, 0))) ImGui::OpenPopup("##ui_add");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Add an image, a text, a bar or a custom screen effect.");
+        if (ImGui::BeginPopup("##ui_add")) {
+            if (ImGui::MenuItem("Image (PNG)...")) importHudImage();
+            if (ImGui::MenuItem("Text")) addText();
+            if (ImGui::MenuItem("Bar")) addBar();
             ImGui::Separator();
-            if (ImGui::MenuItem("Reload from folder")) {
-                const std::string msg = screenfx::loadForProject(project_.dir);
-                // Drop placements whose effect file vanished on reload.
-                for (size_t i = project_.screenFx.size(); i-- > 0;)
-                    if (!customScreenFx(project_.screenFx[i].key))
-                        project_.screenFx.erase(project_.screenFx.begin() + i);
-                statusMessage_ = msg.empty()
-                                     ? "No custom effects found in screen-effects/"
-                                     : msg;
-                changed = true;
+            int unplaced = 0;
+            for (const auto& e : customScreenEffects()) {
+                if (isPlaced(e->key)) continue;
+                ++unplaced;
+                ImGui::PushID(e->key.c_str());
+                if (ImGui::MenuItem(("Effect: " + e->title).c_str())) addFx(e.get());
+                ImGui::PopID();
             }
-            if (ImGui::MenuItem("New starter effect (example.screenfx)")) {
-                const std::string path = screenfx::writeExample(project_.dir);
-                if (path.rfind("error:", 0) == 0) {
-                    statusMessage_ = path;
-                } else {
-                    screenfx::loadForProject(project_.dir);
-                    statusMessage_ = "Wrote " + path + " - edit it, then Reload";
+            if (unplaced == 0)
+                ImGui::TextDisabled(customScreenEffects().empty()
+                                        ? "No custom effects in screen-effects/"
+                                        : "Every custom effect is placed");
+            // Custom screen effects loaded from screen-effects/*.screenfx;
+            // management mirrors the Flow Graph "Custom nodes..." menu.
+            if (ImGui::BeginMenu("Custom effects")) {
+                ImGui::TextDisabled("%d loaded from screen-effects/", (int)customScreenEffects().size());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Reload from folder")) {
+                    const std::string msg = screenfx::loadForProject(project_.dir);
+                    // Drop placements whose effect file vanished on reload.
+                    for (size_t i = project_.screenFx.size(); i-- > 0;)
+                        if (!customScreenFx(project_.screenFx[i].key))
+                            project_.screenFx.erase(project_.screenFx.begin() + i);
+                    selectedFx_ = -1;
+                    statusMessage_ = msg.empty() ? "No custom effects found in screen-effects/" : msg;
+                    changed = true;
                 }
-            }
-            if (ImGui::BeginMenu("Jump to effect file",
-                                 !customScreenEffects().empty())) {
-                for (const auto& e : customScreenEffects())
-                    if (ImGui::MenuItem(e->title.c_str()))
-                        openInVSCode(e->sourceFile);
+                if (ImGui::MenuItem("New starter effect (example.screenfx)")) {
+                    const std::string path = screenfx::writeExample(project_.dir);
+                    if (path.rfind("error:", 0) == 0) {
+                        statusMessage_ = path;
+                    } else {
+                        screenfx::loadForProject(project_.dir);
+                        statusMessage_ = "Wrote " + path + " - edit it, then Reload";
+                    }
+                }
+                if (ImGui::BeginMenu("Jump to effect file", !customScreenEffects().empty())) {
+                    for (const auto& e : customScreenEffects())
+                        if (ImGui::MenuItem(e->title.c_str())) openInVSCode(e->sourceFile);
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("How custom effects work")) openDoc("custom-screen-effects");
                 ImGui::EndMenu();
             }
             ImGui::EndPopup();
         }
     }
-
-    ImGui::SeparatorText("Screen stack");
-    ImGui::TextDisabled("Top entry draws last (on top).\nDrag to reorder.");
-    // The USE prompt is part of the screen, but pinned: it always draws
-    // above the HUD stack (and under menus), and cannot be deleted.
-    if (ImGui::Selectable("[ USE prompt ]", uiFxSel_ == 3)) uiFxSel_ = 3;
-    for (int r = 0; r < (int)order.size(); ++r) {
-        const int id = order[r];
-        ImGui::PushID(r);
-        bool isSel;
-        std::string label;
-        bool dim = false;  // disabled custom effect
-        if (id == kBloomMark) {
-            isSel = uiFxSel_ == 1;
-            label = "[ Bloom + color grading ]";
-        } else if (id == kGrainMark) {
-            isSel = uiFxSel_ == 2;
-            label = "[ Film grain ]";
-        } else if (id == kMotionBlurMark) {
-            isSel = uiFxSel_ == 10;
-            label = "[ Motion blur ]";
-        } else if (isFxMark(id)) {
-            const int fi = fxMarkIndex(id);
-            const ScreenFxPlacement& pl = project_.screenFx[fi];
-            const CustomScreenFx* e = customScreenFx(pl.key);
-            isSel = uiFxSel_ == 5 && selectedFx_ == fi;
-            label = "[ FX: " + (e ? e->title : pl.key) + " ]";
-            dim = !pl.enabled;
-            if (dim) label += "  (off)";
-        } else {
-            isSel = uiFxSel_ == 0 && selectedHud_ == id;
-            label = project_.hud[id].name;
-        }
-        if (dim) ImGui::PushStyleColor(ImGuiCol_Text,
-                                       ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        if (ImGui::Selectable(label.c_str(), isSel)) {
-            if (id == kBloomMark) uiFxSel_ = 1;
-            else if (id == kGrainMark) uiFxSel_ = 2;
-            else if (id == kMotionBlurMark) uiFxSel_ = 10;
-            else if (isFxMark(id)) { uiFxSel_ = 5; selectedFx_ = fxMarkIndex(id); }
-            else { uiFxSel_ = 0; selectedHud_ = id; }
-        }
-        if (dim) ImGui::PopStyleColor();
-        // Drag to reorder: swap with the neighbor the cursor moved towards,
-        // then rebuild the model from the new order.
-        if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
-            const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
-            if (dst >= 0 && dst < (int)order.size()) {
-                // Remember the selected image / effect so its selection
-                // survives the reorder (indices shift; identity does not).
-                const bool hadHud =
-                    uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
-                HudImage selHud;
-                if (hadHud) selHud = project_.hud[selectedHud_];
-                const bool hadFx = uiFxSel_ == 5 && selectedFx_ >= 0 &&
-                                   selectedFx_ < (int)project_.screenFx.size();
-                ScreenFxPlacement selFx;
-                if (hadFx) selFx = project_.screenFx[selectedFx_];
-
-                std::swap(order[r], order[dst]);
-                std::vector<int> s(order.rbegin(), order.rend());
-                rebuild(s);
-
-                if (hadHud)
-                    for (int i = 0; i < (int)project_.hud.size(); ++i)
-                        if (project_.hud[i] == selHud) { selectedHud_ = i; break; }
-                if (hadFx)
-                    for (int i = 0; i < (int)project_.screenFx.size(); ++i)
-                        if (project_.screenFx[i] == selFx) { selectedFx_ = i; break; }
-                ImGui::ResetMouseDragDelta();
+    const float footH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2.0f + 1.0f;
+    ImGui::BeginChild("##ui_rows", ImVec2(0, ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().y - footH)));
+    {
+        // Texts draw above the whole HUD stack (under menus).
+        listHead("Texts \xC2\xB7 always on top", "draws last");
+        for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
+            HudText& t = project_.hudTexts[i];
+            ImGui::PushID(1000 + i);
+            const char* meta = t.anim.kind != hudanim::None ? hudanim::kindName(t.anim.kind) : "";
+            const RowResult r = screenRow(t.name.c_str(), meta, "T", sem.warn,
+                                          uiFxSel_ == 4 && selectedText_ == i, !t.visibleAtStart, false,
+                                          &t.visibleAtStart);
+            if (r.eye) {
+                t.visibleAtStart = !t.visibleAtStart;
                 changed = true;
+            } else if (r.clicked) {
+                uiFxSel_ = 4;
+                selectedText_ = i;
+            }
+            ImGui::PopID();
+        }
+        if (project_.hudTexts.empty()) {
+            ImGui::Indent(fs * 0.4f);
+            ImGui::TextDisabled("None.");
+            ImGui::SameLine();
+            if (ImGui::TextLink("Add a text")) addText();
+            ImGui::Unindent(fs * 0.4f);
+        }
+
+        // Live bars (docs/hud-animation.md): above the stack, under the texts.
+        listHead("Bars");
+        for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+            HudBar& b = project_.hudBars[i];
+            ImGui::PushID(2000 + i);
+            std::string meta;
+            if (!b.source.empty()) meta = "save \xC2\xB7 " + b.source;
+            else if (b.kind == 1) meta = std::to_string(b.segments) + " seg";
+            if (b.anim.kind != hudanim::None)
+                meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(hudanim::kindName(b.anim.kind));
+            const RowResult r = screenRow(b.name.c_str(), meta.c_str(), "B", sem.danger,
+                                          uiFxSel_ == 9 && selectedBar_ == i, !b.visibleAtStart, false,
+                                          &b.visibleAtStart);
+            if (r.eye) {
+                b.visibleAtStart = !b.visibleAtStart;
+                changed = true;
+            } else if (r.clicked) {
+                if (!(uiFxSel_ == 9 && selectedBar_ == i)) hudBarPreview_ = -1.0f;
+                uiFxSel_ = 9;
+                selectedBar_ = i;
+            }
+            ImGui::PopID();
+        }
+        if (project_.hudBars.empty()) {
+            ImGui::Indent(fs * 0.4f);
+            ImGui::TextDisabled("None.");
+            ImGui::SameLine();
+            if (ImGui::TextLink("Add a bar")) addBar();
+            ImGui::Unindent(fs * 0.4f);
+        }
+
+        listHead("Images & screen effects", "drag to reorder");
+        // The USE prompt is part of the screen, but pinned: it always draws
+        // above the HUD stack (and under menus), and cannot be deleted.
+        if (screenRow("USE prompt", project_.usePromptIsText ? "text" : "image", "P", sem.accent,
+                      uiFxSel_ == 3, false, false, nullptr)
+                .clicked)
+            uiFxSel_ = 3;
+        auto pct = [](float v) {
+            char b[16];
+            std::snprintf(b, sizeof(b), "%.0f%%", v * 100.0f);
+            return std::string(b);
+        };
+        auto lvl = [](float v) {
+            char b[16];
+            std::snprintf(b, sizeof(b), "%.2f", v);
+            return std::string(b);
+        };
+        for (int r = 0; r < (int)order.size(); ++r) {
+            const int id = order[r];
+            ImGui::PushID(r);
+            bool isSel;
+            std::string label, meta;
+            const char* badge = "fx";
+            ImVec4 bcol = sem.special;
+            bool dim = false;
+            HudImage* img = nullptr;
+            if (id == kBloomMark) {
+                isSel = uiFxSel_ == 1;
+                label = "Bloom + color grading";
+                dim = project_.settings.bloom <= 0.0f;
+                meta = dim ? "off" : lvl(project_.settings.bloom);
+            } else if (id == kGrainMark) {
+                isSel = uiFxSel_ == 2;
+                label = "Film grain";
+                dim = project_.settings.grain <= 0.0f;
+                meta = dim ? "off" : lvl(project_.settings.grain);
+            } else if (id == kMotionBlurMark) {
+                isSel = uiFxSel_ == 10;
+                label = "Motion blur";
+                dim = project_.settings.motionBlur <= 0.0f;
+                meta = dim ? "off" : pct(project_.settings.motionBlur);
+            } else if (isFxMark(id)) {
+                const int fi = fxMarkIndex(id);
+                const ScreenFxPlacement& pl = project_.screenFx[fi];
+                const CustomScreenFx* e = customScreenFx(pl.key);
+                isSel = uiFxSel_ == 5 && selectedFx_ == fi;
+                label = (e ? e->title : pl.key) + "##fx" + pl.key;
+                dim = !pl.enabled;
+                meta = !e ? "missing" : dim ? "off" : "custom";
+            } else {
+                img = &project_.hud[id];
+                isSel = uiFxSel_ == 0 && selectedHud_ == id;
+                label = img->name.empty() ? "(image)##hud" + std::to_string(id) : img->name;
+                badge = "I";
+                bcol = sem.ok;
+                dim = !img->visibleAtStart;
+                if (img->anim.kind != hudanim::None) meta = hudanim::kindName(img->anim.kind);
+            }
+            const RowResult rr = screenRow(label.c_str(), meta.c_str(), badge, bcol, isSel, dim, true,
+                                           img ? &img->visibleAtStart : nullptr);
+            if (rr.eye && img) {
+                img->visibleAtStart = !img->visibleAtStart;
+                changed = true;
+            } else if (rr.clicked) {
+                if (id == kBloomMark) uiFxSel_ = 1;
+                else if (id == kGrainMark) uiFxSel_ = 2;
+                else if (id == kMotionBlurMark) uiFxSel_ = 10;
+                else if (isFxMark(id)) {
+                    uiFxSel_ = 5;
+                    selectedFx_ = fxMarkIndex(id);
+                } else {
+                    uiFxSel_ = 0;
+                    selectedHud_ = id;
+                }
+            }
+            // Drag to reorder: swap with the neighbor the cursor moved towards,
+            // then rebuild the model from the new order.
+            if (rr.active && !rr.hovered) {
+                const int dst = r + (ImGui::GetMouseDragDelta(0).y < 0.0f ? -1 : 1);
+                if (dst >= 0 && dst < (int)order.size()) {
+                    // Remember the selected image / effect so its selection
+                    // survives the reorder (indices shift; identity does not).
+                    const bool hadHud = uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n;
+                    HudImage selHud;
+                    if (hadHud) selHud = project_.hud[selectedHud_];
+                    const bool hadFx = uiFxSel_ == 5 && selectedFx_ >= 0 &&
+                                       selectedFx_ < (int)project_.screenFx.size();
+                    ScreenFxPlacement selFx;
+                    if (hadFx) selFx = project_.screenFx[selectedFx_];
+
+                    std::swap(order[r], order[dst]);
+                    std::vector<int> s(order.rbegin(), order.rend());
+                    rebuild(s);
+
+                    if (hadHud)
+                        for (int i = 0; i < (int)project_.hud.size(); ++i)
+                            if (project_.hud[i] == selHud) {
+                                selectedHud_ = i;
+                                break;
+                            }
+                    if (hadFx)
+                        for (int i = 0; i < (int)project_.screenFx.size(); ++i)
+                            if (project_.screenFx[i] == selFx) {
+                                selectedFx_ = i;
+                                break;
+                            }
+                    ImGui::ResetMouseDragDelta();
+                    changed = true;
+                    ImGui::PopID();
+                    break;  // `order` no longer matches the model
+                }
+            }
+            ImGui::PopID();
+        }
+        // Depth of field, god rays and the lens flare are pinned under the
+        // whole stack: they composite right after the 3D scene (DoF is
+        // z-tested per pixel, and sprites stamp z across their full rect).
+        auto pinned = [&](const char* label, int sel, float v) {
+            if (screenRow(label, v <= 0.0f ? "off" : lvl(v).c_str(), "fx", sem.special, uiFxSel_ == sel,
+                          v <= 0.0f, false, nullptr)
+                    .clicked)
+                uiFxSel_ = sel;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Pinned under the whole stack: it draws right after the\n"
+                                  "3D scene, so every HUD entry stays crisp.");
+        };
+        pinned("Depth of field", 6, project_.settings.dofAmount);
+        pinned("God rays", 8, project_.settings.godRays);
+        pinned("Lens flare", 7, project_.settings.flare);
+        if (project_.hud.empty()) {
+            // The empty image slot says what to do, not just that it is empty.
+            ImGui::Dummy(ImVec2(0.0f, fs * 0.4f));
+            const float w = ImGui::GetContentRegionAvail().x;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float wrap = w - fs * 1.6f;
+            const char* msg = "No HUD images yet. Effects above an image draw over it.";
+            const ImVec2 ts = ImGui::CalcTextSize(msg, nullptr, false, wrap);
+            const float h = ts.y + ImGui::GetTextLineHeightWithSpacing() + fs * 1.4f;
+            dashedRect(ImGui::GetWindowDrawList(), ImVec2(p.x + 2, p.y), ImVec2(p.x + w - 2, p.y + h),
+                       tint(sem.textDim, 0.45f), fs * 0.3f);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.8f, p.y + fs * 0.6f));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+            ImGui::TextDisabled("%s", msg);
+            ImGui::PopTextWrapPos();
+            ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.8f, ImGui::GetCursorScreenPos().y));
+            if (ImGui::TextLink("Import image (PNG)...")) importHudImage();
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + fs * 0.3f));
+            ImGui::Dummy(ImVec2(1, 1));
+        }
+    }
+    ImGui::EndChild();  // ##ui_rows
+    // Shared assets, not layers: inline button icons and the font list.
+    {
+        ImGui::Separator();
+        char lbl[64];
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        std::snprintf(lbl, sizeof(lbl), "Button icons \xC2\xB7 %d###uiicons", (int)project_.textIcons.size());
+        if (ImGui::Button(lbl, ImVec2(half, 0))) ImGui::OpenPopup("Button icons");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Images any text can splice in with a {{name}} placeholder:\n"
+                              "\"Press {{cross}} to jump\". {{action:jump}} draws whatever\n"
+                              "that action is bound to right now.");
+        ImGui::SameLine();
+        std::snprintf(lbl, sizeof(lbl), "Fonts \xC2\xB7 %d###uifonts", (int)project_.fonts.size());
+        if (ImGui::Button(lbl, ImVec2(-FLT_MIN, 0))) showFontManager_ = true;
+        drawTextIconsModal();
+    }
+    ImGui::EndChild();  // ##ui_stack
+
+    // --- centre: the preview ----------------------------------------------------
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.ground);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGui::GetStyle().FrameRounding + 2.0f);
+    ImGui::BeginChild("##ui_preview", ImVec2(midW, bodyH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 org = ImGui::GetCursorScreenPos();
+        const float margin = fs;
+        const float readH = ImGui::GetTextLineHeightWithSpacing() * 1.4f;
+        float fw = avail.x - margin * 2.0f;
+        float fh = fw * 448.0f / 512.0f;
+        if (fh > avail.y - margin * 2.0f - readH) {
+            fh = ImMax(fs * 4.0f, avail.y - margin * 2.0f - readH);
+            fw = fh * 512.0f / 448.0f;
+        }
+        fw = IM_TRUNC(fw);
+        fh = IM_TRUNC(fh);
+        const ImVec2 f0(IM_TRUNC(org.x + (avail.x - fw) * 0.5f),
+                        IM_TRUNC(org.y + ImMax(margin, (avail.y - fh - readH) * 0.5f)));
+        const ImVec2 f1(f0.x + fw, f0.y + fh);
+        const ImVec2 fSize(fw, fh);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+
+        // Background.
+        int bg = uiPrevBg_;
+        if (bg == 0 && (!uiSceneTex_ || uiSceneTexW_ <= 0 || uiSceneTexH_ <= 0)) bg = 1;
+        if (bg == 0) {
+            // The viewport's frame, centre-cropped to 512:448. GL textures are
+            // bottom-up, hence the swapped v.
+            const float a = 512.0f / 448.0f, ta = (float)uiSceneTexW_ / (float)uiSceneTexH_;
+            float u0 = 0.0f, u1 = 1.0f, vTop = 1.0f, vBot = 0.0f;
+            if (ta > a) {
+                const float k = a / ta;
+                u0 = 0.5f - k * 0.5f;
+                u1 = 0.5f + k * 0.5f;
+            } else {
+                const float k = ta / a;
+                vTop = 0.5f + k * 0.5f;
+                vBot = 0.5f - k * 0.5f;
+            }
+            dl->AddImage((ImTextureID)(intptr_t)uiSceneTex_, f0, f1, ImVec2(u0, vTop), ImVec2(u1, vBot));
+        } else if (bg == 1) {
+            dl->AddRectFilled(f0, f1, tint(sem.field));
+            const float cell = 16.0f / 512.0f * fw;
+            int row = 0;
+            for (float y = f0.y; y < f1.y; y += cell, ++row) {
+                int col = row & 1;
+                for (float x = f0.x; x < f1.x; x += cell, ++col)
+                    if (col & 1)
+                        dl->AddRectFilled(ImVec2(x, y), ImVec2(ImMin(x + cell, f1.x), ImMin(y + cell, f1.y)),
+                                          tint(sem.surface));
+            }
+        } else {
+            dl->AddRectFilled(f0, f1, IM_COL32(0, 0, 0, 255));
+        }
+
+        std::vector<HudHit> hits;
+        dl->PushClipRect(f0, f1, true);
+        drawHudFrame(dl, f0, fSize, true, uiPrevAnimate_ ? (float)ImGui::GetTime() : 0.0f, &hits);
+        if (uiPrevSafe_)
+            dashedRect(dl, ImVec2(f0.x + fw * 0.05f, f0.y + fh * 0.05f),
+                       ImVec2(f1.x - fw * 0.05f, f1.y - fh * 0.05f), IM_COL32(255, 255, 255, 80), fs * 0.3f);
+        dl->PopClipRect();
+        dl->AddRect(ImVec2(f0.x - 1, f0.y - 1), ImVec2(f1.x + 1, f1.y + 1), tint(sem.border));
+
+        // The selection and its handles. Texts size from their bake (font
+        // size), and a text USE prompt too - only images and bars resize here.
+        int selKind = -1, selIdx = -1;
+        if (uiFxSel_ == 0 && selectedHud_ >= 0) selKind = 0, selIdx = selectedHud_;
+        else if (uiFxSel_ == 9 && selectedBar_ >= 0) selKind = 9, selIdx = selectedBar_;
+        else if (uiFxSel_ == 3) selKind = 3, selIdx = 0;
+        else if (uiFxSel_ == 4 && selectedText_ >= 0) selKind = 4, selIdx = selectedText_;
+        auto posOf = [&](int k, int i) -> float* {
+            switch (k) {
+                case 0: return project_.hud[i].pos;
+                case 9: return project_.hudBars[i].pos;
+                case 3: return project_.usePrompt.pos;
+                case 4: return project_.hudTexts[i].pos;
+                default: return nullptr;
+            }
+        };
+        auto sizeOf = [&](int k, int i) -> float* {
+            switch (k) {
+                case 0: return project_.hud[i].size;
+                case 9: return project_.hudBars[i].size;
+                case 3: return project_.usePromptIsText ? nullptr : project_.usePrompt.size;
+                default: return nullptr;
+            }
+        };
+        const HudHit* selHit = nullptr;
+        for (const HudHit& h : hits)
+            if (h.sel == selKind && h.index == selIdx) selHit = &h;
+        const float hs = IM_TRUNC(scaled(8.0f));
+        ImVec2 corner[4];
+        if (selHit) {
+            const ImVec2 a(selHit->min.x - 3, selHit->min.y - 3), b(selHit->max.x + 3, selHit->max.y + 3);
+            corner[0] = a;
+            corner[1] = ImVec2(b.x, a.y);
+            corner[2] = ImVec2(a.x, b.y);
+            corner[3] = b;
+        }
+
+        // Direct manipulation: one canvas item over the frame. Press picks the
+        // handle under the cursor, else the topmost element (selecting it);
+        // dragging moves it (normalized position) or resizes it about its
+        // centre (512x448 pixels). The model commits on release.
+        ImGui::SetCursorScreenPos(f0);
+        ImGui::InvisibleButton("HUD preview canvas", fSize);
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        auto inRect = [&](ImVec2 a, ImVec2 b, float pad) {
+            return mp.x >= a.x - pad && mp.x <= b.x + pad && mp.y >= a.y - pad && mp.y <= b.y + pad;
+        };
+        if (ImGui::IsItemActivated()) {
+            uiDragMode_ = 0;
+            if (selHit && sizeOf(selKind, selIdx))
+                for (int c = 0; c < 4; ++c)
+                    if (inRect(corner[c], corner[c], hs * 0.75f)) uiDragMode_ = 2 + c;
+            if (uiDragMode_ == 0) {
+                for (int i = (int)hits.size() - 1; i >= 0; --i)
+                    if (inRect(hits[i].min, hits[i].max, 2.0f)) {
+                        const HudHit& h = hits[i];
+                        if (h.sel == 9 && !(uiFxSel_ == 9 && selectedBar_ == h.index)) hudBarPreview_ = -1.0f;
+                        uiFxSel_ = h.sel;
+                        if (h.sel == 0) selectedHud_ = h.index;
+                        else if (h.sel == 9) selectedBar_ = h.index;
+                        else if (h.sel == 4) selectedText_ = h.index;
+                        selKind = h.sel;
+                        selIdx = h.index;
+                        uiDragMode_ = 1;
+                        break;
+                    }
             }
         }
-        ImGui::PopID();
+        if (ImGui::IsItemActive() && uiDragMode_ != 0 && selKind >= 0) {
+            const ImVec2 d = ImGui::GetIO().MouseDelta;
+            if (d.x != 0.0f || d.y != 0.0f) {
+                if (uiDragMode_ == 1) {
+                    if (float* p = posOf(selKind, selIdx)) {
+                        p[0] = ImClamp(p[0] + d.x / fw, 0.0f, 1.0f);
+                        p[1] = ImClamp(p[1] + d.y / fh, 0.0f, 1.0f);
+                    }
+                } else if (float* s = sizeOf(selKind, selIdx)) {
+                    const int c = uiDragMode_ - 2;
+                    const float sx = (c == 1 || c == 3) ? 1.0f : -1.0f;
+                    const float sy = (c >= 2) ? 1.0f : -1.0f;
+                    s[0] = ImClamp(std::round(s[0] + sx * 2.0f * d.x * 512.0f / fw), 1.0f, 512.0f);
+                    s[1] = ImClamp(std::round(s[1] + sy * 2.0f * d.y * 448.0f / fh), 1.0f, 512.0f);
+                }
+            }
+        }
+        if (ImGui::IsItemDeactivated()) {
+            if (uiDragMode_ != 0) changed = true;
+            uiDragMode_ = 0;
+        }
+        if (ImGui::IsItemHovered() && uiDragMode_ == 0 && selHit && sizeOf(selKind, selIdx))
+            for (int c = 0; c < 4; ++c)
+                if (inRect(corner[c], corner[c], hs * 0.75f))
+                    ImGui::SetMouseCursor(c == 0 || c == 3 ? ImGuiMouseCursor_ResizeNWSE
+                                                           : ImGuiMouseCursor_ResizeNESW);
+        // Arrow keys nudge the selection 1 px (Shift: 8 px) while the window
+        // has focus and no field is being typed into.
+        if (selKind >= 0 && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive()) {
+            const float step = ImGui::GetIO().KeyShift ? 8.0f : 1.0f;
+            float dx = 0.0f, dy = 0.0f;
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) dx -= step;
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) dx += step;
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) dy -= step;
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) dy += step;
+            if (dx != 0.0f || dy != 0.0f)
+                if (float* p = posOf(selKind, selIdx)) {
+                    p[0] = ImClamp(p[0] + dx / 512.0f, 0.0f, 1.0f);
+                    p[1] = ImClamp(p[1] + dy / 448.0f, 0.0f, 1.0f);
+                    changed = true;
+                }
+        }
+
+        if (selHit) {
+            dl->PushClipRect(ImVec2(f0.x - hs, f0.y - hs), ImVec2(f1.x + hs, f1.y + hs), true);
+            dl->AddRect(corner[0], corner[3], tint(sem.accent), 2.0f, 0, 1.5f);
+            if (sizeOf(selKind, selIdx))
+                for (int c = 0; c < 4; ++c) {
+                    const ImVec2 a(corner[c].x - hs * 0.5f, corner[c].y - hs * 0.5f);
+                    const ImVec2 b(corner[c].x + hs * 0.5f, corner[c].y + hs * 0.5f);
+                    dl->AddRectFilled(a, b, IM_COL32(255, 255, 255, 255));
+                    dl->AddRect(a, b, tint(sem.accent), 0.0f, 0, 1.5f);
+                }
+            dl->PopClipRect();
+            // Readout under the box: name, size in 512x448 pixels, fill.
+            char rd[160];
+            const float bw = (selHit->max.x - selHit->min.x) * 512.0f / fw;
+            const float bh = (selHit->max.y - selHit->min.y) * 448.0f / fh;
+            std::string nm = selKind == 0   ? project_.hud[selIdx].name
+                             : selKind == 9 ? project_.hudBars[selIdx].name
+                             : selKind == 4 ? project_.hudTexts[selIdx].name
+                                            : std::string("USE prompt");
+            if (selKind == 9) {
+                const HudBar& b = project_.hudBars[selIdx];
+                float start = b.startValue;
+                if (!b.source.empty()) {
+                    start = b.minValue;
+                    for (const SaveValue& sv : project_.saveValues)
+                        if (sv.name == b.source) start = sv.value;
+                }
+                const float frac =
+                    hudBarPreview_ >= 0.0f ? hudBarPreview_ : hudanim::fraction(start, b.minValue, b.maxValue);
+                std::snprintf(rd, sizeof(rd), "%s \xC2\xB7 %.0f\xC3\x97%.0f \xC2\xB7 %.0f%%", nm.c_str(), bw, bh,
+                              frac * 100.0f);
+            } else {
+                std::snprintf(rd, sizeof(rd), "%s \xC2\xB7 %.0f\xC3\x97%.0f", nm.c_str(), bw, bh);
+            }
+            ImFont* mf = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float rfs = IM_TRUNC(fs * 0.86f);
+            const ImVec2 ts = mf->CalcTextSizeA(rfs, FLT_MAX, 0.0f, rd);
+            float rx = ImClamp(corner[0].x, f0.x, ImMax(f0.x, f1.x - ts.x - 10.0f));
+            float ry = corner[3].y + 6.0f;
+            if (ry + ts.y + 4.0f > f1.y) ry = corner[0].y - ts.y - 10.0f;
+            dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + ts.x + 10.0f, ry + ts.y + 4.0f),
+                              IM_COL32(14, 16, 21, 220), 4.0f);
+            dl->AddText(mf, rfs, ImVec2(rx + 5.0f, ry + 2.0f), IM_COL32(232, 234, 240, 255), rd);
+        }
+
+        // Footer readout.
+        {
+            char sc[64];
+            std::snprintf(sc, sizeof(sc), "512\xC3\x97" "448 \xC2\xB7 %.1f\xC3\x97", fw / 512.0f);
+            const char* hint = "Drag to move \xC2\xB7 handles resize \xC2\xB7 arrows nudge 1 px";
+            ImFont* mf = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float rfs = IM_TRUNC(fs * 0.9f);
+            const float w1 = mf->CalcTextSizeA(rfs, FLT_MAX, 0.0f, sc).x;
+            const float w2 = ImGui::GetFont()->CalcTextSizeA(rfs, FLT_MAX, 0.0f, hint).x;
+            const float tw = w1 + fs * 1.5f + w2;
+            const float y = f1.y + fs * 0.6f;
+            const float x = org.x + ImMax(0.0f, (avail.x - tw) * 0.5f);
+            dl->AddText(mf, rfs, ImVec2(x, y), tint(sem.textDim), sc);
+            dl->AddLine(ImVec2(x + w1 + fs * 0.75f, y + 2), ImVec2(x + w1 + fs * 0.75f, y + rfs - 2),
+                        tint(sem.border));
+            dl->AddText(ImGui::GetFont(), rfs, ImVec2(x + w1 + fs * 1.5f, y), tint(sem.textDim), hint);
+        }
     }
-    // Depth of field is pinned at the very bottom: it composites right after
-    // the 3D scene (per-pixel z-tested against scene depth), so it can never
-    // sit above a sprite - sprites stamp z = max across their whole rect and
-    // would punch sharp rectangles into the blur.
-    if (ImGui::Selectable("[ Depth of field ]", uiFxSel_ == 6)) uiFxSel_ = 6;
-    // God rays + lens flare are pinned with DoF: both draw right after the
-    // 3D scene (rays blur the scene itself, flare sprites sit under the HUD).
-    if (ImGui::Selectable("[ God rays ]", uiFxSel_ == 8)) uiFxSel_ = 8;
-    if (ImGui::Selectable("[ Lens flare ]", uiFxSel_ == 7)) uiFxSel_ = 7;
-    if (project_.hud.empty())
-        ImGui::TextDisabled("No HUD images yet.\nImport a PNG above.");
-    ImGui::EndChild();
+    ImGui::EndChild();  // ##ui_preview
 
+    // --- right: the inspector -----------------------------------------------------
     ImGui::SameLine();
+    ImGui::BeginChild("##ui_props", ImVec2(0, bodyH), ImGuiChildFlags_None);
+    ImGui::PushItemWidth(-FLT_MIN);
+    // Header: kind badge, the name (editable where flow nodes do not need it
+    // fixed - renames follow into the graphs), one line of context.
+    auto header = [&](const char* badge, const ImVec4& col, const char* title) {
+        const float bs = IM_TRUNC(fs * 2.1f);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        kindBadge(ImGui::GetWindowDrawList(), ImVec2(p.x + bs * 0.5f, p.y + bs * 0.5f), bs, badge, col);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + bs + fs * 0.6f, p.y));
+        ImGui::BeginGroup();
+        if (title) {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::TextUnformatted(title);
+        }
+        return std::make_pair(p, bs);
+    };
+    auto headerEnd = [&](std::pair<ImVec2, float> hp, const std::string& sub,
+                         const HudRefs* refs = nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(sub.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        if (refs && refs->nodes > 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+            std::string tip = "Flow nodes naming it, in:";
+            for (const std::string& w : refs->where) tip += "\n  " + w;
+            ImGui::SetTooltip("%s", tip.c_str());
+        }
+        ImGui::EndGroup();
+        const float y = ImMax(ImGui::GetCursorScreenPos().y, hp.first.y + hp.second + fs * 0.3f);
+        ImGui::SetCursorScreenPos(ImVec2(hp.first.x, y));
+        ImGui::Dummy(ImVec2(0.0f, fs * 0.2f));
+    };
+    // A name field drawn as a title: no frame until hovered, the heading cut.
+    auto nameField = [&](const char* label, std::string& name, float rightPad) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%s", name.c_str());
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 1.0f));
+        // The label stays the ID (scripts type into it) but is never drawn:
+        // the field is clipped to its own box, like the Properties header.
+        const float w = ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().x - rightPad);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::SetNextItemWidth(w);
+        bool edited;
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushClipRect(p, ImVec2(p.x + w, p.y + ImGui::GetFrameHeight() + 2.0f), true);
+            edited = ImGui::InputText(label, buf, sizeof(buf));
+            ImGui::PopClipRect();
+        }
+        // What follows on this line (the "..." button) goes after the FIELD,
+        // not after the invisible label InputText still lays out.
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos(ImVec2(p.x + w + ImGui::GetStyle().ItemSpacing.x, p.y));
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        if (edited) name = buf;
+        return edited;
+    };
+    auto effectNote = [&](const char* line, const char* doc) {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(line);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        if (doc && ImGui::TextLink("Read more")) openDoc(doc);
+    };
+    auto sceneNote = [&]() {
+        ImGui::TextDisabled("Per scene: Scene > Scene Preferences > Post effects.");
+    };
+    ui::InspectorRows rows(scaled(76), scaled(116));
 
-    // --- right: selected entry ------------------------------------------------
-    ImGui::BeginChild("##ui_props", ImVec2(0, 0));
     if (uiFxSel_ == 1) {
-        ImGui::SeparatorText("Bloom + color grading");
+        headerEnd(header("fx", sem.special, "Bloom + color grading"), "Screen effect \xC2\xB7 GS blits, no shaders");
+        ui::Caption("Glow");
         // The re-add FIX is a whole byte, so bloom can go to 2x - the extra
         // headroom is what a hot glow needs once the threshold has eaten part
         // of the emitter's energy.
-        ImGui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 2.0f, "%.2f");
+        ui::SliderFloat("Bloom", &project_.settings.bloom, 0.0f, 2.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How much of the blur is added back. Above 1.0\n"
-                              "the blur is over-added - blown-out, hot glow.");
-        ImGui::TextDisabled(
-            "GS framebuffer trick - no pixel shaders on the PS2. Quarter-res\n"
-            "blur re-added over the frame (soft glow).");
+        ui::RowHelp("How much of the quarter-res blur is added back. Above\n"
+                    "1.0 the blur is over-added - blown-out, hot glow.");
         // Bright pass: without it the whole picture glows (soft focus); with
-        // it only what is brighter than the cut blooms, which is what makes an
-        // emissive material read as a glowing object.
-        ImGui::SliderFloat("Threshold", &project_.settings.bloomThreshold, 0.0f,
-                           1.0f,
-                           project_.settings.bloomThreshold <= 0.0f
-                               ? "off - whole frame"
-                               : "%.2f");
+        // it only what is brighter than the cut blooms.
+        ui::SliderFloat("Threshold", &project_.settings.bloomThreshold, 0.0f, 1.0f,
+                        project_.settings.bloomThreshold <= 0.0f ? "off - whole frame" : "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Only pixels BRIGHTER than this contribute to the glow (the\n"
-                "GS subtracts it from the downsampled frame and clamps at 0).\n"
-                "0 = the classic soft-focus bloom over everything. Raise it to\n"
-                "~0.6 and the halo collapses onto emissive materials (Material\n"
-                "Editor > Glow), the sky and specular hits.");
-        ImGui::SliderFloat("Spread", &project_.settings.bloomSpread, 0.0f, 1.0f,
-                           "%.2f");
+        ui::RowHelp("Only pixels brighter than this glow. 0 = soft focus over\n"
+                    "everything; ~0.6 = only emissive materials, sky, highlights.");
+        ui::SliderFloat("Spread", &project_.settings.bloomSpread, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "How far the glow reaches. Extra blur rounds over the\n"
-                "quarter-res buffer, each with doubled tap offsets, so the\n"
-                "halo grows from a tight fringe to a wide corona. Costs 4\n"
-                "extra GS sprites per round and no EE time - but a very wide\n"
-                "glow over a busy frame reads as haze, so tune it with the\n"
-                "threshold.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Stack entries above this layer draw crisp on top of the bloom - "
-            "put the crosshair or text there so the glow does not blur them. "
-            "At the very top the bloom applies at the end of the frame, over "
-            "everything including menus.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Color grading applies with this layer. Author presets in\n"
-            "Tools > Color Grading. Per-scene bloom strength: Scene > Scene\n"
-            "Preferences > Post effects.");
+        ui::RowHelp("How far the glow reaches: extra blur rounds, 4 GS\n"
+                    "sprites each, no EE time.");
+        effectNote("Entries above it draw crisp over the glow. Color grading applies with this "
+                   "layer (presets: Tools > Color Grading).",
+                   "emissive-materials");
+        sceneNote();
     } else if (uiFxSel_ == 2) {
-        ImGui::SeparatorText("Film grain");
-        ImGui::SliderFloat("Film grain", &project_.settings.grain, 0.0f, 1.0f,
-                           "%.2f");
+        headerEnd(header("fx", sem.special, "Film grain"), "Screen effect \xC2\xB7 animated noise");
+        ui::Caption("Grain");
+        ui::SliderFloat("Film grain", &project_.settings.grain, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled(
-            "Animated noise overlay (GS blits). Subtle values work best.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "As a separate layer the grain can sit above the bloom and the "
-            "HUD - a filmic overlay over the whole screen - while the bloom "
-            "stays underneath so it does not smear the UI.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Per-scene grain strength: Scene > Scene Preferences > Post "
-            "effects.");
+        effectNote("Subtle values work best. Above the HUD it is a filmic overlay over the whole "
+                   "screen; under it, the UI stays clean.",
+                   nullptr);
+        sceneNote();
     } else if (uiFxSel_ == 10) {
-        ImGui::SeparatorText("Motion blur");
+        headerEnd(header("fx", sem.special, "Motion blur"), "Screen effect \xC2\xB7 one GS blend of the last frame");
+        ui::Caption("Trail");
         // Stored 0..1, shown as a percentage: it is a fraction of the effect's
         // own range, and "0.20" says nothing about how strong that is.
         float blurPct = project_.settings.motionBlur * 100.0f;
-        if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
-                               ImGuiSliderFlags_AlwaysClamp))
+        if (ui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
             project_.settings.motionBlur = blurPct * 0.01f;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "How much of the PREVIOUS frame is blended over this one.\n"
-                "Each frame smears the one before it, which had already\n"
-                "smeared its own, so the trail compounds: 20-40%% is already\n"
-                "a long smear.\n\n"
-                "100%% is capped short of the hardware's full weight - at that\n"
-                "weight the frame IS its predecessor and the picture stops\n"
-                "updating for ever, which is not a strong setting but a\n"
-                "broken one.");
-        if (ImGui::Checkbox("Clear trail when camera settles",
-                            &project_.settings.motionBlurIdleClear))
+        ui::RowHelp("How much of the PREVIOUS frame is blended over this one.\n"
+                    "The trail compounds: 20-40% is already a long smear.");
+        if (ui::Switch("Clear trail when camera settles (Drops the history once the camera stops)",
+                       &project_.settings.motionBlurIdleClear))
             changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Clears the accumulated history once after the camera stops.\n"
-                "The blur immediately comes back at its authored strength, so\n"
-                "objects moving past a parked camera still leave a trail.\n"
-                "Recommended at 16-bit colour to remove quantized ghosts.");
-        ImGui::TextDisabled(
-            "One full-screen GS blend of the last frame. No VRAM (the other\n"
-            "display buffer IS that frame) and negligible EE time.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Keep this UNDER the HUD entries. The blur's source is the "
-            "finished previous frame, menus and HUD included, so from the top "
-            "of the stack a moving HUD element smears over the picture; "
-            "underneath it, the trail is the scene's and the UI redraws crisp "
-            "on top every frame.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Per-scene strength: Scene > Scene Preferences > Post effects.\n"
-            "Runtime control: the Set Motion Blur flow node.");
+        effectNote("Keep it under the HUD entries: from the top of the stack a moving HUD element "
+                   "smears too. Runtime: Set Motion Blur node.",
+                   "motion-blur");
+        sceneNote();
     } else if (uiFxSel_ == 6) {
-        ImGui::SeparatorText("Depth of field");
-        ImGui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f,
-                           "%.2f");
+        headerEnd(header("fx", sem.special, "Depth of field"), "Pinned under the stack \xC2\xB7 z-tested blits");
+        ui::Caption("Focus");
+        ui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Focus", &project_.settings.dofFocus, 0.5f, 0.5f,
-                         500.0f, "%.1f");
+        ui::DragFloat("Focus", &project_.settings.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat("Range", &project_.settings.dofRange, 0.5f, 0.1f,
-                         500.0f, "%.1f");
+        ui::RowHelp("Sharp up to this distance (world units from the camera).");
+        ui::DragFloat("Range", &project_.settings.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled(
-            "The image stays sharp up to Focus (world units from the\n"
-            "camera) and blurs progressively, reaching the full Amount\n"
-            "blur at Focus + Range. Amount 0 = off.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Pinned under the whole stack: the blur follows real scene depth "
-            "per pixel (z-tested GS blits), and sprites stamp z across their "
-            "full rect - compositing DoF above them would punch sharp "
-            "rectangles into the blur. Every HUD entry always draws crisp.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Per-scene values: Scene > Scene Preferences > Post effects.\n"
-            "Runtime: the Set Depth Of Field flow node overrides these\n"
-            "(and can restore them with its Scene setting mode).");
+        ui::RowHelp("Full Amount blur is reached at Focus + Range.");
+        effectNote("Amount 0 = off. Every HUD entry draws crisp over it. Runtime: Set Depth Of "
+                   "Field node.",
+                   nullptr);
+        sceneNote();
     } else if (uiFxSel_ == 7) {
-        ImGui::SeparatorText("Sun lens flare");
-        ImGui::SliderFloat("Brightness", &project_.settings.flare, 0.0f, 1.0f,
-                           "%.2f");
+        headerEnd(header("fx", sem.special, "Lens flare"), "Pinned under the stack \xC2\xB7 additive sprites");
+        ui::Caption("Sun");
+        ui::SliderFloat("Brightness", &project_.settings.flare, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled(
-            "Additive sprites along the sun-to-center axis, tinted by the\n"
-            "scene light color. The sun sits infinitely far along the\n"
-            "Lighting direction (Preferences > Lighting). 0 = off.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Occlusion is a single ray cast against objects and terrain per "
-            "frame - the flare fades out when the sun hides behind geometry "
-            "and eases back in the open. Draws under the whole HUD stack.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Per-scene brightness: Scene > Scene Preferences > Post effects.\n"
-            "Runtime: the Set Lens Flare flow node.");
+        effectNote("Along the sun-to-centre axis, tinted by the light colour; fades when "
+                   "geometry hides the sun. 0 = off. Runtime: Set Lens Flare node.",
+                   nullptr);
+        sceneNote();
     } else if (uiFxSel_ == 8) {
-        ImGui::SeparatorText("God rays (light shafts)");
-        ImGui::SliderFloat("Strength", &project_.settings.godRays, 0.0f, 1.0f,
-                           "%.2f");
+        headerEnd(header("fx", sem.special, "God rays"), "Pinned under the stack \xC2\xB7 radial blur");
+        ui::Caption("Shafts");
+        ui::SliderFloat("Strength", &project_.settings.godRays, 0.0f, 1.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::TextDisabled(
-            "Bright parts of the frame streak toward the sun's screen\n"
-            "position (radial-blur GS blits, reusing the bloom chain) and\n"
-            "composite back additively. 0 = off.");
-        ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Strongest when the sun is on screen or just off the edge - sky "
-            "seen through trees, doorways or fog lights up in shafts. Costs "
-            "a few quarter-res blits per frame, only when enabled.");
-        ImGui::Spacing();
-        ImGui::TextDisabled(
-            "Per-scene strength: Scene > Scene Preferences > Post effects.\n"
-            "Runtime: the Set God Rays flow node.");
+        effectNote("Bright parts streak toward the sun - strongest with the sun on screen. "
+                   "0 = off. Runtime: Set God Rays node.",
+                   nullptr);
+        sceneNote();
     } else if (uiFxSel_ == 3) {
         // --- the pinned USE prompt ------------------------------------------
         HudImage& h = project_.usePrompt;
-        ImGui::SeparatorText("Interaction prompts");
-        ImGui::TextWrapped(
-            "Shown while the player looks at a usable object up close - the "
-            "\"PICK UP\" variant instead when the object is pickable. Both draw "
-            "above the HUD stack (and under menus) at the same screen position, "
-            "and neither can be deleted.");
-        ImGui::Spacing();
-        ImGui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        headerEnd(header("P", sem.accent, "Interaction prompts"),
+                  "USE and PICK UP \xC2\xB7 near a usable object \xC2\xB7 cannot be deleted");
+        ui::Caption("Placement");
+        ui::DragFloat2("Position##use", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Shared by both prompts (normalized, center "
-                              "anchor).");
+        ui::RowHelp("Shared by both prompts (normalized, centre anchor).");
 
         // One prompt's content: TEXT or IMAGE as an explicit choice, so flipping
         // to the image to compare does not throw away the text you typed. Text
         // can carry a button glyph that follows the binding, which is why a
         // fresh project starts there (docs/text-icons.md).
-        auto promptUi = [&](const char* title, const char* id, bool& isText,
-                            HudText& txt, std::string& imagePath,
-                            HudImage* bakeOf, const char* builtinNote) {
+        auto promptUi = [&](const char* title, const char* id, bool& isText, HudText& txt,
+                            std::string& imagePath, HudImage* bakeOf, const char* builtinNote) {
             ImGui::PushID(id);
-            ImGui::SeparatorText(title);
+            ui::Caption(title);
             int mode = isText ? 0 : 1;
-            if (ImGui::RadioButton("Text", &mode, 0)) {
-                isText = true;
+            static const char* kModes[] = {"Text", "Image"};
+            if (ui::Segmented("##mode", kModes, 2, &mode, -1.0f)) {
+                isText = mode == 0;
                 changed = true;
             }
-            ImGui::SameLine();
-            if (ImGui::RadioButton("Image", &mode, 1)) {
-                isText = false;
-                changed = true;
-            }
-
             if (isText) {
                 char buf[128];
                 std::snprintf(buf, sizeof(buf), "%s", txt.text.c_str());
-                ImGui::SetNextItemWidth(scaled(240.0f));
-                if (ImGui::InputText("Text##prompt", buf, sizeof(buf)))
-                    txt.text = buf;
+                const float tokW = ImGui::GetFrameHeight() * 1.6f;
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - tokW);
+                if (ImGui::InputText("##prompttext", buf, sizeof(buf))) txt.text = buf;
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
                 ImGui::SameLine();
                 changed |= textTokenPicker("prompttok", txt.text);
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Baked to a sprite at build (the PS2 has no font).\n"
-                        "{{use}} draws the glyph of whatever the \"use\" action\n"
-                        "is bound to, so the prompt follows a rebind;\n"
-                        "{{cross}} pins a fixed button. See docs/text-icons.md.");
-                ImGui::SetNextItemWidth(scaled(110.0f));
-                if (ImGui::DragInt("Size##prompt", &txt.size, 0.5f, 8, 48,
-                                   "%d px"))
-                    changed = true;
-                ImGui::SameLine();
-                if (ImGui::ColorEdit3("Color##prompt", txt.color,
-                                      ImGuiColorEditFlags_NoInputs))
-                    changed = true;
-                ImGui::SameLine();
-                if (ImGui::Checkbox("Shadow##prompt", &txt.shadow))
-                    changed = true;
+                    ImGui::SetTooltip("{{use}} draws the glyph of whatever the \"use\" action\n"
+                                      "is bound to, so the prompt follows a rebind;\n"
+                                      "{{cross}} pins a fixed button. See docs/text-icons.md.");
+                if (ui::DragInt("Size##prompt", &txt.size, 0.5f, 8, 48, "%d px")) changed = true;
+                if (ui::ColorHex("Color##prompt", txt.color)) changed = true;
+                if (ui::Switch("Shadow##prompt", &txt.shadow)) changed = true;
                 changed |= fontCombo(txt.font);
                 if (txt.text.empty())
-                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
-                                       "Empty - the image is used instead.");
-                else if (const HudTexture* t = hudTextTexture(txt))
-                    ImGui::Image((ImTextureID)(intptr_t)t->tex,
-                                 ImVec2(scaled((float)t->w),
-                                        scaled((float)t->h)));
-                ImGui::TextDisabled("The baked text sizes the sprite.");
+                    ui::StatusLine(1, "Empty - the image is used instead.");
             } else {
-                if (imagePath.empty()) {
+                if (imagePath.empty())
                     ImGui::TextDisabled("%s", builtinNote);
-                } else {
-                    ImGui::TextDisabled("Custom: %s", imagePath.c_str());
-                    if (const HudTexture* t = hudTexture(imagePath))
-                        ImGui::Image((ImTextureID)(intptr_t)t->tex,
-                                     ImVec2(scaled((float)t->w),
-                                            scaled((float)t->h)));
-                }
-                if (ImGui::Button(imagePath.empty() ? "Custom image (PNG)..."
-                                                    : "Replace image (PNG)...")) {
+                else
+                    ImGui::TextDisabled("%s", imagePath.c_str());
+                if (ImGui::Button(imagePath.empty() ? "Custom image (PNG)..." : "Replace image (PNG)...")) {
                     const std::string src = pickPngFile();
                     if (!src.empty()) {
                         const std::filesystem::path srcPath(src);
-                        const std::string fileName =
-                            sanitizeAssetName(srcPath.filename().string());
-                        const std::filesystem::path destDir =
-                            std::filesystem::path(project_.dir) / "res" / "hud";
+                        const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+                        const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "hud";
                         std::error_code ec;
                         std::filesystem::create_directories(destDir, ec);
-                        std::filesystem::copy_file(
-                            srcPath, destDir / fileName,
-                            std::filesystem::copy_options::overwrite_existing,
-                            ec);
+                        std::filesystem::copy_file(srcPath, destDir / fileName,
+                                                   std::filesystem::copy_options::overwrite_existing, ec);
                         if (!ec) {
                             imagePath = "res/hud/" + fileName;
                             hudTexCache_.erase(imagePath);  // reload if replaced
                             changed = true;
                         } else {
-                            statusMessage_ =
-                                "Prompt image import failed: " + ec.message();
+                            statusMessage_ = "Prompt image import failed: " + ec.message();
                         }
                     }
                 }
                 if (!imagePath.empty()) {
                     ImGui::SameLine();
-                    if (ImGui::Button("Reset to built-in")) {
+                    if (ui::GhostButton("Reset to built-in")) {
                         imagePath.clear();
                         changed = true;
                     }
@@ -3181,8 +3881,7 @@ void App::drawUiEditorWindow() {
                 // Size + the texture bake only apply to the USE prompt's own
                 // HudImage; the PICK UP image rides on the same box.
                 if (bakeOf) {
-                    ImGui::DragFloat2("Size (px)##prompt", bakeOf->size, 1.0f,
-                                      1.0f, 512.0f, "%.0f");
+                    ui::DragFloat2("Size (px)##prompt", bakeOf->size, 1.0f, 1.0f, 512.0f, "%.0f");
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                     if (!imagePath.empty()) changed |= hudBakeControls(*bakeOf);
                 } else {
@@ -3191,336 +3890,326 @@ void App::drawUiEditorWindow() {
             }
             ImGui::PopID();
         };
-
-        promptUi("USE prompt", "useprompt", project_.usePromptIsText,
-                 project_.usePromptText, h.imagePath, &h,
+        promptUi("USE prompt", "useprompt", project_.usePromptIsText, project_.usePromptText, h.imagePath, &h,
                  "Built-in \"USE\" sprite (res/hud/use.png).");
-        promptUi("PICK UP prompt", "pickprompt", project_.pickPromptIsText,
-                 project_.pickPromptText, project_.pickPromptImage, nullptr,
-                 "Built-in \"PICK UP\" sprite (res/hud/pickup.png).");
-    } else if (uiFxSel_ == 4 && selectedText_ >= 0 &&
-               selectedText_ < (int)project_.hudTexts.size()) {
+        promptUi("PICK UP prompt", "pickprompt", project_.pickPromptIsText, project_.pickPromptText,
+                 project_.pickPromptImage, nullptr, "Built-in \"PICK UP\" sprite (res/hud/pickup.png).");
+    } else if (uiFxSel_ == 4 && selectedText_ >= 0 && selectedText_ < (int)project_.hudTexts.size()) {
         // --- a triggerable on-screen text -----------------------------------
         HudText& t = project_.hudTexts[selectedText_];
-        ImGui::SeparatorText(t.name.c_str());
+        const HudRefs refs = hudRefsOf(project_, t.name, true, false);
+        auto hp = header("T", sem.warn, nullptr);
+        bool del = false;
         {
-            char nameBuf[64];
-            std::snprintf(nameBuf, sizeof(nameBuf), "%s", t.name.c_str());
-            ImGui::SetNextItemWidth(160.0f);
-            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-                // Renames follow into the flow graphs (Show/Hide Text nodes
+            const std::string oldName = t.name;
+            if (nameField("Name", t.name, ImGui::GetFrameHeight() + fs * 0.3f)) {
+                // Renames follow into the flow graphs (Set Text Visible nodes
                 // reference texts by name), like layer renames do.
-                const std::string oldName = t.name;
-                t.name = nameBuf;
                 for (SceneData& sc : project_.scenes)
                     for (SceneObject& o : sc.objects)
                         for (FlowNode& fn : o.flowGraph.nodes) {
                             const FlowNodeType* ft = flowNodeType(fn.type);
-                            if (ft && ft->strKind == FlowParamKind::HudTextName &&
-                                fn.str == oldName)
+                            if (ft && ft->strKind == FlowParamKind::HudTextName && fn.str == oldName)
                                 fn.str = t.name;
                         }
                 renameHudElementRefs(oldName, t.name, false);
             }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::MoreButton("Text actions", ImGui::GetFrameHeight())) ImGui::OpenPopup("##textmore");
+            if (ImGui::BeginPopup("##textmore")) {
+                if (ImGui::MenuItem("Delete text")) del = true;
+                ImGui::EndPopup();
+            }
         }
-        {
-            // multiline: '\n' becomes a new line in the baked sprite
-            char textBuf[512];
-            std::snprintf(textBuf, sizeof(textBuf), "%s", t.text.c_str());
-            if (ImGui::InputTextMultiline("Text", textBuf, sizeof(textBuf),
-                                          ImVec2(-1.0f, 80.0f * uiScaleApplied_)))
-                t.text = textBuf;
+        headerEnd(hp, "Text \xC2\xB7 " + refsLine(refs), &refs);
+        static const char* kTabs[] = {"Text", "Motion"};
+        int& tab = *ImGui::GetStateStorage()->GetIntRef(ImGui::GetID("##insp_text_tab"), 0);
+        if (ui::BeginQuietTabBar("##insp_text")) {
+            for (int i = 0; i < 2; ++i)
+                if (ui::QuietTab(kTabs[i], tab == i)) tab = i;
+            ui::EndQuietTabBar();
+        }
+        if (tab == 0) {
+            ui::Caption("Content");
+            {
+                // multiline: '\n' becomes a new line in the baked sprite
+                char textBuf[512];
+                std::snprintf(textBuf, sizeof(textBuf), "%s", t.text.c_str());
+                if (ImGui::InputTextMultiline("Text", textBuf, sizeof(textBuf), ImVec2(-1.0f, scaled(70))))
+                    t.text = textBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                changed |= textTokenPicker("hudtexttok", t.text);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Insert a button icon: {{name}}, or {{action:jump}} to\n"
+                                      "follow that action's binding.");
+            }
+            changed |= fontCombo(t.font);
+            if (ui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px")) t.size = ImClamp(t.size, 8, 48);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            changed |= textTokenPicker("hudtexttok", t.text);
+            if (ui::ColorHex("Color##text", t.color)) changed = true;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::Caption("Placement");
+            ui::DragFloat2("Position##text", t.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::Switch("Drop shadow", &t.shadow)) changed = true;
+            if (ui::Switch("Visible at game start (Otherwise shown by Set Text Visible)", &t.visibleAtStart))
+                changed = true;
+            if (const HudTexture* tx = hudTextTexture(t))
+                ImGui::TextDisabled("Baked at build to a %dx%d px sprite.", tx->w, tx->h);
+            ImGui::TextDisabled("For a string that changes in game: Display Text node.");
+        } else {
+            changed |= hudMotionControls(t.anim, t.transition, nullptr);
         }
-        changed |= fontCombo(t.font);
-        ImGui::SetNextItemWidth(120.0f);
-        if (ImGui::DragInt("Font size", &t.size, 0.2f, 8, 48, "%d px"))
-            t.size = t.size < 8 ? 8 : t.size > 48 ? 48 : t.size;
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::ColorEdit3("Color##text", t.color,
-                              ImGuiColorEditFlags_NoInputs))
-            changed = true;
-        ImGui::DragFloat2("Position##text", t.pos, 0.005f, 0.0f, 1.0f, "%.3f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::Checkbox("Drop shadow", &t.shadow)) changed = true;
-        if (ImGui::Checkbox("Visible at game start", &t.visibleAtStart))
-            changed = true;
-        ImGui::TextDisabled(
-            "Show/hide from the flow graph: HUD > Set Text Visible\n"
-            "(the show pin takes an optional auto-hide after N\n"
-            "seconds). This string is baked at build - for one that\n"
-            "changes while the game runs, use a Display Text node.");
-        changed |= hudMotionControls(t.anim, t.transition, nullptr);
-
-        // Live preview: the exact sprite the build will bake.
-        {
-            std::string key = t.name + "\x1f" + t.text + "\x1f" + t.font +
-                              "\x1f" + std::to_string(t.size) + "\x1f" +
-                              std::to_string(t.shadow) + "\x1f" +
-                              std::to_string(t.color[0]) + "," +
-                              std::to_string(t.color[1]) + "," +
-                              std::to_string(t.color[2]);
-            if (key != textPreviewKey_) {
-                std::vector<unsigned char> rgba;
-                int w = 0, h = 0;
-                if (menubake::bakeTextRGBA(t, project_, rgba, w, h)) {
-                    if (!textPreviewTex_) glGenTextures(1, &textPreviewTex_);
-                    glBindTexture(GL_TEXTURE_2D, textPreviewTex_);
-                    glUploadTexRgba(w, h, rgba.data());
-                    textPreviewW_ = w;
-                    textPreviewH_ = h;
-                }
-                textPreviewKey_ = key;
-            }
-            if (textPreviewTex_) {
-                ImGui::SeparatorText("Preview");
-                ImGui::Image((ImTextureID)(intptr_t)textPreviewTex_,
-                             ImVec2((float)textPreviewW_, (float)textPreviewH_));
-                ImGui::TextDisabled("Texture: %dx%d px", textPreviewW_,
-                                    textPreviewH_);
-            }
-        }
-
-        ImGui::Spacing();
-        if (ImGui::Button("Delete text")) {
+        if (del) {
             project_.hudTexts.erase(project_.hudTexts.begin() + selectedText_);
             selectedText_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
-    } else if (uiFxSel_ == 9 && selectedBar_ >= 0 &&
-               selectedBar_ < (int)project_.hudBars.size()) {
+    } else if (uiFxSel_ == 9 && selectedBar_ >= 0 && selectedBar_ < (int)project_.hudBars.size()) {
         // --- a live bar (docs/hud-animation.md) ------------------------------
         HudBar& b = project_.hudBars[selectedBar_];
-        ImGui::SeparatorText(b.name.c_str());
+        const HudRefs refs = hudRefsOf(project_, b.name, false, true);
+        auto hp = header("B", sem.danger, nullptr);
+        bool del = false;
         {
-            char nameBuf[64];
-            std::snprintf(nameBuf, sizeof(nameBuf), "%s", b.name.c_str());
-            ImGui::SetNextItemWidth(scaled(160.0f));
-            if (ImGui::InputText("Name##bar", nameBuf, sizeof(nameBuf))) {
-                const std::string oldName = b.name;
-                b.name = nameBuf;
+            const std::string oldName = b.name;
+            if (nameField("Name##bar", b.name, ImGui::GetFrameHeight() + fs * 0.3f))
                 renameHudElementRefs(oldName, b.name, true);
-            }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::MoreButton("Bar actions", ImGui::GetFrameHeight())) ImGui::OpenPopup("##barmore");
+            if (ImGui::BeginPopup("##barmore")) {
+                if (ImGui::MenuItem("Delete bar")) del = true;
+                ImGui::EndPopup();
+            }
         }
-        const char* kinds[] = {"Continuous (fill)", "Quantized (segments)"};
-        ImGui::SetNextItemWidth(scaled(200));
-        if (ImGui::Combo("Type##bar", &b.kind, kinds, 2)) changed = true;
-        ImGui::DragFloat2("Position##bar", b.pos, 0.005f, 0.0f, 1.0f, "%.3f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat2("Size (px)##bar", b.size, 1.0f, 2.0f, 512.0f, "%.0f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::Checkbox("Fill from the right", &b.rightToLeft)) changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("The fill is anchored on the right edge - a\n"
-                              "mirrored bar for a second player.");
-        if (ImGui::Checkbox("Visible at game start##bar", &b.visibleAtStart))
-            changed = true;
-
-        ImGui::SeparatorText("Value");
-        {
-            // The save value it follows. Empty = the Set HUD Bar node alone.
-            const char* cur = b.source.empty() ? "(Set HUD Bar node only)"
-                                               : b.source.c_str();
-            ImGui::SetNextItemWidth(scaled(200));
-            if (ImGui::BeginCombo("Follows save value", cur)) {
-                if (ImGui::Selectable("(Set HUD Bar node only)", b.source.empty())) {
-                    b.source.clear();
-                    changed = true;
-                }
-                for (const SaveValue& sv : project_.saveValues) {
-                    ImGui::PushID(sv.name.c_str());
-                    if (ImGui::Selectable(sv.name.c_str(), sv.name == b.source)) {
-                        b.source = sv.name;
+        std::string sub = "Bar \xC2\xB7 ";
+        if (!b.source.empty() && refs.nodes == 0) sub += "follows save value " + b.source;
+        else sub += refsLine(refs);
+        headerEnd(hp, sub, &refs);
+        static const char* kTabs[] = {"Bar", "Look", "Motion"};
+        int& tab = *ImGui::GetStateStorage()->GetIntRef(ImGui::GetID("##insp_bar_tab"), 0);
+        if (ui::BeginQuietTabBar("##insp_bar")) {
+            for (int i = 0; i < 3; ++i)
+                if (ui::QuietTab(kTabs[i], tab == i)) tab = i;
+            ui::EndQuietTabBar();
+        }
+        if (tab == 0) {
+            ui::Caption("Placement");
+            ui::DragFloat2("Position##bar", b.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::DragFloat2("Size (px)##bar", b.size, 1.0f, 2.0f, 512.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            {
+                // A row by hand (Segmented is not one of the row wrappers):
+                // the caption column as ui::InspectorRows sizes it.
+                static const char* kKinds[] = {"Continuous", "Segments"};
+                const float avail = ImGui::GetContentRegionAvail().x;
+                const float cw = IM_TRUNC(ImClamp(avail * 0.34f, scaled(76), scaled(116)));
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y));
+                ImGui::TextDisabled("Type");
+                ImGui::SetCursorScreenPos(ImVec2(p.x + cw, p.y));
+                if (ui::Segmented("##barkind", kKinds, 2, &b.kind, avail - cw)) changed = true;
+            }
+            ui::Caption("Value");
+            {
+                // The save value it follows. Empty = the Set HUD Bar node alone.
+                const char* cur = b.source.empty() ? "(Set HUD Bar node only)" : b.source.c_str();
+                if (ui::BeginCombo("Follows save value", cur)) {
+                    if (ImGui::Selectable("(Set HUD Bar node only)", b.source.empty())) {
+                        b.source.clear();
                         changed = true;
                     }
-                    ImGui::PopID();
+                    for (const SaveValue& sv : project_.saveValues) {
+                        ImGui::PushID(sv.name.c_str());
+                        if (ImGui::Selectable(sv.name.c_str(), sv.name == b.source)) {
+                            b.source = sv.name;
+                            changed = true;
+                        }
+                        ImGui::PopID();
+                    }
+                    if (project_.saveValues.empty())
+                        ImGui::TextDisabled("Add save values in the\nProject panel (Save data).");
+                    ImGui::EndCombo();
                 }
-                if (project_.saveValues.empty())
-                    ImGui::TextDisabled("Add save values in the\nProject panel (Save data).");
-                ImGui::EndCombo();
+                ui::RowHelp("Read every frame, so Add To Save Value from any graph\n"
+                            "moves the bar with no node of its own. Set HUD Bar\n"
+                            "writes this value too.");
             }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Read every frame, so Add To Save Value from any graph\n"
-                    "moves the bar with no node of its own. Set HUD Bar\n"
-                    "writes this value too.");
-        }
-        ImGui::SetNextItemWidth(scaled(90));
-        ImGui::DragFloat("Min##bar", &b.minValue, 0.5f, -1e6f, 1e6f, "%.1f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(90));
-        ImGui::DragFloat("Max##bar", &b.maxValue, 0.5f, -1e6f, 1e6f, "%.1f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (b.source.empty()) {
-            ImGui::SetNextItemWidth(scaled(90));
-            ImGui::DragFloat("Start##bar", &b.startValue, 0.5f, -1e6f, 1e6f, "%.1f");
+            ui::DragFloat("Min##bar", &b.minValue, 0.5f, -1e6f, 1e6f, "%.1f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("The value at scene start. A bar following a\n"
-                                  "save value starts at that value instead.");
-        }
-        ImGui::SetNextItemWidth(scaled(120));
-        ImGui::DragFloat("Smoothing (s)", &b.smoothing, 0.01f, 0.0f, 3.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Seconds the fill takes to ease to a new value.\n"
-                              "0 = jumps.");
-        if (ImGui::Checkbox("Ghost strip", &b.ghost)) changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Lingers where the fill was after a drop, then\n"
-                              "slides down after it - the damage chip.");
-        ImGui::SetNextItemWidth(scaled(120));
-        ImGui::SliderFloat("Low pulse below", &b.lowFraction, 0.0f, 1.0f,
-                           b.lowFraction <= 0.0f ? "never" : "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Under this fraction the fill breathes - low\n"
-                              "health asking for attention. 0 = never.");
-
-        ImGui::SeparatorText("Look");
-        if (ImGui::ColorEdit3("Track color", b.bgColor)) changed = true;
-        if (ImGui::ColorEdit3("Fill color", b.fillColor)) changed = true;
-        if (b.ghost && ImGui::ColorEdit3("Ghost color", b.ghostColor)) changed = true;
-        if (b.kind == 1) {
-            ImGui::SetNextItemWidth(scaled(120));
-            if (ImGui::DragInt("Segments##bar", &b.segments, 0.1f, 2, 16))
-                b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            ui::DragFloat("Max##bar", &b.maxValue, 0.5f, -1e6f, 1e6f, "%.1f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::SetNextItemWidth(scaled(120));
-            ImGui::DragFloat("Spacing (px)##bar", &b.spacing, 0.2f, 0.0f, 64.0f, "%.0f");
+            if (b.source.empty()) {
+                ui::DragFloat("Start##bar", &b.startValue, 0.5f, -1e6f, 1e6f, "%.1f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ui::RowHelp("The value at scene start. A bar following a save\n"
+                            "value starts at that value instead.");
+            }
+            ui::DragFloat("Smoothing (s)", &b.smoothing, 0.01f, 0.0f, 3.0f, "%.2f s");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::RowHelp("Seconds the fill takes to ease to a new value. 0 = jumps.");
+            {
+                const float start = b.source.empty() ? b.startValue : [&]() {
+                    for (const SaveValue& sv : project_.saveValues)
+                        if (sv.name == b.source) return sv.value;
+                    return b.minValue;
+                }();
+                float frac = hudBarPreview_ < 0.0f ? hudanim::fraction(start, b.minValue, b.maxValue)
+                                                   : hudBarPreview_;
+                if (ui::SliderFloat("Preview fill", &frac, 0.0f, 1.0f, "%.2f")) hudBarPreview_ = frac;
+                ui::RowHelp("Editor only: how full the preview draws this bar\n"
+                            "(the game starts it at its start value).");
+                if (hudBarPreview_ >= 0.0f) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Reset##barprev")) hudBarPreview_ = -1.0f;
+                }
+            }
+            ui::Caption("Behaviour");
+            if (ui::Switch("Ghost strip (A lagging strip shows how much was just lost)", &b.ghost)) changed = true;
+            ui::SliderFloat("Low pulse below", &b.lowFraction, 0.0f, 1.0f,
+                            b.lowFraction <= 0.0f ? "never" : "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::RowHelp("Under this fraction the fill breathes - low health\n"
+                        "asking for attention. 0 = never.");
+            if (ui::Switch("Fill from the right (Drains towards the left edge - a mirrored P2 bar)",
+                           &b.rightToLeft))
+                changed = true;
+            if (ui::Switch("Visible at game start (Otherwise shown by Set HUD Element Visible)##bar",
+                           &b.visibleAtStart))
+                changed = true;
+        } else if (tab == 1) {
+            ui::Caption("Colours");
+            if (ui::ColorHex("Track color", b.bgColor)) changed = true;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::ColorHex("Fill color", b.fillColor)) changed = true;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (b.ghost) {
+                if (ui::ColorHex("Ghost color", b.ghostColor)) changed = true;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+            if (b.kind == 1) {
+                ui::Caption("Segments");
+                if (ui::DragInt("Segments##bar", &b.segments, 0.1f, 2, 16)) b.segments = ImClamp(b.segments, 2, 16);
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ui::DragFloat("Spacing (px)##bar", &b.spacing, 0.2f, 0.0f, 64.0f, "%.0f px");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+            changed |= hudBarImageControls("fillimg", "Fill image (optional)", b.fillImage, false);
+            changed |= hudBarImageControls("frameimg", "Frame image (optional)", b.frameImage, true);
+        } else {
+            changed |= hudMotionControls(b.anim, b.transition, nullptr);
         }
-        changed |= hudBarImageControls("fillimg", "Fill image (optional)",
-                                       b.fillImage, false);
-        changed |= hudBarImageControls("frameimg", "Frame image (optional)",
-                                       b.frameImage, true);
-        changed |= hudMotionControls(b.anim, b.transition, nullptr);
-
-        ImGui::SeparatorText("Preview");
-        {
-            const float start = b.source.empty()
-                                    ? b.startValue
-                                    : [&]() {
-                                          for (const SaveValue& sv : project_.saveValues)
-                                              if (sv.name == b.source) return sv.value;
-                                          return b.minValue;
-                                      }();
-            float frac = hudBarPreview_ < 0.0f
-                             ? hudanim::fraction(start, b.minValue, b.maxValue)
-                             : hudBarPreview_;
-            ImGui::SetNextItemWidth(scaled(160));
-            if (ImGui::SliderFloat("Preview fill", &frac, 0.0f, 1.0f, "%.2f"))
-                hudBarPreview_ = frac;
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Reset##barprev")) hudBarPreview_ = -1.0f;
-            ImGui::TextDisabled("Editor only - fills the bar in the viewport overlay.");
-        }
-
-        ImGui::Spacing();
-        if (ImGui::Button("Delete bar")) {
+        if (del) {
             project_.hudBars.erase(project_.hudBars.begin() + selectedBar_);
             selectedBar_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
-    } else if (uiFxSel_ == 5 && selectedFx_ >= 0 &&
-               selectedFx_ < (int)project_.screenFx.size()) {
+    } else if (uiFxSel_ == 5 && selectedFx_ >= 0 && selectedFx_ < (int)project_.screenFx.size()) {
         // --- a custom screen effect placement -------------------------------
         ScreenFxPlacement& pl = project_.screenFx[selectedFx_];
         const CustomScreenFx* e = customScreenFx(pl.key);
-        ImGui::SeparatorText(e ? e->title.c_str() : pl.key.c_str());
+        headerEnd(header("fx", sem.special, e ? e->title.c_str() : pl.key.c_str()),
+                  e ? "Custom effect \xC2\xB7 screen-effects/" +
+                          std::filesystem::path(e->sourceFile).filename().string()
+                    : std::string("Custom effect \xC2\xB7 file missing"));
+        bool remove = false;
         if (!e) {
-            ImGui::TextWrapped(
-                "The effect file for '%s' is missing from screen-effects/. "
-                "Restore it (then Reload), or remove this placement.",
-                pl.key.c_str());
+            ui::StatusLine(1, "The effect file is missing from screen-effects/.");
+            ImGui::TextDisabled("Restore it (Add > Custom effects > Reload), or remove it.");
         } else {
-            if (ImGui::Checkbox("Enabled", &pl.enabled)) changed = true;
-            ImGui::TextDisabled(
-                "Low-level GS effect (screen-effects/%s). No pixel shaders on\n"
-                "the PS2 - not previewed in the editor viewport; build to see it.",
-                (std::filesystem::path(e->sourceFile).filename().string()).c_str());
-            ImGui::Spacing();
-            if (e->paramCount == 0) {
-                ImGui::TextDisabled("This effect has no parameters.");
-            } else {
-                for (int i = 0; i < e->paramCount; ++i) {
-                    ImGui::SetNextItemWidth(scaled(200));
-                    if (ImGui::SliderFloat(e->paramLabel[i].c_str(), &pl.params[i],
-                                           e->paramMin[i], e->paramMax[i], "%.3f"))
-                        pl.params[i] = pl.params[i] < e->paramMin[i]
-                                           ? e->paramMin[i]
-                                           : pl.params[i] > e->paramMax[i]
-                                                 ? e->paramMax[i]
-                                                 : pl.params[i];
-                    changed |= ImGui::IsItemDeactivatedAfterEdit();
-                }
+            if (ui::Switch("Enabled", &pl.enabled)) changed = true;
+            if (e->paramCount > 0) ui::Caption("Parameters");
+            for (int i = 0; i < e->paramCount; ++i) {
+                if (ui::SliderFloat(e->paramLabel[i].c_str(), &pl.params[i], e->paramMin[i], e->paramMax[i], "%.3f"))
+                    pl.params[i] = ImClamp(pl.params[i], e->paramMin[i], e->paramMax[i]);
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
             }
-            ImGui::Spacing();
-            ImGui::TextWrapped(
-                "Stack entries above this layer draw crisp on top of the "
-                "effect; entries below are composited with it. Drag it in the "
-                "stack to move it (e.g. under the HUD, or over everything).");
-            ImGui::Spacing();
-            if (ImGui::Button("Jump to effect file"))
-                openInVSCode(e->sourceFile);
+            effectNote("Not previewed in the editor (GS blits) - build to see it. Entries above it "
+                       "in the stack draw crisp.",
+                       "custom-screen-effects");
+            if (ImGui::Button("Jump to effect file")) openInVSCode(e->sourceFile);
+            ImGui::SameLine();
         }
-        ImGui::Spacing();
-        if (ImGui::Button("Remove from stack")) {
+        if (ui::DangerButton("Remove from stack")) remove = true;
+        if (remove) {
             project_.screenFx.erase(project_.screenFx.begin() + selectedFx_);
             selectedFx_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
-    } else if (selectedHud_ >= 0 && selectedHud_ < n) {
+    } else if (uiFxSel_ == 0 && selectedHud_ >= 0 && selectedHud_ < n) {
         HudImage& h = project_.hud[selectedHud_];
-        ImGui::SeparatorText(h.name.c_str());
-        ImGui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-        changed |= hudBakeControls(h);
-        changed |= hudMotionControls(h.anim, h.transition, &h.visibleAtStart);
-
-        ImGui::Spacing();
-        if (ImGui::Button("Delete HUD image"))
-            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name,
-                               selectedHud_);
+        const HudRefs refs = hudRefsOf(project_, h.name, false, false);
+        auto hp = header("I", sem.ok, nullptr);
+        bool del = false;
+        {
+            const std::string oldName = h.name;
+            if (nameField("Name##hud", h.name, ImGui::GetFrameHeight() + fs * 0.3f))
+                renameHudElementRefs(oldName, h.name, false);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::MoreButton("Image actions", ImGui::GetFrameHeight())) ImGui::OpenPopup("##hudmore");
+            if (ImGui::BeginPopup("##hudmore")) {
+                if (ImGui::MenuItem("Delete HUD image")) del = true;
+                ImGui::EndPopup();
+            }
+        }
+        headerEnd(hp, "Image \xC2\xB7 " + refsLine(refs), &refs);
+        static const char* kTabs[] = {"Image", "Motion"};
+        int& tab = *ImGui::GetStateStorage()->GetIntRef(ImGui::GetID("##insp_img_tab"), 0);
+        if (ui::BeginQuietTabBar("##insp_img")) {
+            for (int i = 0; i < 2; ++i)
+                if (ui::QuietTab(kTabs[i], tab == i)) tab = i;
+            ui::EndQuietTabBar();
+        }
+        if (tab == 0) {
+            ui::Caption("Placement");
+            ui::DragFloat2("Position##hud", h.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::DragFloat2("Size (px)##hud", h.size, 1.0f, 1.0f, 512.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ui::Switch("Visible at game start (Otherwise shown by Set HUD Element Visible)##hud",
+                           &h.visibleAtStart))
+                changed = true;
+            changed |= hudBakeControls(h);
+        } else {
+            changed |= hudMotionControls(h.anim, h.transition, nullptr);
+        }
+        if (del)
+            requestAssetDelete(PendingAssetDelete::Hud, h.imagePath, h.name, selectedHud_);
     } else {
-        ImGui::TextDisabled("Select an entry on the left.");
+        ui::EmptyState(ui::Glyph::Screen, "Nothing selected",
+                       "Pick an entry in the list or click an element in the preview.");
     }
-    ImGui::EndChild();
+    ImGui::PopItemWidth();
+    ImGui::EndChild();  // ##ui_props
 
     // UI edits are not on the undo stack, but they ARE unsaved work: mark the
     // project instead of writing to disk behind the user's back, so the save
     // icon lights up and closing asks. commitChange() rather than a bare
     // setDirty() because that is the ONE verb for a model edit (app.hpp) -
     // for project-wide data it pushes no undo step, so nothing is spammed.
-    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+    // A preview drag edits the model every frame; it commits on release.
+    if (uiDragMode_ == 0 &&
+        (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection))
         commitChange();
     ImGui::End();
 }
 
-// The Motion block every HUD element ends with (docs/hud-animation.md): a
-// looped animation (previewed live in the viewport overlay) and the show/hide
-// transition (runtime only). `visibleAtStart` is drawn when given - images and
-// bars have one here, a text draws its own beside the other text settings.
+// The Motion tab every HUD element has (docs/hud-animation.md): a looped
+// animation (previewed live in the UI Editor) and the show/hide transition
+// (previewed on demand with Play show / hide). `visibleAtStart` is drawn
+// when given.
 bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart) {
     bool changed = false;
-    ImGui::SeparatorText("Motion");
-    if (visibleAtStart && ImGui::Checkbox("Visible at game start##motion", visibleAtStart))
-        changed = true;
+    ui::Caption("Loop");
+    if (visibleAtStart && ui::Switch("Visible at game start##motion", visibleAtStart)) changed = true;
     {
         const char* names[hudanim::KindCount];
         for (int i = 0; i < hudanim::KindCount; ++i) names[i] = hudanim::kindName(i);
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::Combo("Animation", &anim.kind, names, hudanim::KindCount)) {
+        if (ui::Combo("Animation", &anim.kind, names, hudanim::KindCount)) {
             // Each kind reads `amount` in its own unit, so switching kinds
             // re-seeds it with something that looks like that kind.
             switch (anim.kind) {
@@ -3533,56 +4222,42 @@ bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAt
             }
             changed = true;
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "A loop on the sprite's position, scale or alpha - no rebake,\n"
-                "a few floats per frame. Previewed live in the viewport.");
+        ui::RowHelp("A loop on the sprite's position, scale or alpha - no\n"
+                    "rebake, a few floats per frame. Runs in the preview.");
     }
     if (anim.kind != hudanim::None) {
-        ImGui::SetNextItemWidth(scaled(100));
-        ImGui::DragFloat(anim.kind == hudanim::Shake ? "Step (s)" : "Period (s)",
-                         &anim.period, 0.01f, 0.01f, 30.0f, "%.2f");
+        ui::DragFloat(anim.kind == hudanim::Shake ? "Step (s)" : "Period (s)", &anim.period, 0.01f, 0.01f,
+                      30.0f, "%.2f s");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         if (anim.period < 0.01f) anim.period = 0.01f;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(100));
         const bool unit01 = anim.kind == hudanim::Pulse || anim.kind == hudanim::Blink ||
                             anim.kind == hudanim::Breathe;
-        ImGui::DragFloat(anim.kind == hudanim::Pulse     ? "Depth"
-                         : anim.kind == hudanim::Blink   ? "On share"
-                         : anim.kind == hudanim::Breathe ? "Grow"
-                                                         : "Amount (px)",
-                         &anim.amount, unit01 ? 0.01f : 0.2f, 0.0f,
-                         unit01 ? 1.0f : 200.0f, "%.2f");
+        ui::DragFloat(anim.kind == hudanim::Pulse     ? "Depth"
+                      : anim.kind == hudanim::Blink   ? "On share"
+                      : anim.kind == hudanim::Breathe ? "Grow"
+                                                      : "Amount (px)",
+                      &anim.amount, unit01 ? 0.01f : 0.2f, 0.0f, unit01 ? 1.0f : 200.0f, "%.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
-                : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
-                // %% - SetTooltip is printf-style, so a literal percent has to
-                // be escaped or it reads "%)" as a conversion and mangles the
-                // rest of the line.
-                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%%)."
-                : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
-                                                : "Travel in screen pixels (512x448 space).");
+        ui::RowHelp(anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
+                    : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
+                    : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%)."
+                    : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
+                                                    : "Travel in screen pixels (512x448 space).");
     }
+    ui::Caption("Show / hide");
     {
         const char* names[hudanim::TransitionCount];
-        for (int i = 0; i < hudanim::TransitionCount; ++i)
-            names[i] = hudanim::transitionName(i);
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::Combo("Show / hide", &trans.kind, names, hudanim::TransitionCount))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Played when a flow node shows or hides this element (in\n"
-                "reverse on hide). Runtime only - not previewed here.");
+        for (int i = 0; i < hudanim::TransitionCount; ++i) names[i] = hudanim::transitionName(i);
+        if (ui::Combo("Show / hide", &trans.kind, names, hudanim::TransitionCount)) changed = true;
+        ui::RowHelp("Played when a flow node shows or hides this element\n"
+                    "(in reverse on hide).");
         if (trans.kind != 0) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(90));
-            ImGui::DragFloat("s##trans", &trans.duration, 0.01f, 0.0f, 5.0f, "%.2f");
+            ui::DragFloat("Duration##trans", &trans.duration, 0.01f, 0.0f, 5.0f, "%.2f s");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (trans.duration < 0.0f) trans.duration = 0.0f;
+            if (ImGui::Button("Play show / hide")) uiTransPlayT0_ = ImGui::GetTime();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Runs the transition in, holds, and back out in the preview.");
         }
     }
     return changed;
@@ -3590,11 +4265,10 @@ bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAt
 
 // One of a bar's optional images. `withSize` = the image keeps its own
 // on-screen size (the frame); a fill is stretched into the bar's box.
-bool App::hudBarImageControls(const char* id, const char* title, HudImage& img,
-                              bool withSize) {
+bool App::hudBarImageControls(const char* id, const char* title, HudImage& img, bool withSize) {
     bool changed = false;
     ImGui::PushID(id);
-    ImGui::SeparatorText(title);
+    ui::Caption(title);
     if (img.imagePath.empty()) {
         if (ImGui::Button("Set image (PNG)...")) {
             std::vector<HudImage> tmp;
@@ -3608,6 +4282,8 @@ bool App::hudBarImageControls(const char* id, const char* title, HudImage& img,
                 changed = true;
             }
         }
+        if (!withSize && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Cropped to the fill and tinted by the fill color\n(white = as painted).");
     } else {
         ImGui::TextDisabled("%s", img.imagePath.c_str());
         if (ImGui::Button("Replace...")) {
@@ -3619,18 +4295,16 @@ bool App::hudBarImageControls(const char* id, const char* title, HudImage& img,
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Clear image")) {
+        if (ui::GhostButton("Clear image")) {
             img.imagePath.clear();
             changed = true;
         }
         if (withSize) {
-            ImGui::DragFloat2("Size (px)##barimg", img.size, 1.0f, 1.0f, 512.0f, "%.0f");
+            ui::DragFloat2("Size (px)##barimg", img.size, 1.0f, 1.0f, 512.0f, "%.0f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Drawn centred on the bar at this size, over the fill.");
+            ui::RowHelp("Drawn centred on the bar at this size, over the fill.");
         } else {
-            ImGui::TextDisabled("Cropped to the fill and tinted by the fill color\n"
-                                "(white = as painted).");
+            ImGui::TextDisabled("Cropped to the fill, tinted by the fill color.");
         }
         if (!img.imagePath.empty()) changed |= hudBakeControls(img);
     }

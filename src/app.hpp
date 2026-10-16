@@ -1473,6 +1473,21 @@ private:
     // full-screen effect layers (bloom, grain, motion blur), reorderable so
     // effects can sit under the crosshair/text instead of blurring them.
     void drawUiEditorWindow();
+    // One HUD element's on-screen box as the UI Editor preview hit-tests it;
+    // `sel` uses the uiFxSel_ codes (0 image, 3 USE prompt, 4 text, 9 bar).
+    struct HudHit {
+        int sel = 0;
+        int index = 0;
+        ImVec2 min, max;
+    };
+    // Draws the HUD (images in stack order, then bars, the USE prompt and the
+    // texts - the game's order) into the 512x448 frame at fMin/fSize. The
+    // viewport overlay and the UI Editor preview share it. `editing` also
+    // draws hidden-at-start elements (dimmed), the selected bar at its preview
+    // fill and the selected element's transition preview; `clock` drives the
+    // looped animations; `hits` (may be null) receives every box drawn.
+    void drawHudFrame(ImDrawList* dl, ImVec2 fMin, ImVec2 fSize, bool editing,
+                      float clock, std::vector<HudHit>* hits);
     // Loading Screens (Tools > Loading Screens): named loading screens (bg
     // color + images + baked texts + progress bars) assignable per scene, with
     // a 2D preview driven by a simulated load fraction.
@@ -2622,6 +2637,20 @@ private:
     // to, so a bar can be judged at 30% without running the game (-1 = start).
     int selectedBar_ = -1;
     float hudBarPreview_ = -1.0f;
+    // UI Editor preview (session state, never saved): background (0 = the
+    // viewport's last frame, 1 = checker, 2 = black), looped animations
+    // running, the 90% safe-area guide, the in-preview drag (0 none, 1 move,
+    // 2..5 a corner handle) and the start of a Play show / hide transition
+    // preview (< 0 = none).
+    int uiPrevBg_ = 0;
+    bool uiPrevAnimate_ = true;
+    bool uiPrevSafe_ = true;
+    int uiDragMode_ = 0;
+    double uiTransPlayT0_ = -1.0;
+    // The viewport's rendered frame (set by the Viewport window every frame it
+    // draws): the UI Editor's "Scene" background.
+    uint32_t uiSceneTex_ = 0;
+    int uiSceneTexW_ = 0, uiSceneTexH_ = 0;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is

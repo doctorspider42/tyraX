@@ -2772,6 +2772,10 @@ void App::drawViewportWindow() {
         // The overlay cards' frosted backdrop (ui::OverlayGlassPanel): a small
         // blurred copy of this very image, 0 when the panel is too small.
         const uint32_t blurTex = viewport_.blurBackdrop(tex, (int)avail.x, (int)avail.y);
+        // The UI Editor's "Scene" preview background: this frame, as drawn.
+        uiSceneTex_ = tex;
+        uiSceneTexW_ = (int)avail.x;
+        uiSceneTexH_ = (int)avail.y;
         // Phone camera link: stream THIS frame to the connected device, so the
         // phone is a viewfinder onto the editor's own image rather than a
         // second, subtly different render.
@@ -3791,181 +3795,12 @@ void App::drawViewportWindow() {
             frameSize = showPal_ ? palSize : ntscSize;
         }
 
-        // --- HUD preview overlay (matches the PS2 512x448 screen mapping;
-        // hidden by default - toggle in the UI Editor, which also shows it
-        // while open) ---
-        if (showHudInEditor_ || showUiEditor_) {
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            auto screenRect = [&](const float* pos, const float* size,
-                                  ImVec2& pMin, ImVec2& pMax) {
-                const float w = size[0] / 512.0f * frameSize.x;
-                const float h = size[1] / 448.0f * frameSize.y;
-                const ImVec2 c(frameMin.x + pos[0] * frameSize.x,
-                               frameMin.y + pos[1] * frameSize.y);
-                pMin = ImVec2(c.x - w * 0.5f, c.y - h * 0.5f);
-                pMax = ImVec2(c.x + w * 0.5f, c.y + h * 0.5f);
-            };
-            // The looped animation an element carries is previewed live
-            // through hudanim::evaluate - the same formula the generated game
-            // runs (docs/hud-animation.md), on the editor's clock. A Blink's
-            // off phase draws nothing, like the console.
-            const float hudNow = (float)ImGui::GetTime();
-            auto animRect = [&](const float* pos, const float* size,
-                                const HudAnim& anim, ImVec2& pMin, ImVec2& pMax,
-                                float& alpha) {
-                const hudanim::Motion m =
-                    hudanim::evaluate(anim.kind, anim.period, anim.amount, hudNow);
-                if (!m.visible) return false;
-                const float sz[2] = {size[0] * m.scale, size[1] * m.scale};
-                const float ps[2] = {pos[0] + m.dx / 512.0f, pos[1] + m.dy / 448.0f};
-                screenRect(ps, sz, pMin, pMax);
-                alpha = m.alpha;
-                return true;
-            };
-            auto tintOf = [](float alpha) {
-                return IM_COL32(255, 255, 255, (int)(alpha * 255.0f + 0.5f));
-            };
-            for (int i = 0; i < (int)project_.hud.size(); ++i) {
-                const HudImage& hi = project_.hud[i];
-                const bool isSel = showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_;
-                // Hidden-at-start images show only while the editor is open,
-                // dimmed, so they can still be placed.
-                if (!hi.visibleAtStart && !showUiEditor_) continue;
-                ImVec2 pMin, pMax;
-                float alpha = 1.0f;
-                if (!animRect(hi.pos, hi.size, hi.anim, pMin, pMax, alpha)) continue;
-                if (!hi.visibleAtStart) alpha *= 0.35f;
-                if (const HudTexture* t = hudTexture(hi.imagePath))
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
-                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
-                else
-                    dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (isSel)
-                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
-            }
-            // Live bars, at their start value (or the UI Editor's preview
-            // fill for the selected one). Drawn above the stack like the game.
-            for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
-                const HudBar& hb = project_.hudBars[i];
-                const bool isSel = showUiEditor_ && uiFxSel_ == 9 && i == selectedBar_;
-                if (!hb.visibleAtStart && !showUiEditor_) continue;
-                ImVec2 pMin, pMax;
-                float alpha = 1.0f;
-                if (!animRect(hb.pos, hb.size, hb.anim, pMin, pMax, alpha)) continue;
-                if (!hb.visibleAtStart) alpha *= 0.35f;
-                float start = hb.startValue;
-                if (!hb.source.empty()) {
-                    start = hb.minValue;
-                    for (const SaveValue& sv : project_.saveValues)
-                        if (sv.name == hb.source) start = sv.value;
-                }
-                const float frac = (isSel && hudBarPreview_ >= 0.0f)
-                                       ? hudBarPreview_
-                                       : hudanim::fraction(start, hb.minValue, hb.maxValue);
-                auto col = [&](const float* c) {
-                    return IM_COL32((int)(c[0] * 255.0f + 0.5f), (int)(c[1] * 255.0f + 0.5f),
-                                    (int)(c[2] * 255.0f + 0.5f), (int)(alpha * 255.0f + 0.5f));
-                };
-                const float bw = pMax.x - pMin.x, bh = pMax.y - pMin.y;
-                const HudTexture* fillTex =
-                    hb.fillImage.imagePath.empty() ? nullptr : hudTexture(hb.fillImage.imagePath);
-                if (hb.kind == 0) {
-                    dl->AddRectFilled(pMin, pMax, col(hb.bgColor));
-                    const float fw = bw * frac;
-                    const float fx = hb.rightToLeft ? pMax.x - fw : pMin.x;
-                    if (fw > 0.5f) {
-                        if (fillTex)
-                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
-                                         ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
-                                         ImVec2(hb.rightToLeft ? 1.0f - frac : 0.0f, 0),
-                                         ImVec2(hb.rightToLeft ? 1.0f : frac, 1),
-                                         col(hb.fillColor));
-                        else
-                            dl->AddRectFilled(ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
-                                              col(hb.fillColor));
-                    }
-                } else {
-                    const int segs = hb.segments < 1 ? 1 : hb.segments;
-                    const int lit = (int)(frac * segs + 0.001f);
-                    const float gap = hb.spacing / 512.0f * frameSize.x;
-                    const float segW = (bw - gap * (segs - 1)) / segs;
-                    for (int k = 0; k < segs; ++k) {
-                        const int kk = hb.rightToLeft ? segs - 1 - k : k;
-                        const float sx = pMin.x + kk * (segW + gap);
-                        const float* c = (k < lit) ? hb.fillColor : hb.bgColor;
-                        if (fillTex)
-                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
-                                         ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
-                                         ImVec2(0, 0), ImVec2(1, 1), col(c));
-                        else
-                            dl->AddRectFilled(ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
-                                              col(c));
-                    }
-                }
-                if (!hb.frameImage.imagePath.empty()) {
-                    if (const HudTexture* t = hudTexture(hb.frameImage.imagePath)) {
-                        const float k = hb.size[0] > 0.0f ? bw / (hb.size[0] / 512.0f * frameSize.x) : 1.0f;
-                        const float fw = hb.frameImage.size[0] / 512.0f * frameSize.x * k;
-                        const float fh = hb.frameImage.size[1] / 448.0f * frameSize.y * k;
-                        const ImVec2 c(pMin.x + bw * 0.5f, pMin.y + bh * 0.5f);
-                        dl->AddImage((ImTextureID)(intptr_t)t->tex,
-                                     ImVec2(c.x - fw * 0.5f, c.y - fh * 0.5f),
-                                     ImVec2(c.x + fw * 0.5f, c.y + fh * 0.5f),
-                                     ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
-                    }
-                }
-                if (isSel)
-                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
-            }
-            // The USE prompt (custom image or the embedded built-in sprite);
-            // in the game it only shows near usable objects - here it is a
-            // layout aid, drawn whenever the overlay is on.
-            {
-                const HudImage& up = project_.usePrompt;
-                // Text mode wins over the image and is sized by its own bake -
-                // the same rule the build follows, so this preview matches.
-                const HudTexture* t = nullptr;
-                float size[2] = {up.size[0], up.size[1]};
-                if (!project_.usePromptText.text.empty()) {
-                    t = hudTextTexture(project_.usePromptText);
-                    if (t) {
-                        size[0] = (float)t->w;
-                        size[1] = (float)t->h;
-                    }
-                } else {
-                    t = up.imagePath.empty() ? builtinUseTexture()
-                                             : hudTexture(up.imagePath);
-                }
-                ImVec2 pMin, pMax;
-                screenRect(up.pos, size, pMin, pMax);
-                if (t)
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
-                else
-                    dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (showUiEditor_ && uiFxSel_ == 3)
-                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0,
-                                2.0f);
-            }
-            // On-screen texts: the ones visible at game start, plus the one
-            // being edited (so hidden subtitles can still be placed).
-            for (int i = 0; i < (int)project_.hudTexts.size(); ++i) {
-                const HudText& ht = project_.hudTexts[i];
-                const bool isSel =
-                    showUiEditor_ && uiFxSel_ == 4 && i == selectedText_;
-                if (!ht.visibleAtStart && !isSel) continue;
-                if (const HudTexture* t = hudTextTexture(ht)) {
-                    const float size[2] = {(float)t->w, (float)t->h};
-                    ImVec2 pMin, pMax;
-                    float alpha = 1.0f;
-                    if (!animRect(ht.pos, size, ht.anim, pMin, pMax, alpha)) continue;
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
-                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
-                    if (isSel)
-                        dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255),
-                                    0.0f, 0, 2.0f);
-                }
-            }
-        }
+        // --- HUD preview overlay (the PS2 512x448 screen mapping): what the
+        // game shows at scene start. Off by default - the UI Editor has its
+        // own preview; its "In viewport" switch turns this on as well. ---
+        if (showHudInEditor_)
+            drawHudFrame(ImGui::GetWindowDrawList(), frameMin, frameSize, false,
+                         (float)ImGui::GetTime(), nullptr);
 
         // Frame (F, the readout's button): the orbit pivot onto the selection.
         auto frameSelection = [&] {

@@ -102,7 +102,7 @@ directly to the trigger, not to the first *Set Bloom*.)
 
 ## The project's glow settings
 
-*Tools > UI Editor* → the screen stack → **[ Bloom + color grading ]**:
+*Tools > UI Editor* → the screen stack → **Bloom + color grading**:
 
 | Setting | Value | Why |
 | --- | --- | --- |
