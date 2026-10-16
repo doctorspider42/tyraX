@@ -3922,7 +3922,10 @@ bool App::fontCombo(std::string& fontRef) {
 int App::importHudImageInto(std::vector<HudImage>& target) {
     const std::string src = pickPngFile();
     if (src.empty()) return -1;
+    return importHudImageFile(src, target);
+}
 
+int App::importHudImageFile(const std::string& src, std::vector<HudImage>& target) {
     const std::filesystem::path srcPath(src);
     const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "hud";
@@ -4420,6 +4423,14 @@ void App::drawUiEditorWindow() {
     if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
         ImGui::End();
         return;
+    }
+    {
+        // An OS drop over this window adds image elements (handleFileDrop).
+        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        uiEdDropWin_[0] = wp.x, uiEdDropWin_[1] = wp.y;
+        uiEdDropWin_[2] = wp.x + ws.x, uiEdDropWin_[3] = wp.y + ws.y;
+        uiEdDropFrame_[0] = uiEdDropFrame_[1] = uiEdDropFrame_[2] = uiEdDropFrame_[3] = 0.0f;
+        uiEdDropSeen_ = ImGui::GetFrameCount();
     }
     const theme::Semantics& sem = theme::semantics();
     const float fs = ImGui::GetFontSize();
@@ -5023,6 +5034,8 @@ void App::drawUiEditorWindow() {
         // centre (512x448 pixels). The model commits on release.
         ImGui::SetCursorScreenPos(f0);
         ImGui::InvisibleButton("HUD preview canvas", fSize);
+        uiEdDropFrame_[0] = f0.x, uiEdDropFrame_[1] = f0.y;
+        uiEdDropFrame_[2] = f0.x + fSize.x, uiEdDropFrame_[3] = f0.y + fSize.y;
         const ImVec2 mp = ImGui::GetIO().MousePos;
         auto inRect = [&](ImVec2 a, ImVec2 b, float pad) {
             return mp.x >= a.x - pad && mp.x <= b.x + pad && mp.y >= a.y - pad && mp.y <= b.y + pad;

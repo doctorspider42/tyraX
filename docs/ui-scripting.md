@@ -66,6 +66,7 @@ split point of `Window/Label` is tried, longest window prefix first.
 | `hover <target> [dx,dy]` | move the cursor onto it and leave it there |
 | `drag <target> <dx> <dy> [left\|right\|middle]` | press on it and slide by that many pixels (left button unless named) |
 | `wheel <target> <notches>` | scroll over it, one notch per frame (negative = down/out) |
+| `drop <target> <file> [dx,dy]` | an OS file drop (Finder / Explorer) landing on it: calls the editor's drop handler with that point, e.g. `drop 'HUD preview canvas' /tmp/star.png -100,-80` |
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
 | `text <string>` | type into whatever has keyboard focus |
 | `wait <seconds>` / `frames <n>` | let the editor run |

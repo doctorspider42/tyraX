@@ -3904,7 +3904,7 @@ void App::uiScriptTick() {
         s.kind == uiscript::Step::RightClick ||
         s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
         s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Wheel ||
-        s.kind == uiscript::Step::Expect;
+        s.kind == uiscript::Step::Expect || s.kind == uiscript::Step::Drop;
     // The ten menus sit behind the logo button: a step naming one of them
     // while that menu is closed opens it first (uiscript::namesMainMenu), so a
     // script written for the old menu bar still reads `click Tools`.
@@ -3934,7 +3934,7 @@ void App::uiScriptTick() {
         if (s.kind == uiscript::Step::Click ||
             s.kind == uiscript::Step::RightClick ||
             s.kind == uiscript::Step::DoubleClick ||
-            s.kind == uiscript::Step::Hover) {
+            s.kind == uiscript::Step::Hover || s.kind == uiscript::Step::Drop) {
             uiTargetX_ += s.dx;
             uiTargetY_ += s.dy;
         }
@@ -3989,6 +3989,12 @@ void App::uiScriptTick() {
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_++ >= 2) finishStep();
             break;
+        case uiscript::Step::Drop: {
+            const char* file = s.path.c_str();
+            handleFileDrop(1, &file, uiTargetX_, uiTargetY_);
+            finishStep();
+            break;
+        }
         case uiscript::Step::Click:
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_ == 1) {

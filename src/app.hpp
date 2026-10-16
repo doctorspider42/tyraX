@@ -860,6 +860,8 @@ private:
     // the UI Editor's HUD list and the Loading Screen editor). Returns the new
     // index, or -1 on failure.
     int importHudImageInto(std::vector<HudImage>& target);
+    // The same import from a known file (an OS drop): copy into res/hud, append.
+    int importHudImageFile(const std::string& src, std::vector<HudImage>& target);
     // Picks one of the project's fonts by name (menus, HUD texts, loading
     // texts). "" = the default entry. Returns true when the reference changed.
     bool fontCombo(std::string& fontRef);
@@ -1559,7 +1561,9 @@ private:
     void matEdSavePaintTarget();  // CPU pixels -> the PNG on disk (the "bake")
     void matEdStamp(float u, float v);      // one brush splat at a surface UV
     void matEdPaintTo(float u, float v);    // stamp + gap fill from the last UV
-    void handleFileDrop(int count, const char** paths);
+    // OS file drop. (x, y) = where it landed in ImGui screen coords (the GLFW
+    // cursor, or a --ui-script `drop` target); negative = unknown.
+    void handleFileDrop(int count, const char** paths, float x = -1.0f, float y = -1.0f);
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
@@ -2465,6 +2469,10 @@ private:
     // needs its OWN id: the inspector is an if/else chain on uiFxSel_, so two
     // kinds sharing one opens the wrong panel.
     bool showUiEditor_ = false;
+    // Where the UI Editor was last drawn, for OS file drops (handleFileDrop):
+    // window and 512x448 preview frame rects (min x/y, max x/y) and the frame.
+    float uiEdDropWin_[4] = {}, uiEdDropFrame_[4] = {};
+    int uiEdDropSeen_ = -10;
     bool showFontManager_ = false;
     bool showInputMap_ = false;
     int inputActionSel_ = 0;  // row selected in the Input Map action list

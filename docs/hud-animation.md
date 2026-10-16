@@ -14,7 +14,10 @@ Open **Tools > UI Editor**. It is three columns:
   the reorderable screen stack - drag a row - and the effects pinned under
   it). Each row shows its kind, its state (`save · health`, `5 seg · Wobble`,
   an effect's `off` / strength) and an eye for *Visible at game start*. One
-  **Add** menu adds an image, a text, a bar or a custom screen effect. Button
+  **Add** menu adds an image, a text, a bar or a custom screen effect. PNG
+  files dragged from Finder / Explorer onto the UI Editor become image
+  elements too (copied into `res/hud/`, selected; dropped on the preview they
+  sit where they landed, elsewhere in the window they start centred). Button
   icons and fonts are the two buttons at the bottom - shared assets, not
   layers.
 - **The preview** (centre) - the PS2's 512x448 frame over the viewport's
