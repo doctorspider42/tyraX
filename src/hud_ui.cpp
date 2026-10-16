@@ -2821,7 +2821,7 @@ void App::drawUiEditorWindow() {
             isSel = uiFxSel_ == 2;
             label = "[ Film grain ]";
         } else if (id == kMotionBlurMark) {
-            isSel = uiFxSel_ == 9;
+            isSel = uiFxSel_ == 10;
             label = "[ Motion blur ]";
         } else if (isFxMark(id)) {
             const int fi = fxMarkIndex(id);
@@ -2840,7 +2840,7 @@ void App::drawUiEditorWindow() {
         if (ImGui::Selectable(label.c_str(), isSel)) {
             if (id == kBloomMark) uiFxSel_ = 1;
             else if (id == kGrainMark) uiFxSel_ = 2;
-            else if (id == kMotionBlurMark) uiFxSel_ = 9;
+            else if (id == kMotionBlurMark) uiFxSel_ = 10;
             else if (isFxMark(id)) { uiFxSel_ = 5; selectedFx_ = fxMarkIndex(id); }
             else { uiFxSel_ = 0; selectedHud_ = id; }
         }
@@ -2961,7 +2961,7 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
-    } else if (uiFxSel_ == 9) {
+    } else if (uiFxSel_ == 10) {
         ImGui::SeparatorText("Motion blur");
         // Stored 0..1, shown as a percentage: it is a fraction of the effect's
         // own range, and "0.20" says nothing about how strong that is.

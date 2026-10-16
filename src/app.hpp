@@ -2285,11 +2285,13 @@ private:
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain, 9 = motion blur), the pinned USE
-    // prompt (3), a HUD text (4, index in selectedText_) or a custom screen
-    // effect placement (5, index in selectedFx_ into project_.screenFx). The
-    // pinned-under-the-stack effects take 6 (depth of field), 7 (lens flare)
-    // and 8 (god rays).
+    // bloom + color grading, 2 = film grain, 10 = motion blur), the pinned USE
+    // prompt (3), a HUD text (4, index in selectedText_), a HUD bar (9, index
+    // in selectedBar_) or a custom screen effect placement (5, index in
+    // selectedFx_ into project_.screenFx). The pinned-under-the-stack effects
+    // take 6 (depth of field), 7 (lens flare) and 8 (god rays). Every kind
+    // needs its OWN id: the inspector is an if/else chain on uiFxSel_, so two
+    // kinds sharing one opens the wrong panel.
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
     bool showInputMap_ = false;
