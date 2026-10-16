@@ -248,9 +248,16 @@ hold, and clears when the editor exits. Neither window was ever focused.
   Preferences/Mode"` still opens a combo four levels in. A tab body submitted
   without one needs real labels on anything a script has to name.
 
-  The dialogs with tabs today are *Project Preferences* (Display / World /
-  Rendering / Player / Build), the Neural Upscaler window, the Menu Editor, the
-  Material Editor and the World Facts window.
+  The dialogs with tabs today are the Neural Upscaler window, the Menu Editor,
+  the Material Editor and the World Facts window. *Project Preferences* has the
+  same rule without tabs: its categories (Display / World / Rendering / Player
+  / Build) are sidebar rows with those names, only the selected one is drawn,
+  and its content is one child window - so the step is the same
+  `click "Project Preferences/Display"`, and the hash fallback reaches
+  everything in a category. A section in the sidebar's index is
+  `"<Section>##sec"` (`click "Project Preferences/Terrain##sec"` scrolls to
+  it); the search field is `##prefs_search`; **Close** is at the bottom of the
+  sidebar.
 
   The **Properties panel** has tabs too, for a solid object (box, sphere,
   cylinder, cone, plane, model, save point): **Object** (type, detail, Model,
@@ -268,7 +275,7 @@ hold, and clears when the editor exits. Neither window was ever focused.
   object"`.
 
   **Project Preferences is a WINDOW, not a modal, since 1.20.0**, which changes
-  three things for a script. Its footer button is `Close` and there is no `OK`
+  three things for a script. Its `Close` button (bottom of the sidebar) is the only one: there is no `OK`
   or `Cancel` — the window applies every edit as it is made, so a run asserts by
   reading the model back (`--dump`, or `key ctrl+s` then grep the `.tyra`)
   rather than by pressing a confirm button. Nothing is blocked behind it, so a

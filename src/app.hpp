@@ -3803,6 +3803,14 @@ private:
     // beginTab lambda there); empty = leave whichever tab the author left on.
     // One-shot: honoured once and cleared.
     std::string prefsFocusTab_;
+    // Project Preferences navigation: the selected category (the old tab
+    // names), a pending section jump, the search text, and the sections the
+    // last drawn category had (the sidebar's index, one frame behind).
+    std::string prefsCat_;
+    std::string prefsScrollTo_;
+    bool prefsScrollTop_ = false;
+    char prefsSearch_[96] = {};
+    std::vector<std::string> prefsSections_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
