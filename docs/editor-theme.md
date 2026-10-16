@@ -107,22 +107,45 @@ A few things worth knowing because they are decisions rather than defaults:
 - **X, Y and Z are named inside the field** (`ui::AxisDrag3`) in the move
   gizmo's colours, which are the same in every theme: a red X is a
   convention, not a palette choice.
-- **The selected dock tab is the page colour** and is marked by an accent
-  overline. A tab the same colour as the panel below it reads as the panel's
-  front edge; the line says which one is active.
+- **Panels name themselves; tabs only where there is a choice.** A panel alone
+  in its dock node has no ImGui tab strip and no window-menu triangle. It draws
+  a header row instead: the title in the heading cut, a dim count, and icon
+  buttons on the right (`ui::PanelHeader` / `ui::PanelHeaderButton`). The
+  Project panel's header names its page ("Outliner 81") and carries the **+**
+  that adds an object. The header's empty part is the grab handle: drag it to
+  undock the panel and drop it on any node, exactly as you would drag a tab.
+  This is opt-in per window (`ui::PanelChromeNewFrame` in `drawUI`) and is never
+  written into a saved layout, because it goes through the window class's
+  `DockNodeFlagsOverrideSet` rather than the node's own flags. A node holding
+  several windows keeps its tabs, drawn as quiet pills
+  (`ImGuiStyle::TabPillInset`, an in-tree ImGui patch): the front tab is a
+  surface-filled pill, the others dim labels.
 - **Checkboxes fill with the accent and knock the tick out of it** in the page
   colour, instead of drawing an accent tick on a dark square.
 - **Scrollbars have no track** and a grab that only asserts itself under the
   cursor: a scrollbar is chrome, not content.
 - **Trees draw hierarchy lines** (ImGui's `DrawLinesToNodes`), which is most of
   what makes a deep object list scannable.
+- **Title bar.** On macOS and Windows the system title bar is merged into the
+  top bar: the bar is the window's top edge. On macOS the traffic lights sit
+  inside it, centred, and the logo starts after them; on Windows the bar ends
+  with its own minimize, maximize/restore and close buttons. Any empty part of
+  the bar moves the window when dragged and zooms or maximizes it on
+  double-click (macOS follows the system's double-click setting; on Windows a
+  right-click opens the system menu). *Edit > Preferences > Appearance > Use the
+  native title bar* brings the OS title bar back at the next start (editor.ini
+  `nativeTitleBar`). Linux always keeps the desktop's own decorations.
 - **The window has a frame: a top bar and a status bar, both on the ground.**
-  The top bar is the mark (the four face-button glyphs) and the menus, then a
-  breadcrumb — the project's name (its tooltip is the name, location, terrain
+  The top bar starts with the mark (the four face-button glyphs, "TyraX" and
+  a caret): one button that opens the ten menus as submenus of one popup (F10
+  and a lone Alt tap open it too). Then a breadcrumb — the project's name (its tooltip is the name, location, terrain
   and target the Project panel used to list; a click opens Project
   Preferences), `/`, and the **scene picker** with a *start* badge on the scene
-  the game boots into — and an **Unsaved** marker that is also the save
-  button. On the right: the build profile pill, the **PCSX2 | PS2** target
+  the game boots into — and an **N unsaved** marker (undo steps plus
+  project-wide edits since the last save) that is also the save button. The
+  room the menus used to take goes to the workspace labels first, then to a
+  search field ("Search objects, assets, commands..." + its keycap) centred in
+  the free space; on a narrow window it shrinks to the magnifier. On the right: the build profile pill, the **PCSX2 | PS2** target
   switch, Build, a filled **Run** in the target's colour (with the run variants
   under its caret) and Stop. The **status bar** at the bottom carries the
   build state and the LIVE / DBG / LOGIC / SESSION chips on the left, the last
@@ -139,7 +162,13 @@ A few things worth knowing because they are decisions rather than defaults:
   run, stop, preferences, new scene, the build profile...), an object of the
   active scene (Enter selects it and centres the camera on it), a scene, a
   window, a workspace or a documentation page (opened on GitHub). Arrows move,
-  Enter runs, Esc closes.
+  Enter runs, Esc closes; Ctrl+Enter (Cmd+Return) opens the AI Assistant with
+  the query as its draft.
+- **The Outliner** filters by single-select chips (All, Models, Primitives,
+  Lights, Areas, Audio, Cameras, Other), shows layers, prefabs and groups as
+  folders with counts, gives each row an eye (on hover, or always while off)
+  that hides that object for the session, and ends in a strip of layer chips
+  that toggle a layer's editor visibility.
 - **The left rail picks the Project panel's page.** Outliner, Layers, Assets,
   Audio (music and sounds) and Scripts each get the whole panel instead of
   sharing it as a stack of collapsing headers; the Outliner's list takes the
@@ -148,22 +177,46 @@ A few things worth knowing because they are decisions rather than defaults:
   docked behind another tab. The Outliner rows draw a type icon, the name and
   the type (dim, right-aligned) themselves; the row's label is still
   `name  (type)` - the ID and what scripts name it by.
-- **The viewport's controls float on cards.** Top left, one vertical tool
-  palette: Move, Rotate, Scale | Sculpt, Paint | Measure, Surface snap - icons
-  with their shortcut in the corner, the active tool filled with the accent.
-  Bottom left, the gear and a card with Center view, Center selection, the
-  projection and the look-through camera; bottom right, the World | Camera
-  axis switch (it moves up a row when the viewport is too narrow for both).
-  The cards are near-opaque ground with a hairline and a soft shadow - ImGui
-  has no blur, and text must stay readable over any scene. Their buttons keep
-  the old labels ("Move (1)", "Center view", ...) as IDs.
-- **The Properties panel is headed by the object**: a tile in the object's own
-  colour, its name as a large borderless field (still the *Name* input), and
-  what it is underneath. Sections are titled in the heading cut over a
-  hairline instead of a tinted band (`ui::Section`), and every on/off field is
-  a **switch** (`ui::Switch`) - a drop-in for `Checkbox` with the same label,
-  return value and mixed-value state, reported to `--ui-script` as checkable,
-  so `expect-checked` works on it exactly as before.
+- **The viewport's controls float on glass cards.** After `render()`,
+  `Viewport::blurBackdrop` makes a quarter-size gaussian-blurred copy of the
+  viewport image (two reused framebuffers, GL 3.3); `ui::SetOverlayBackdrop`
+  hands it to `ui::OverlayGlassPanel`, which draws each card as the blurred
+  image under a 60% ground tint and a hairline (no blurred texture: the plain
+  `OverlayPanel`). Top left, the tool palette (Move/Rotate/Scale |
+  Sculpt/Paint | Measure, with shortcut digits). Top centre, a view pill:
+  projection (`Proj: <name>`), look-through camera (`View: <name>`), `Render
+  mode`, `Surface snap` and `World`/`Camera` - it wraps to two pills or hides
+  when there is no room between the palette and the axis gizmo. Bottom left,
+  the gear (its menu starts with *Center view*) and the selection readout -
+  colour, name, type, triangles and size in metres - with **Frame** (key F; its
+  ID is still `Center selection`). Bottom right, **Editor | As PS2**
+  (`viewportPs2_`) with the GS framebuffer size. Visible text may differ from
+  the ID (`ui::OverlayMenuButton(label, text, ...)`); every old label is still
+  the ID. The viewport image rounds its bottom corners with the card.
+- **The Properties panel is headed by the object** - a tile in its colour, its
+  name as a large borderless field (still the *Name* input), its type - and a
+  "..." menu with Duplicate and Delete object. **The inspector reads as rows**:
+  every field's caption sits in a dim column on the left and the control fills
+  the rest (`ui::InspectorRows` and the `ui::` field wrappers - each still
+  receives its exact label, so IDs, script names and saved open states are
+  unchanged); help that used to be a trailing "(?)" lives on the caption
+  (dotted underline, hover). Switches (`ui::Switch`, a drop-in for `Checkbox`
+  that reports itself as checkable to `--ui-script`) are settings-list rows
+  with the switch on the right; a label "Name (what it does)" shows the
+  parenthesis as a smaller dim second line. A solid object's sections sit on
+  three quiet tabs - **Object**, **Material**, **Physics** (`Object##ptab`...),
+  accent-underlined, no tab fill - and the choice sticks for the session.
+  Colours are a swatch with a picker and a #RRGGBB field (`ui::ColorHex`),
+  the 0-255 fields one arrow away. Sections are titled in the heading cut over
+  a hairline (`ui::Section`), not a tinted band.
+- **The console drawer.** In the Default layout Output, Debug and the Debugger
+  share the bottom node. Log rows carry a dim mono time column (`textDim` at
+  75%), a gutter mark on error and warning lines, and one header row of
+  actions, *Select text* and right-aligned level pills. The Output and Debug
+  tabs show a count pill - `danger` for errors, `warn` for warnings only, its
+  ink chosen by the pill's luminance - drawn over the tab's stock
+  unsaved-document slot (`ImGuiWindowFlags_UnsavedDocument`), so a tab never
+  changes its name or id.
 - **Hover highlights fade in** (~80 ms) on the hand-drawn top-bar controls and
   status chips. Sweeping the cursor across a row of icons is the most common
   thing anyone does with that bar, and a hard rectangle appearing under each one

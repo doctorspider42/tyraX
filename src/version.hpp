@@ -5546,6 +5546,16 @@
 // Dear ImGui moves in-tree (vendor/imgui-tyrax, dropped from deps.sh/deps.ps1)
 // for its first patch, ImGuiStyle::DockNodeRounding: dock nodes as rounded
 // cards. The viewport image is AddImageRounded over a Dummy.
+// Then, merged from parallel branches: the console drawer (Output/Debug/
+// Debugger in one bottom node, time column, tab count badges), viewport glass
+// cards (Viewport::blurBackdrop) with a view pill / selection readout / As PS2
+// switch, the menus behind the logo (drawLogoMenu/drawMainMenus; uiscript
+// opens it for a bare menu name), "N unsaved" (History::stepsFromSaved), the
+// merged OS title bar (platform_mac.mm; Windows WndProc subclass; editor.ini
+// nativeTitleBar), Properties as label-left rows with Object/Material/Physics
+// tabs (ui::InspectorRows), panel headers instead of dock chrome
+// (ui::PanelChromeNewFrame, ImGui patch TabPillInset) and outliner chips/
+// folders/eyes.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

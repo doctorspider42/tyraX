@@ -6,34 +6,33 @@ relevant guide or developer skill.
 
 ## Main-window redesign: what is left (2026-10-16)
 
-1.173.0 shipped the redesign of the main window (docs/editor-theme.md): the
-palette and panel cards (with the first in-tree ImGui patch,
-`vendor/imgui-tyrax`), the top bar with breadcrumb / workspaces / run
-controls, the status bar, the left rail and one-page Project panel, the
-viewport tool cards, the Properties header with switches and quiet sections,
-the log panels and the command palette. Still open:
+1.173.0 shipped the redesigned main window (docs/editor-theme.md) - built and
+driven on macOS only. Open:
 
-- **Verify on Windows and Linux.** Built and driven on macOS only. Owed: a
-  `build.ps1` / `build.sh` build (MinGW compiles the ImGui patch for the first
-  time), a `--ui-script` shot of each, and the font picks (Segoe UI Semibold,
-  Inter SemiBold, the mono chains).
-- **Retake `docs/img/editor-themes.png`** - it still shows the 1.172 Face
-  buttons palette; and check Boot screen / Memory card / ImGui dark against the
-  new ground / field / card metrics.
-- **Properties labels on the left.** Every field still carries ImGui's
-  label-on-the-right; the design puts a label column on the left. Needs a
-  `ui::PropRow` (two-column table) and touching every widget in props_ui.cpp.
-- **Outliner as a real tree.** Rows have icons now, but layers/prefab groups
-  are still the old TreeNodes and the type filter is a combo, not chips.
-- **Live "game running" state in the top bar.** Run turns into "Building"
-  during a build only; a running game is visible in the status bar's DBG chip
-  (debug builds). A Runner-side "emulator running" signal would let Run show
-  "Running 00:42".
-- **PS2 budget meters** in the status bar (VRAM, RAM, triangles, EE ms):
-  there is no live VRAM/RAM estimate for a scene yet - add one before a meter.
-- **Command palette registry.** The palette's commands are a hand-written
-  list in palette_ui.cpp; a shared action registry for menus + palette would
-  let every menu item be found.
+- **Windows and Linux.** Build (`build.ps1` compiles the two in-tree ImGui
+  patches and the new WndProc subclass for the first time) and drive each.
+  Windows merged title bar, by hand: drag, Aero Snap, double-click maximize,
+  every resize edge incl. the top one, a maximized window's top row, a DPI
+  change between monitors, the caption buttons. Also the font picks (Segoe UI
+  Semibold, Inter SemiBold, the mono chains).
+- **macOS title bar by hand**: drag the empty bar, double-click it, click File
+  and the other menus in the top ~28 pt (the enlarged title-bar container must
+  not swallow them) - synthetic events could not test this.
+- **Retake `docs/img/editor-themes.png`** (still the 1.172 palette) and check
+  Boot screen / Memory card / ImGui dark against the new metrics; the logo
+  menu's popup is slightly translucent (PopupBg alpha).
+- **A lone Viewport or Properties panel** has no header: the Viewport cannot be
+  dragged out by one, its image's top corners stay square, and Properties with
+  nothing selected shows no title.
+- **Outliner eye** is session-only view state (`hiddenObjects_`); saving it
+  needs a `SceneObject` field + `kFormatVersion` bump.
+- **Game-running state on Run** ("Running 00:42") needs a Runner-side
+  "emulator running" signal; **PS2 budget meters** need a scene VRAM/RAM
+  estimate first.
+- **Command palette registry**: commands are a hand-written list in
+  palette_ui.cpp; a shared action registry would expose every menu item.
+- **Tool windows**: designs for every tool window are being prepared on the
+  design canvas; their implementation is the next round.
 
 ## Separate remaining runtime settings from compilation decisions
 
