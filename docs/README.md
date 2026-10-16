@@ -162,6 +162,9 @@ a Mac) finds any command, object or window by name.
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
+- [Font Manager](font-manager.md) — the project's typefaces: a specimen over
+  a scene, on black or drawn from the baked glyph atlas, the atlas itself with
+  its VRAM cost, and the Display Text look (colour, shadow, palette depth).
 - [Text icons (button glyphs in text)](text-icons.md) — `{{cross}}` /
   `{{action:jump}}` placeholders that draw pad glyphs inside any text.
 - [Keyboard & mouse](keyboard-mouse.md) — USB keyboard and mouse on the

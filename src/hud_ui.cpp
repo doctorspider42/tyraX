@@ -174,7 +174,9 @@ bool App::fontSourceCombo(std::string& fontPath) {
     if (!fontPath.empty())
         current = std::filesystem::path(fontPath).filename().string();
     ImGui::SetNextItemWidth(scaled(200.0f));
-    if (ImGui::BeginCombo("Source", current.c_str())) {
+    // ui::BeginCombo is the stock combo outside an InspectorRows scope (the
+    // menu and HUD editors) and a label-left row inside one (Font Manager).
+    if (ui::BeginCombo("Source", current.c_str())) {
         if (ImGui::Selectable(defaultLabel.c_str(), fontPath.empty())) {
             fontPath.clear();
             changed = true;
@@ -228,13 +230,15 @@ bool App::fontSourceCombo(std::string& fontPath) {
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Fonts imported into the project (res/fonts) travel\n"
-                          "with it; Windows fonts depend on this machine.\n"
-                          "Only the rasterized pixels ever reach the PS2 -\n"
-                          "the TTF itself never ships.");
+    const char* tip = "Fonts imported into the project (res/fonts) travel\n"
+                      "with it; Windows fonts depend on this machine.\n"
+                      "Only the rasterized pixels ever reach the PS2 -\n"
+                      "the TTF itself never ships.";
+    if (!ui::RowHelp(tip)) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+    }
     return changed;
 }
 
@@ -563,15 +567,61 @@ void App::drawTextIconsModal() {
     ImGui::EndPopup();
 }
 
+// One font in the Font Manager's list: an "Aa" specimen tile rasterized in
+// that font, the name, and a dim second line. The label is the ID and the
+// --ui-script name. Returns clicked.
+static bool fontListRow(const char* label, const char* sub, bool selected,
+                        ImTextureID aa, ImVec2 aaSize) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float h = fs * 2.9f;
+    const float w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w > 1 ? w : 1, h));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    const ImVec2 q(p.x + w, p.y + h);
+    if (selected) {
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.14f)), r);
+    } else if (t > 0.0f) {
+        dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, 0.8f * t)), r);
+    }
+    const float tile = h - fs * 0.8f;
+    const ImVec2 t0(p.x + fs * 0.4f, p.y + (h - tile) * 0.5f);
+    const ImVec2 t1(t0.x + tile, t0.y + tile);
+    dl->AddRectFilled(t0, t1, ImGui::GetColorU32(sem.ground), r);
+    dl->AddRect(t0, t1, ImGui::GetColorU32(sem.border), r);
+    if (aa && aaSize.x > 0 && aaSize.y > 0) {
+        float s = (tile * 0.7f) / (aaSize.x > aaSize.y ? aaSize.x : aaSize.y);
+        const ImVec2 sz(aaSize.x * s, aaSize.y * s);
+        const ImVec2 a0(t0.x + (tile - sz.x) * 0.5f, t0.y + (tile - sz.y) * 0.5f);
+        dl->AddImage(aa, a0, ImVec2(a0.x + sz.x, a0.y + sz.y));
+    }
+    const float x = t1.x + fs * 0.6f;
+    dl->PushClipRect(ImVec2(x, p.y), ImVec2(q.x - fs * 0.3f, q.y), true);
+    {
+        ui::FontScope bold(ui::boldFont());
+        dl->AddText(ImVec2(x, p.y + h * 0.5f - fs * 1.05f), ImGui::GetColorU32(sem.text), label,
+                    ImGui::FindRenderedTextEnd(label));
+    }
+    if (sub && *sub)
+        dl->AddText(ImGui::GetFont(), fs * 0.86f, ImVec2(x, p.y + h * 0.5f + fs * 0.1f),
+                    ImGui::GetColorU32(sem.textDim), sub);
+    dl->PopClipRect();
+    return pressed;
+}
+
 // Tools > Font Manager: the project's typefaces. Every text (HUD texts, menus,
 // loading screens, Display Text nodes) names one of these, so restyling a
 // project is an edit here rather than a hunt through every text.
 //
-// fonts[0] is the fallback for unset references, which is why the last entry
-// can never be deleted.
+// Layout (docs/font-manager.md): fonts | specimen (the hero) + the atlas that
+// ships | inspector. fonts[0] is the fallback for unset references, which is
+// why the last entry can never be deleted.
 void App::drawFontManagerWindow() {
     if (!showFontManager_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(600.0f), scaled(440.0f)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(1100.0f), scaled(720.0f)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Font Manager", &showFontManager_)) {
         ImGui::End();
@@ -579,6 +629,7 @@ void App::drawFontManagerWindow() {
     }
     if (project_.fonts.empty()) project_.fonts.push_back(GameFont{});
     if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
+    const theme::Semantics& sem = theme::semantics();
 
     bool changed = false;
     // Belt and braces: fonts ride in the Hud section (writeHudSection), and a
@@ -586,145 +637,56 @@ void App::drawFontManagerWindow() {
     const std::string beforeSection =
         project::sectionJson(project_, project::Section::Hud);
 
-    ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
+    // Fonts dropped into res/fonts show up in Source as [project]; until
+    // there is one, the list says how to get one in.
+    bool hasProjectTtf = false;
+    {
+        std::error_code ec;
+        const std::filesystem::path fontsDir =
+            std::filesystem::path(project_.dir) / "res" / "fonts";
+        if (std::filesystem::exists(fontsDir, ec))
+            for (const auto& e : std::filesystem::directory_iterator(fontsDir, ec)) {
+                std::string ext = e.path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext == ".ttf" || ext == ".otf") hasProjectTtf = true;
+            }
+    }
+    auto sourceLabel = [&](const GameFont& gf) {
+        if (gf.fontPath.empty()) return std::string(platform::defaultFontLabel());
+        for (const platform::SystemFont& sf : platform::systemFonts())
+            if (gf.fontPath == sf.file) return std::string(sf.label);
+        return std::filesystem::path(gf.fontPath).filename().string();
+    };
+
+    const float listW = scaled(220.0f), inspW = scaled(310.0f);
+    const float fullH = ImGui::GetContentRegionAvail().y;
+    auto vline = [&](float x, float y0, float y1) {
+        ImGui::GetWindowDrawList()->AddLine(ImVec2(x, y0), ImVec2(x, y1),
+                                            ImGui::GetColorU32(sem.border));
+    };
+
+    // ---- left: the fonts ----------------------------------------------------
+    ImGui::BeginChild("fontlist", ImVec2(listW, fullH), ImGuiChildFlags_AlwaysUseWindowPadding);
     for (size_t i = 0; i < project_.fonts.size(); ++i) {
+        const GameFont& gf = project_.fonts[i];
         ImGui::PushID((int)i);
-        std::string label = project_.fonts[i].name;
-        if (i == 0) label += "  [default]";
-        if (ImGui::Selectable(label.c_str(), fontSel_ == (int)i))
+        HudText aa;
+        aa.name = "##fontaa" + std::to_string(i);
+        aa.text = "Aa";
+        aa.font = gf.name;
+        aa.size = 20;
+        aa.shadow = false;
+        const HudTexture* aaTex = hudTextTexture(aa);
+        std::string sub = sourceLabel(gf);
+        if (i == 0) sub += " \xC2\xB7 project default";
+        if (fontListRow(gf.name.c_str(), sub.c_str(), fontSel_ == (int)i,
+                        aaTex ? (ImTextureID)(intptr_t)aaTex->tex : (ImTextureID)0,
+                        aaTex ? ImVec2((float)aaTex->w, (float)aaTex->h) : ImVec2(0, 0)))
             fontSel_ = (int)i;
         ImGui::PopID();
     }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    ImGui::BeginGroup();
-    GameFont& f = project_.fonts[fontSel_];
-    {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
-        ImGui::SetNextItemWidth(scaled(200.0f));
-        if (ImGui::InputText("Name", buf, sizeof(buf))) {
-            std::string want = buf;
-            // Names are the reference key, so they must stay unique and
-            // non-empty; a clash would silently redirect other texts here.
-            bool clash = want.empty();
-            for (size_t i = 0; i < project_.fonts.size(); ++i)
-                if ((int)i != fontSel_ && project_.fonts[i].name == want)
-                    clash = true;
-            if (!clash) renameFont(fontSel_, want);
-        }
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-    }
-    changed |= fontSourceCombo(f.fontPath);
-    if (ImGui::ColorEdit3("Color##font", f.color, ImGuiColorEditFlags_NoInputs))
-        changed = true;
-    ImGui::SameLine();
-    ImGui::TextDisabled("(Display Text only)");
-    if (ImGui::Checkbox("Drop shadow##font", &f.shadow)) changed = true;
-    ImGui::SameLine();
-    ImGui::TextDisabled("(Display Text only)");
-
-    // Everything below only matters to a font a Display Text node draws with -
-    // static text never touches the atlas.
-    const std::vector<int> atlasFonts = project_.atlasFontIndices();
-    const bool usedDynamically =
-        std::find(atlasFonts.begin(), atlasFonts.end(), fontSel_) !=
-        atlasFonts.end();
-
-    ImGui::SeparatorText("Glyph atlas");
-    if (!usedDynamically) {
-        ImGui::TextDisabled(
-            "No Display Text node uses this font, so no atlas is\n"
-            "baked and nothing ships to the PS2. Static texts\n"
-            "rasterize straight from the TTF at build.");
-    }
-    ImGui::SetNextItemWidth(scaled(120.0f));
-    if (ImGui::DragInt("Atlas size", &f.atlasSize, 0.2f, 8, 48, "%d px"))
-        f.atlasSize = f.atlasSize < 8 ? 8 : f.atlasSize > 48 ? 48 : f.atlasSize;
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Height the glyphs are rasterized at. Display Text\n"
-                          "scales from this, so it trades sharpness against\n"
-                          "VRAM - not the on-screen size.");
-    {
-        const char* kQuant[] = {"4bit", "8bit", "none"};
-        int qi = f.quant == "8bit" ? 1 : f.quant == "none" ? 2 : 0;
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        if (ImGui::Combo("Atlas colors", &qi, kQuant, 3)) {
-            f.quant = kQuant[qi];
-            changed = true;
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Palette depth of the baked atlas. Glyphs bake white and\n"
-                "are tinted at runtime, so 16 colors is normally plenty -\n"
-                "and roughly 8x cheaper in VRAM than full color.");
-    }
-
-    // Atlas footprint: the PS2 has ~1.33 MB of texture VRAM once the frame and
-    // z buffers are placed, and a resident atlas never leaves it, so show the
-    // real cost rather than let it surprise someone on hardware.
-    //
-    // Cached on the bake-affecting fields: atlasLayout measures all 95 glyphs
-    // (stbtt box per codepoint), which is not something to redo every frame
-    // just to print one line.
-    {
-        const std::string key = f.fontPath + "\x1f" + std::to_string(f.atlasSize) +
-                                "\x1f" + f.quant;
-        if (key != fontAtlasKey_) {
-            fontAtlasKey_ = key;
-            fontAtlasInfo_.clear();
-            menubake::AtlasLayout lay;
-            if (menubake::atlasLayout(f, project_, lay)) {
-                const int bpp = f.quant == "none" ? 32 : f.quant == "8bit" ? 8 : 4;
-                // +8 KB per allocation (the engine's alignment tax), +CLUT for
-                // the palettized modes.
-                const int kb = (lay.texW * lay.texH * bpp / 8 + 8192 +
-                                (bpp == 32 ? 0 : 8192)) /
-                               1024;
-                char buf[128];
-                std::snprintf(buf, sizeof(buf),
-                              "Atlas: %dx%d, ~%d KB VRAM while shown", lay.texW,
-                              lay.texH, kb);
-                fontAtlasInfo_ = buf;
-                fontAtlasClipped_ = lay.clipped;
-            } else {
-                fontAtlasClipped_ = false;
-            }
-        }
-        if (fontAtlasInfo_.empty()) {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                               "No usable TTF found for this font.");
-        } else {
-            ImGui::TextUnformatted(fontAtlasInfo_.c_str());
-            if (fontAtlasClipped_)
-                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
-                                   "Glyphs past the 512px cap were dropped -\n"
-                                   "lower the atlas size.");
-        }
-    }
-    // Live preview: the exact rasterizer the build uses, so what is on screen
-    // here is what the game gets.
-    {
-        HudText sample;
-        sample.name = "##fontpreview";
-        sample.text = "Sample 0123 gjpq";
-        sample.font = f.name;
-        sample.size = f.atlasSize;
-        sample.shadow = f.shadow;
-        for (int i = 0; i < 3; ++i) sample.color[i] = f.color[i];
-        if (const HudTexture* tex = hudTextTexture(sample))
-            ImGui::Image((ImTextureID)(intptr_t)tex->tex,
-                         ImVec2(scaled((float)tex->w), scaled((float)tex->h)));
-    }
-
-    ImGui::Separator();
-    if (ImGui::Button("+ Add font")) {
+    ImGui::Spacing();
+    if (ui::GhostButton("+ Add font")) {
         GameFont nf;
         std::string base = "font";
         std::string name = base;
@@ -739,21 +701,401 @@ void App::drawFontManagerWindow() {
         fontSel_ = (int)project_.fonts.size() - 1;
         changed = true;
     }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(project_.fonts.size() <= 1);
-    if (ImGui::Button("Delete font")) {
-        // Texts naming it fall back to the default entry (Project::findFont),
-        // so deleting never breaks a bake.
-        project_.fonts.erase(project_.fonts.begin() + fontSel_);
-        if (fontSel_ >= (int)project_.fonts.size())
-            fontSel_ = (int)project_.fonts.size() - 1;
-        changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A new entry on the default face - pick its Source on the right.");
+    if (!hasProjectTtf) {
+        // How a custom face gets in, said where you look for one.
+        const float cardH = ImGui::GetTextLineHeightWithSpacing() * 4.2f;
+        const float y = ImGui::GetWindowHeight() - cardH - ImGui::GetStyle().WindowPadding.y;
+        if (ImGui::GetCursorPosY() < y) ImGui::SetCursorPosY(y);
+        if (ui::BeginCard("##fontshint", ImVec2(0, 0))) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextWrapped("Drop a .ttf or .otf into res/fonts/ - it shows up in "
+                               "Source as [project].");
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+        }
+        ui::EndCard();
     }
-    ImGui::EndDisabled();
-    if (project_.fonts.size() <= 1 && ImGui::IsItemHovered())
-        ImGui::SetTooltip("The default font cannot be deleted - it is what\n"
-                          "every unset font reference resolves to.");
-    ImGui::EndGroup();
+    ImGui::EndChild();
+    {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        vline(b.x, a.y, b.y);
+    }
+    ImGui::SameLine(0.0f, 0.0f);
+
+    GameFont& f = project_.fonts[fontSel_];
+
+    // The baked atlas - what a Display Text font ships - as a texture, so it
+    // can be SHOWN, not just measured. Glyphs bake white; the palette depth is
+    // simulated on the alpha (16 levels for 4-bit), which is what the CLUT
+    // does to white glyphs. Re-baked only when a bake-affecting field changes.
+    {
+        const std::string key = project_.dir + "\x1f" + f.fontPath + "\x1f" +
+                                std::to_string(f.atlasSize) + "\x1f" + f.quant;
+        if (key != fontAtlasTexKey_) {
+            fontAtlasTexKey_ = key;
+            std::vector<unsigned char> rgba;
+            menubake::AtlasLayout lay;
+            if (menubake::bakeAtlasRGBA(f, project_, rgba, lay) &&
+                rgba.size() == (size_t)lay.texW * lay.texH * 4) {
+                if (f.quant == "4bit")
+                    for (size_t i = 3; i < rgba.size(); i += 4)
+                        rgba[i] = (unsigned char)(((rgba[i] + 8) / 17) * 17);
+                if (!fontAtlasTex_) glGenTextures(1, &fontAtlasTex_);
+                glBindTexture(GL_TEXTURE_2D, fontAtlasTex_);
+                glUploadTexRgba(lay.texW, lay.texH, rgba.data());
+                fontAtlasLayout_ = lay;
+                const int bpp = f.quant == "none" ? 32 : f.quant == "8bit" ? 8 : 4;
+                // +8 KB per allocation (the engine's alignment tax), +CLUT for
+                // the palettized modes - the same sum the build reports.
+                fontAtlasKb_ = (lay.texW * lay.texH * bpp / 8 + 8192 +
+                                (bpp == 32 ? 0 : 8192)) / 1024;
+            } else {
+                fontAtlasLayout_ = menubake::AtlasLayout();
+                fontAtlasLayout_.glyphs.clear();
+                fontAtlasKb_ = 0;
+            }
+        }
+    }
+    const menubake::AtlasLayout& lay = fontAtlasLayout_;
+    const bool atlasOk = fontAtlasTex_ && !lay.glyphs.empty();
+
+    const std::vector<int> atlasFonts = project_.atlasFontIndices();
+    const bool usedDynamically =
+        std::find(atlasFonts.begin(), atlasFonts.end(), fontSel_) != atlasFonts.end();
+
+    // ---- centre: the specimen (hero) and the atlas that ships -------------
+    const float midW = ImGui::GetContentRegionAvail().x - inspW;
+    ImGui::BeginChild("fontpreview", ImVec2(midW > 1 ? midW : 1, fullH),
+                      ImGuiChildFlags_AlwaysUseWindowPadding);
+    {
+        const float atlasH = scaled(210.0f);
+        const float gap = ImGui::GetStyle().ItemSpacing.y;
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const float specH = avail.y - atlasH - gap > scaled(160.0f) ? avail.y - atlasH - gap
+                                                                  : scaled(160.0f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 s0 = ImGui::GetCursorScreenPos();
+        const ImVec2 s1(s0.x + avail.x, s0.y + specH);
+        const float rr = ImGui::GetStyle().FrameRounding + 4.0f;
+        // The backdrop is game content standing in for a scene: a dusk
+        // gradient from the theme's accent into the ground, or the black of
+        // an empty PS2 frame.
+        if (fontPreviewMode_ == 1) {
+            dl->AddRectFilled(s0, s1, IM_COL32(0, 0, 0, 255), rr);
+        } else {
+            const ImVec4 top(sem.accentMuted.x * 0.55f + sem.ground.x * 0.45f,
+                             sem.accentMuted.y * 0.55f + sem.ground.y * 0.45f,
+                             sem.accentMuted.z * 0.55f + sem.ground.z * 0.45f, 1.0f);
+            const ImU32 cTop = ImGui::GetColorU32(top), cBot = ImGui::GetColorU32(sem.ground);
+            dl->AddRectFilled(s0, s1, cBot, rr);
+            dl->AddRectFilledMultiColor(ImVec2(s0.x, s0.y + rr), ImVec2(s1.x, s1.y - rr), cTop, cTop,
+                                        cBot, cBot);
+            dl->AddRectFilled(s0, ImVec2(s1.x, s0.y + rr + 1.0f), cTop, rr,
+                              ImDrawFlags_RoundCornersTop);
+        }
+        dl->AddRect(s0, s1, ImGui::GetColorU32(sem.border), rr);
+
+        // Display scale: the specimen sizes are PS2 pixels (a 640-wide frame),
+        // blown up so the panel reads like the TV would.
+        const float k = std::max(1.0f, avail.x / 560.0f);
+        const char* title = project_.name.empty() ? "Observatory" : project_.name.c_str();
+        const char* small = "Sample 0123 gjpq";
+        const int sizes[3] = {36, 20, 14};
+        const char* lines[3] = {title, fontSample_[0] ? fontSample_ : " ", small};
+        const ImU32 tint = ImGui::GetColorU32(ImVec4(f.color[0], f.color[1], f.color[2], 1.0f));
+        int missing = 0;
+        // As PS2: lay the string down glyph by glyph from the baked atlas,
+        // scaled from the atlas size to the text size - the runtime's path,
+        // so a small atlas blown up to a title shows its softness here.
+        auto atlasText = [&](ImVec2 pos, const char* s, float px, bool draw) {
+            const float sc = px / (float)(lay.baseSize > 0 ? lay.baseSize : 16);
+            float pen = 0.0f;
+            for (const unsigned char* c = (const unsigned char*)s; *c; ++c) {
+                if (*c < menubake::kAtlasFirstChar || *c > menubake::kAtlasLastChar) {
+                    if (draw && (*c >= 0xC0 || *c < 0x80)) ++missing;  // code points
+                    continue;
+                }
+                const menubake::AtlasGlyph& g = lay.glyphs[(size_t)(*c - menubake::kAtlasFirstChar)];
+                if (draw && g.w > 0 && g.h > 0) {
+                    const ImVec2 a(pos.x + (pen + g.xoff) * sc * k, pos.y + g.yoff * sc * k);
+                    const ImVec2 b(a.x + g.w * sc * k, a.y + g.h * sc * k);
+                    const ImVec2 uv0((float)g.u / lay.texW, (float)g.v / lay.texH);
+                    const ImVec2 uv1((float)(g.u + g.w) / lay.texW, (float)(g.v + g.h) / lay.texH);
+                    if (f.shadow)
+                        dl->AddImage((ImTextureID)(intptr_t)fontAtlasTex_, ImVec2(a.x + k, a.y + k),
+                                     ImVec2(b.x + k, b.y + k), uv0, uv1, IM_COL32(0, 0, 0, 170));
+                    dl->AddImage((ImTextureID)(intptr_t)fontAtlasTex_, a, b, uv0, uv1, tint);
+                }
+                pen += g.advance;
+            }
+            return pen * sc * k;
+        };
+        float blockH = 0.0f;
+        for (int i = 0; i < 3; ++i) blockH += sizes[i] * k * (i ? 1.45f : 1.6f);
+        float y = s0.y + (specH - blockH) * 0.5f;
+        dl->PushClipRect(s0, s1, true);
+        // Lines are centred: the static bake centres its text in a pow2
+        // canvas, so the sprite's centre is the only point that is known.
+        const float cx = s0.x + avail.x * 0.5f;
+        for (int i = 0; i < 3; ++i) {
+            const float lineH = sizes[i] * k;
+            const float cy = y + lineH * 0.6f;
+            if (fontPreviewMode_ == 2) {
+                if (atlasOk) {
+                    const float tw = atlasText(ImVec2(0, 0), lines[i], (float)sizes[i], false);
+                    atlasText(ImVec2(cx - tw * 0.5f, cy - lineH * 0.5f), lines[i],
+                              (float)sizes[i], true);
+                }
+            } else {
+                HudText t;
+                t.name = "##fontspec" + std::to_string(i);
+                t.text = lines[i];
+                t.font = f.name;
+                t.size = sizes[i];
+                t.shadow = f.shadow;
+                for (int c = 0; c < 3; ++c) t.color[c] = f.color[c];
+                if (const HudTexture* tex = hudTextTexture(t)) {
+                    const ImVec2 at(cx - tex->w * k * 0.5f, cy - tex->h * k * 0.5f);
+                    dl->AddImage((ImTextureID)(intptr_t)tex->tex, at,
+                                 ImVec2(at.x + tex->w * k, at.y + tex->h * k));
+                }
+            }
+            y += sizes[i] * k * (i ? 1.45f : 1.6f);
+        }
+        dl->PopClipRect();
+
+        // View pill, top-left on the specimen.
+        ImGui::SetCursorScreenPos(ImVec2(s0.x + scaled(12.0f), s0.y + scaled(12.0f)));
+        static const char* kModes[] = {"On the scene", "On black", "As PS2"};
+        ui::Segmented("##fontview", kModes, 3, &fontPreviewMode_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("As PS2 draws every glyph from the baked atlas at its\n"
+                              "palette depth - what a Display Text node shows.");
+        if (fontPreviewMode_ == 2) {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s atlas", f.quant == "none" ? "full-colour"
+                                            : f.quant == "8bit" ? "8-bit" : "4-bit");
+            if (missing > 0) {
+                ImGui::SameLine();
+                ui::Badge((std::to_string(missing) + " not in atlas").c_str(), 1);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The atlas holds printable ASCII only - other\n"
+                                      "characters are dropped at draw time.");
+            }
+        }
+        // The editable sample line, inside the specimen's bottom edge.
+        const float fh = ImGui::GetFrameHeight();
+        ImGui::SetCursorScreenPos(ImVec2(s0.x + scaled(10.0f), s1.y - fh - scaled(10.0f)));
+        ImGui::SetNextItemWidth(avail.x - scaled(20.0f));
+        ImGui::InputTextWithHint("##fontsample", "Type a line to try", fontSample_,
+                                 sizeof fontSample_);
+        ImGui::SetCursorScreenPos(ImVec2(s0.x, s1.y + gap));
+
+        // The atlas card: the real image beside what it costs.
+        const float imgH = atlasH;
+        float imgW = 0.0f;
+        if (atlasOk) {
+            imgW = imgH * (float)lay.texW / (float)lay.texH;
+            if (imgW > avail.x * 0.4f) imgW = avail.x * 0.4f;
+            const ImVec2 a0 = ImGui::GetCursorScreenPos();
+            const ImVec2 a1(a0.x + imgW, a0.y + imgH);
+            dl->AddRectFilled(a0, a1, IM_COL32(0, 0, 0, 255), rr);
+            // Fit the texture inside the tile, aspect kept.
+            const float fit = std::min((imgW - scaled(12.0f)) / lay.texW,
+                                       (imgH - scaled(12.0f)) / lay.texH);
+            const ImVec2 sz(lay.texW * fit, lay.texH * fit);
+            const ImVec2 i0(a0.x + (imgW - sz.x) * 0.5f, a0.y + (imgH - sz.y) * 0.5f);
+            dl->AddImage((ImTextureID)(intptr_t)fontAtlasTex_, i0, ImVec2(i0.x + sz.x, i0.y + sz.y));
+            dl->AddRect(a0, a1, ImGui::GetColorU32(sem.border), rr);
+            ImGui::Dummy(ImVec2(imgW, imgH));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The glyph atlas exactly as baked (%dx%d).", lay.texW, lay.texH);
+            ImGui::SameLine();
+        }
+        if (ui::BeginCard("##fontatlascard", ImVec2(0, imgH))) {
+            ui::Caption("Glyph atlas - what ships");
+            if (!atlasOk) {
+                ui::StatusLine(2, "No usable TTF found for this font.");
+            } else {
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushFont(nullptr, ImGui::GetFontSize() * 1.6f);
+                    ImGui::Text("~%d KB", fontAtlasKb_);
+                    ImGui::PopFont();
+                }
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled(usedDynamically ? "GS VRAM while text is shown"
+                                                    : "if a Display Text node used it");
+                // ~1.33 MB of texture VRAM once the frame and z buffers are
+                // placed; a resident atlas never leaves it.
+                const float frac = fontAtlasKb_ / 1362.0f;
+                const ImVec2 b0 = ImGui::GetCursorScreenPos();
+                const float bw = ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("of ~1.33 MB").x -
+                                 scaled(10.0f);
+                const float bh = scaled(5.0f);
+                ImDrawList* cdl = ImGui::GetWindowDrawList();
+                const float by = b0.y + ImGui::GetTextLineHeight() * 0.5f - bh * 0.5f;
+                cdl->AddRectFilled(ImVec2(b0.x, by), ImVec2(b0.x + bw, by + bh),
+                                   ImGui::GetColorU32(sem.field), bh);
+                cdl->AddRectFilled(ImVec2(b0.x, by),
+                                   ImVec2(b0.x + bw * std::clamp(frac, 0.02f, 1.0f), by + bh),
+                                   ImGui::GetColorU32(frac > 0.25f ? sem.warn : sem.ok), bh);
+                ImGui::Dummy(ImVec2(bw, ImGui::GetTextLineHeight()));
+                ImGui::SameLine();
+                ImGui::TextDisabled("of ~1.33 MB");
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                    ImGui::PushTextWrapPos(0.0f);
+                    ImGui::TextWrapped("%dx%d \xC2\xB7 %d glyphs (ASCII) \xC2\xB7 baked white, tinted at runtime",
+                                       lay.texW, lay.texH, menubake::kAtlasCharCount);
+                    ImGui::PopTextWrapPos();
+                    ImGui::PopStyleColor();
+                }
+                if (lay.clipped)
+                    ui::StatusLine(1, "Glyphs past the 512 px cap were dropped - lower the glyph size.");
+                ImGui::Spacing();
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                // The static-vs-Display-Text rule, stated once.
+                ImGui::TextWrapped(usedDynamically
+                                       ? "Display Text nodes draw with this font, so its atlas is baked. "
+                                         "Static texts rasterize straight from the TTF at build."
+                                       : "No Display Text node uses this font, so no atlas ships. "
+                                         "Static texts rasterize straight from the TTF at build.");
+                ImGui::PopStyleColor();
+                ImGui::PopTextWrapPos();
+            }
+        }
+        ui::EndCard();
+    }
+    ImGui::EndChild();
+    {
+        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        vline(b.x, a.y, b.y);
+    }
+    ImGui::SameLine(0.0f, 0.0f);
+
+    // ---- right: the inspector -----------------------------------------------
+    ImGui::BeginChild("fontinspector", ImVec2(0, fullH), ImGuiChildFlags_AlwaysUseWindowPadding);
+    {
+        const float footH = ImGui::GetFrameHeightWithSpacing() + scaled(14.0f);
+        ImGui::BeginChild("##fontinspbody", ImVec2(0, -footH));
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 1.2f);
+            ImGui::TextUnformatted(f.name.c_str());
+            ImGui::PopFont();
+        }
+        if (fontSel_ == 0) {
+            ImGui::SameLine();
+            const float bw = ImGui::CalcTextSize("project default").x + scaled(14.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
+            ui::Badge("project default", 3);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Every text that names no font, or a deleted one,\nuses this entry.");
+        }
+        ImGui::Spacing();
+        const float capW = std::clamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(84.0f),
+                                      scaled(110.0f));
+        auto helpUnder = [&](const char* text) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + capW);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushFont(nullptr, ImGui::GetFontSize() * 0.9f);
+            ImGui::TextWrapped("%s", text);
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+        };
+        {
+            ui::InspectorRows rows(capW, capW);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+            if (ui::InputText("Name", buf, sizeof(buf))) {
+                std::string want = buf;
+                // Names are the reference key, so they must stay unique and
+                // non-empty; a clash would silently redirect other texts here.
+                bool clash = want.empty();
+                for (size_t i = 0; i < project_.fonts.size(); ++i)
+                    if ((int)i != fontSel_ && project_.fonts[i].name == want) clash = true;
+                if (!clash) renameFont(fontSel_, want);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            changed |= fontSourceCombo(f.fontPath);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            ui::Caption("Display Text look", "runtime text only");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Static texts keep their own colour and shadow;\n"
+                                  "these apply to text a Display Text node draws.");
+            changed |= ui::ColorHex("Colour##font", f.color);
+            if (ui::Switch("Drop shadow (A dark copy under each glyph for contrast)##font", &f.shadow))
+                changed = true;
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            ui::Caption("Atlas");
+            if (ui::SliderInt("Glyph size", &f.atlasSize, 8, 48, "%d px"))
+                f.atlasSize = std::clamp(f.atlasSize, 8, 48);
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::RowHelp("Height the glyphs are rasterized at. Display Text scales\n"
+                        "from this, so it trades sharpness against VRAM.");
+            helpUnder("Sharpness vs VRAM - not the on-screen size");
+        }
+        {
+            static const char* kQuant[] = {"4bit", "8bit", "none"};
+            static const char* kQuantLbl[] = {"4-bit", "8-bit", "Full"};
+            int qi = f.quant == "8bit" ? 1 : f.quant == "none" ? 2 : 0;
+            const float rowX = ImGui::GetCursorPosX();
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted("Colours");
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(rowX + capW);
+            if (ui::Segmented("##fontquant", kQuantLbl, 3, &qi, -1.0f)) {
+                f.quant = kQuant[qi];
+                changed = true;
+            }
+            helpUnder(qi == 0   ? "16 colours is plenty for white glyphs"
+                      : qi == 1 ? "256 levels of edge - twice the 4-bit VRAM"
+                                : "Full colour - ~8x the VRAM of 4-bit");
+        }
+        ImGui::EndChild();
+
+        // Footer: the one destructive action, with its reason when refused.
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, scaled(4.0f)));
+        const bool canDelete = project_.fonts.size() > 1;
+        const float dw = ImGui::CalcTextSize("Delete").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        if (!canDelete) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("The project default cannot be deleted");
+            ImGui::SameLine();
+        }
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - dw);
+        if (ui::DangerButton("Delete##font", dw, canDelete)) {
+            // Texts naming it fall back to the default entry (Project::findFont),
+            // so deleting never breaks a bake.
+            project_.fonts.erase(project_.fonts.begin() + fontSel_);
+            if (fontSel_ >= (int)project_.fonts.size())
+                fontSel_ = (int)project_.fonts.size() - 1;
+            changed = true;
+        }
+        if (canDelete && ImGui::IsItemHovered())
+            ImGui::SetTooltip(fontSel_ == 0 ? "Texts with no font of their own move to the next entry."
+                                            : "Texts using it fall back to the project default.");
+    }
+    ImGui::EndChild();
 
     if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
         commitChange();

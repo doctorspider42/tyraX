@@ -2660,11 +2660,17 @@ private:
     int uiSceneTexW_ = 0, uiSceneTexH_ = 0;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
-    // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
-    // recomputed only when a bake-affecting field changes (see fontAtlasKey_).
-    std::string fontAtlasKey_;
-    std::string fontAtlasInfo_;
-    bool fontAtlasClipped_ = false;
+    // The specimen and the atlas card: backdrop (0 on the scene, 1 on black,
+    // 2 as PS2 = drawn glyph by glyph from the baked atlas), the editable
+    // sample line, and the baked atlas itself as a GL texture. Baking walks
+    // all 95 glyphs, so it reruns only when fontAtlasTexKey_ (project dir +
+    // the bake-affecting fields) changes.
+    int fontPreviewMode_ = 0;
+    char fontSample_[96] = "Press X to look through the lens";
+    unsigned fontAtlasTex_ = 0;
+    std::string fontAtlasTexKey_;
+    menubake::AtlasLayout fontAtlasLayout_;
+    int fontAtlasKb_ = 0;
     int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
