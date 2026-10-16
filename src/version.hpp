@@ -5531,6 +5531,8 @@
 // viewport side bar holding the build/live chips (same ##tb_* ids, same labels).
 // Viewport overlays: ui::OverlayPanel cards + OverlayIconButton (ui::Glyph) /
 // OverlayTextButton replace the SmallButton rows, same labels as IDs.
+// Properties: object header (colour tile, borderless "Name", type subtitle),
+// ui::Section for its sections, ui::Switch for all 53 of its checkboxes.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

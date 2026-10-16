@@ -131,6 +131,13 @@ A few things worth knowing because they are decisions rather than defaults:
   The cards are near-opaque ground with a hairline and a soft shadow - ImGui
   has no blur, and text must stay readable over any scene. Their buttons keep
   the old labels ("Move (1)", "Center view", ...) as IDs.
+- **The Properties panel is headed by the object**: a tile in the object's own
+  colour, its name as a large borderless field (still the *Name* input), and
+  what it is underneath. Sections are titled in the heading cut over a
+  hairline instead of a tinted band (`ui::Section`), and every on/off field is
+  a **switch** (`ui::Switch`) - a drop-in for `Checkbox` with the same label,
+  return value and mixed-value state, reported to `--ui-script` as checkable,
+  so `expect-checked` works on it exactly as before.
 - **Hover highlights fade in** (~80 ms) on the hand-drawn top-bar controls and
   status chips. Sweeping the cursor across a row of icons is the most common
   thing anyone does with that bar, and a hard rectangle appearing under each one

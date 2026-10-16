@@ -103,6 +103,95 @@ bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vma
     return changed;
 }
 
+bool Switch(const char* label, bool* v) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->SkipItems) return false;
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const char* labelEnd = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 labelSize = ImGui::CalcTextSize(label, labelEnd, false);
+
+    // Track: a pill one text line tall-ish and ~1.8x as wide, vertically centred
+    // on the row a checkbox would have occupied, so a switch drops into a
+    // checkbox's place without moving anything around it.
+    const float rowH = ImGui::GetFrameHeight();
+    const float trackH = IM_TRUNC(g.FontSize * 1.05f);
+    const float trackW = IM_TRUNC(trackH * 1.8f);
+    const ImVec2 pos = window->DC.CursorPos;
+    const ImRect total(pos, ImVec2(pos.x + trackW + (labelSize.x > 0.0f ? style.ItemInnerSpacing.x + labelSize.x : 0.0f),
+                                   pos.y + rowH));
+    ImGui::ItemSize(total, style.FramePadding.y);
+    if (!ImGui::ItemAdd(total, id)) {
+        IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                                   (*v ? ImGuiItemStatusFlags_Checked : 0));
+        return false;
+    }
+    const bool mixed = (g.LastItemData.ItemFlags & ImGuiItemFlags_MixedValue) != 0;
+    bool hovered, held;
+    bool pressed = ImGui::ButtonBehavior(total, id, &hovered, &held);
+    if (pressed) {
+        *v = !*v;
+        ImGui::MarkItemEdited(id);
+    }
+
+    const theme::Semantics& sem = theme::semantics();
+    // Ease the knob between the two ends instead of jumping: state stored per
+    // item like hoverAnim's.
+    ImGuiStorage* store = ImGui::GetStateStorage();
+    const ImGuiID animId = id + 0x51u;
+    float t = store->GetFloat(animId, *v ? 1.0f : 0.0f);
+    const float target = mixed ? 0.5f : (*v ? 1.0f : 0.0f);
+    const float step = g.IO.DeltaTime * 10.0f;
+    t = t < target ? ImMin(target, t + step) : ImMax(target, t - step);
+    store->SetFloat(animId, t);
+
+    ImDrawList* dl = window->DrawList;
+    const ImVec2 a(pos.x, pos.y + (rowH - trackH) * 0.5f);
+    const ImVec2 b(a.x + trackW, a.y + trackH);
+    ImVec4 off = sem.border;
+    off = ImVec4(off.x * 1.25f, off.y * 1.25f, off.z * 1.25f, 1.0f);
+    ImVec4 on = sem.accent;
+    if (mixed) on = sem.textDim;
+    ImVec4 track(off.x + (on.x - off.x) * t, off.y + (on.y - off.y) * t, off.z + (on.z - off.z) * t, 1.0f);
+    if (hovered) track = ImVec4(ImMin(1.0f, track.x + 0.06f), ImMin(1.0f, track.y + 0.06f),
+                                ImMin(1.0f, track.z + 0.06f), 1.0f);
+    if (g.LastItemData.ItemFlags & ImGuiItemFlags_Disabled) track.w = style.DisabledAlpha;
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(track), trackH * 0.5f);
+    const float kr = trackH * 0.5f - IM_TRUNC(trackH * 0.12f) - 0.5f;
+    const float kx = a.x + trackH * 0.5f + (trackW - trackH) * t;
+    dl->AddCircleFilled(ImVec2(kx, a.y + trackH * 0.5f), kr, IM_COL32(255, 255, 255, 255), 20);
+    ImGui::RenderNavCursor(total, id);
+
+    if (labelSize.x > 0.0f)
+        ImGui::RenderText(ImVec2(b.x + style.ItemInnerSpacing.x, pos.y + style.FramePadding.y), label, labelEnd);
+
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                               (*v ? ImGuiItemStatusFlags_Checked : 0));
+    return pressed;
+}
+
+bool Section(const char* label, ImGuiTreeNodeFlags flags) {
+    // The section's top edge: a hairline across the window, so sections still
+    // read as blocks without the tinted band.
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (!window->SkipItems) {
+        const float y = window->DC.CursorPos.y + IM_TRUNC(ImGui::GetStyle().ItemSpacing.y * 0.5f);
+        window->DrawList->AddLine(ImVec2(window->WorkRect.Min.x, y), ImVec2(window->WorkRect.Max.x, y),
+                                  ImGui::GetColorU32(ImGuiCol_Separator), 1.0f);
+        ImGui::Dummy(ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y * 0.5f));
+    }
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(1, 1, 1, 0.04f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(1, 1, 1, 0.07f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    FontScope bold(gBold);
+    const bool open = ImGui::CollapsingHeader(label, flags);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+    return open;
+}
+
 void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
     const float s = size * 0.5f;            // half extent
     const float th = ImMax(1.3f, size * 0.085f);
@@ -162,6 +251,15 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             head(P(0, 0.42f), 0, 1);
             dl->AddLine(P(-0.9f, 0.78f), P(0.9f, 0.78f), col, th);
             break;
+        case Glyph::Box: {  // an isometric cube: the generic "scene object"
+            const ImVec2 hex[6] = {P(0, -0.9f), P(0.82f, -0.45f), P(0.82f, 0.45f),
+                                   P(0, 0.9f),  P(-0.82f, 0.45f), P(-0.82f, -0.45f)};
+            dl->AddPolyline(hex, 6, col, ImDrawFlags_Closed, th);
+            dl->AddLine(P(0, 0), P(-0.82f, -0.45f), col, th);
+            dl->AddLine(P(0, 0), P(0.82f, -0.45f), col, th);
+            dl->AddLine(P(0, 0), P(0, 0.9f), col, th);
+            break;
+        }
         case Glyph::Gear: {
             const float r = s * 0.5f;
             dl->AddCircle(c, r, col, 16, th);

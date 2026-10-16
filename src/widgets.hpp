@@ -49,13 +49,26 @@ void LogoMark(ImDrawList* dl, ImVec2 p, float size);
 bool AxisDrag3(const char* label, float v[3], float speed = 1.0f, float vmin = 0.0f,
                float vmax = 0.0f, const char* fmt = "%.3f");
 
+// --- inspector -----------------------------------------------------------
+
+/** Checkbox's drop-in replacement drawn as a toggle switch: same label/ID,
+ * same return value ("toggled this frame"), same ImGuiItemFlags_MixedValue
+ * support (knob parked in the middle), and it reports itself to --ui-script
+ * as checkable with its checked state, so `expect-checked` keeps working. */
+bool Switch(const char* label, bool* v);
+
+/** CollapsingHeader's drop-in replacement for inspector sections: no tinted
+ * band, the title in the heading cut over a hairline, the caret quiet. Same
+ * label/ID and open state (stored by ImGui per label) as CollapsingHeader. */
+bool Section(const char* label, ImGuiTreeNodeFlags flags = 0);
+
 // --- viewport overlays ----------------------------------------------------
 // Controls that float over the 3D view: grouped on a translucent card
 // (OverlayPanel) so they read as one tool palette, not loose buttons on top of
 // the scene. Each button is an InvisibleButton named by `label` - the label
 // is the ID and the --ui-script name, exactly as the SmallButton it replaces.
 
-enum class Glyph { Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear };
+enum class Glyph { Move, Rotate, Scale, Sculpt, Paint, Measure, Snap, Gear, Box };
 
 /** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */
 void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col);
