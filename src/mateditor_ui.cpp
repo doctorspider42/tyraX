@@ -53,6 +53,9 @@
 #include <imnodes.h>
 
 #include "platform.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
 
 // --- Material Editor ---------------------------------------------------------
 // Materials are the project's plain Wavefront .mtl asset files - the same
@@ -1711,10 +1714,10 @@ void App::matBakeSaveMaps(const std::filesystem::path& mtlDirAbs,
 // The "Bake maps" block of the property column.
 void App::matEdBakeSection(const std::string& entryName,
                            const std::string& texRel) {
-    ImGui::SeparatorText("Bake maps");
+    ui::InspectorRows rows(scaled(96), scaled(120));
     const char* prevModes[] = {"Off", "AO on material", "Map view"};
     ImGui::SetNextItemWidth(scaled(150.0f));
-    if (ImGui::Combo("Preview", &matBakePreviewMode_, prevModes, 3)) {
+    if (ui::Combo("Preview", &matBakePreviewMode_, prevModes, 3)) {
         if (matBakePreviewMode_ != 1) matEdUploadComposite();
         if (matBakePreviewMode_ == 2)
             matBakeUploadSolo();
@@ -1748,7 +1751,7 @@ void App::matEdBakeSection(const std::string& entryName,
     {
         const char* noneLabel = "<none - bake this mesh>";
         ImGui::SetNextItemWidth(scaled(240.0f));
-        if (ImGui::BeginCombo("High-poly",
+        if (ui::BeginCombo("High-poly",
                               matBakeHigh_.empty()
                                   ? noneLabel
                                   : std::filesystem::path(matBakeHigh_)
@@ -1772,7 +1775,7 @@ void App::matEdBakeSection(const std::string& entryName,
                 "the low-poly model looks like it has geometry it doesn't.");
         if (!matBakeHigh_.empty()) {
             ImGui::SetNextItemWidth(scaled(140.0f));
-            ImGui::DragFloat("Cage", &matBakeCage_, 0.005f, 0.0f, 10.0f,
+            ui::DragFloat("Cage", &matBakeCage_, 0.005f, 0.0f, 10.0f,
                              matBakeCage_ <= 0.0f ? "auto" : "%.3f");
             if (matBakeCage_ < 0.0f) matBakeCage_ = 0.0f;
             if (ImGui::IsItemHovered())
@@ -1786,13 +1789,11 @@ void App::matEdBakeSection(const std::string& entryName,
 
     const char* sizes[] = {"64", "128", "256", "512"};
     ImGui::SetNextItemWidth(scaled(90.0f));
-    ImGui::Combo("Resolution", &matBakeSizeIdx_, sizes, 4);
+    ui::Combo("Resolution", &matBakeSizeIdx_, sizes, 4);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Baked map size. Match the entry's texture for the\n"
                           "layer bake; bigger only helps saved maps.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    ImGui::SliderInt("Rays", &matBakeRays_, 8, 512, "%d",
+    ui::SliderInt("Rays", &matBakeRays_, 8, 512, "%d",
                      ImGuiSliderFlags_Logarithmic);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hemisphere rays per texel at full quality. 64 is\n"
@@ -1800,7 +1801,7 @@ void App::matEdBakeSection(const std::string& entryName,
                           "this progressively.");
 
     ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::DragFloat("Max distance", &matBakeMaxDist_, 0.02f, 0.0f, 1000.0f,
+    ui::DragFloat("Max distance", &matBakeMaxDist_, 0.02f, 0.0f, 1000.0f,
                      matBakeMaxDist_ <= 0.0f ? "auto" : "%.2f");
     if (matBakeMaxDist_ < 0.0f) matBakeMaxDist_ = 0.0f;
     if (ImGui::IsItemHovered())
@@ -1812,12 +1813,11 @@ void App::matEdBakeSection(const std::string& entryName,
 
     const char* ssLevels[] = {"1x", "2x", "4x"};
     ImGui::SetNextItemWidth(scaled(90.0f));
-    ImGui::Combo("Anti-alias", &matBakeSSIdx_, ssLevels, 3);
+    ui::Combo("Anti-alias", &matBakeSSIdx_, ssLevels, 3);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Surface samples per texel axis (supersampling in\n"
                           "UV space) - smooths island edges.");
-    ImGui::SameLine();
-    ImGui::Checkbox("Backface hits", &matBakeBackface_);
+    ui::Switch("Backface hits", &matBakeBackface_);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Rays hitting triangle back sides count as\n"
                           "occluders. Keep on for thin/unwelded geometry;\n"
@@ -1825,13 +1825,11 @@ void App::matEdBakeSection(const std::string& entryName,
                           "overlaps.");
 
     ImGui::SetNextItemWidth(scaled(110.0f));
-    ImGui::SliderInt("Padding", &matBakePadding_, 0, 16, "%d px");
+    ui::SliderInt("Padding", &matBakePadding_, 0, 16, "%d px");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Dilate ring around the UV islands - bilinear\n"
                           "filtering and mipmaps need it or seams go dark.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(80.0f));
-    ImGui::InputInt("Seed", &matBakeSeed_);
+    ui::DragInt("Seed", &matBakeSeed_, 1.0f);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Sampling seed. Same seed + same settings = the\n"
                           "same bake, bit for bit.");
@@ -1844,13 +1842,15 @@ void App::matEdBakeSection(const std::string& entryName,
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
                            bakeErr.c_str());
     if (matBaker_.running()) {
-        ImGui::ProgressBar(matBaker_.progress(), ImVec2(-FLT_MIN, 0));
+        ImGui::Spacing();
+        ui::ProgressInline(matBaker_.progress(), "Baking", (std::to_string(matBakeMaps_.samplesDone) + " rays/texel").c_str());
     } else if (!matBakeMaps_.empty() && matBakePreviewMode_ > 0) {
         ImGui::TextDisabled("%d rays/texel baked", matBakeMaps_.samplesDone);
     }
 
     ImGui::BeginDisabled(texRel.empty());
-    if (ImGui::Button("Bake & add AO layer")) {
+    ImGui::Spacing();
+    if (ui::PrimaryButton("Bake & add AO layer", -1.0f, !texRel.empty())) {
         matBakeApplyWhenDone_ = true;
         matBakeApplyEntry_ = entryName;  // switching entries cancels it
         matBakeStartedSig_ = 0;  // force a fresh full-quality run
@@ -1864,14 +1864,11 @@ void App::matEdBakeSection(const std::string& entryName,
                 : "Bakes at full quality, then drops the AO onto the\n"
                   "entry's texture as a \"Baked AO\" multiply layer\n"
                   "(re-bakes update it in place). Undo with Ctrl+Z.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(matBakeMaps_.empty() || matBaker_.running());
-    if (ImGui::Button("Save all maps")) {
+    if (ui::GhostButton("Save all maps", -1.0f, !matBakeMaps_.empty() && !matBaker_.running())) {
         matBakeSaveMaps(
             (std::filesystem::path(project_.dir) / matEdPath_).parent_path(),
             entryName);
     }
-    ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
@@ -2558,6 +2555,14 @@ void App::drawMatEdUvPanel(const std::string& entryName,
     ImGui::EndChild();
 }
 
+// Three columns: the materials (sphere swatches, grouped by folder) | the
+// preview as the HERO | an inspector with three jobs on quiet tabs - Look,
+// Paint, Bake. It used to be list | one long property column | a preview
+// column whose brush, layer and smart-mask controls were stacked ABOVE the
+// image, so turning Paint on shrank the canvas you paint on to a ~47 px strip
+// and Bake maps sat below the fold of the property column. Now the preview
+// never shrinks: its toolbar floats on it, the brush rides on the canvas as a
+// pill, and the long-running bake has a tab of its own.
 void App::drawMaterialEditorWindow() {
     if (!showMaterialEditor_ || !hasProject_) {
         matEdFocused_ = false;
@@ -2566,8 +2571,7 @@ void App::drawMaterialEditorWindow() {
         return;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(1020), scaled(600)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200), scaled(760)), ImGuiCond_FirstUseEver);
     if (matEdFocusNext_) { ImGui::SetNextWindowFocus(); matEdFocusNext_ = false; }
     if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
         matEdFocused_ = false;
@@ -2576,50 +2580,132 @@ void App::drawMaterialEditorWindow() {
     }
     // Routes Ctrl+Z to this window's own undo stack (see handleShortcuts)
     matEdFocused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-
-    // --- left: .mtl asset list ----------------------------------------------
-    ImGui::BeginChild("##mat_list", ImVec2(scaled(190), 0), ImGuiChildFlags_Borders);
-    if (ImGui::Button("+ New material...", ImVec2(-1, 0))) {
-        openNewMaterialPopup_ = true;
-        matEdNewError_.clear();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Creates a .mtl in res/materials - assign it to any\n"
-                          "object in Properties > Material.");
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::InputTextWithHint("##material_search", "Search materials...",
-            matEdFilter_.InputBuf, sizeof(matEdFilter_.InputBuf))) matEdFilter_.Build();
-    ImGui::Separator();
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    auto col32 = [](const ImVec4& c, float a = 1.0f) {
+        return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * a));
+    };
     const auto& materials = listMaterialAssets();
-    int shown = 0;
-    for (const std::string& rel : materials) {
-        if (!matEdFilter_.PassFilter(rel.c_str())) continue;
-        ++shown;
-        if (ImGui::Selectable(rel.substr(4).c_str(), rel == matEdPath_))
-            openMaterialEditor(rel);
+
+    // --- header: count + the one way to start something new -----------------
+    {
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope m(ui::monoFont());
+            ImGui::TextDisabled("%d material%s", (int)materials.size(),
+                                materials.size() == 1 ? "" : "s");
+        }
+        const float bw = ImGui::CalcTextSize("New material").x + ImGui::GetStyle().FramePadding.x * 2.6f + fs;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
+        if (ui::PrimaryButtonText("+ New material...", "+ New material", bw)) {
+            openNewMaterialPopup_ = true;
+            matEdNewError_.clear();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Creates a .mtl in res/materials - assign it to any\n"
+                              "object in Properties > Material.");
     }
-    if (materials.empty())
-        ImGui::TextDisabled("No materials yet.\nA material is a color +\n"
-                            "optional texture shared\nby any number of objects.");
-    else if (!shown) ImGui::TextDisabled("No matching materials.");
-    ImGui::EndChild();
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+
+    // --- left: materials, grouped by folder, with their sphere --------------
+    ui::BeginCard("##mat_list", ImVec2(scaled(230), bodyH));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputTextWithHint("##material_search", "Search materials",
+                                 matEdFilter_.InputBuf, sizeof(matEdFilter_.InputBuf)))
+        matEdFilter_.Build();
+    ImGui::Spacing();
+    {
+        int shown = 0;
+        std::string lastFolder;
+        int thumbBudget = 3;
+        for (const std::string& rel : materials) {
+            if (!matEdFilter_.PassFilter(rel.c_str())) continue;
+            ++shown;
+            const std::string folder =
+                std::filesystem::path(rel).parent_path().filename().generic_string() + "/";
+            if (folder != lastFolder) {
+                ui::Caption(folder.c_str());
+                lastFolder = folder;
+            }
+            // the .mtl's first texture, read once per file change
+            std::error_code ec;
+            const auto mt = std::filesystem::last_write_time(
+                std::filesystem::path(project_.dir) / rel, ec);
+            const long long stamp = ec ? 0 : (long long)mt.time_since_epoch().count();
+            auto& cached = matEdListInfo_[rel];
+            if (cached.first != stamp || cached.second.empty()) {
+                cached.first = stamp;
+                std::vector<objparser::MtlMaterial> lib;
+                cached.second = " ";
+                if (objparser::loadMtl((std::filesystem::path(project_.dir) / rel).string(), lib)) {
+                    for (const objparser::MtlMaterial& m : lib)
+                        if (!m.texture.empty()) {
+                            cached.second = std::filesystem::path(m.texture).filename().string();
+                            break;
+                        }
+                    if (cached.second == " ")
+                        cached.second = std::to_string(lib.size()) + (lib.size() == 1 ? " entry" : " entries");
+                }
+            }
+            const float rh = fs * 2.6f;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const std::string name = std::filesystem::path(rel).filename().string();
+            ImGui::PushID(rel.c_str());
+            if (ImGui::InvisibleButton(name.c_str(), ImVec2(w, rh)) && rel != matEdPath_)
+                openMaterialEditor(rel);
+            ImGui::PopID();
+            const bool sel = rel == matEdPath_;
+            uiscript::markLastItemChecked(sel);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", rel.c_str());
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding;
+            if (sel) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rh), col32(sem.accent, 0.14f), r);
+            else if (t > 0.0f) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rh), col32(sem.field, t), r);
+            // the sphere: the Asset Browser's rendered material thumbnail
+            const float d = rh - fs * 0.7f;
+            const ImVec2 c(p.x + fs * 0.35f + d * 0.5f, p.y + rh * 0.5f);
+            const bool baked = viewport_.assetThumb(rel, false) != 0;
+            const uint32_t tex = baked ? viewport_.assetThumb(rel, false)
+                                       : viewport_.assetThumb(rel, thumbBudget > 0);
+            if (!baked && tex) --thumbBudget;
+            if (tex)
+                dl->AddImageRounded((ImTextureID)(intptr_t)tex, ImVec2(c.x - d * 0.5f, c.y - d * 0.5f),
+                                    ImVec2(c.x + d * 0.5f, c.y + d * 0.5f), ImVec2(0.15f, 0.85f),
+                                    ImVec2(0.85f, 0.15f), IM_COL32_WHITE, d * 0.5f);
+            else
+                dl->AddCircleFilled(c, d * 0.5f, col32(sem.field));
+            const float tx = c.x + d * 0.5f + fs * 0.6f;
+            dl->PushClipRect(p, ImVec2(p.x + w, p.y + rh), true);
+            dl->AddText(ImVec2(tx, p.y + rh * 0.5f - fs * 1.0f), col32(sem.text), name.c_str());
+            ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            dl->AddText(mono, fs * 0.82f, ImVec2(tx, p.y + rh * 0.5f + fs * 0.05f),
+                        col32(sem.textDim), cached.second.c_str());
+            dl->PopClipRect();
+        }
+        if (materials.empty())
+            ui::EmptyState(ui::Glyph::Sparkle, "No materials yet",
+                           "A material is a colour + an optional texture, shared by any number "
+                           "of objects.");
+        else if (!shown)
+            ImGui::TextDisabled("No matching materials.");
+    }
+    ui::EndCard();
 
     // --- "New material" modal ------------------------------------------------
     if (openNewMaterialPopup_) {
         ImGui::OpenPopup("New material");
         openNewMaterialPopup_ = false;
     }
-    if (ImGui::BeginPopupModal("New material", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("New material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::SetNextItemWidth(scaled(220.0f));
         ImGui::InputText("Name", matEdNewName_, sizeof(matEdNewName_));
-        if (!matEdNewError_.empty())
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
-                               matEdNewError_.c_str());
-        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
+        if (!matEdNewError_.empty()) ui::NoteCard(2, matEdNewError_.c_str());
+        if (ui::PrimaryButton("Create", scaled(120))) {
             const std::string base =
-                sanitizeAssetName(std::string(matEdNewName_).empty() ? "material"
-                                                                     : matEdNewName_);
+                sanitizeAssetName(std::string(matEdNewName_).empty() ? "material" : matEdNewName_);
             const std::string rel = "res/materials/" + base + ".mtl";
             std::error_code ec;
             if (std::filesystem::exists(std::filesystem::path(project_.dir) / rel, ec)) {
@@ -2648,638 +2734,87 @@ void App::drawMaterialEditorWindow() {
     ImGui::SameLine();
 
     if (matEdPath_.empty()) {
-        ImGui::BeginChild("##mat_edit");
-        ImGui::TextDisabled("Select a material on the left (or create one).");
-        ImGui::TextDisabled("\nMaterials are .mtl files under res/ - primitives use the");
-        ImGui::TextDisabled("file's first entry, models override their own libraries");
-        ImGui::TextDisabled("(usemtl names resolve against it), emitters take the");
-        ImGui::TextDisabled("first entry's texture for their particles.");
-        ImGui::EndChild();
+        ui::BeginCard("##mat_empty", ImVec2(0, bodyH));
+        if (ui::EmptyState(ui::Glyph::Sparkle, "Pick a material",
+                           "Select one on the left to judge it on its real model, tune its PS2 "
+                           "look, paint it and bake its maps - or start a new one.",
+                           "New material"))
+            openNewMaterialPopup_ = true;
+        ui::EndCard();
         ImGui::End();
         return;
     }
 
     if (matEdSel_ < 0 || matEdSel_ >= (int)matEdMats_.size()) matEdSel_ = 0;
     bool committed = false;
+    // Paint is a TAB: the brush is armed exactly while it is shown (and a new
+    // paintable texture opens it).
+    if (matEdPaint_ && matEdTab_ != 1) matEdTab_ = 1;
 
-    // --- middle: the selected entry's properties ------------------------------
-    // The split between the property column and the preview is a draggable
-    // splitter (matEdSplit_ = the preview's share, persisted in editor.ini);
-    // both sides keep a workable floor.
-    const float totalW = ImGui::GetContentRegionAvail().x;
-    if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
-    if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
-    float previewW = totalW * matEdSplit_;
-    const float minPreview = scaled(240.0f);
-    const float minProps = scaled(260.0f);
+    // The preview's share of preview + inspector is a draggable split
+    // (matEdSplit_, persisted in editor.ini); the inspector keeps a floor.
+    const float restW = ImGui::GetContentRegionAvail().x;
+    const float minInsp = scaled(320.0f), minPreview = scaled(260.0f);
+    if (matEdSplit_ < 0.35f) matEdSplit_ = 0.35f;
+    if (matEdSplit_ > 0.80f) matEdSplit_ = 0.80f;
+    // the inspector takes its share but stays a column (320..420 px)
+    float previewW = restW - std::clamp(restW * (1.0f - matEdSplit_), minInsp, scaled(420.0f));
     if (previewW < minPreview) previewW = minPreview;
-    if (totalW - previewW < minProps) previewW = totalW - minProps;
-    if (previewW < scaled(80.0f)) previewW = scaled(80.0f);  // tiny window
-    ImGui::BeginChild("##mat_edit",
-                      ImVec2(totalW - previewW - scaled(9.0f), 0));
-    ImGui::TextDisabled("%s", matEdPath_.c_str());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Duplicate")) duplicateMaterialAsset();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Copy this .mtl (and its textures) under a new name -\n"
-                          "safe to recolor or repaint without touching the original.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Delete..."))
-        requestAssetDelete(PendingAssetDelete::Material, matEdPath_,
-                           matEdPath_.rfind("res/", 0) == 0 ? matEdPath_.substr(4)
-                                                            : matEdPath_);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Remove this .mtl from the project (asks first).\n"
-                          "Objects using it fall back to plain color, models\n"
-                          "to their own libraries; textures stay on disk.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(matEdUndo_.empty());
-    if (ImGui::SmallButton("Undo")) matEdUndoLast();
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Ctrl+Z while this window is focused: undoes the\n"
-                          "last paint stroke or material edit (the editor's\n"
-                          "own history - scene undo is untouched).");
 
-    // entry list within the file (universal libraries hold several; the FIRST
-    // one is what primitives and emitters use)
-    if (matEdMats_.size() > 1) {
-        ImGui::SetNextItemWidth(scaled(180.0f));
-        if (ImGui::BeginCombo("Entry", matEdMats_[matEdSel_].name.c_str())) {
-            for (int i = 0; i < (int)matEdMats_.size(); ++i) {
-                ImGui::PushID(i);
-                std::string label = matEdMats_[i].name;
-                if (i == 0) label += "  [primitives use this]";
-                if (matEdMats_[i].texture.empty()) label += "  (no texture)";
-                if (ImGui::Selectable(label.c_str(), i == matEdSel_)) matEdSel_ = i;
-                ImGui::PopID();
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
+    // === centre: the preview =================================================
+    MatEdEntry& sel = matEdMats_[matEdSel_];
+    const std::string texRel =
+        sel.texture.empty() ? ""
+                            : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
+                                  .generic_string();
+    // progressive map bake: restart on changed inputs, poll snapshots,
+    // finish a pending "Bake & add layer"
+    matBakeTick(sel.name, texRel);
+    // The layer stack lives on the entry's texture and is loaded whenever one
+    // exists - Paint only gates the brush.
+    bool haveTarget = false;
+    if (!texRel.empty()) {
+        if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
+            statusMessage_ = "Cannot read " + texRel;
+        haveTarget = matEdPaintW_ > 0;
     }
-    if (ImGui::SmallButton("+ Add entry")) {
-        MatEdEntry e;
-        std::string base = "mat";
-        for (int n = 1;; ++n) {
-            e.name = base + "-" + std::to_string(n);
-            bool taken = false;
-            for (const auto& other : matEdMats_) taken |= (other.name == e.name);
-            if (!taken) break;
-        }
-        matEdMats_.push_back(std::move(e));
-        matEdSel_ = (int)matEdMats_.size() - 1;
-        committed = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Another material in the same file. Only universal\n"
-                          "model libraries need this - usemtl names resolve\n"
-                          "against the file. Primitives always use the first.");
-    if (matEdMats_.size() > 1) {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Remove")) {
-            matEdMats_.erase(matEdMats_.begin() + matEdSel_);
-            if (matEdSel_ >= (int)matEdMats_.size())
-                matEdSel_ = (int)matEdMats_.size() - 1;
-            committed = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Up") && matEdSel_ > 0) {
-            std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ - 1]);
-            --matEdSel_;
-            committed = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Down") && matEdSel_ + 1 < (int)matEdMats_.size()) {
-            std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ + 1]);
-            ++matEdSel_;
-            committed = true;
-        }
-    }
+    const bool paintPaused = matBakePreviewMode_ == 2 || matEdDisplayMode_ == 2;
+    const bool canPaint = matEdPaint_ && haveTarget && !paintPaused;
 
-    MatEdEntry& e = matEdMats_[matEdSel_];
-    ImGui::Separator();
-
-    char nameBuf[64];
-    std::snprintf(nameBuf, sizeof(nameBuf), "%s", e.name.c_str());
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-        // .mtl names are whitespace-delimited tokens - keep them pipeline-safe
-        e.name = sanitizeAssetName(nameBuf);
-        if (e.name.empty()) e.name = "material";
-    }
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    ImGui::ColorEdit3("Color", e.color);
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    ImGui::SliderFloat("Brightness", &e.brightness, 0.0f, 2.0f, "%.2f");
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Multiplies the color. Above 1.0 a textured material\n"
-                          "over-brightens its texture (PS2 modulation goes up\n"
-                          "to 2x); plain colors clamp at full white.");
-
-    // texture: PNGs living next to the .mtl (map_Kd resolves relative to it -
-    // the game copies that rule)
-    const std::filesystem::path mtlDirAbs =
-        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
-    {
-        const char* noneLabel = "<none - plain color>";
-        ImGui::SetNextItemWidth(scaled(240.0f));
-        if (ImGui::BeginCombo("Texture",
-                              e.texture.empty() ? noneLabel : e.texture.c_str())) {
-            if (ImGui::Selectable(noneLabel, e.texture.empty()) && !e.texture.empty()) {
-                e.texture.clear();
-                committed = true;
-            }
-            std::error_code ec;
-            for (const auto& f :
-                 std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
-                if (!f.is_regular_file()) continue;
-                std::string ext = f.path().extension().string();
-                for (char& c : ext) c = (char)tolower((unsigned char)c);
-                if (ext != ".png") continue;
-                const std::string rel =
-                    std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
-                if (ImGui::Selectable(rel.c_str(), rel == e.texture) &&
-                    rel != e.texture) {
-                    e.texture = rel;
-                    committed = true;
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Import PNG...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::string fileName = sanitizeAssetName(
-                        std::filesystem::path(src).filename().string());
-                    std::error_code cec;
-                    std::filesystem::copy_file(
-                        src, mtlDirAbs / fileName,
-                        std::filesystem::copy_options::overwrite_existing, cec);
-                    if (cec) {
-                        statusMessage_ = "Texture import failed: " + cec.message();
-                    } else {
-                        e.texture = fileName;
-                        committed = true;
-                    }
-                }
-            }
-            if (ImGui::MenuItem("New paintable texture...")) {
-                openNewTexturePopup_ = true;
-                std::snprintf(matEdNewTexName_, sizeof(matEdNewTexName_), "%s-tex",
-                              e.name.c_str());
-                matEdNewTexError_.clear();
-            }
-            ImGui::EndCombo();
-        }
-    }
-
-    // --- "New texture" modal: a blank pow2 PNG next to the .mtl, assigned as
-    // this entry's map_Kd - the canvas for the paint tool.
-    if (openNewTexturePopup_) {
-        ImGui::OpenPopup("New texture");
-        openNewTexturePopup_ = false;
-    }
-    if (ImGui::BeginPopupModal("New texture", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::SetNextItemWidth(scaled(220.0f));
-        ImGui::InputText("Name", matEdNewTexName_, sizeof(matEdNewTexName_));
-        const char* sizes[] = {"64 x 64", "128 x 128", "256 x 256", "512 x 512"};
-        ImGui::SetNextItemWidth(scaled(220.0f));
-        ImGui::Combo("Size", &matEdNewTexSize_, sizes, 4);
-        ImGui::TextDisabled("Power-of-two, as the PS2 GS requires. Bigger eats\n"
-                            "video memory - 256 is plenty for most props.");
-        ImGui::ColorEdit3("Fill color", matEdNewTexColor_);
-        if (!matEdNewTexError_.empty())
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
-                               matEdNewTexError_.c_str());
-        if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
-            const std::string base = sanitizeAssetName(
-                std::string(matEdNewTexName_).empty() ? "painted" : matEdNewTexName_);
-            const std::string fileName = base + ".png";
-            std::error_code cec;
-            if (std::filesystem::exists(mtlDirAbs / fileName, cec)) {
-                matEdNewTexError_ = fileName + " already exists.";
-            } else {
-                const int s = 64 << (matEdNewTexSize_ < 0   ? 0
-                                     : matEdNewTexSize_ > 3 ? 3
-                                                            : matEdNewTexSize_);
-                std::vector<unsigned char> px((size_t)s * s * 4);
-                for (size_t i = 0; i < px.size(); i += 4) {
-                    px[i] = (unsigned char)(matEdNewTexColor_[0] * 255.0f + 0.5f);
-                    px[i + 1] = (unsigned char)(matEdNewTexColor_[1] * 255.0f + 0.5f);
-                    px[i + 2] = (unsigned char)(matEdNewTexColor_[2] * 255.0f + 0.5f);
-                    px[i + 3] = 255;
-                }
-                if (stbi_write_png((mtlDirAbs / fileName).string().c_str(), s, s, 4,
-                                   px.data(), s * 4)) {
-                    e.texture = fileName;
-                    committed = true;
-                    matEdPaint_ = true;  // the whole point of a blank canvas
-                    ImGui::CloseCurrentPopup();
-                } else {
-                    matEdNewTexError_ = "Cannot write " + fileName;
-                }
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-    }
-    if (!e.texture.empty()) {
-        const std::filesystem::path texAbs = mtlDirAbs / e.texture;
-        std::error_code ec;
-        if (!std::filesystem::exists(texAbs, ec)) {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                               "Texture missing - renders as plain color.");
-        } else {
-            const auto stamp = std::filesystem::last_write_time(texAbs, ec);
-            const std::string infoPath = texAbs.lexically_normal().generic_string();
-            if (matEdInfoPath_ != infoPath || matEdInfoTime_ != stamp) {
-                matEdInfoPath_ = infoPath;
-                matEdInfoTime_ = stamp;
-                int comp = 0;
-                matEdInfoOk_ = stbi_info(texAbs.string().c_str(), &matEdInfoW_, &matEdInfoH_, &comp) != 0;
-            }
-            const int tw = matEdInfoW_, th = matEdInfoH_;
-            if (matEdInfoOk_) {
-                const bool pow2 = tw > 0 && th > 0 && (tw & (tw - 1)) == 0 &&
-                                  (th & (th - 1)) == 0;
-                if (!pow2)
-                    ImGui::TextColored(
-                        ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                        "%dx%d - not power-of-two; the PS2 GS needs\n"
-                        "pow2 texture sizes (e.g. 128x128, 256x256).", tw, th);
-                else
-                    ImGui::TextDisabled("%s", matEdBudgetLine(tw, th).c_str());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "What this texture costs after the build's texture\n"
-                        "bake, at the quality this material resolves to\n"
-                        "(per-asset override, else the project preference).\n"
-                        "The GS adds ~8 KB of allocation overhead per\n"
-                        "resident texture on top.");
-            }
-        }
-
-        // Tiling (map_Kd -s): how densely the texture repeats. Used by terrain
-        // (which generates its own UVs); objects carry baked UVs and ignore it.
-        ImGui::SetNextItemWidth(scaled(180.0f));
-        ImGui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f/unit");
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (e.tile < 0.01f) e.tile = 0.01f;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Terrain only: texture repeats per world unit.\n"
-                              "Higher = smaller, denser tiles. Objects use their\n"
-                              "mesh UVs and ignore this.");
-    }
-
-    // --- Reflection (refl): spherical environment map, drawn as a second
-    // additive pass on the PS2 - the NFS/GT-style "chrome/lacquer" look. The
-    // sphere map is a small PNG of the surroundings; UVs come from the
-    // camera-space normals, so the highlight slides over the surface as the
-    // camera moves.
-    ImGui::SeparatorText("Reflection");
-    {
-        const char* noneLabel = "<none - matte>";
-        ImGui::SetNextItemWidth(scaled(240.0f));
-        const char* dynLabel = "<dynamic - live sky>";
-        if (ImGui::BeginCombo("Sphere map",
-                              e.refl.empty()  ? noneLabel
-                              : e.refl == "@sky" ? dynLabel
-                                                 : e.refl.c_str())) {
-            if (ImGui::Selectable(noneLabel, e.refl.empty()) && !e.refl.empty()) {
-                e.refl.clear();
-                committed = true;
-            }
-            // GT3-style dynamic env map: the game re-renders the scene's sky
-            // dome into a small VRAM texture every frame - reflections track
-            // the live sky (script retints included). Stored as "@sky".
-            if (ImGui::Selectable(dynLabel, e.refl == "@sky") &&
-                e.refl != "@sky") {
-                e.refl = "@sky";
-                committed = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("The game renders the scene's sky into the\n"
-                                  "sphere map every frame - reflections follow\n"
-                                  "the live sky, including script retints.");
-            std::error_code ec;
-            for (const auto& f :
-                 std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
-                if (!f.is_regular_file()) continue;
-                std::string ext = f.path().extension().string();
-                for (char& c : ext) c = (char)tolower((unsigned char)c);
-                if (ext != ".png") continue;
-                const std::string rel =
-                    std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
-                if (ImGui::Selectable(rel.c_str(), rel == e.refl) &&
-                    rel != e.refl) {
-                    e.refl = rel;
-                    committed = true;
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Import PNG...")) {
-                const std::string src = pickPngFile();
-                if (!src.empty()) {
-                    const std::string fileName = sanitizeAssetName(
-                        std::filesystem::path(src).filename().string());
-                    std::error_code cec;
-                    std::filesystem::copy_file(
-                        src, mtlDirAbs / fileName,
-                        std::filesystem::copy_options::overwrite_existing, cec);
-                    if (cec) {
-                        statusMessage_ = "Sphere map import failed: " + cec.message();
-                    } else {
-                        e.refl = fileName;
-                        committed = true;
-                    }
-                }
-            }
-            ImGui::EndCombo();
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("A small texture of the environment (sky gradient\n"
-                              "with a bright horizon works great). Drawn additively\n"
-                              "over the material using camera-space normals -\n"
-                              "the PS2-era chrome/car-paint trick.");
-        if (!e.refl.empty()) {
-            std::error_code ec;
-            if (e.refl != "@sky" &&
-                !std::filesystem::exists(mtlDirAbs / e.refl, ec))
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Sphere map missing - reflection is skipped.");
-            ImGui::SetNextItemWidth(scaled(180.0f));
-            ImGui::SliderFloat("Strength", &e.reflStrength, 0.05f, 1.0f, "%.2f");
-            committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("How much of the sphere map is added on top.\n"
-                                  "1.0 = full chrome.");
-            committed |= ImGui::Checkbox("Rounded normals", &e.reflRounded);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Reflection UVs from normals radiating out of the object's\n"
-                    "center instead of the real face normals. A flat face shows\n"
-                    "a gradient of the map (curved-lacquer look) instead of one\n"
-                    "uniform sample - flat walls of boxes/monoliths reflect like\n"
-                    "the spheres do. Curved shapes barely change.");
-        }
-    }
-
-    // --- Glow (Ke): emission. Not a light - a brightness FLOOR baked into the
-    // vertex colors, so the surface keeps its own color in a pitch-black scene
-    // (docs/emissive-materials.md). Pair it with the bloom threshold in the UI
-    // Editor screen stack to get the halo around it.
-    ImGui::SeparatorText("Glow (emissive)");
-    {
-        ImGui::SetNextItemWidth(scaled(180.0f));
-        const float before = e.glow;
-        ImGui::SliderFloat("Glow", &e.glow, 0.0f, 2.0f,
-                           e.glow <= 0.0f ? "off" : "%.2f");
-        // Raising it the first time: start from the material's own color, which
-        // is what "it glows in its own color" means to the eye.
-        if (before <= 0.0f && e.glow > 0.0f)
-            for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
-        committed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Self-illumination. The surface never renders darker than\n"
-                "glow color x this - at 1.0 it shows its full color even in\n"
-                "complete darkness, ignoring the sun, point lights and baked\n"
-                "AO. Above 1.0 only bites on textured materials (the PS2\n"
-                "color byte modulates the texture up to 2x).");
-        if (e.glow > 0.0f || e.glowWhite > 0.0f) {
-            ImGui::ColorEdit3("Glow color", e.glowColor);
-            committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::Button("Match material color", ImVec2(scaled(180), 0))) {
-                for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
-                committed = true;
-            }
-
-            // The one control that can make an ALREADY saturated surface read
-            // brighter: an untextured emitter is at the framebuffer maximum in
-            // its own hue at glow 1, so "more" can only mean "whiter".
-            ImGui::SetNextItemWidth(scaled(180.0f));
-            ImGui::SliderFloat("White-hot core", &e.glowWhite, 0.0f, 1.0f,
-                               e.glowWhite <= 0.0f ? "off" : "%.2f");
-            committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Blows the surface out toward white, the way an\n"
-                    "overexposed emitter looks on camera. This is what makes\n"
-                    "a glow read as HOT: at full strength a colored surface\n"
-                    "is already at the maximum the framebuffer can hold in\n"
-                    "its own hue, so the only way up is desaturating. It also\n"
-                    "pushes every channel over the bloom threshold, which\n"
-                    "widens and brightens the halo.");
-
-            // Step 2: the emitter bakes light into the geometry around it.
-            bool lights = e.glowRange > 0.0f;
-            if (ImGui::Checkbox("Lights up surroundings", &lights)) {
-                e.glowRange = lights ? 4.0f : 0.0f;
-                committed = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Bakes this material's light into the walls, floor and\n"
-                    "props around it at scene load - the ambient-occlusion\n"
-                    "treatment, in reverse. Free at runtime (it lands in the\n"
-                    "same vertex colors), and the editor viewport previews it.\n"
-                    "Static: the pool of light does not follow a moving\n"
-                    "object, and animated models do not receive it.");
-            if (e.glowRange > 0.0f) {
-                ImGui::SetNextItemWidth(scaled(180.0f));
-                ImGui::DragFloat("Light reach", &e.glowRange, 0.1f, 0.2f, 60.0f,
-                                 "%.1f units");
-                committed |= ImGui::IsItemDeactivatedAfterEdit();
-                ImGui::SetNextItemWidth(scaled(180.0f));
-                ImGui::SliderFloat("Light strength", &e.glowLight, 0.0f, 3.0f,
-                                   "%.2f");
-                committed |= ImGui::IsItemDeactivatedAfterEdit();
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "How bright the pool of light is at the emitter's\n"
-                        "surface. The light color is the glow color (white-hot\n"
-                        "core included), the falloff is quadratic to the reach.");
-            }
-
-            ImGui::TextDisabled(
-                "Baked into the vertex colors at scene load - free on the\n"
-                "console.");
-            // The halo is the bloom's job, and a glow with bloom off is the
-            // single most common "why doesn't it glow?" - say so where the
-            // slider is, not only in the docs.
-            if (project_.settings.bloom <= 0.0f)
-                ImGui::TextColored(
-                    ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                    "No halo: Bloom is 0. Raise Bloom (and its Threshold)\n"
-                    "in UI Editor > the screen stack > Bloom.");
-            else if (project_.settings.bloomThreshold <= 0.0f)
-                ImGui::TextDisabled(
-                    "Bloom has no Threshold - the halo spreads over the whole\n"
-                    "frame. Raise it in UI Editor > Bloom to focus the glow.");
-            else
-                ImGui::TextDisabled(
-                    "Halo: Bloom %.2f, threshold %.2f, spread %.2f\n"
-                    "(UI Editor > the screen stack > Bloom).",
-                    project_.settings.bloom, project_.settings.bloomThreshold,
-                    project_.settings.bloomSpread);
-        }
-    }
-
-    // --- Bake maps (docs/material-baking.md) ---------------------------------
-    matEdBakeSection(e.name,
-                     e.texture.empty()
-                         ? ""
-                         : (std::filesystem::path(matEdPath_).parent_path() /
-                            e.texture)
-                               .generic_string());
-
-    // --- UV validator ---------------------------------------------------------
-    matEdUvValidateSection(e.name);
-
-    ImGui::Spacing();
-    ImGui::TextDisabled("Saved to the file on every change. The object's own\n"
-                        "Color multiplies on top per object.");
-    ImGui::EndChild();
-
-    // --- splitter: drag to trade property-column width for preview width -----
-    ImGui::SameLine(0.0f, 0.0f);
-    ImGui::InvisibleButton("##mat_split", ImVec2(scaled(9.0f), -1.0f));
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-    if (ImGui::IsItemActive() && totalW > minPreview + minProps) {
-        previewW -= ImGui::GetIO().MouseDelta.x;
-        if (previewW < minPreview) previewW = minPreview;
-        if (previewW > totalW - minProps) previewW = totalW - minProps;
-        matEdSplit_ = previewW / totalW;
-        if (matEdSplit_ < 0.25f) matEdSplit_ = 0.25f;
-        if (matEdSplit_ > 0.75f) matEdSplit_ = 0.75f;
-    }
-    if (ImGui::IsItemDeactivated()) saveGlobalConfig();  // persist the split
-    {
-        const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
-        const float cx = (mn.x + mx.x) * 0.5f;
-        ImGui::GetWindowDrawList()->AddLine(
-            ImVec2(cx, mn.y + scaled(4.0f)), ImVec2(cx, mx.y - scaled(4.0f)),
-            ImGui::GetColorU32(ImGui::IsItemActive()   ? ImGuiCol_SeparatorActive
-                               : ImGui::IsItemHovered() ? ImGuiCol_SeparatorHovered
-                                                        : ImGuiCol_Separator),
-            scaled(2.0f));
-    }
-    ImGui::SameLine(0.0f, 0.0f);
-
-    // --- right: live preview + paint tool ---------------------------------------
-    ImGui::BeginChild("##mat_preview", ImVec2(previewW, 0));  // previewW already scaled
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.field);
+    ImGui::BeginChild("##mat_preview", ImVec2(previewW, bodyH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
     {
         ImGuiIO& io = ImGui::GetIO();
-        const MatEdEntry& sel = matEdMats_[matEdSel_];
-
-        // Shape: the four unit primitives or any of the project's .obj models
-        const char* shapes[] = {"Box", "Sphere", "Cylinder", "Cone"};
-        const std::string shapeLabel =
-            matEdShape_ == 4
-                ? std::filesystem::path(matEdModel_).filename().string()
-                : shapes[matEdShape_ < 0 || matEdShape_ > 3 ? 1 : matEdShape_];
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        if (ImGui::BeginCombo("##mat_shape", shapeLabel.c_str())) {
-            for (int i = 0; i < 4; ++i)
-                if (ImGui::Selectable(shapes[i], matEdShape_ == i)) matEdShape_ = i;
-            const std::vector<std::string> models = listAssetFiles("models", ".obj");
-            const std::vector<std::string> anim = listAnimatedModelFiles();
-            if (!models.empty() || !anim.empty()) ImGui::Separator();
-            for (const std::string& m : models) {
-                const std::string rel = "res/models/" + m;
-                if (ImGui::Selectable(m.c_str(),
-                                      matEdShape_ == 4 && matEdModel_ == rel)) {
-                    matEdShape_ = 4;
-                    matEdModel_ = rel;
-                }
-            }
-            for (const std::string& m : anim) {
-                const std::string rel = "res/models/" + m;
-                if (ImGui::Selectable((m + " (animated)").c_str(),
-                                      matEdShape_ == 4 && matEdModel_ == rel)) {
-                    matEdShape_ = 4;
-                    matEdModel_ = rel;
-                }
-            }
-            ImGui::EndCombo();
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Preview mesh. Pick one of your models (static or\n"
-                              "animated) to see the material (and paint) on the real\n"
-                              "thing - this file acts as the model's material\n"
-                              "override, entries matched to the model's material names.");
-        ImGui::SameLine();
-        ImGui::Checkbox("Spin", &matEdSpin_);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Turntable. Grabbing the preview unchecks it -\n"
-                              "your framing stays put; re-tick to resume.");
         if (matEdSpin_ && !matEdPaint_) matEdAngle_ += io.DeltaTime * 24.0f;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(100.0f));
-        if (ImGui::Combo("##mat_display", &matEdDisplayMode_,
-                         "Solid\0Wireframe\0UV checker\0PS2 CLUT\0"))
-            matEdUploadComposite();  // apply / drop the CLUT quantization
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Preview shading: the material as-is, a dark wireframe\n"
-                "overlay, a generated UV checker in place of every texture\n"
-                "(stretch and texel density read at a glance), or the PS2\n"
-                "CLUT look - the texture palette-quantized exactly like the\n"
-                "shipped bake, with a dithering choice and the live memory\n"
-                "budget.");
-        ImGui::SameLine();
-        ImGui::Checkbox("UV", &matEdUvView_);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "UV layout panel under the preview: the entry's faces over\n"
-                "its texture. Wheel zooms, drag pans. Hover a face in 3D to\n"
-                "light up its texture region; hover a triangle in the panel\n"
-                "to outline it on the mesh.");
-        // Its own line: the row above is already full at a narrow split.
-        ImGui::TextDisabled("Light");
-        ImGui::SameLine();
-        if (previewLightCombo("##mat_light", matEdLight_)) saveGlobalConfig();
 
         // preview-mesh stats (import sanity: sizes, UV presence)
-        if (matBakeBuildMeshes(sel.name)) {
-            if (matEdStatsKey_ != matBakeMeshKey_) {
-                matEdStatsKey_ = matBakeMeshKey_;
-                const matbake::MeshInput& mm = matBakeMeshLow_;
-                int painted = 0;
-                for (char c : mm.paintTri) painted += c ? 1 : 0;
-                if (mm.paintTri.empty()) painted = mm.triCount();
-                bool hasUv = false;
-                for (size_t i = 0; i + 7 < mm.verts.size() && !hasUv; i += 8)
-                    hasUv = mm.verts[i + 6] != 0.0f || mm.verts[i + 7] != 0.0f;
-                int verts = 0;
-                for (int pi : mm.posIdx) verts = std::max(verts, pi + 1);
-                char sb[128];
-                if (verts > 0)
-                    std::snprintf(sb, sizeof(sb),
-                                  "%d tris (%d on this entry) - %d verts",
-                                  mm.triCount(), painted, verts);
-                else
-                    std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)",
-                                  mm.triCount(), painted);
-                matEdStatsLine_ = sb;
-                matEdStatsWarn_ = !hasUv || painted == 0;
-                if (!hasUv)
-                    matEdStatsLine_ += " - no UVs (paint/bake need them)";
-                else if (painted == 0)
-                    matEdStatsLine_ +=
-                        " - no faces use this entry (check usemtl names)";
-            }
-            if (matEdStatsWarn_)
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
-                                   matEdStatsLine_.c_str());
+        if (matBakeBuildMeshes(sel.name) && matEdStatsKey_ != matBakeMeshKey_) {
+            matEdStatsKey_ = matBakeMeshKey_;
+            const matbake::MeshInput& mm = matBakeMeshLow_;
+            int painted = 0;
+            for (char c : mm.paintTri) painted += c ? 1 : 0;
+            if (mm.paintTri.empty()) painted = mm.triCount();
+            bool hasUv = false;
+            for (size_t i = 0; i + 7 < mm.verts.size() && !hasUv; i += 8)
+                hasUv = mm.verts[i + 6] != 0.0f || mm.verts[i + 7] != 0.0f;
+            int verts = 0;
+            for (int pi : mm.posIdx) verts = std::max(verts, pi + 1);
+            char sb[128];
+            if (verts > 0)
+                std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry) - %d verts",
+                              mm.triCount(), painted, verts);
             else
-                ImGui::TextDisabled("%s", matEdStatsLine_.c_str());
+                std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)", mm.triCount(), painted);
+            matEdStatsLine_ = sb;
+            matEdStatsWarn_ = !hasUv || painted == 0;
+            if (!hasUv)
+                matEdStatsLine_ += " - no UVs (paint/bake need them)";
+            else if (painted == 0)
+                matEdStatsLine_ += " - no faces use this entry (check usemtl names)";
         }
 
         // Staged values of the selected entry (live during slider drags)
@@ -3288,445 +2823,15 @@ void App::drawMaterialEditorWindow() {
             kd[i] = sel.color[i] * sel.brightness;
             if (kd[i] > 1.99f) kd[i] = 1.99f;
         }
-        const std::string texRel =
-            sel.texture.empty()
-                ? ""
-                : (std::filesystem::path(matEdPath_).parent_path() / sel.texture)
-                      .generic_string();
         const bool reflSky = sel.refl == "@sky";
         const std::string reflRel =
             (sel.refl.empty() || reflSky)
                 ? ""
-                : (std::filesystem::path(matEdPath_).parent_path() / sel.refl)
-                      .generic_string();
+                : (std::filesystem::path(matEdPath_).parent_path() / sel.refl).generic_string();
+        // the PS2 CLUT look rides the paint target's GL upload
+        if (matEdDisplayMode_ == 3 && !texRel.empty() && matEdPaintTexRel_ != texRel)
+            if (matEdLoadPaintTarget(texRel)) matEdComposite();
 
-        // progressive map bake: restart on changed inputs, poll snapshots,
-        // finish a pending "Bake & add layer"
-        matBakeTick(sel.name, texRel);
-
-        // --- "PS2 CLUT" display mode -----------------------------------------
-        if (matEdDisplayMode_ == 3) {
-            if (!texRel.empty() && matEdPaintTexRel_ != texRel) {
-                // the quantization rides the paint target's GL upload
-                if (matEdLoadPaintTarget(texRel)) matEdComposite();
-            }
-            if (texRel.empty()) {
-                ImGui::TextDisabled("PS2 CLUT: plain colors have no texture\n"
-                                    "to quantize - assign one to see it.");
-            } else {
-                const char* palModes[] = {"Project policy", "16 colors",
-                                          "256 colors", "Full color"};
-                ImGui::SetNextItemWidth(scaled(120.0f));
-                bool changed = ImGui::Combo("##ps2_pal", &matEdPs2Mode_,
-                                            palModes, 4);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Palette budget. \"Project policy\" resolves what\n"
-                        "texbake will actually ship for this material\n"
-                        "(its per-asset override, else the project's\n"
-                        "texture quantization preference).");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(130.0f));
-                changed |= ImGui::Combo("##ps2_dither", &matEdPs2Dither_,
-                                        "Floyd-Steinberg\0Ordered (Bayer)\0"
-                                        "No dithering\0");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Floyd-Steinberg is what the shipped bake uses;\n"
-                        "Ordered trades noise for a stable pattern; None\n"
-                        "shows the raw banding.");
-                if (changed) matEdUploadComposite();
-                if (matEdPaintW_ > 0)
-                    ImGui::TextDisabled(
-                        "%s", matEdBudgetLine(matEdPaintW_, matEdPaintH_).c_str());
-                // palette swatch strip (what survived the median cut)
-                if (!matEdPs2Palette_.empty()) {
-                    const int n = (int)(matEdPs2Palette_.size() / 4);
-                    const float cell = scaled(n > 64 ? 7.0f : 12.0f);
-                    const int perRow = n > 64 ? 32 : 16;
-                    ImDrawList* dl = ImGui::GetWindowDrawList();
-                    const ImVec2 at = ImGui::GetCursorScreenPos();
-                    for (int i = 0; i < n; ++i) {
-                        const unsigned char* p = &matEdPs2Palette_[(size_t)i * 4];
-                        const ImVec2 a(at.x + (i % perRow) * cell,
-                                       at.y + (i / perRow) * cell);
-                        dl->AddRectFilled(
-                            a, ImVec2(a.x + cell - 1.0f, a.y + cell - 1.0f),
-                            IM_COL32(p[0], p[1], p[2], 255));
-                    }
-                    ImGui::Dummy(ImVec2(perRow * cell,
-                                        ((n + perRow - 1) / perRow) * cell));
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The %d-entry palette the median cut\n"
-                                          "settled on.", n);
-                }
-            }
-        }
-
-        // --- paint tool ------------------------------------------------------
-        if (ImGui::Checkbox("Paint", &matEdPaint_) && matEdPaint_)
-            matEdPaintTexRel_.clear();  // force the target check below
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Paint on the preview mesh, straight into this\n"
-                              "entry's texture (through the UVs). The PNG is\n"
-                              "saved on every stroke - what you paint is what\n"
-                              "the PS2 loads. The layer stack below is always\n"
-                              "visible; Paint only arms the brush.");
-        if (matEdPaint_) {
-            ImGui::SameLine();
-            ImGui::Checkbox("Live dab", &matEdGhostOn_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Preview the stamp under the cursor before\n"
-                                  "clicking - one uncommitted dab drawn on the\n"
-                                  "preview each frame.");
-        }
-        // The layer stack lives on the entry's texture and is shown whenever
-        // one is loaded - Paint only gates the brush (the "babranie").
-        bool haveTarget = false;
-        if (!texRel.empty()) {
-            if (matEdPaintTexRel_ != texRel && !matEdLoadPaintTarget(texRel))
-                statusMessage_ = "Cannot read " + texRel;
-            haveTarget = matEdPaintW_ > 0;
-        }
-        bool canPaint = matEdPaint_ && haveTarget;
-        if (matEdPaint_) {
-            if (texRel.empty())
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                   "No texture on this entry.\n"
-                                   "Texture > New paintable texture...");
-            else if (!haveTarget)
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Texture file unreadable.");
-            if (canPaint && (matBakePreviewMode_ == 2 || matEdDisplayMode_ == 2)) {
-                ImGui::TextDisabled("Painting paused - the preview is not\n"
-                                    "showing the texture (map view/checker).");
-                canPaint = false;
-            }
-        }
-        if (canPaint) {
-
-            ImGui::SetNextItemWidth(scaled(90.0f));
-            ImGui::Combo("##brush_mode", &matEdBrushMode_,
-                         "Color\0Brush\0Eraser\0");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Color: solid paint. Brush: paints with a\n"
-                                  "project brush image (res/brushes), tiled\n"
-                                  "across the texture. Eraser: takes paint\n"
-                                  "off the active layer.");
-            if (matEdBrushMode_ == 0) {
-                ImGui::SameLine();
-                ImGui::ColorEdit3("##brush_col", matEdBrushColor_,
-                                  ImGuiColorEditFlags_NoInputs);
-            } else if (matEdBrushMode_ == 1) {
-                ImGui::SameLine();
-                // Brushes are project-global assets: res/brushes/*.png
-                const std::string brushLabel =
-                    matEdBrush_.empty()
-                        ? "<pick brush>"
-                        : std::filesystem::path(matEdBrush_).filename().string();
-                ImGui::SetNextItemWidth(-FLT_MIN);
-                if (ImGui::BeginCombo("##brush_pick", brushLabel.c_str())) {
-                    for (const std::string& b : listAssetFiles("brushes", ".png")) {
-                        const std::string rel = "res/brushes/" + b;
-                        if (ImGui::Selectable(b.c_str(), rel == matEdBrush_))
-                            matEdBrush_ = rel;
-                    }
-                    if (listAssetFiles("brushes", ".png").empty())
-                        ImGui::TextDisabled("No brushes yet - import one below.");
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Import brush from PNG...")) {
-                        const std::string src = pickPngFile();
-                        if (!src.empty()) {
-                            const std::string fileName = sanitizeAssetName(
-                                std::filesystem::path(src).filename().string());
-                            const std::filesystem::path dirAbs =
-                                std::filesystem::path(project_.dir) / "res" /
-                                "brushes";
-                            std::error_code cec;
-                            std::filesystem::create_directories(dirAbs, cec);
-                            std::filesystem::copy_file(
-                                src, dirAbs / fileName,
-                                std::filesystem::copy_options::overwrite_existing,
-                                cec);
-                            if (cec) {
-                                statusMessage_ =
-                                    "Brush import failed: " + cec.message();
-                            } else {
-                                matEdBrush_ = "res/brushes/" + fileName;
-                                statusMessage_ = "Imported brush " + fileName;
-                            }
-                        }
-                    }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "Copies the PNG into res/brushes - brushes are\n"
-                            "shared by the whole project and never ship\n"
-                            "with the game.");
-                    ImGui::EndCombo();
-                }
-            }
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            ImGui::SliderFloat("Size", &matEdBrushSize_, 1.0f, 128.0f, "%.0f px",
-                               ImGuiSliderFlags_Logarithmic);
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            ImGui::SliderFloat("Opacity", &matEdBrushOpacity_, 0.05f, 1.0f,
-                               "%.2f");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("How strongly each dab covers what is\n"
-                                  "underneath (per dab, not per stroke).");
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            ImGui::SliderFloat("Spacing", &matEdBrushSpacing_, 5.0f, 300.0f,
-                               "%.0f%%", ImGuiSliderFlags_Logarithmic);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Distance between dabs, as %% of the brush size\n"
-                    "(GIMP-style). Low = one continuous line, 100%%\n"
-                    "and up = clearly separated stamps.");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            ImGui::SliderFloat("Vary", &matEdBrushOpacityVary_, 0.0f, 100.0f,
-                               "%.0f%%");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Random per-dab opacity variation: each dab's\n"
-                    "opacity is reduced by up to this much - organic,\n"
-                    "hand-worn strokes instead of a uniform coat.");
-            if (matEdBrushMode_ == 1) {
-                // dab orientation: dial bricks in by hand, or scatter organic
-                // splats with a fresh random rotation per dab
-                ImGui::SetNextItemWidth(scaled(110.0f));
-                ImGui::BeginDisabled(matEdBrushRandomRot_);
-                ImGui::SliderFloat("Angle", &matEdBrushAngle_, 0.0f, 360.0f,
-                                   "%.0f deg");
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Rotates every dab - orient bricks,\n"
-                                      "planks, arrows...");
-                ImGui::SameLine();
-                ImGui::Checkbox("Random", &matEdBrushRandomRot_);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Fresh random rotation per dab - organic\n"
-                                      "scatter (leaves, splats, rubble).");
-                // (re)decode the brush image when the pick changes
-                if (matEdBrush_ != matEdPatternLoaded_) {
-                    matEdPatternLoaded_ = matEdBrush_;
-                    matEdPatternPixels_.clear();
-                    matEdPatternW_ = matEdPatternH_ = 0;
-                    int w = 0, h = 0, comp = 0;
-                    unsigned char* p = stbi_load(
-                        (std::filesystem::path(project_.dir) / matEdBrush_)
-                            .string()
-                            .c_str(),
-                        &w, &h, &comp, 4);
-                    if (p) {
-                        matEdPatternPixels_.assign(p, p + (size_t)w * h * 4);
-                        matEdPatternW_ = w;
-                        matEdPatternH_ = h;
-                        stbi_image_free(p);
-                    }
-                }
-                if (!matEdBrush_.empty() && matEdPatternW_ == 0)
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                       "Brush unreadable.");
-            }
-        }
-
-        // --- layers: painted strokes land on the active (selected) layer;
-        // the composite of the stack is the PNG that ships. Top-most first.
-        // Shown whenever the entry's texture is loaded - stack edits, smart
-        // masks and presets work with the brush disarmed.
-        if (haveTarget) {
-            ImGui::Spacing();
-            ImGui::TextDisabled("Layers");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+##layer_add")) {
-                MatEdLayer l;
-                int n = 1;
-                for (const MatEdLayer& other : matEdLayers_)
-                    if (other.name.rfind("Layer ", 0) == 0) ++n;
-                l.name = "Layer " + std::to_string(n);
-                l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
-                const int at = matEdActiveLayer_ + 1;
-                matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
-                matEdActiveLayer_ = at;
-                matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
-                matEdSaveLayers();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("New transparent layer above the active one.");
-            ImGui::SameLine();
-            ImGui::BeginDisabled(matEdActiveLayer_ == 0);
-            if (ImGui::SmallButton("-##layer_del") && matEdActiveLayer_ > 0) {
-                matEdPushUndo(MatEdUndoStep::Kind::LayerRemove, matEdActiveLayer_,
-                              &matEdLayers_[matEdActiveLayer_]);
-                matEdLayers_.erase(matEdLayers_.begin() + matEdActiveLayer_);
-                if (matEdActiveLayer_ >= (int)matEdLayers_.size())
-                    matEdActiveLayer_ = (int)matEdLayers_.size() - 1;
-                matEdComposite();
-                matEdSavePaintTarget();
-            }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Delete the active layer (Background stays;\n"
-                                  "undo with Ctrl+Z).");
-            ImGui::SameLine();
-            ImGui::BeginDisabled(matEdActiveLayer_ + 1 >= (int)matEdLayers_.size());
-            if (ImGui::SmallButton("Up##layer_up")) {
-                std::swap(matEdLayers_[matEdActiveLayer_],
-                          matEdLayers_[matEdActiveLayer_ + 1]);
-                ++matEdActiveLayer_;
-                matEdComposite();
-                matEdSavePaintTarget();
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::BeginDisabled(matEdActiveLayer_ <= 1);
-            if (ImGui::SmallButton("Down##layer_dn")) {
-                std::swap(matEdLayers_[matEdActiveLayer_],
-                          matEdLayers_[matEdActiveLayer_ - 1]);
-                --matEdActiveLayer_;
-                matEdComposite();
-                matEdSavePaintTarget();
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+ Mask")) {
-                MatEdLayer l;
-                l.name = "Smart mask";
-                l.genOn = true;
-                l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
-                matEdRegenLayer(l);
-                const int at = matEdActiveLayer_ + 1;
-                matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
-                matEdActiveLayer_ = at;
-                matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
-                if (matBakeMaps_.empty()) matBakeRunOnce_ = true;
-                matEdComposite();
-                matEdSavePaintTarget();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Procedural mask layer driven by the baked maps: wear on\n"
-                    "edges, grime in cavities, dirt in occlusion, height\n"
-                    "streaks, world-space noise, bricks... Select it to tune\n"
-                    "the generator below; it re-generates live as the bake\n"
-                    "refines (hand strokes on it are overwritten).");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Presets")) ImGui::OpenPopup("##mat_presets");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Reusable smart-mask stacks (material-presets/ in the\n"
-                    "project). Apply one to another asset and the masks\n"
-                    "regenerate from THAT model's own bake.");
-            if (ImGui::BeginPopup("##mat_presets")) {
-                const std::filesystem::path pdir =
-                    std::filesystem::path(project_.dir) / "material-presets";
-                std::error_code ec;
-                bool anyPreset = false;
-                if (std::filesystem::exists(pdir, ec))
-                    for (const auto& f :
-                         std::filesystem::directory_iterator(pdir, ec)) {
-                        if (!f.is_regular_file() ||
-                            f.path().extension() != ".matpreset")
-                            continue;
-                        anyPreset = true;
-                        const std::string stem = f.path().stem().string();
-                        if (ImGui::MenuItem(stem.c_str())) {
-                            if (!matEdApplyPreset(f.path().filename().string()))
-                                statusMessage_ =
-                                    "Cannot read preset " + stem;
-                        }
-                    }
-                if (!anyPreset) ImGui::TextDisabled("No presets yet.");
-                ImGui::Separator();
-                ImGui::BeginDisabled(!matEdAnyGenLayer());
-                if (ImGui::MenuItem("Save current masks...")) {
-                    openSavePresetPopup_ = true;
-                    matEdPresetError_.clear();
-                }
-                ImGui::EndDisabled();
-                ImGui::EndPopup();
-            }
-            if (openSavePresetPopup_) {
-                ImGui::OpenPopup("Save material preset");
-                openSavePresetPopup_ = false;
-            }
-            if (ImGui::BeginPopupModal("Save material preset", nullptr,
-                                       ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::SetNextItemWidth(scaled(220.0f));
-                ImGui::InputText("Name", matEdPresetName_,
-                                 sizeof(matEdPresetName_));
-                if (!matEdPresetError_.empty())
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s",
-                                       matEdPresetError_.c_str());
-                if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
-                    const std::string base = sanitizeAssetName(
-                        std::string(matEdPresetName_).empty()
-                            ? "preset"
-                            : matEdPresetName_);
-                    matEdSavePreset(base);
-                    if (matEdPresetError_.empty()) ImGui::CloseCurrentPopup();
-                }
-                ImGui::SameLine();
-                if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
-                    ImGui::CloseCurrentPopup();
-                ImGui::EndPopup();
-            }
-
-            const char* blends[] = {"Normal", "Multiply", "Add", "Overlay"};
-            for (int i = (int)matEdLayers_.size() - 1; i >= 0; --i) {
-                MatEdLayer& L = matEdLayers_[i];
-                ImGui::PushID(i);
-                if (ImGui::Checkbox("##vis", &L.visible)) {
-                    matEdComposite();
-                    matEdSavePaintTarget();
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show/hide layer");
-                ImGui::SameLine();
-                const std::string lname = L.genOn ? L.name + " *" : L.name;
-                if (ImGui::Selectable(lname.c_str(), matEdActiveLayer_ == i,
-                                      0, ImVec2(scaled(96.0f), 0)))
-                    matEdActiveLayer_ = i;
-                if (L.genOn && ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Smart mask layer (generated)");
-                if (i > 0) {
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(scaled(86.0f));
-                    int blend = L.blend;
-                    if (ImGui::Combo("##blend", &blend, blends, 4)) {
-                        L.blend = blend;
-                        matEdComposite();
-                        matEdSavePaintTarget();
-                    }
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(scaled(64.0f));
-                    if (ImGui::DragFloat("##opacity", &L.opacity, 0.01f, 0.0f,
-                                         1.0f, "%.2f"))
-                        matEdComposite();
-                    if (ImGui::IsItemDeactivatedAfterEdit()) matEdSavePaintTarget();
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Layer opacity");
-                }
-                ImGui::PopID();
-            }
-
-            // generator controls of the active smart-mask layer
-            matEdGenControls();
-        } else if (texRel.empty() && !matEdMats_.empty()) {
-            // no texture on this entry yet: one click bootstraps the whole
-            // layers/masks/presets flow ("mud on the shirt" starts here)
-            ImGui::Spacing();
-            ImGui::TextDisabled("Layers");
-            if (ImGui::Button("Create texture for this entry"))
-                matEdEnsurePaintTexture();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Creates a blank 256x256 PNG named after the entry,\n"
-                    "assigns it and opens the layer stack - masks, presets\n"
-                    "and painting all need a texture to land on.");
-        }
-
-        // --- the preview image + mouse interaction ---------------------------
         Viewport::MatPreviewDesc desc;
         desc.kd[0] = kd[0], desc.kd[1] = kd[1], desc.kd[2] = kd[2];
         matEdKe(sel, desc.ke);
@@ -3759,179 +2864,1123 @@ void App::drawMaterialEditorWindow() {
         float uvH = 0.0f;
         if (matEdUvView_) {
             uvH = avail.y * 0.42f;
-            const float floor = scaled(140.0f);
-            if (uvH < floor) uvH = floor;
+            if (uvH < scaled(140.0f)) uvH = scaled(140.0f);
             if (uvH > avail.y - scaled(80.0f)) uvH = avail.y - scaled(80.0f);
             if (uvH < 0.0f) uvH = 0.0f;
         }
         const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
         const int ph = (int)(avail.y - uvH) < 1 ? 1 : (int)(avail.y - uvH);
         const uint32_t tex = viewport_.renderMaterialPreview(pw, ph, desc);
-        if (tex) {
-            const ImVec2 imgPos = ImGui::GetCursorScreenPos();
-            ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph),
-                         ImVec2(0, 1), ImVec2(1, 0));
-            ImGui::SetCursorScreenPos(imgPos);
-            ImGui::InvisibleButton("##mat_prev_in", ImVec2((float)pw, (float)ph),
-                                   ImGuiButtonFlags_MouseButtonLeft |
-                                       ImGuiButtonFlags_MouseButtonRight);
-            const bool hovered = ImGui::IsItemHovered();
-            const bool active = ImGui::IsItemActive();
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        const ImVec2 imgEnd(imgPos.x + pw, imgPos.y + ph);
+        ImDrawList* pdl = ImGui::GetWindowDrawList();
+        if (tex)
+            pdl->AddImageRounded((ImTextureID)(intptr_t)tex, imgPos, imgEnd, ImVec2(0, 1), ImVec2(1, 0),
+                                 IM_COL32_WHITE, ImGui::GetStyle().ChildRounding,
+                                 uvH > 8.0f ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
+        ImGui::SetNextItemAllowOverlap();
+        ImGui::InvisibleButton("##mat_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        const bool hovered = ImGui::IsItemHovered();
+        const bool active = ImGui::IsItemActive();
+        const bool activated = ImGui::IsItemActivated();
 
-            if (hovered && io.MouseWheel != 0.0f) {
-                matEdZoom_ *= std::pow(1.15f, io.MouseWheel);
-                matEdZoom_ = matEdZoom_ < 0.2f ? 0.2f
-                             : matEdZoom_ > 12.0f ? 12.0f
-                                                  : matEdZoom_;
-            }
-            // orbit: LMB when not painting (the brush owns LMB then), RMB
-            // always
-            const bool orbiting =
-                active && (ImGui::IsMouseDown(1) ||
-                           (!matEdPaint_ && ImGui::IsMouseDown(0)));
-            if (orbiting) {
-                matEdAngle_ += io.MouseDelta.x * 0.5f;
-                matEdPitch_ += io.MouseDelta.y * 0.4f;
-                matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f
-                              : matEdPitch_ > 85.0f ? 85.0f
-                                                    : matEdPitch_;
-                matEdSpin_ = false;  // taking the camera unchecks the
-                                     // turntable - the framing stays put
-            }
+        if (hovered && io.MouseWheel != 0.0f) {
+            matEdZoom_ *= std::pow(1.15f, io.MouseWheel);
+            matEdZoom_ = matEdZoom_ < 0.2f ? 0.2f : matEdZoom_ > 12.0f ? 12.0f : matEdZoom_;
+        }
+        // orbit: LMB when not painting (the brush owns LMB then), RMB always
+        const bool orbiting = active && (ImGui::IsMouseDown(1) || (!matEdPaint_ && ImGui::IsMouseDown(0)));
+        if (orbiting) {
+            matEdAngle_ += io.MouseDelta.x * 0.5f;
+            matEdPitch_ += io.MouseDelta.y * 0.4f;
+            matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f : matEdPitch_ > 85.0f ? 85.0f : matEdPitch_;
+            matEdSpin_ = false;  // taking the camera stops the turntable
+        }
 
-            // Hover pick: feeds the UV-panel sync AND the click-a-part
-            // entry selection. The outlines project the bake mesh's
-            // triangles through the preview camera (matBakeMeshLow_ is
-            // (re)built by the panel / validator; stale indices are
-            // bounds-guarded).
-            matEd3dHoverValid_ = false;
-            if (hovered && !matEdStroke_ && !orbiting &&
-                (matEdUvView_ || (!matEdPaint_ && matEdShape_ == 4))) {
-                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
-                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
-                float hu = 0.0f, hv = 0.0f;
-                bool pntbl = false;
-                std::string hoverEntry;
-                const bool hit = viewport_.materialPreviewPick(
-                    u, v, hu, hv, pntbl, &hoverEntry);
-                if (hit && pntbl && matEdUvView_) {
-                    matEd3dHoverValid_ = true;
-                    matEd3dHoverUV_[0] = hu;
-                    matEd3dHoverUV_[1] = hv;
-                }
-                // a multi-part model: click any part to jump to its entry
-                // (models only - primitives always use the first entry;
-                // painting keeps LMB for the brush)
-                if (hit && !matEdPaint_ && matEdShape_ == 4 &&
-                    !hoverEntry.empty()) {
-                    int hitIdx = -1;
-                    for (size_t i = 0; i < matEdMats_.size(); ++i)
-                        if (matEdMats_[i].name == hoverEntry)
-                            hitIdx = (int)i;
-                    if (hitIdx >= 0 && hitIdx != matEdSel_) {
-                        ImGui::SetTooltip("%s - click to edit this entry",
-                                          hoverEntry.c_str());
-                        // a clean click, not the tail of an orbit drag
-                        if (ImGui::IsMouseReleased(0) &&
-                            io.MouseDragMaxDistanceSqr[0] < 16.0f)
-                            matEdSel_ = hitIdx;
-                    } else if (hitIdx < 0) {
-                        ImGui::SetTooltip(
-                            "part '%s' has no entry in this file",
-                            hoverEntry.c_str());
-                    }
-                }
+        // Hover pick: feeds the UV-panel sync AND the click-a-part entry
+        // selection. The outlines project the bake mesh's triangles through
+        // the preview camera (matBakeMeshLow_ is (re)built by the panel /
+        // validator; stale indices are bounds-guarded).
+        matEd3dHoverValid_ = false;
+        if (hovered && !matEdStroke_ && !orbiting &&
+            (matEdUvView_ || (!matEdPaint_ && matEdShape_ == 4))) {
+            const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+            const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+            float hu = 0.0f, hv = 0.0f;
+            bool pntbl = false;
+            std::string hoverEntry;
+            const bool hit = viewport_.materialPreviewPick(u, v, hu, hv, pntbl, &hoverEntry);
+            if (hit && pntbl && matEdUvView_) {
+                matEd3dHoverValid_ = true;
+                matEd3dHoverUV_[0] = hu;
+                matEd3dHoverUV_[1] = hv;
             }
-            if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
-                auto outlineTri = [&](int t, ImU32 col, float th) {
-                    const matbake::MeshInput& mesh = matBakeMeshLow_;
-                    if (t < 0 || t >= mesh.triCount()) return;
-                    ImVec2 p[3];
-                    for (int k = 0; k < 3; ++k) {
-                        const float* vtx =
-                            &mesh.verts[(size_t)(t * 3 + k) * 8];
-                        float su = 0.0f, sv = 0.0f;
-                        if (!viewport_.materialPreviewProject(vtx, su, sv))
-                            return;
-                        p[k] = ImVec2(imgPos.x + su * pw, imgPos.y + sv * ph);
-                    }
-                    ImGui::GetWindowDrawList()->AddTriangle(p[0], p[1], p[2],
-                                                            col, th);
-                };
-                for (int t : matEdUvIssueTris_)
-                    outlineTri(t, IM_COL32(255, 80, 70, 255), 2.0f);
-                if (matEdUvView_)
-                    outlineTri(matEdUvHoverTri_, IM_COL32(96, 190, 255, 255),
-                               2.0f);
-            }
-
-            if (matEdPaint_ && canPaint) {
-                if (ImGui::IsItemActivated() && ImGui::IsMouseDown(0)) {
-                    // snapshot the painted layer before the stroke
-                    matEdPushUndo(MatEdUndoStep::Kind::Paint, matEdActiveLayer_);
-                    matEdStroke_ = true;
-                    matEdHaveLastUV_ = false;
-                }
-                if (matEdStroke_ && ImGui::IsMouseDown(0)) {
-                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
-                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
-                    float hu = 0.0f, hv = 0.0f;
-                    bool paintable = false;
-                    if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) &&
-                        paintable) {
-                        matEdPaintTo(hu, hv);
-                        matEdComposite();  // layer stack -> texture + GL upload
-                    } else {
-                        matEdHaveLastUV_ = false;  // left the paintable surface
-                    }
-                }
-                if (matEdStroke_ && !ImGui::IsMouseDown(0)) {
-                    matEdStroke_ = false;
-                    matEdSavePaintTarget();  // the painted PNG ships as-is
-                }
-                // Live dab ghost: composite one uncommitted stamp under the
-                // cursor. The active layer is backed up and restored right
-                // away, so everything else (undo snapshots, stroke starts,
-                // saves - which all recomposite first) sees clean layers.
-                bool ghostDrawn = false;
-                if (matEdGhostOn_ && hovered && !matEdStroke_ &&
-                    !ImGui::IsMouseDown(0) && matEdActiveLayer_ >= 0 &&
-                    matEdActiveLayer_ < (int)matEdLayers_.size()) {
-                    const float u = (io.MousePos.x - imgPos.x) / (float)pw;
-                    const float v = (io.MousePos.y - imgPos.y) / (float)ph;
-                    float hu = 0.0f, hv = 0.0f;
-                    bool paintable = false;
-                    if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) &&
-                        paintable) {
-                        MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
-                        std::vector<unsigned char> backup = L.pixels;
-                        matEdGhostPass_ = true;
-                        matEdStamp(hu, hv);
-                        matEdGhostPass_ = false;
-                        matEdComposite();
-                        L.pixels = std::move(backup);
-                        matEdGhostShown_ = true;
-                        ghostDrawn = true;
-                    }
-                }
-                if (matEdGhostShown_ && !ghostDrawn) {
-                    matEdComposite();  // wipe the ghost off the composite
-                    matEdGhostShown_ = false;
-                }
-                if (hovered) {
-                    // approximate brush footprint (cosmetic cursor)
-                    const float r = matEdBrushSize_ / (float)matEdPaintW_ *
-                                    (float)(pw < ph ? pw : ph) * 0.5f;
-                    ImGui::GetWindowDrawList()->AddCircle(
-                        io.MousePos, r < 3.0f ? 3.0f : r,
-                        IM_COL32(255, 255, 255, 180), 0, 1.5f);
+            // a multi-part model: click any part to jump to its entry
+            if (hit && !matEdPaint_ && matEdShape_ == 4 && !hoverEntry.empty()) {
+                int hitIdx = -1;
+                for (size_t i = 0; i < matEdMats_.size(); ++i)
+                    if (matEdMats_[i].name == hoverEntry) hitIdx = (int)i;
+                if (hitIdx >= 0 && hitIdx != matEdSel_) {
+                    ImGui::SetTooltip("%s - click to edit this entry", hoverEntry.c_str());
+                    if (ImGui::IsMouseReleased(0) && io.MouseDragMaxDistanceSqr[0] < 16.0f)
+                        matEdSel_ = hitIdx;
+                } else if (hitIdx < 0) {
+                    ImGui::SetTooltip("part '%s' has no entry in this file", hoverEntry.c_str());
                 }
             }
         }
-        if (matEdUvView_ && uvH > 8.0f)
+        if (matEdUvHoverTri_ >= 0 || !matEdUvIssueTris_.empty()) {
+            auto outlineTri = [&](int t, ImU32 col, float th) {
+                const matbake::MeshInput& mesh = matBakeMeshLow_;
+                if (t < 0 || t >= mesh.triCount()) return;
+                ImVec2 p[3];
+                for (int k = 0; k < 3; ++k) {
+                    const float* vtx = &mesh.verts[(size_t)(t * 3 + k) * 8];
+                    float su = 0.0f, sv = 0.0f;
+                    if (!viewport_.materialPreviewProject(vtx, su, sv)) return;
+                    p[k] = ImVec2(imgPos.x + su * pw, imgPos.y + sv * ph);
+                }
+                pdl->AddTriangle(p[0], p[1], p[2], col, th);
+            };
+            for (int t : matEdUvIssueTris_) outlineTri(t, col32(sem.danger), 2.0f);
+            if (matEdUvView_) outlineTri(matEdUvHoverTri_, col32(sem.accent), 2.0f);
+        }
+
+        if (canPaint) {
+            if (activated && ImGui::IsMouseDown(0)) {
+                // snapshot the painted layer before the stroke
+                matEdPushUndo(MatEdUndoStep::Kind::Paint, matEdActiveLayer_);
+                matEdStroke_ = true;
+                matEdHaveLastUV_ = false;
+            }
+            if (matEdStroke_ && ImGui::IsMouseDown(0)) {
+                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                float hu = 0.0f, hv = 0.0f;
+                bool paintable = false;
+                if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) && paintable) {
+                    matEdPaintTo(hu, hv);
+                    matEdComposite();  // layer stack -> texture + GL upload
+                } else {
+                    matEdHaveLastUV_ = false;  // left the paintable surface
+                }
+            }
+            if (matEdStroke_ && !ImGui::IsMouseDown(0)) {
+                matEdStroke_ = false;
+                matEdSavePaintTarget();  // the painted PNG ships as-is
+            }
+            // Live dab ghost: composite one uncommitted stamp under the
+            // cursor. The active layer is backed up and restored right away,
+            // so everything else (undo snapshots, stroke starts, saves - which
+            // all recomposite first) sees clean layers.
+            bool ghostDrawn = false;
+            if (matEdGhostOn_ && hovered && !matEdStroke_ && !ImGui::IsMouseDown(0) &&
+                matEdActiveLayer_ >= 0 && matEdActiveLayer_ < (int)matEdLayers_.size()) {
+                const float u = (io.MousePos.x - imgPos.x) / (float)pw;
+                const float v = (io.MousePos.y - imgPos.y) / (float)ph;
+                float hu = 0.0f, hv = 0.0f;
+                bool paintable = false;
+                if (viewport_.materialPreviewPick(u, v, hu, hv, paintable) && paintable) {
+                    MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
+                    std::vector<unsigned char> backup = L.pixels;
+                    matEdGhostPass_ = true;
+                    matEdStamp(hu, hv);
+                    matEdGhostPass_ = false;
+                    matEdComposite();
+                    L.pixels = std::move(backup);
+                    matEdGhostShown_ = true;
+                    ghostDrawn = true;
+                }
+            }
+            if (matEdGhostShown_ && !ghostDrawn) {
+                matEdComposite();  // wipe the ghost off the composite
+                matEdGhostShown_ = false;
+            }
+            if (hovered) {
+                // approximate brush footprint (cosmetic cursor)
+                const float r = matEdBrushSize_ / (float)matEdPaintW_ * (float)(pw < ph ? pw : ph) * 0.5f;
+                pdl->AddCircle(io.MousePos, r < 3.0f ? 3.0f : r, IM_COL32(255, 255, 255, 200), 0, 1.5f);
+            }
+        }
+        // Painting armed: the canvas says so - a coloured outline and a pill
+        // naming the layer the strokes land on.
+        const float m = fs * 0.7f;
+        if (matEdPaint_)
+            pdl->AddRect(ImVec2(imgPos.x + 1, imgPos.y + 1), ImVec2(imgEnd.x - 1, imgEnd.y - 1),
+                         col32(sem.special, 0.8f), ImGui::GetStyle().ChildRounding, 0, 1.5f);
+
+        // --- glass toolbar (top): mesh, display, light | Spin, UV -----------
+        const float barH = ImGui::GetFrameHeight() + fs * 0.6f;
+        {
+            const char* shapes[] = {"Box", "Sphere", "Cylinder", "Cone"};
+            const std::string shapeLabel =
+                matEdShape_ == 4 ? std::filesystem::path(matEdModel_).filename().string()
+                                 : shapes[matEdShape_ < 0 || matEdShape_ > 3 ? 1 : matEdShape_];
+            const ImVec2 pa(imgPos.x + m, imgPos.y + m), pb(imgEnd.x - m, pa.y + barH);
+            ui::OverlayPanel(pdl, pa, pb);
+            ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            const float comboW = std::min(scaled(150.0f), (pb.x - pa.x) * 0.24f);
+            ImGui::SetNextItemWidth(comboW);
+            if (ImGui::BeginCombo("##mat_shape", shapeLabel.c_str())) {
+                for (int i = 0; i < 4; ++i)
+                    if (ImGui::Selectable(shapes[i], matEdShape_ == i)) matEdShape_ = i;
+                const std::vector<std::string> models = listAssetFiles("models", ".obj");
+                const std::vector<std::string> anim = listAnimatedModelFiles();
+                if (!models.empty() || !anim.empty()) ImGui::Separator();
+                for (const std::string& mo : models) {
+                    const std::string rel = "res/models/" + mo;
+                    if (ImGui::Selectable(mo.c_str(), matEdShape_ == 4 && matEdModel_ == rel)) {
+                        matEdShape_ = 4;
+                        matEdModel_ = rel;
+                    }
+                }
+                for (const std::string& mo : anim) {
+                    const std::string rel = "res/models/" + mo;
+                    if (ImGui::Selectable((mo + " (animated)").c_str(),
+                                          matEdShape_ == 4 && matEdModel_ == rel)) {
+                        matEdShape_ = 4;
+                        matEdModel_ = rel;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Preview mesh. Pick one of your models (static or animated)\n"
+                                  "to see the material (and paint) on the real thing - this\n"
+                                  "file acts as the model's material override, entries\n"
+                                  "matched to the model's material names.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(std::min(scaled(110.0f), (pb.x - pa.x) * 0.17f));
+            if (ImGui::Combo("##mat_display", &matEdDisplayMode_, "Solid\0Wireframe\0UV checker\0PS2 CLUT\0"))
+                matEdUploadComposite();  // apply / drop the CLUT quantization
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Preview shading: the material as-is, a dark wireframe overlay,\n"
+                                  "a generated UV checker in place of every texture (stretch and\n"
+                                  "texel density at a glance), or the PS2 CLUT look - the texture\n"
+                                  "palette-quantized exactly like the shipped bake.");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(std::min(scaled(150.0f), (pb.x - pa.x) * 0.22f));
+            if (previewLightCombo("##mat_light", matEdLight_)) saveGlobalConfig();
+            // Spin | UV, right-aligned
+            const float tw = ui::OverlayTextWidth("Spin") + ui::OverlayTextWidth("UV") + fs * 0.4f;
+            ImGui::SameLine();
+            ImGui::SetCursorScreenPos(ImVec2(std::max(ImGui::GetCursorScreenPos().x, pb.x - tw - fs * 0.3f),
+                                             pa.y + (barH - ui::OverlayRowHeight()) * 0.5f));
+            if (ui::OverlayTextButton("Spin", "Spin", matEdSpin_)) matEdSpin_ = !matEdSpin_;
+            uiscript::markLastItemChecked(matEdSpin_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Turntable. Grabbing the preview stops it - your framing stays.");
+            ImGui::SameLine(0, fs * 0.2f);
+            if (ui::OverlayTextButton("UV", "UV", matEdUvView_)) matEdUvView_ = !matEdUvView_;
+            uiscript::markLastItemChecked(matEdUvView_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("UV layout panel under the preview: the entry's faces over its\n"
+                                  "texture. Hover a face in 3D to light up its texture region;\n"
+                                  "hover a triangle in the panel to outline it on the mesh.");
+        }
+        // painting status pill under the toolbar
+        if (matEdPaint_) {
+            std::string status;
+            if (texRel.empty()) status = "No texture on this entry - create one in the Paint tab";
+            else if (!haveTarget) status = "Texture file unreadable";
+            else if (paintPaused) status = "Painting paused - the preview is not showing the texture";
+            else {
+                const std::string ln = matEdActiveLayer_ >= 0 && matEdActiveLayer_ < (int)matEdLayers_.size()
+                                           ? matEdLayers_[matEdActiveLayer_].name
+                                           : std::string("layer");
+                status = "Painting " + ln + " - strokes save as you paint";
+            }
+            const ImVec2 ts = ImGui::CalcTextSize(status.c_str());
+            const ImVec2 pa(imgPos.x + m, imgPos.y + m + barH + fs * 0.4f);
+            const ImVec2 pb(pa.x + ts.x + fs * 2.0f, pa.y + ts.y + fs * 0.7f);
+            ui::OverlayPanel(pdl, pa, pb);
+            pdl->AddCircleFilled(ImVec2(pa.x + fs * 0.7f, (pa.y + pb.y) * 0.5f), fs * 0.2f, col32(sem.special));
+            pdl->AddText(ImVec2(pa.x + fs * 1.2f, pa.y + fs * 0.35f), col32(sem.text), status.c_str());
+        }
+
+        // --- bottom: readout (left), Editor | As PS2 (right) or brush pill ---
+        const float pillH = ImGui::GetFrameHeight() + fs * 0.6f;
+        if (canPaint) {
+            const ImVec2 pa(imgPos.x + m, imgEnd.y - m - pillH), pb(imgEnd.x - m, imgEnd.y - m);
+            ui::OverlayPanel(pdl, pa, pb);
+            ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            const char* modes[] = {"Paint", "Pattern", "Erase"};
+            ui::Segmented("##brush_mode", modes, 3, &matEdBrushMode_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Paint: solid colour. Pattern: a project brush image\n"
+                                  "(res/brushes), tiled across the texture. Erase: takes paint\n"
+                                  "off the active layer.");
+            ImGui::SameLine();
+            if (matEdBrushMode_ == 0) {
+                ImGui::ColorEdit3("##brush_col", matEdBrushColor_, ImGuiColorEditFlags_NoInputs);
+                ImGui::SameLine();
+            } else if (matEdBrushMode_ == 1) {
+                const std::string brushLabel =
+                    matEdBrush_.empty() ? "<pick brush>"
+                                        : std::filesystem::path(matEdBrush_).filename().string();
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::BeginCombo("##brush_pick", brushLabel.c_str())) {
+                    const std::vector<std::string> brushes = listAssetFiles("brushes", ".png");
+                    for (const std::string& b : brushes) {
+                        const std::string rel = "res/brushes/" + b;
+                        if (ImGui::Selectable(b.c_str(), rel == matEdBrush_)) matEdBrush_ = rel;
+                    }
+                    if (brushes.empty()) ImGui::TextDisabled("No brushes yet - import one below.");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Import brush from PNG...")) {
+                        const std::string src = pickPngFile();
+                        if (!src.empty()) {
+                            const std::string fileName =
+                                sanitizeAssetName(std::filesystem::path(src).filename().string());
+                            const std::filesystem::path dirAbs =
+                                std::filesystem::path(project_.dir) / "res" / "brushes";
+                            std::error_code cec;
+                            std::filesystem::create_directories(dirAbs, cec);
+                            std::filesystem::copy_file(src, dirAbs / fileName,
+                                                       std::filesystem::copy_options::overwrite_existing,
+                                                       cec);
+                            if (cec) {
+                                statusMessage_ = "Brush import failed: " + cec.message();
+                            } else {
+                                matEdBrush_ = "res/brushes/" + fileName;
+                                statusMessage_ = "Imported brush " + fileName;
+                            }
+                        }
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Copies the PNG into res/brushes - brushes are shared by\n"
+                                          "the whole project and never ship with the game.");
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+            }
+            const float rest = pb.x - ImGui::GetCursorScreenPos().x - fs * 0.5f;
+            const float undoW = ImGui::CalcTextSize("Undo").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            const float sw = std::max(scaled(50.0f), (rest - undoW - sp * 3.0f) * 0.5f);
+            ImGui::SetNextItemWidth(sw);
+            ImGui::SliderFloat("##brush_size", &matEdBrushSize_, 1.0f, 128.0f, "Size %.0f px",
+                               ImGuiSliderFlags_Logarithmic);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(sw);
+            ImGui::SliderFloat("##brush_opacity", &matEdBrushOpacity_, 0.05f, 1.0f, "Opacity %.2f");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("How strongly each dab covers what is underneath (per dab,\n"
+                                  "not per stroke).");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(matEdUndo_.empty());
+            if (ui::GhostButton("Undo##brush")) matEdUndoLast();
+            ImGui::EndDisabled();
+        } else {
+            // readout
+            if (!matEdStatsLine_.empty()) {
+                std::string line = matEdStatsLine_;
+                if (matEdInfoOk_ && !texRel.empty())
+                    line += " - " + std::to_string(matEdInfoW_) + "x" + std::to_string(matEdInfoH_);
+                ui::FontScope mono(ui::monoFont());
+                const ImVec2 ts = ImGui::CalcTextSize(line.c_str());
+                const ImVec2 pb(std::min(imgPos.x + m + ts.x + fs * 1.2f, imgEnd.x - m - scaled(190)), imgEnd.y - m);
+                const ImVec2 pa(imgPos.x + m, pb.y - ts.y - fs * 0.7f);
+                if (pb.x > pa.x + fs * 4.0f) {
+                    ui::OverlayPanel(pdl, pa, pb);
+                    pdl->PushClipRect(pa, pb, true);
+                    pdl->AddText(ImVec2(pa.x + fs * 0.6f, pa.y + fs * 0.35f),
+                                 col32(matEdStatsWarn_ ? sem.warn : sem.textDim), line.c_str());
+                    pdl->PopClipRect();
+                }
+            }
+            // Editor | As PS2: the existing PS2 CLUT preview, one click away
+            const char* looks[] = {"Editor", "As PS2"};
+            int look = matEdDisplayMode_ == 3 ? 1 : 0;
+            const float segW = ImGui::CalcTextSize("EditorAs PS2").x + ImGui::GetStyle().FramePadding.x * 4.0f + 6.0f;
+            const ImVec2 pb(imgEnd.x - m, imgEnd.y - m), pa(pb.x - segW - fs * 0.6f, pb.y - pillH);
+            ui::OverlayPanel(pdl, pa, pb);
+            ImGui::SetCursorScreenPos(ImVec2(pa.x + fs * 0.3f, pa.y + fs * 0.3f));
+            if (ui::Segmented("##mat_look", looks, 2, &look)) {
+                matEdDisplayMode_ = look == 1 ? 3 : 0;
+                matEdUploadComposite();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("As PS2: the texture palette-quantized exactly like the shipped\n"
+                                  "bake (palette and dithering in the Look tab).");
+        }
+
+        if (matEdUvView_ && uvH > 8.0f) {
+            ImGui::SetCursorScreenPos(ImVec2(imgPos.x, imgEnd.y));
             drawMatEdUvPanel(sel.name, texRel, ImVec2(avail.x, uvH));
+        }
     }
     ImGui::EndChild();
+
+    // --- splitter: drag to trade preview width for inspector width -----------
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::InvisibleButton("##mat_split", ImVec2(sp, bodyH));
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive() && restW > minPreview + minInsp) {
+        previewW += ImGui::GetIO().MouseDelta.x;
+        matEdSplit_ = std::clamp(previewW / restW, 0.35f, 0.80f);
+    }
+    if (ImGui::IsItemDeactivated()) saveGlobalConfig();  // persist the split
+    ImGui::SameLine(0.0f, 0.0f);
+
+    // === right: the inspector =================================================
+    ui::BeginCard("##mat_edit", ImVec2(0, bodyH));
+    // header: name, the file's identity, the file actions
+    {
+        const float icon = ImGui::GetFrameHeight();
+        const float rightW = icon * 3.0f + sp * 2.0f;
+        char nameBuf[64];
+        std::snprintf(nameBuf, sizeof(nameBuf), "%s", sel.name.c_str());
+        {
+            ui::FontScope b(ui::boldFont());
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - rightW - sp);
+            if (ImGui::InputText("##Name", nameBuf, sizeof(nameBuf))) {
+                // .mtl names are whitespace-delimited tokens - keep them pipeline-safe
+                sel.name = sanitizeAssetName(nameBuf);
+                if (sel.name.empty()) sel.name = "material";
+            }
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("The entry's name in the .mtl (models match it by usemtl).");
+        }
+        ImGui::SameLine();
+        if (ui::GhostButton("Duplicate", 0)) duplicateMaterialAsset();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Copy this .mtl (and its textures) under a new name - safe to\n"
+                              "recolour or repaint without touching the original.");
+        ImGui::SameLine();
+        if (ui::MoreButton("Material actions", icon)) ImGui::OpenPopup("##mat_more");
+        if (ImGui::BeginPopup("##mat_more")) {
+            if (ImGui::MenuItem("Undo", ui::ShortcutChord("Z", nullptr, "+").c_str(), false,
+                                !matEdUndo_.empty()))
+                matEdUndoLast();
+            ImGui::Separator();
+            if (ImGui::MenuItem("+ Add entry")) {
+                MatEdEntry ne;
+                for (int n = 1;; ++n) {
+                    ne.name = "mat-" + std::to_string(n);
+                    bool taken = false;
+                    for (const auto& other : matEdMats_) taken |= (other.name == ne.name);
+                    if (!taken) break;
+                }
+                matEdMats_.push_back(std::move(ne));
+                matEdSel_ = (int)matEdMats_.size() - 1;
+                committed = true;
+            }
+            if (ImGui::MenuItem("Remove entry", nullptr, false, matEdMats_.size() > 1)) {
+                matEdMats_.erase(matEdMats_.begin() + matEdSel_);
+                if (matEdSel_ >= (int)matEdMats_.size()) matEdSel_ = (int)matEdMats_.size() - 1;
+                committed = true;
+            }
+            if (ImGui::MenuItem("Move entry up", nullptr, false, matEdSel_ > 0)) {
+                std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ - 1]);
+                --matEdSel_;
+                committed = true;
+            }
+            if (ImGui::MenuItem("Move entry down", nullptr, false,
+                                matEdSel_ + 1 < (int)matEdMats_.size())) {
+                std::swap(matEdMats_[matEdSel_], matEdMats_[matEdSel_ + 1]);
+                ++matEdSel_;
+                committed = true;
+            }
+            ImGui::Separator();
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+            if (ImGui::MenuItem("Delete material..."))
+                requestAssetDelete(PendingAssetDelete::Material, matEdPath_,
+                                   matEdPath_.rfind("res/", 0) == 0 ? matEdPath_.substr(4) : matEdPath_);
+            ImGui::PopStyleColor();
+            ImGui::EndPopup();
+        }
+        if (matEdSel_ >= (int)matEdMats_.size()) matEdSel_ = (int)matEdMats_.size() - 1;
+        // path - entry n of N - used by
+        int users = 0;
+        for (const SceneData& sc : project_.scenes)
+            for (const SceneObject& o : sc.objects) users += o.materialPath == matEdPath_ ? 1 : 0;
+        char idLine[256];
+        std::snprintf(idLine, sizeof idLine, "%s - entry %d of %d - used by %d object%s",
+                      matEdPath_.c_str(), matEdSel_ + 1, (int)matEdMats_.size(), users,
+                      users == 1 ? "" : "s");
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::TextDisabled("%s", idLine);
+        }
+        ImGui::PopTextWrapPos();
+        // entries of a multi-material file, visible instead of a combo
+        if (matEdMats_.size() > 1) {
+            bool first = true;
+            for (int i = 0; i < (int)matEdMats_.size(); ++i) {
+                const std::string label = matEdMats_[i].name + "##entry" + std::to_string(i);
+                const float w = ui::FilterChipWidth(label.c_str());
+                ui::ChipFlow(w, first);
+                first = false;
+                if (ui::FilterChip(label.c_str(), i == matEdSel_)) matEdSel_ = i;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(i == 0 ? "Entry 1 - what primitives and emitters use"
+                                             : "Models resolve usemtl names against these entries");
+            }
+        }
+    }
+    MatEdEntry& e = matEdMats_[matEdSel_];
+    ImGui::Spacing();
+    if (ui::BeginQuietTabBar("##mat_tabs")) {
+        if (ui::QuietTab("Look", matEdTab_ == 0)) matEdTab_ = 0;
+        if (ui::QuietTab("Paint", matEdTab_ == 1)) matEdTab_ = 1;
+        if (ui::QuietTab("Bake", matEdTab_ == 2)) matEdTab_ = 2;
+        ui::EndQuietTabBar();
+    }
+    // the brush is armed exactly while the Paint tab is up
+    if ((matEdTab_ == 1) != matEdPaint_) {
+        matEdPaint_ = matEdTab_ == 1;
+        if (matEdPaint_) matEdPaintTexRel_.clear();  // force the target check
+    }
+
+    ImGui::BeginChild("##mat_tab_body", ImVec2(0, 0));
+    const std::filesystem::path mtlDirAbs =
+        (std::filesystem::path(project_.dir) / matEdPath_).parent_path();
+    if (matEdTab_ == 0) {
+        // ---- Look ------------------------------------------------------------
+        ImGui::Spacing();
+        {
+            ui::InspectorRows rows(scaled(90), scaled(112));
+            ui::ColorHex("Color", e.color);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ui::SliderFloat("Brightness", &e.brightness, 0.0f, 2.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Multiplies the colour. Above 1.0 a textured material\n"
+                                  "over-brightens its texture (PS2 modulation goes up to 2x);\n"
+                                  "plain colours clamp at full white.");
+        }
+
+        // texture: PNGs living next to the .mtl (map_Kd resolves relative to
+        // it - the game copies that rule)
+        ImGui::Spacing();
+        ui::Caption("Texture");
+        {
+            const float sw = fs * 3.4f;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(p, ImVec2(p.x + sw, p.y + sw), col32(sem.field), ImGui::GetStyle().FrameRounding);
+            const uint32_t t = texRel.empty() ? 0 : viewport_.assetThumb(texRel, true);
+            if (t)
+                dl->AddImageRounded((ImTextureID)(intptr_t)t, p, ImVec2(p.x + sw, p.y + sw), ImVec2(0, 0),
+                                    ImVec2(1, 1), IM_COL32_WHITE, ImGui::GetStyle().FrameRounding);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + sw + sp, p.y));
+            ImGui::BeginGroup();
+            const char* noneLabel = "<none - plain colour>";
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::BeginCombo("##Texture", e.texture.empty() ? noneLabel : e.texture.c_str())) {
+                if (ImGui::Selectable(noneLabel, e.texture.empty()) && !e.texture.empty()) {
+                    e.texture.clear();
+                    committed = true;
+                }
+                std::error_code ec;
+                for (const auto& f : std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                    if (!f.is_regular_file()) continue;
+                    std::string ext = f.path().extension().string();
+                    for (char& c : ext) c = (char)tolower((unsigned char)c);
+                    if (ext != ".png") continue;
+                    const std::string rel = std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
+                    if (ImGui::Selectable(rel.c_str(), rel == e.texture) && rel != e.texture) {
+                        e.texture = rel;
+                        committed = true;
+                    }
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Import PNG...")) {
+                    const std::string src = pickPngFile();
+                    if (!src.empty()) {
+                        const std::string fileName =
+                            sanitizeAssetName(std::filesystem::path(src).filename().string());
+                        std::error_code cec;
+                        std::filesystem::copy_file(src, mtlDirAbs / fileName,
+                                                   std::filesystem::copy_options::overwrite_existing, cec);
+                        if (cec) {
+                            statusMessage_ = "Texture import failed: " + cec.message();
+                        } else {
+                            e.texture = fileName;
+                            committed = true;
+                        }
+                    }
+                }
+                if (ImGui::MenuItem("New paintable texture...")) {
+                    openNewTexturePopup_ = true;
+                    std::snprintf(matEdNewTexName_, sizeof(matEdNewTexName_), "%s-tex", e.name.c_str());
+                    matEdNewTexError_.clear();
+                }
+                ImGui::EndCombo();
+            }
+            if (!e.texture.empty()) {
+                const std::filesystem::path texAbs = mtlDirAbs / e.texture;
+                std::error_code ec;
+                if (!std::filesystem::exists(texAbs, ec)) {
+                    ImGui::TextColored(sem.danger, "Missing - renders as plain colour.");
+                } else {
+                    const auto stamp = std::filesystem::last_write_time(texAbs, ec);
+                    const std::string infoPath = texAbs.lexically_normal().generic_string();
+                    if (matEdInfoPath_ != infoPath || matEdInfoTime_ != stamp) {
+                        matEdInfoPath_ = infoPath;
+                        matEdInfoTime_ = stamp;
+                        int comp = 0;
+                        matEdInfoOk_ =
+                            stbi_info(texAbs.string().c_str(), &matEdInfoW_, &matEdInfoH_, &comp) != 0;
+                    }
+                    const int tw = matEdInfoW_, th = matEdInfoH_;
+                    if (matEdInfoOk_) {
+                        const bool pow2 = tw > 0 && th > 0 && (tw & (tw - 1)) == 0 && (th & (th - 1)) == 0;
+                        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+                        ui::FontScope mono(ui::monoFont());
+                        if (!pow2)
+                            ImGui::TextColored(sem.warn, "%dx%d - not a power of two (the GS needs 128, 256...)",
+                                               tw, th);
+                        else
+                            ImGui::TextDisabled("%s", matEdBudgetLine(tw, th).c_str());
+                        ImGui::PopTextWrapPos();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip("What this texture costs after the build's texture bake, at\n"
+                                              "the quality this material resolves to (per-asset override,\n"
+                                              "else the project preference).");
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("Plain colour - no texture.");
+            }
+            ImGui::EndGroup();
+            ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(ImGui::GetCursorScreenPos().y, p.y + sw + sp)));
+        }
+        // --- "New texture" modal: a blank pow2 PNG next to the .mtl, assigned
+        // as this entry's map_Kd - the canvas for the paint tool.
+        if (openNewTexturePopup_) {
+            ImGui::OpenPopup("New texture");
+            openNewTexturePopup_ = false;
+        }
+        if (ImGui::BeginPopupModal("New texture", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::SetNextItemWidth(scaled(220.0f));
+            ImGui::InputText("Name", matEdNewTexName_, sizeof(matEdNewTexName_));
+            const char* sizes[] = {"64 x 64", "128 x 128", "256 x 256", "512 x 512"};
+            ImGui::SetNextItemWidth(scaled(220.0f));
+            ImGui::Combo("Size", &matEdNewTexSize_, sizes, 4);
+            ImGui::TextDisabled("Power-of-two, as the PS2 GS requires. Bigger eats\n"
+                                "video memory - 256 is plenty for most props.");
+            ImGui::ColorEdit3("Fill color", matEdNewTexColor_);
+            if (!matEdNewTexError_.empty()) ui::NoteCard(2, matEdNewTexError_.c_str());
+            if (ui::PrimaryButton("Create", scaled(120))) {
+                const std::string base = sanitizeAssetName(
+                    std::string(matEdNewTexName_).empty() ? "painted" : matEdNewTexName_);
+                const std::string fileName = base + ".png";
+                std::error_code cec;
+                if (std::filesystem::exists(mtlDirAbs / fileName, cec)) {
+                    matEdNewTexError_ = fileName + " already exists.";
+                } else {
+                    const int s = 64 << (matEdNewTexSize_ < 0 ? 0 : matEdNewTexSize_ > 3 ? 3 : matEdNewTexSize_);
+                    std::vector<unsigned char> px((size_t)s * s * 4);
+                    for (size_t i = 0; i < px.size(); i += 4) {
+                        px[i] = (unsigned char)(matEdNewTexColor_[0] * 255.0f + 0.5f);
+                        px[i + 1] = (unsigned char)(matEdNewTexColor_[1] * 255.0f + 0.5f);
+                        px[i + 2] = (unsigned char)(matEdNewTexColor_[2] * 255.0f + 0.5f);
+                        px[i + 3] = 255;
+                    }
+                    if (stbi_write_png((mtlDirAbs / fileName).string().c_str(), s, s, 4, px.data(), s * 4)) {
+                        e.texture = fileName;
+                        committed = true;
+                        matEdTab_ = 1;  // the whole point of a blank canvas
+                        ImGui::CloseCurrentPopup();
+                    } else {
+                        matEdNewTexError_ = "Cannot write " + fileName;
+                    }
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (!e.texture.empty()) {
+            // Tiling (map_Kd -s): how densely the texture repeats. Used by
+            // terrain (which generates its own UVs); objects carry baked UVs.
+            ui::InspectorRows rows(scaled(90), scaled(112));
+            ui::DragFloat("Tile repeat", &e.tile, 0.05f, 0.01f, 64.0f, "%.2f per unit");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (e.tile < 0.01f) e.tile = 0.01f;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Terrain only: texture repeats per world unit. Objects use\n"
+                                  "their mesh UVs and ignore this.");
+        }
+        // As PS2: the palette the bake would settle on, where it applies
+        if (matEdDisplayMode_ == 3) {
+            ImGui::Spacing();
+            ui::Caption("As PS2");
+            if (texRel.empty()) {
+                ImGui::TextDisabled("Plain colours have no texture to quantize.");
+            } else {
+                const char* palModes[] = {"Project policy", "16 colours", "256 colours", "Full colour"};
+                ImGui::SetNextItemWidth(scaled(130.0f));
+                bool changed = ImGui::Combo("##ps2_pal", &matEdPs2Mode_, palModes, 4);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Palette budget. \"Project policy\" resolves what texbake will\n"
+                                      "ship for this material (its per-asset override, else the\n"
+                                      "project's texture quantization preference).");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                changed |= ImGui::Combo("##ps2_dither", &matEdPs2Dither_,
+                                        "Floyd-Steinberg\0Ordered (Bayer)\0No dithering\0");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Floyd-Steinberg is what the shipped bake uses; Ordered trades\n"
+                                      "noise for a stable pattern; None shows the raw banding.");
+                if (changed) matEdUploadComposite();
+                if (!matEdPs2Palette_.empty()) {
+                    const int n = (int)(matEdPs2Palette_.size() / 4);
+                    const float cell = scaled(n > 64 ? 7.0f : 12.0f);
+                    const int perRow = n > 64 ? 32 : 16;
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    for (int i = 0; i < n; ++i) {
+                        const unsigned char* pp = &matEdPs2Palette_[(size_t)i * 4];
+                        const ImVec2 a(at.x + (i % perRow) * cell, at.y + (i / perRow) * cell);
+                        dl->AddRectFilled(a, ImVec2(a.x + cell - 1.0f, a.y + cell - 1.0f),
+                                          IM_COL32(pp[0], pp[1], pp[2], 255));
+                    }
+                    ImGui::Dummy(ImVec2(perRow * cell, ((n + perRow - 1) / perRow) * cell));
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("The %d-entry palette the median cut settled on.", n);
+                }
+            }
+        }
+
+        // --- Reflection (refl): spherical environment map, a second additive
+        // pass on the PS2 - the NFS/GT "chrome/lacquer" look.
+        ImGui::Spacing();
+        ui::Caption("Reflection");
+        {
+            ui::InspectorRows rows(scaled(90), scaled(112));
+            const char* noneLabel = "None - matte";
+            const char* dynLabel = "Dynamic - live sky";
+            if (ui::BeginCombo("Sphere map", e.refl.empty()      ? noneLabel
+                                             : e.refl == "@sky" ? dynLabel
+                                                                : e.refl.c_str())) {
+                if (ImGui::Selectable(noneLabel, e.refl.empty()) && !e.refl.empty()) {
+                    e.refl.clear();
+                    committed = true;
+                }
+                // GT3-style dynamic env map: the game re-renders the scene's
+                // sky dome into a small VRAM texture every frame. Stored "@sky".
+                if (ImGui::Selectable(dynLabel, e.refl == "@sky") && e.refl != "@sky") {
+                    e.refl = "@sky";
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("The game renders the scene's sky into the sphere map every\n"
+                                      "frame - reflections follow the live sky, script retints too.");
+                std::error_code ec;
+                for (const auto& f : std::filesystem::recursive_directory_iterator(mtlDirAbs, ec)) {
+                    if (!f.is_regular_file()) continue;
+                    std::string ext = f.path().extension().string();
+                    for (char& c : ext) c = (char)tolower((unsigned char)c);
+                    if (ext != ".png") continue;
+                    const std::string rel = std::filesystem::relative(f.path(), mtlDirAbs, ec).generic_string();
+                    if (ImGui::Selectable(rel.c_str(), rel == e.refl) && rel != e.refl) {
+                        e.refl = rel;
+                        committed = true;
+                    }
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Import PNG...")) {
+                    const std::string src = pickPngFile();
+                    if (!src.empty()) {
+                        const std::string fileName =
+                            sanitizeAssetName(std::filesystem::path(src).filename().string());
+                        std::error_code cec;
+                        std::filesystem::copy_file(src, mtlDirAbs / fileName,
+                                                   std::filesystem::copy_options::overwrite_existing, cec);
+                        if (cec) {
+                            statusMessage_ = "Sphere map import failed: " + cec.message();
+                        } else {
+                            e.refl = fileName;
+                            committed = true;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("A small texture of the environment, drawn additively over the\n"
+                                  "material using camera-space normals - the PS2-era chrome /\n"
+                                  "car-paint trick.");
+            if (!e.refl.empty()) {
+                std::error_code ec;
+                if (e.refl != "@sky" && !std::filesystem::exists(mtlDirAbs / e.refl, ec))
+                    ui::NoteCard(2, "Sphere map missing - reflection is skipped.");
+                ui::SliderFloat("Strength", &e.reflStrength, 0.05f, 1.0f, "%.2f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("How much of the sphere map is added on top. 1.0 = full chrome.");
+                committed |= ui::Switch("Rounded normals (Reflects like a curved surface on flat faces)",
+                                        &e.reflRounded);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Reflection UVs from normals radiating out of the object's\n"
+                                      "centre instead of the real face normals: a flat face shows a\n"
+                                      "gradient of the map (curved-lacquer look) instead of one\n"
+                                      "uniform sample.");
+            }
+        }
+
+        // --- Glow (Ke): emission. Not a light - a brightness FLOOR baked into
+        // the vertex colours (docs/emissive-materials.md).
+        ImGui::Spacing();
+        {
+            const float y = ImGui::GetCursorPosY();
+            ui::Caption("Glow");
+            const ImVec2 after = ImGui::GetCursorPos();
+            const char* state = e.glow > 0.0f ? "on" : "off";
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x -
+                                           ImGui::CalcTextSize(state).x * 0.82f - fs,
+                                       y - fs * 0.1f));
+            ui::Badge(state, e.glow > 0.0f ? 0 : 4);
+            ImGui::SetCursorPos(after);
+        }
+        {
+            ui::InspectorRows rows(scaled(90), scaled(112));
+            const float before = e.glow;
+            ui::SliderFloat("Glow", &e.glow, 0.0f, 2.0f, e.glow <= 0.0f ? "off" : "%.2f");
+            // Raising it the first time: start from the material's own
+            // colour, which is what "it glows in its own colour" means.
+            if (before <= 0.0f && e.glow > 0.0f)
+                for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Self-illumination. The surface never renders darker than glow\n"
+                                  "colour x this - at 1.0 it shows its full colour even in total\n"
+                                  "darkness. Above 1.0 only bites on textured materials.");
+            if (e.glow > 0.0f || e.glowWhite > 0.0f) {
+                ui::ColorHex("Glow color", e.glowColor);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ui::GhostButton("Match material color")) {
+                    for (int i = 0; i < 3; ++i) e.glowColor[i] = e.color[i];
+                    committed = true;
+                }
+                // The one control that can make an ALREADY saturated surface
+                // read brighter: "more" can only mean "whiter".
+                ui::SliderFloat("White-hot core", &e.glowWhite, 0.0f, 1.0f,
+                                e.glowWhite <= 0.0f ? "off" : "%.2f");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Blows the surface out toward white, the way an overexposed\n"
+                                      "emitter looks on camera - what makes a glow read as HOT. It\n"
+                                      "also pushes every channel over the bloom threshold.");
+                bool lights = e.glowRange > 0.0f;
+                if (ui::Switch("Lights up surroundings (Bakes its light into nearby walls at load)",
+                               &lights)) {
+                    e.glowRange = lights ? 4.0f : 0.0f;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Free at runtime (it lands in the same vertex colours) and the\n"
+                                      "viewport previews it. Static: the pool of light does not\n"
+                                      "follow a moving object, animated models do not receive it.");
+                if (e.glowRange > 0.0f) {
+                    ui::DragFloat("Light reach", &e.glowRange, 0.1f, 0.2f, 60.0f, "%.1f units");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ui::SliderFloat("Light strength", &e.glowLight, 0.0f, 3.0f, "%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("How bright the pool of light is at the emitter's surface;\n"
+                                          "quadratic falloff to the reach.");
+                }
+            }
+        }
+        ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x);
+        if (e.glow <= 0.0f && e.glowWhite <= 0.0f) {
+            ImGui::TextDisabled("Raise Glow to unlock the white-hot core and light spill.");
+        } else if (project_.settings.bloom <= 0.0f) {
+            // the single most common "why doesn't it glow?" - said where the
+            // slider is, not only in the docs
+            ui::NoteCard(1, "No halo: Bloom is 0. Raise Bloom (and its Threshold) in UI Editor > "
+                            "the screen stack > Bloom.");
+        } else if (project_.settings.bloomThreshold <= 0.0f) {
+            ImGui::TextDisabled("Bloom has no Threshold - the halo spreads over the whole frame.");
+        } else {
+            ImGui::TextDisabled("Halo: Bloom %.2f, threshold %.2f, spread %.2f (UI Editor > Bloom).",
+                                project_.settings.bloom, project_.settings.bloomThreshold,
+                                project_.settings.bloomSpread);
+        }
+        ImGui::PopTextWrapPos();
+
+        // --- UV validator ----------------------------------------------------
+        ImGui::Spacing();
+        matEdUvValidateSection(e.name);
+    } else if (matEdTab_ == 1) {
+        // ---- Paint -----------------------------------------------------------
+        ImGui::Spacing();
+        if (texRel.empty()) {
+            // no texture on this entry yet: one click bootstraps the whole
+            // layers/masks/presets flow ("mud on the shirt" starts here)
+            if (ui::EmptyState(ui::Glyph::Paint, "Nothing to paint on",
+                               "This entry has no texture. Create a blank one named after it - "
+                               "layers, smart masks and the brush all land on it.",
+                               "Create texture for this entry"))
+                matEdEnsurePaintTexture();
+        } else if (!haveTarget) {
+            ui::NoteCard(2, "Texture file unreadable.");
+        } else {
+            // layers: strokes land on the active (selected) layer; the
+            // composite of the stack is the PNG that ships. Top-most first.
+            {
+                const float y = ImGui::GetCursorPosY();
+                ui::Caption("Layers", std::to_string(matEdLayers_.size()).c_str());
+                const ImVec2 after = ImGui::GetCursorPos();
+                const float b = ImGui::GetFrameHeight();
+                const char* acts[] = {"+ Layer", "+ Mask", "Presets", "Delete layer"};
+                float x = ImGui::GetWindowContentRegionMax().x;
+                float ws[4];
+                for (int i = 3; i >= 0; --i) {
+                    ws[i] = ImGui::CalcTextSize(acts[i]).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                    x -= ws[i] + (i < 3 ? 2.0f : 0.0f);
+                }
+                (void)b;
+                ImGui::SetCursorPos(ImVec2(x, y - fs * 0.35f));
+                if (ui::GhostButton("+ Layer##layer_add", ws[0])) {
+                    MatEdLayer l;
+                    int n = 1;
+                    for (const MatEdLayer& other : matEdLayers_)
+                        if (other.name.rfind("Layer ", 0) == 0) ++n;
+                    l.name = "Layer " + std::to_string(n);
+                    l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+                    const int at = matEdActiveLayer_ + 1;
+                    matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
+                    matEdActiveLayer_ = at;
+                    matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+                    matEdSaveLayers();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("New transparent layer above the active one.");
+                ImGui::SameLine(0, 2.0f);
+                if (ui::GhostButton("+ Mask", ws[1])) {
+                    MatEdLayer l;
+                    l.name = "Smart mask";
+                    l.genOn = true;
+                    l.pixels.assign((size_t)matEdPaintW_ * matEdPaintH_ * 4, 0);
+                    matEdRegenLayer(l);
+                    const int at = matEdActiveLayer_ + 1;
+                    matEdLayers_.insert(matEdLayers_.begin() + at, std::move(l));
+                    matEdActiveLayer_ = at;
+                    matEdPushUndo(MatEdUndoStep::Kind::LayerAdd, at);
+                    if (matBakeMaps_.empty()) matBakeRunOnce_ = true;
+                    matEdComposite();
+                    matEdSavePaintTarget();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Procedural mask layer driven by the baked maps: wear on\n"
+                                      "edges, grime in cavities, dirt in occlusion, height streaks,\n"
+                                      "world-space noise, bricks... It regenerates live as the bake\n"
+                                      "refines (hand strokes on it are overwritten).");
+                ImGui::SameLine(0, 2.0f);
+                if (ui::GhostButton("Presets", ws[2])) ImGui::OpenPopup("##mat_presets");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Reusable smart-mask stacks (material-presets/ in the project).\n"
+                                      "Apply one to another asset and the masks regenerate from\n"
+                                      "THAT model's own bake.");
+                ImGui::SameLine(0, 2.0f);
+                if (ui::DangerButton("Delete layer##layer_del", ws[3], matEdActiveLayer_ > 0) &&
+                    matEdActiveLayer_ > 0) {
+                    matEdPushUndo(MatEdUndoStep::Kind::LayerRemove, matEdActiveLayer_,
+                                  &matEdLayers_[matEdActiveLayer_]);
+                    matEdLayers_.erase(matEdLayers_.begin() + matEdActiveLayer_);
+                    if (matEdActiveLayer_ >= (int)matEdLayers_.size())
+                        matEdActiveLayer_ = (int)matEdLayers_.size() - 1;
+                    matEdComposite();
+                    matEdSavePaintTarget();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Delete the active layer (Background stays; Ctrl+Z undoes).");
+                ImGui::SetCursorPos(ImVec2(after.x, std::max(after.y, y + ImGui::GetFrameHeight())));
+            }
+            if (ImGui::BeginPopup("##mat_presets")) {
+                const std::filesystem::path pdir = std::filesystem::path(project_.dir) / "material-presets";
+                std::error_code ec;
+                bool anyPreset = false;
+                if (std::filesystem::exists(pdir, ec))
+                    for (const auto& f : std::filesystem::directory_iterator(pdir, ec)) {
+                        if (!f.is_regular_file() || f.path().extension() != ".matpreset") continue;
+                        anyPreset = true;
+                        const std::string stem = f.path().stem().string();
+                        if (ImGui::MenuItem(stem.c_str()) && !matEdApplyPreset(f.path().filename().string()))
+                            statusMessage_ = "Cannot read preset " + stem;
+                    }
+                if (!anyPreset) ImGui::TextDisabled("No presets yet.");
+                ImGui::Separator();
+                ImGui::BeginDisabled(!matEdAnyGenLayer());
+                if (ImGui::MenuItem("Save current masks...")) {
+                    openSavePresetPopup_ = true;
+                    matEdPresetError_.clear();
+                }
+                ImGui::EndDisabled();
+                ImGui::EndPopup();
+            }
+            if (openSavePresetPopup_) {
+                ImGui::OpenPopup("Save material preset");
+                openSavePresetPopup_ = false;
+            }
+            if (ImGui::BeginPopupModal("Save material preset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                ImGui::InputText("Name", matEdPresetName_, sizeof(matEdPresetName_));
+                if (!matEdPresetError_.empty()) ui::NoteCard(2, matEdPresetError_.c_str());
+                if (ui::PrimaryButton("Save", scaled(120))) {
+                    const std::string base = sanitizeAssetName(
+                        std::string(matEdPresetName_).empty() ? "preset" : matEdPresetName_);
+                    matEdSavePreset(base);
+                    if (matEdPresetError_.empty()) ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+
+            // the stack: eye, swatch, name + smart chip, blend, opacity
+            const char* blends[] = {"Normal", "Multiply", "Add", "Overlay"};
+            const float rh = fs * 2.2f;
+            for (int i = (int)matEdLayers_.size() - 1; i >= 0; --i) {
+                MatEdLayer& L = matEdLayers_[i];
+                ImGui::PushID(i);
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float w = ImGui::GetContentRegionAvail().x;
+                ImGui::SetNextItemAllowOverlap();
+                if (ImGui::InvisibleButton(L.name.c_str(), ImVec2(w, rh))) matEdActiveLayer_ = i;
+                const bool act = matEdActiveLayer_ == i;
+                uiscript::markLastItemChecked(act);
+                const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const float r = ImGui::GetStyle().FrameRounding;
+                if (act) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rh), col32(sem.accent, 0.14f), r);
+                else if (t > 0.0f) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rh), col32(sem.field, t), r);
+                // eye
+                const float eye = fs * 1.3f;
+                ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.3f, p.y + (rh - eye) * 0.5f));
+                if (ui::EyeToggle("##vis", L.visible, eye, true)) {
+                    L.visible = !L.visible;
+                    matEdComposite();
+                    matEdSavePaintTarget();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Show/hide layer");
+                // swatch: a smart layer's colour, else the paint glyph
+                const float s = rh - fs * 0.8f;
+                const ImVec2 sa(p.x + fs * 0.6f + eye, p.y + (rh - s) * 0.5f);
+                if (L.genOn)
+                    dl->AddRectFilled(sa, ImVec2(sa.x + s, sa.y + s),
+                                      ImGui::GetColorU32(ImVec4(L.genColor[0], L.genColor[1], L.genColor[2], 1)), r);
+                else {
+                    dl->AddRectFilled(sa, ImVec2(sa.x + s, sa.y + s), col32(sem.field), r);
+                    ui::DrawGlyph(dl, i == 0 ? ui::Glyph::Box : ui::Glyph::Paint,
+                                  ImVec2(sa.x + s * 0.5f, sa.y + s * 0.5f), s * 0.55f, col32(sem.textDim));
+                }
+                float x = sa.x + s + fs * 0.6f;
+                dl->AddText(ImVec2(x, p.y + (rh - fs) * 0.5f), col32(L.visible ? sem.text : sem.textDim),
+                            L.name.c_str());
+                x += ImGui::CalcTextSize(L.name.c_str()).x + fs * 0.5f;
+                if (L.genOn) {
+                    ImGui::SetCursorScreenPos(ImVec2(x, p.y + (rh - ImGui::GetTextLineHeight()) * 0.5f));
+                    ui::Badge("smart", 3);
+                }
+                if (i > 0) {
+                    const float ow = scaled(52), bw = scaled(78);
+                    ImGui::SetCursorScreenPos(ImVec2(p.x + w - ow - bw - sp - fs * 0.3f,
+                                                     p.y + (rh - ImGui::GetFrameHeight()) * 0.5f));
+                    ImGui::SetNextItemWidth(bw);
+                    int blend = L.blend;
+                    if (ImGui::Combo("##blend", &blend, blends, 4)) {
+                        L.blend = blend;
+                        matEdComposite();
+                        matEdSavePaintTarget();
+                    }
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(ow);
+                    if (ImGui::DragFloat("##opacity", &L.opacity, 0.01f, 0.0f, 1.0f, "%.2f")) matEdComposite();
+                    if (ImGui::IsItemDeactivatedAfterEdit()) matEdSavePaintTarget();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Layer opacity");
+                }
+                ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rh + 2.0f));
+                ImGui::Dummy(ImVec2(1, 1));
+                ImGui::PopID();
+            }
+            // order: the active layer up / down (Background stays at the bottom)
+            {
+                ImGui::BeginDisabled(matEdActiveLayer_ + 1 >= (int)matEdLayers_.size() || matEdActiveLayer_ < 1);
+                if (ui::GhostButton("Move up##layer_up")) {
+                    std::swap(matEdLayers_[matEdActiveLayer_], matEdLayers_[matEdActiveLayer_ + 1]);
+                    ++matEdActiveLayer_;
+                    matEdComposite();
+                    matEdSavePaintTarget();
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled(matEdActiveLayer_ <= 1);
+                if (ui::GhostButton("Move down##layer_dn")) {
+                    std::swap(matEdLayers_[matEdActiveLayer_], matEdLayers_[matEdActiveLayer_ - 1]);
+                    --matEdActiveLayer_;
+                    matEdComposite();
+                    matEdSavePaintTarget();
+                }
+                ImGui::EndDisabled();
+            }
+
+            // generator controls of the active smart-mask layer
+            matEdGenControls();
+
+            // brush: the per-dab feel (size/opacity ride on the canvas pill)
+            ImGui::Spacing();
+            ui::Caption("Brush");
+            {
+                ui::InspectorRows rows(scaled(90), scaled(112));
+                ui::SliderFloat("Spacing", &matEdBrushSpacing_, 5.0f, 300.0f, "%.0f%%",
+                                ImGuiSliderFlags_Logarithmic);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Distance between dabs, as %% of the brush size. Low = one\n"
+                                      "continuous line, 100%% and up = separated stamps.");
+                ui::SliderFloat("Vary", &matEdBrushOpacityVary_, 0.0f, 100.0f, "%.0f%%");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Random per-dab opacity variation - organic, hand-worn strokes\n"
+                                      "instead of a uniform coat.");
+                if (matEdBrushMode_ == 1) {
+                    ImGui::BeginDisabled(matEdBrushRandomRot_);
+                    ui::SliderFloat("Angle", &matEdBrushAngle_, 0.0f, 360.0f, "%.0f deg");
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Rotates every dab - orient bricks, planks, arrows...");
+                    ui::Switch("Random angle (A fresh rotation per dab - leaves, splats, rubble)",
+                               &matEdBrushRandomRot_);
+                }
+                ui::Switch("Live dab (Show the dab under the cursor before you click)", &matEdGhostOn_);
+            }
+            // (re)decode the pattern brush image when the pick changes
+            if (matEdBrushMode_ == 1 && matEdBrush_ != matEdPatternLoaded_) {
+                matEdPatternLoaded_ = matEdBrush_;
+                matEdPatternPixels_.clear();
+                matEdPatternW_ = matEdPatternH_ = 0;
+                int w = 0, h = 0, comp = 0;
+                unsigned char* px = stbi_load(
+                    (std::filesystem::path(project_.dir) / matEdBrush_).string().c_str(), &w, &h, &comp, 4);
+                if (px) {
+                    matEdPatternPixels_.assign(px, px + (size_t)w * h * 4);
+                    matEdPatternW_ = w;
+                    matEdPatternH_ = h;
+                    stbi_image_free(px);
+                }
+            }
+            if (matEdBrushMode_ == 1 && !matEdBrush_.empty() && matEdPatternW_ == 0)
+                ui::NoteCard(2, "Brush unreadable.");
+            if (paintPaused)
+                ui::NoteCard(1, "Painting paused - the preview shows a map view or the UV checker, "
+                                "not the texture.");
+        }
+    } else {
+        // ---- Bake (docs/material-baking.md) ------------------------------------
+        ImGui::Spacing();
+        ui::Caption("Bake maps");
+        matEdBakeSection(e.name, texRel);
+    }
+    ImGui::EndChild();
+    ui::EndCard();
 
     ImGui::End();
 

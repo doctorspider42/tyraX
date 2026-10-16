@@ -3199,6 +3199,12 @@ private:
     // still quantizes at build like any other PNG). Asset edits, so no
     // project undo - a small per-stroke snapshot stack covers mistakes.
     bool matEdPaint_ = false;          // paint mode toggle
+    // The inspector's tab: 0 Look, 1 Paint (arms the brush - matEdPaint_
+    // follows it), 2 Bake.
+    int matEdTab_ = 0;
+    // The material list's second line per .mtl (its first texture, or the
+    // entry count), keyed by path and refreshed when the file's time moves.
+    std::map<std::string, std::pair<long long, std::string>> matEdListInfo_;
     int matEdBrushMode_ = 0;           // 0 = color, 1 = brush image, 2 = eraser
     float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
     float matEdBrushSize_ = 24.0f;     // radius in texture pixels

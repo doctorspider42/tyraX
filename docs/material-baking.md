@@ -10,9 +10,10 @@ Host-only, no GL (the decalproj pattern). Don't confuse it with
 `aobake.cpp`, which bakes *scene* occlusion (terrain grids + analytic
 occluder atlases); matbake bakes *one model's own* surface detail.
 
-## Using it (Material Editor > Bake maps)
+## Using it (Material Editor > Bake)
 
-The property column of the Material Editor ends in a **Bake maps** block:
+The Material Editor's **Bake** tab holds the bake as label-left rows, with the
+bake itself as the one primary button and its progress inline under it:
 
 - **Preview** - `AO on material` runs the bake continuously and multiplies
   the occlusion over the textured preview mesh (upload-time only: nothing
@@ -54,7 +55,7 @@ itself.
 
 ## Smart masks (procedural wear & dirt)
 
-With the paint tool open, **+ Mask** (next to the layer buttons) adds a
+In the **Paint** tab, **+ Mask** (on the Layers caption) adds a
 **smart mask layer**: a fill color drawn through a procedural mask driven by
 the baked map set. Select the layer and tune the generator that appears
 under the list:
