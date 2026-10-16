@@ -1,0 +1,97 @@
+// The tool-window kit: the recurring pieces of the redesigned tool windows
+// (docs/editor-theme.md, "Tool windows"). widgets.hpp holds the main
+// window's controls; this holds what a TOOL is built from - a split view of
+// list | detail | preview, thumbnail tiles, list rows, empty states, the one
+// primary action, inline progress, "used by" lines, badges, segmented
+// controls and cards.
+//
+// The rules are widgets.hpp's: the label is the ID and the --ui-script name,
+// the return value is "clicked/changed this frame", sizes are in UI-scaled
+// pixels (pass scaled values, or 0 for "fit"), and colours come from
+// theme::semantics() - never a literal.
+#pragma once
+
+#include <imgui.h>
+
+#include <string>
+#include <vector>
+
+#include "widgets.hpp"
+
+namespace ui {
+
+// --- buttons -----------------------------------------------------------------
+
+/** THE action of a tool (Bake, Import, Render, Create): a filled accent button.
+ * One per view. `width` 0 = fit the label; -1 = fill the row. */
+bool PrimaryButton(const char* label, float width = 0.0f, bool enabled = true);
+/** A destructive action: quiet until hovered, then the danger colour. */
+bool DangerButton(const char* label, float width = 0.0f, bool enabled = true);
+/** A text-only secondary action (no fill until hovered). */
+bool GhostButton(const char* label, float width = 0.0f, bool enabled = true);
+
+// --- layout ------------------------------------------------------------------
+
+/** A vertical splitter between two panes laid out with SameLine: call between
+ * the left pane's EndChild and SameLine; drags `*leftW` within [minL, total -
+ * minR]. Returns true while dragged. `id` must be unique in the window. */
+bool VSplitter(const char* id, float* leftW, float minL, float minR, float height);
+/** The same between a top and a bottom pane. */
+bool HSplitter(const char* id, float* topH, float minT, float minB, float width);
+
+/** A card: a raised, rounded child region with padding (BeginChild under the
+ * hood - always call EndCard). `size` as BeginChild; y 0 = auto-fit height. */
+bool BeginCard(const char* id, ImVec2 size = ImVec2(0, 0));
+void EndCard();
+
+/** A small caps section caption ("MATERIALS") with an optional dim count and a
+ * hairline to the right edge. Not collapsible (use ui::Section for that). */
+void Caption(const char* text, const char* count = nullptr);
+
+// --- collections ---------------------------------------------------------------
+
+/** A list row: glyph (or none), label, dim sublabel on the right, selection
+ * fill. The label is the ID. Returns clicked. `height` 0 = default. */
+bool ListRow(const char* label, const char* sublabel, bool selected, Glyph glyph = Glyph::Box,
+             ImU32 glyphCol = 0, bool showGlyph = true, float height = 0.0f);
+
+/** A thumbnail tile for grids: a square `size` preview (texture when `tex` is
+ * non-null, else the glyph on a raised tile), the caption below (ellipsized),
+ * accent ring when selected. Returns clicked. Lay out with TileFlow. */
+bool ThumbTile(const char* label, ImTextureID tex, Glyph fallback, bool selected, float size,
+               const char* caption = nullptr);
+/** Wraps the next tile to a new line when it would not fit (call before each
+ * tile; `first` for the first one). */
+void TileFlow(float tileW, bool first);
+
+// --- states and feedback -----------------------------------------------------
+
+/** An empty state: a large dim glyph, a title, one line of why, and (when
+ * `action` is non-null) a primary button. Centred in the remaining space of
+ * the current window/child. Returns true when the action was clicked. */
+bool EmptyState(Glyph g, const char* title, const char* why, const char* action = nullptr);
+
+/** Inline progress where the work happens: a thin bar (`fraction` < 0 =
+ * indeterminate, animated) with a label on the left and an optional detail
+ * (e.g. "12 / 40 probes · 0:42") on the right. */
+void ProgressInline(float fraction, const char* label, const char* detail = nullptr);
+
+/** A status line with a coloured dot: kind 0 ok, 1 warn, 2 danger, 3 info. */
+void StatusLine(int kind, const char* text);
+
+/** A small rounded badge ("stale", "3", "in use"). kind as StatusLine, 4 = dim. */
+void Badge(const char* text, int kind = 4);
+
+/** "Used by: a, b, c" - dim caption, each item a link-like button. Returns the
+ * index of the clicked item, or -1. An empty list draws "Not used yet". */
+int UsedBy(const char* caption, const std::vector<std::string>& items);
+
+// --- choices -------------------------------------------------------------------
+
+/** A segmented control (2-5 options) on a field-coloured track; the selected
+ * option is a surface pill. Each option's label is its ID ("<label>##<id>"
+ * when two controls share labels). Returns true when *selected changed. */
+bool Segmented(const char* id, const char* const* labels, int count, int* selected,
+               float width = 0.0f);
+
+}  // namespace ui

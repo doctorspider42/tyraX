@@ -52,6 +52,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
 | `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), merged-title-bar controls (`drawTitleBarControls`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
+| `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
 | `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
