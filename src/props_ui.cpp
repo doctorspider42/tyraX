@@ -328,23 +328,35 @@ void App::drawPropertiesWindow() {
     // Every labelled field below is a row: caption left, widget filling the
     // rest (ui::InspectorRows; the ui:: wrappers keep each label as its ID).
     ui::InspectorRows rows(scaled(80.0f), scaled(130.0f));
+    // Alone in its dock node the panel has no tab (ui::PanelChromeNewFrame).
+    // With an object selected the object's own header names the panel; in
+    // every other state it would have no name on screen and nothing to drag
+    // it out by, so it draws the panel header (title + grab handle).
+    const bool untabbed = ui::PanelIsUntabbed();
     if (!hasProject_) {
+        if (untabbed) ui::PanelHeader("Properties");
         ImGui::TextDisabled("No project open.");
         ImGui::End();
         return;
     }
     if (junctionSel_.active) {
+        if (untabbed) ui::PanelHeader("Properties", "junction");
         drawJunctionProperties();
         ImGui::End();
         return;
     }
     if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) {
+        if (untabbed) ui::PanelHeader("Properties");
         ImGui::TextDisabled("No object selected.\nPick one in the Project panel or in "
                             "the viewport.");
         ImGui::End();
         return;
     }
     if (selection_.size() > 1) {
+        if (untabbed) {
+            const std::string n = std::to_string(selection_.size()) + " selected";
+            ui::PanelHeader("Properties", n.c_str());
+        }
         drawMultiProperties();
         ImGui::End();
         return;

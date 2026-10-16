@@ -3162,6 +3162,25 @@ void App::drawViewportWindow() {
     ImGui::SetScrollX(0.0f);
     ImGui::SetScrollY(0.0f);
 
+    // Alone in its dock node the panel has no tab (ui::PanelChromeNewFrame),
+    // so it names itself with a header strip like the other panels - which is
+    // also the grab handle that undocks it. The window has no padding (the
+    // image is full-bleed), so the strip is a padded child; its grab still
+    // moves the Viewport's node (PanelHeader acts on the root window).
+    const bool untabbed = ui::PanelIsUntabbed();
+    if (untabbed) {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float stripH = ImGui::GetFrameHeight() + st.WindowPadding.y * 2.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(st.WindowPadding.x, st.WindowPadding.y));
+        ImGui::BeginChild("##viewport_header", ImVec2(0.0f, stripH),
+                          ImGuiChildFlags_AlwaysUseWindowPadding,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                              ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoNav);
+        ImGui::PopStyleVar();
+        ui::PanelHeader("Viewport", project_.active().name.c_str());
+        ImGui::EndChild();
+    }
+
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
         // Color grading preview: the preset selected in the Color Grading
@@ -3452,11 +3471,14 @@ void App::drawViewportWindow() {
         // Flip vertically: GL texture origin is bottom-left. Drawn by hand
         // over a Dummy (the same id-less item ImGui::Image submits, so hover,
         // the drop target and the test-engine rect below are unchanged) to
-        // round its bottom corners with the panel card's (DockNodeRounding).
+        // round its bottom corners with the panel card's (DockNodeRounding) -
+        // and, under the header strip of an untabbed panel, its top ones too:
+        // the image is then an inset card of its own.
         ImGui::Dummy(avail);
         ImGui::GetWindowDrawList()->AddImageRounded(
             (ImTextureID)(intptr_t)tex, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0, 1),
-            ImVec2(1, 0), IM_COL32_WHITE, ImGui::GetStyle().DockNodeRounding, ImDrawFlags_RoundCornersBottom);
+            ImVec2(1, 0), IM_COL32_WHITE, ImGui::GetStyle().DockNodeRounding,
+            untabbed ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersBottom);
 #ifdef IMGUI_ENABLE_TEST_ENGINE
         // Image has no item ID: expose its rectangle to unattended picking tests.
         if (GImGui->TestEngineHookItems) {
