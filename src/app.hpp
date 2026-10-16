@@ -4129,6 +4129,9 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** PCSX2 is the target and is not running this ELF: a frozen snapshot is
+     *  a closed game's, not a stale transport (devkit_ui.cpp). */
+    bool dbgGameClosed() const;
     /** The paragraph dbgSilenceReason() no longer prints inline: which file is
      * silent and how a running console ends up with nowhere to write. For the
      * (?) hover next to it; only meaningful when the reason is non-empty. */

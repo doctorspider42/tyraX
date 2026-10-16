@@ -127,8 +127,8 @@ Two things make that visible instead of mysterious:
 The panel is laid out by what you are asking, not as a strip of tabs:
 
 - a **header** with the state pill (*Running · PCSX2*, *Halted on breakpoint*,
-  *Paused*, *Waiting for the game*, *Stale snapshot*, *Rebuild needed*,
-  *Crashed*...), the frame number with the **rendered / presented** frame
+  *Paused*, *Waiting for the game*, *Stale snapshot*, *Not running*,
+  *Rebuild needed*, *Stopped reporting*, *Crashed*...), the frame number with the **rendered / presented** frame
   rates and the scene in a fixed-width face, and the **transport** — Pause /
   Continue, Step frame, Step node, drawn as icons with their keys (F10, F11)
   next to them. While the game is halted, **Continue** is the one filled
@@ -323,7 +323,25 @@ both the not-running checklist and the *Stats* page read:
 - **no file at all** — *"Nothing is reporting yet — Build & Run (F5 / F6)."*;
 - **a stale file** — the state pill goes amber, reads **Stale snapshot** rather than
   *Waiting for the game*, and the line names **how old the snapshot is** and
-  that the cure is running it again rather than retrying.
+  that the cure is running it again rather than retrying;
+- **a closed game** — with PCSX2 as the target and no PCSX2 running this
+  project's ELF (the same check the top bar's *Running 00:42* uses: an emulator
+  whose command line names the ELF), the frozen file is simply the last
+  session's: the pill reads **Not running** in grey and the line says *"The game
+  is not running — Build & Run (F5 / F6)."* Over ps2link a frozen file stays
+  *Stale snapshot*, because there the console may still be running with its
+  file server gone.
+
+**"Stopped reporting" means a hang, and only a hang.** The red *The game
+stopped reporting at frame N* card (and the status-bar line) needs all three:
+the game was reporting in this session, it went silent for several report
+intervals, and **its process is still up** — PCSX2 still running this ELF, or
+the deploy's `ps2client` still alive. Closing PCSX2, pressing Stop or running
+again is not a hang and raises nothing. Two more cases that used to read as one:
+a launch deletes `bin/livedbg.bin`, so the file disappearing ends the last
+session quietly (a relaunch no longer reported the old run as hung while the new
+one booted); and a snapshot file that was already old when the editor first
+looked at it (a project whose game ran yesterday) is never attached to.
 
 Each of those is **one line**, and hovering it (or the state pill) gives the
 rest: which key does what, which file is silent, and how a console that is still
