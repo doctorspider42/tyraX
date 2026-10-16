@@ -11,6 +11,8 @@
 // IsItemDeactivatedAfterEdit() right after it reports the end of an edit.
 #pragma once
 
+#include <string>
+
 #include <imgui.h>
 
 namespace ui {
@@ -38,6 +40,19 @@ struct FontScope {
  * square) in a rounded tile `size` px square at `p`, in the theme's ok /
  * danger / accent / special colours. Draw-only, no item. */
 void LogoMark(ImDrawList* dl, ImVec2 p, float size);
+
+// --- shortcuts ---------------------------------------------------------------
+
+/** A Ctrl chord as this platform shows it: "Ctrl" + sep + key, or on macOS
+ * the Command sign + `macKey` (key when null) with no separator - "Cmd" when
+ * the font has no U+2318. `ShortcutChord("K", nullptr, " ")` = "Ctrl K" /
+ * "<cmd>K". `keycap`: the text goes on a Keycap, which may draw it in the
+ * mono face, so that face having the sign is enough. */
+std::string ShortcutChord(const char* key, const char* macKey, const char* sep, bool keycap = false);
+
+/** A keycap: `text` in the mono face on a bordered tile `h` tall at `p`.
+ * Returns its width; draws nothing when dl is null (measure first). */
+float Keycap(ImDrawList* dl, ImVec2 p, float h, const char* text);
 
 // --- fields ------------------------------------------------------------------
 

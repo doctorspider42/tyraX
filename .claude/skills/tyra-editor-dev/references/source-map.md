@@ -36,7 +36,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `project.cpp` / `project.hpp` | 9.8k / 5.1k | Data model, (de)serialization, sections, `refreshGenerated` | project-model-and-serialization |
 | `version.hpp` | 6.1k | Editor semver macros + `kFormatVersion` (94) + `kMinFormatVersion`; mostly the per-version change log | project-model-and-serialization |
 | `migrations.cpp/.hpp` | 260 | Format migration registry, backup | project-model-and-serialization |
-| `history.hpp` | 60 | Undo/redo snapshot stack | project-model-and-serialization |
+| `history.hpp` | 90 | Undo/redo snapshot stack + distance from the saved state (`stepsFromSaved`) | project-model-and-serialization |
 | `json.cpp/.hpp` | 330 | Small JSON parser/writer | project-model-and-serialization |
 | `editorcfg.hpp` | 30 | editor.ini path / recent projects for non-GUI code | editor-ui-and-conventions |
 | `input.hpp` | 270 | Input actions/bindings/presets, `inputCodes()` (append-only) | flow-graph-input-player |
@@ -50,9 +50,9 @@ Read when you need to find which file owns something, or before adding a file. L
 | `hudanim.hpp` | 130 | Host twin of HUD animation math | game-screens-menus-text |
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
-| `shell_ui.cpp` | 700 | Window frame: top-bar breadcrumb + run controls (`drawToolbar`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
-| `palette_ui.cpp` | 330 | Command palette (Ctrl/Cmd+K): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
-| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3) + heading/mono faces | editor-ui-and-conventions |
+| `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
+| `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
+| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
 | `gl_loader.h/.cpp` | 215 | Hand-rolled GL loader, `glUploadTexRgba` | viewport |

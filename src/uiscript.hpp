@@ -96,6 +96,23 @@ std::string dumpText();
  * A no-op while collection is off. */
 void markLastItemChecked(bool checked);
 
+/** Reports every item of the CURRENT ImGui window (and the window itself)
+ * under `name` instead of its own. The logo menu's popup is an anonymous
+ * "##Popup_<hash>" window; it reports as "##MainMenuBar", the window the ten
+ * menus sat in before they moved behind the logo, so `'##MainMenuBar/Project'`
+ * still names the Project menu. Call right after the window's Begin. A no-op
+ * while collection is off. */
+void aliasCurrentWindow(const char* name);
+
+/** True when `target` names one of the editor's ten top-level menus, which
+ * live behind the logo button ("TyraX menu"): `'##MainMenuBar/X'`
+ * for any of them, or a bare `File`, `Edit`, `View`, `Layout`, `Build`,
+ * `Session`, `Tools`, `Help`. A bare `Project` / `Scene` is the Project
+ * panel's tab / the Scene workspace, as before. The step runner opens the logo
+ * menu first for such a target, so scripts written against the old menu bar
+ * (`click Tools; click 'Remote Pad'`) keep working. */
+bool namesMainMenu(const std::string& target);
+
 /** Name an already submitted item by id. BeginCombo omits ItemInfo; callers
  * inside PushID scopes must provide its label for scripts to find it. */
 void nameItem(uint32_t id, const char* label);

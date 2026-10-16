@@ -46,7 +46,7 @@ Same setting, all four stay in sync:
 
 - The **projection** control (shows *Perspective*, *Top (-Y)*...; scripts name
   it `Proj: <name>`) in the view pill at the top centre of the viewport.
-- **View > Projection** in the menu bar.
+- **View > Projection** in the menu (the TyraX logo, top left).
 - The **numpad**, with the viewport hovered (CAD/Blender muscle memory):
 
 | Key | View |

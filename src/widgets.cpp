@@ -51,6 +51,43 @@ void LogoMark(ImDrawList* dl, ImVec2 p, float size) {
                 ImGui::GetColorU32(sem.special), size * 0.03f, 0, th);
 }
 
+std::string ShortcutChord(const char* key, const char* macKey, const char* sep, bool keycap) {
+#ifdef __APPLE__
+    (void)sep;
+    const bool glyph = ImGui::GetFont()->IsGlyphInFont((ImWchar)0x2318) ||
+                       (keycap && monoFont() && monoFont()->IsGlyphInFont((ImWchar)0x2318));
+    return std::string(glyph ? "\xE2\x8C\x98" : "Cmd ") + (macKey ? macKey : key);
+#else
+    (void)macKey;
+    (void)keycap;
+    return std::string("Ctrl") + sep + key;
+#endif
+}
+
+float Keycap(ImDrawList* dl, ImVec2 p, float h, const char* text) {
+    // The mono face unless it lacks a character the text uses (the Command
+    // sign, the Return arrow): then the UI face, which the caller checked.
+    ImFont* face = monoFont();
+    for (const char* s = text; face && *s;) {
+        unsigned int c = 0;
+        s += ImTextCharFromUtf8(&c, s, nullptr);
+        if (c >= 0x80 && !face->IsGlyphInFont((ImWchar)c)) face = nullptr;
+    }
+    FontScope mono(face);
+    const float fs = ImGui::GetFontSize() * 0.8f;
+    const float tw = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text).x;
+    const float pad = h * 0.3f;
+    const float w = tw + pad * 2.0f;
+    if (dl) {
+        const theme::Semantics& sem = theme::semantics();
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), fadeCol(sem.surface, 0.8f), h * 0.25f);
+        dl->AddRect(p, ImVec2(p.x + w, p.y + h), fadeCol(sem.border, 1.0f), h * 0.25f);
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(p.x + pad, p.y + (h - fs) * 0.5f),
+                    fadeCol(sem.textDim, 1.0f), text);
+    }
+    return w;
+}
+
 bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vmax,
                const char* fmt) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();

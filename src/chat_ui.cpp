@@ -1718,6 +1718,10 @@ void App::drawAiChatWindow() {
     ImGui::EndChild();
 
     // --- input
+    if (chatFocusInput_) {  // the command palette handed over a draft
+        ImGui::SetKeyboardFocusHere();
+        chatFocusInput_ = false;
+    }
     const bool send =
         ImGui::InputTextMultiline(
             "##chatinput", chatInputBuf_, sizeof(chatInputBuf_),

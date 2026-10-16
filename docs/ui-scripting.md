@@ -3,7 +3,7 @@
 ![A UI script can open and operate panels such as Remote Pad](img/remote-pad.png)
 
 ```
-tyrax-editor --ui-script [projectDir] "click Tools; click 'Remote Pad'; shot pad.png"
+tyrax-editor --ui-script [projectDir] "click 'TyraX menu'; click Tools; click 'Remote Pad'; shot pad.png"
 tyrax-editor --ui-script [projectDir] --file check.ui
 ```
 
@@ -82,6 +82,38 @@ that opened it, and `click "Remote Pad"` simply waits for it to appear. A step
 that times out fails the run and prints **what was on screen instead** — the
 expensive part of UI automation is otherwise a blank "not found".
 
+## The menus: behind the logo
+
+The editor's ten menus (File, Edit, View, Layout, Scene, Project, Build,
+Session, Tools, Help) are not on the top bar: the TyraX logo in its left corner
+is one button, **`TyraX menu`**, and its popup holds them as submenus. So the
+full path to a menu entry is three clicks:
+
+```
+click "TyraX menu"
+click Tools
+click "Remote Pad"
+```
+
+Two things keep scripts written for the old menu bar working:
+
+- **A step naming a top-level menu opens the logo menu first** when it is
+  closed. Bare `File`, `Edit`, `View`, `Layout`, `Build`, `Session`, `Tools`
+  and `Help` count, and so does any of the ten qualified as
+  `"##MainMenuBar/<menu>"` — so `click Tools; click "Remote Pad"` still works
+  as written. A bare `Project` is still the Project panel's dock tab and a bare
+  `Scene` the Scene workspace button on the top bar; the menus are
+  `"##MainMenuBar/Project"` and `"##MainMenuBar/Scene"`.
+- **The popup reports its items under `##MainMenuBar`**, the window the menus
+  used to sit in (it is really an anonymous `##Popup_<hash>` window), so
+  `dump` lists `[##MainMenuBar] File` while it is open and the qualified names
+  above resolve. A submenu's entries are in its own window, named after it
+  (`[Tools###Menu_00] Remote Pad...`).
+- A popup closes when another window takes the focus, and the project's
+  window layout is still settling for a moment after it opens: start a
+  script with `frames 30; wait 1` before the first menu click, or the menu can
+  close under it.
+
 Procedural node parameter combos announce their labels explicitly, including
 controls inside each node's ID scope. Use `click "Roads"`, `click "Road"` or
 `click "Material"`, then click the named popup choice. With repeated labels,
@@ -97,8 +129,8 @@ tyrax-editor --ui-script ~/TyraProjects/mygame "frames 20; dump"
 
 ```
 135 item(s) on screen
-  [##MainMenuBar] File  @ 12,3 132x51  [closed]
-  [##MainMenuBar] Tools  @ 1278,3 153x51  [closed]
+  [##MainMenuBar] TyraX menu  @ 12,6 91x27
+  [##MainMenuBar] Search  @ 657,6 420x27
   [New Project] Project name  @ 1383,511 624x57  [input]
   [New Project] Claude Code  @ 1383,1201 300x57  [unchecked]
   [New Project] Create  @ 1383,1438 360x57
@@ -117,6 +149,7 @@ outside:
 
 ```
 frames 20
+click "TyraX menu"
 click Tools
 click "Remote Pad"
 expect "Remote Pad/Cross"
@@ -194,7 +227,7 @@ hold, and clears when the editor exits. Neither window was ever focused.
 
   Two things that go with it. **Qualify the tab with its window**: a tab label
   is a short common word, and *Project Preferences* has a `Build` tab while the
-  menu bar has a `Build` menu — `find` takes the first match, so a bare
+  TyraX menu has a `Build` menu — `find` takes the first match, so a bare
   `click Build` opens the menu. And **a tab changes what the id-hash fallback
   can reach** (the bullet below): `BeginTabItem` pushes the tab's own id, so a
   widget submitted *directly* inside a tab is seeded by that id and not by the

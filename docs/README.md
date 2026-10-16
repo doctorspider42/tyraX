@@ -7,6 +7,12 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+A menu path in these guides, like *Tools > Remote Pad*, starts at the TyraX
+logo in the top bar's left corner: it opens the editor's menus (File, Edit,
+View, Layout, Scene, Project, Build, Session, Tools, Help), and so do F10 and
+a lone tap of Alt. The search field in the middle of the bar (Ctrl+K, Cmd+K on
+a Mac) finds any command, object or window by name.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,

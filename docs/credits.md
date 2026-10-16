@@ -165,7 +165,7 @@ and anything past the page budget is listed in amber (it is not baked and never
 shows).
 
 Rolls are project-wide data, so an edit here is **not** part of undo/redo — but
-it is an ordinary unsaved edit: the top bar shows **Unsaved**, closing the
+it is an ordinary unsaved edit: the top bar counts it (**1 unsaved**), closing the
 project asks, and the bytes reach disk on Ctrl+S. (Until TyraX 1.0.1 this panel
 wrote the whole project on every widget instead, which left the icon dark and
 made a roll edit invisible to a live session.)

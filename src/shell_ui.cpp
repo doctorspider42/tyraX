@@ -1,10 +1,13 @@
-// The editor's frame around the panels: the top bar's right half (project /
-// scene breadcrumb, run controls) and the status bar along the bottom
-// (docs/editor-theme.md). The menus themselves stay in App::drawMenuBar.
+// The editor's frame around the panels: the top bar (the logo menu, the
+// project / scene breadcrumb, workspaces, search, run controls) and the status
+// bar along the bottom (docs/editor-theme.md). The menus' contents stay in
+// App::drawMainMenus (app.cpp); they open from the logo here.
 //
-// Layout of the top bar, after the menus:
+// Layout of the top bar:
 //
-//   | showcase / Aster [start] v  * Unsaved     ...    [Debug v] [PCSX2|PS2] [box] [> Run F5 v] [stop]
+//   [TyraX v] | showcase / Aster [start] v  * 2 unsaved  [x Scene|o Logic|...]
+//       [ Q Search objects, assets, commands...  Ctrl K ]
+//                                  [Debug v] [PCSX2|PS2] [box] [> Run F5 v] [stop]
 //
 // The status bar carries what used to crowd the top bar: the build state and
 // the LIVE / DBG / LOGIC / SESSION chips on the left, the scene's counts on the
@@ -13,11 +16,13 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "theme.hpp"
+#include "uiscript.hpp"
 #include "widgets.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <cfloat>
 #include <cstdio>
 #include <string>
 
@@ -67,7 +72,94 @@ void App::selectScene(int i) {
     applyProjectToViewport();  // terrain/lighting are per scene
 }
 
-// Drawn inside the main menu bar, after Help. The bar is taller than one
+// The top bar's first control: the mark, the wordmark and a caret, as ONE
+// button ("TyraX menu") that opens the editor's menus. The ten menus are the
+// popup's items, each an ordinary BeginMenu (App::drawMainMenus, app.cpp), so
+// they are submenus here and nothing about their contents changed - only where
+// they are reached from. That gives the bar back the width ten menu titles
+// took. F10, or Alt tapped on its own, opens it from the keyboard.
+void App::drawLogoMenu() {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float barH = ImGui::GetWindowHeight();
+    const float h = ImGui::GetFrameHeight();
+    const float y0 = IM_TRUNC((barH - h) * 0.5f);
+    const float mark = scaled(22.0f);
+    const float padX = scaled(6.0f);
+    ImFont* face = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+    const float fs = ImGui::GetFontSize();
+    const float tyraW = face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "Tyra").x;
+    const float xW = face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "X").x;
+    const float caretW = h * 0.36f;
+    const float w = padX + mark + scaled(8.0f) + tyraW + xW + scaled(6.0f) + caretW + padX;
+    const char* popupId = "##tyrax_menu";
+
+    // Keyboard: F10 (unless the Live Debugger has it - pause/step) or a lone
+    // Alt tap - pressed and released with no other key or button in between,
+    // so Alt+drag in the viewport and Alt+letter never open it.
+    bool open = logoMenuOpenRequest_;
+    logoMenuOpenRequest_ = false;
+    {
+        const ImGuiIO& io = ImGui::GetIO();
+        const bool debuggerOwnsF10 = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+        if (!debuggerOwnsF10 && !io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F10, false)) open = true;
+        const bool altDown = ImGui::IsKeyDown(ImGuiKey_LeftAlt) || ImGui::IsKeyDown(ImGuiKey_RightAlt);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftAlt, false) || ImGui::IsKeyPressed(ImGuiKey_RightAlt, false)) {
+            altTapArmed_ = !ImGui::IsAnyMouseDown() && !io.KeyCtrl && !io.KeyShift && !io.KeySuper;
+            altTapStart_ = ImGui::GetTime();
+        } else if (altTapArmed_) {
+            bool other = ImGui::IsAnyMouseDown() || io.KeyCtrl || io.KeyShift || io.KeySuper;
+            for (int k = ImGuiKey_NamedKey_BEGIN; !other && k < ImGuiKey_GamepadStart; ++k)
+                if (k != ImGuiKey_LeftAlt && k != ImGuiKey_RightAlt && ImGui::IsKeyDown((ImGuiKey)k))
+                    other = true;
+            if (other) {
+                altTapArmed_ = false;
+            } else if (!altDown) {
+                altTapArmed_ = false;
+                if (ImGui::GetTime() - altTapStart_ < 0.6 && !io.WantTextInput) open = true;
+            }
+        }
+    }
+
+    ImGui::SetCursorPosY(y0);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton("TyraX menu", ImVec2(w, h));
+    // ImGui closes an open popup on the mouse-DOWN outside it, before this
+    // button's release reports the click, so without remembering the state at
+    // press time a second click would close and immediately reopen it.
+    if (ImGui::IsItemActivated()) logoMenuOpenOnPress_ = logoMenuOpen_;
+    if (pressed && !logoMenuOpenOnPress_) open = true;
+    const bool hovered = ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hovered, 12.0f);
+    if (logoMenuOpen_ || t > 0.0f)
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
+                          ImGui::GetColorU32(ImGuiCol_ButtonHovered, logoMenuOpen_ ? 1.0f : t), st.FrameRounding);
+    ui::LogoMark(dl, ImVec2(p.x + padX, p.y + (h - mark) * 0.5f), mark);
+    float x = p.x + padX + mark + scaled(8.0f);
+    const float ty = p.y + (h - fs) * 0.5f;
+    dl->AddText(face, fs, ImVec2(x, ty), col(sem.text), "Tyra");
+    x += tyraW;
+    dl->AddText(face, fs, ImVec2(x, ty), col(sem.accent), "X");
+    x += xW + scaled(6.0f);
+    caret(dl, x + caretW * 0.5f, p.y + h * 0.5f, caretW * 0.32f, col(sem.textDim));
+    if (hovered && !logoMenuOpen_)
+        ImGui::SetTooltip("Menu: File, Edit, View, Layout, Scene, Project, Build, Session, Tools, Help (F10)");
+
+    if (open && !ImGui::IsPopupOpen(popupId)) ImGui::OpenPopup(popupId);
+    ImGui::SetNextWindowPos(ImVec2(p.x, p.y + h + scaled(4.0f)));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(scaled(200.0f), 0.0f), ImVec2(FLT_MAX, FLT_MAX));
+    logoMenuOpen_ = ImGui::BeginPopup(popupId);
+    if (logoMenuOpen_) {
+        // Its items report under the bar's name, where the menus used to be:
+        // '##MainMenuBar/Project' keeps naming the Project menu in scripts.
+        uiscript::aliasCurrentWindow("##MainMenuBar");
+        drawMainMenus();
+        ImGui::EndPopup();
+    }
+}
+
+// Drawn inside the main menu bar, after the logo menu. The bar is taller than one
 // control (drawMenuBar pushes a larger FramePadding for it), so every control
 // here is placed on a centred row at y0 rather than at the bar's top.
 void App::drawToolbar() {
@@ -206,11 +298,18 @@ void App::drawToolbar() {
             ImGui::EndPopup();
         }
 
-        // Unsaved edits: a warn dot + word, which is also the save button. Shown
-        // only while there is something to save, like a document title's dot.
+        // Unsaved edits: a warn dot + "3 unsaved", which is also the save
+        // button. Shown only while there is something to save, like a document
+        // title's dot. The count is unsavedEditCount(); a dirty project with a
+        // count of 0 (a layout change, or undone back to the saved state) still
+        // says "Unsaved".
         const bool saveAllowed = session_.role() != session::Session::Role::Client;
         if (dirty_ && saveAllowed) {
-            const char* lbl = "Unsaved";
+            const int n = unsavedEditCount();
+            char lblBuf[32];
+            if (n > 0) std::snprintf(lblBuf, sizeof(lblBuf), "%d unsaved", n);
+            else std::snprintf(lblBuf, sizeof(lblBuf), "Unsaved");
+            const char* lbl = lblBuf;
             const float dotR = scaled(3.5f);
             const float w = padX + dotR * 2.0f + gapS + ImGui::CalcTextSize(lbl).x + padX;
             p = place(gap);
@@ -218,7 +317,14 @@ void App::drawToolbar() {
             hoverFill(p, w, true);
             dl->AddCircleFilled(ImVec2(p.x + padX + dotR, p.y + h * 0.5f), dotR, col(sem.warn));
             text(p.x + padX + dotR * 2.0f + gapS, p.y, col(sem.textDim), lbl);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Unsaved changes - click to save (Ctrl+S)");
+            if (ImGui::IsItemHovered()) {
+                const std::string save = ui::ShortcutChord("S", nullptr, "+");
+                if (n > 0)
+                    ImGui::SetTooltip("%d edit%s since the last save - click to save (%s)", n,
+                                      n == 1 ? "" : "s", save.c_str());
+                else
+                    ImGui::SetTooltip("Unsaved changes - click to save (%s)", save.c_str());
+            }
         }
     }
 
@@ -236,15 +342,33 @@ void App::drawToolbar() {
     const float runW = padX * 1.3f + glyph + gapS + ImGui::CalcTextSize(runLabel).x +
                        (busy ? 0.0f : gapS + ImGui::CalcTextSize(runKey).x) + padX * 1.3f;
     const float runCaretW = h * 0.62f;
-    const float clusterW = h + gap + profW + gap + segW + gap + h + gap + runW + runCaretW + gap + h;
+    const float clusterW = profW + gap + segW + gap + h + gap + runW + runCaretW + gap + h;
     const float clusterX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f) - clusterW;
+
+    // --- search widths: a field-looking button that opens the command palette
+    // (palette_ui.cpp) - magnifier, hint, keycap - or just the magnifier.
+    const bool hasEllipsis = ImGui::GetFont()->IsGlyphInFont((ImWchar)0x2026);
+    const std::string hintLong =
+        std::string("Search objects, assets, commands") + (hasEllipsis ? "\xE2\x80\xA6" : "...");
+    const std::string hintShort = std::string("Search") + (hasEllipsis ? "\xE2\x80\xA6" : "...");
+    const std::string searchKey = ui::ShortcutChord("K", nullptr, " ", true);
+    const float capH = h * 0.62f;
+    const float capW = ui::Keycap(nullptr, ImVec2(), capH, searchKey.c_str());
+    const float glassW = h * 0.62f;
+    const float searchMinW =
+        padX + glassW + gapS + ImGui::CalcTextSize(hintShort.c_str()).x + gapS * 2.0f + capW + padX * 0.6f;
+    const float searchFullW =
+        padX + glassW + gapS + ImGui::CalcTextSize(hintLong.c_str()).x + gapS * 2.0f + capW + padX * 0.6f;
+    const float searchMaxW = ImMax(searchFullW, scaled(420.0f));
+    float searchW = h;  // what the search button gets; h = the magnifier only
 
     // --- workspaces: Scene / Logic / Cinema / UI & HUD -------------------------
     // Each is one of the project's window layouts (the Layout menu), picked by
     // its built-in recipe, so a project's own arrangement of each survives.
-    // The four face-button marks tell them apart; with too little room the
-    // labels go and the marks stay, with less still the switcher goes (the
-    // Layout menu has the same thing).
+    // The four face-button marks tell them apart. Room is shared out in this
+    // order: the workspace labels, then a wide search field. Short of that the
+    // search drops to its magnifier, then the labels go and the marks stay,
+    // and with less still the switcher goes (the Layout menu has the same).
     {
         struct Ws {
             const char* id;
@@ -269,8 +393,19 @@ void App::drawToolbar() {
         }
         ImGui::SameLine(0.0f, 0.0f);
         const float curX = ImGui::GetCursorScreenPos().x + gapGroup;
+        // Room for the switcher AND the search, which sits between it and the
+        // right cluster with a group gap on each side.
         const float room = clusterX - gapGroup - curX;
-        const bool labels = room >= fullW, show = room >= iconW;
+        const float searchSlot = gapGroup * 2.0f;
+        bool labels = false, show = false;
+        if (room >= fullW + searchSlot + searchMinW) {
+            labels = show = true;
+            searchW = searchMinW;  // widened below, once the free space is known
+        } else if (room >= fullW + searchSlot + h) {
+            labels = show = true;
+        } else if (room >= iconW + searchSlot + h) {
+            show = true;
+        }
         if (show) {
             const ImVec2 base = place(gapGroup);
             const float totalW = labels ? fullW : iconW;
@@ -309,34 +444,67 @@ void App::drawToolbar() {
             ImGui::Dummy(ImVec2(totalW, h));
         }
     }
+    // Search: opens the command palette. The wide field is centred in the free
+    // space between the switcher and the right cluster; the magnifier alone
+    // sits just left of the cluster. When even that does not fit it follows
+    // whatever is on its left (and the window edge clips the rest). In SCREEN
+    // space: the menu bar offsets SameLine(x) by its own inner margin.
     {
-        // Right-aligned, unless the menus and breadcrumb already reach there:
-        // then it simply follows them (and the window edge clips it). In SCREEN
-        // space: the menu bar offsets SameLine(x) by its own inner margin.
         ImGui::SameLine(0.0f, 0.0f);
-        const float curX = ImGui::GetCursorScreenPos().x;
-        const float endX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f);
-        ImGui::SetCursorScreenPos(ImVec2(ImMax(endX - clusterW, curX + gapGroup),
-                                         ImGui::GetWindowPos().y + y0));
-    }
-
-    // Search: opens the command palette (palette_ui.cpp).
-    {
+        const float curX = ImGui::GetCursorScreenPos().x + gapGroup;
+        const float freeR = clusterX - gapGroup;
+        const bool wide = searchW > h;
+        float x;
+        if (wide) {
+            searchW = ImClamp(freeR - curX, searchMinW, searchMaxW);
+            x = curX + ImMax(0.0f, (freeR - curX - searchW) * 0.5f);
+        } else {
+            x = ImMax(freeR - h, curX);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(x, ImGui::GetWindowPos().y + y0));
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        if (ImGui::InvisibleButton("Search##tb_palette", ImVec2(h, h))) {
+        if (ImGui::InvisibleButton("Search##tb_palette", ImVec2(searchW, h))) {
             paletteOpen_ = true;
             paletteFocus_ = true;
             paletteQuery_[0] = '\0';
             paletteSel_ = 0;
         }
-        hoverFill(p, h, true);
-        const ImVec2 c(p.x + h * 0.46f, p.y + h * 0.46f);
-        dl->AddCircle(c, h * 0.2f, col(sem.text), 16, stroke);
-        dl->AddLine(ImVec2(c.x + h * 0.14f, c.y + h * 0.14f), ImVec2(c.x + h * 0.28f, c.y + h * 0.28f),
-                    col(sem.text), stroke);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Search commands, objects, windows, docs (Ctrl+K)");
-        ImGui::SameLine(0.0f, gap);
-        ImGui::SetCursorPosY(y0);
+        if (wide) {
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            dl->AddRectFilled(p, ImVec2(p.x + searchW, p.y + h), col(sem.field), round);
+            dl->AddRect(p, ImVec2(p.x + searchW, p.y + h),
+                        t > 0.0f ? col(sem.textDim, 0.3f + 0.4f * t) : col(sem.border), round);
+        } else {
+            hoverFill(p, h, true);
+        }
+        const ImU32 glassCol = wide ? col(sem.textDim) : col(sem.text);
+        const ImVec2 c = wide ? ImVec2(p.x + padX + glassW * 0.4f, p.y + h * 0.46f)
+                              : ImVec2(p.x + h * 0.46f, p.y + h * 0.46f);
+        const float gs = wide ? 0.85f : 1.0f;  // a quieter glass inside the field
+        dl->AddCircle(c, h * 0.2f * gs, glassCol, 16, stroke);
+        dl->AddLine(ImVec2(c.x + h * 0.14f * gs, c.y + h * 0.14f * gs),
+                    ImVec2(c.x + h * 0.28f * gs, c.y + h * 0.28f * gs), glassCol, stroke);
+        if (wide) {
+            const float capX = p.x + searchW - padX * 0.6f - capW;
+            ui::Keycap(dl, ImVec2(capX, p.y + (h - capH) * 0.5f), capH, searchKey.c_str());
+            const float tx = p.x + padX + glassW + gapS;
+            const bool fitsLong = tx + ImGui::CalcTextSize(hintLong.c_str()).x <= capX - gapS;
+            dl->PushClipRect(ImVec2(tx, p.y), ImVec2(capX - gapS, p.y + h), true);
+            text(tx, p.y, col(sem.textDim), fitsLong ? hintLong.c_str() : hintShort.c_str());
+            dl->PopClipRect();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Search commands, objects, windows, docs (%s)",
+                              ui::ShortcutChord("K", nullptr, "+").c_str());
+    }
+
+    // The right cluster: right-aligned, unless what is on its left already
+    // reaches there - then it simply follows.
+    {
+        ImGui::SameLine(0.0f, 0.0f);
+        const float curX = ImGui::GetCursorScreenPos().x;
+        const float endX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f);
+        ImGui::SetCursorScreenPos(ImVec2(ImMax(endX - clusterW, curX + gap), ImGui::GetWindowPos().y + y0));
     }
 
     // Build profile pill. The one control on the bar whose CURRENT VALUE must

@@ -3317,6 +3317,11 @@ void App::uiScriptTick() {
         s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
         s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Wheel ||
         s.kind == uiscript::Step::Expect;
+    // The ten menus sit behind the logo button: a step naming one of them
+    // while that menu is closed opens it first (uiscript::namesMainMenu), so a
+    // script written for the old menu bar still reads `click Tools`.
+    if (needsTarget && uiStepPhase_ == 0 && !logoMenuOpen_ && uiscript::namesMainMenu(s.arg))
+        logoMenuOpenRequest_ = true;
     if (needsTarget && uiStepPhase_ == 0) {
         // Everything here but Expect ends in a mouse CLICK, so exclude the
         // whole-window items (see uiscript::find). Wheel is the exception: what

@@ -35,6 +35,8 @@ std::unordered_map<uint32_t, size_t> g_byId;
 // fixes the whole class.
 std::unordered_map<uint32_t, std::pair<std::string, ImGuiItemStatusFlags>> g_pending;
 bool g_enabled = false;
+// Window id -> the name its items are reported under (aliasCurrentWindow).
+std::unordered_map<uint32_t, std::string> g_windowAlias;
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
@@ -76,6 +78,8 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
     if (ctx && ctx->CurrentWindow && ctx->CurrentWindow->Name) {
         it.window = ctx->CurrentWindow->Name;
         it.windowId = (uint32_t)ctx->CurrentWindow->ID;
+        auto alias = g_windowAlias.find(it.windowId);
+        if (alias != g_windowAlias.end()) it.window = alias->second;
         // ImGui registers each window as an item under the window's own id.
         it.isWindow = ctx->CurrentWindow->ID == id;
     }
@@ -166,6 +170,27 @@ void markLastItemChecked(bool checked) {
     Item& it = g_items[found->second];
     it.checkable = true;
     it.checked = checked;
+}
+
+void aliasCurrentWindow(const char* name) {
+    if (!g_enabled || !name) return;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (!w) return;
+    g_windowAlias[(uint32_t)w->ID] = name;
+    for (Item& it : g_items)  // the window's own item came in with its Begin
+        if (it.windowId == (uint32_t)w->ID) it.window = name;
+}
+
+bool namesMainMenu(const std::string& target) {
+    std::string t = lower(trim(target));
+    const std::string bar = "##mainmenubar/";
+    const bool qualified = t.rfind(bar, 0) == 0;
+    if (qualified) t = trim(t.substr(bar.size()));
+    static const char* const kMenus[] = {"file",  "edit",  "view",    "layout", "scene",
+                                         "project", "build", "session", "tools",  "help"};
+    for (const char* m : kMenus)
+        if (t == m) return qualified || (t != "project" && t != "scene");
+    return false;
 }
 
 void nameItem(uint32_t id, const char* label) {

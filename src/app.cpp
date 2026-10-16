@@ -1282,703 +1282,685 @@ void App::setTheme(theme::Id id) {
 
 void App::drawMenuBar() {
     // A taller bar than one row of menus: ImGui sizes the main menu bar - and
-    // the baseline its menu titles sit on - from FramePadding at Begin time, so
+    // the baseline its contents sit on - from FramePadding at Begin time, so
     // the larger padding is pushed for BeginMainMenuBar alone. Everything drawn
-    // inside (menus, their popups, the toolbar) is back on the normal metrics;
-    // the toolbar centres its controls on the taller bar itself.
+    // inside (the logo menu, its popups, the toolbar) is back on the normal
+    // metrics; the toolbar centres its controls on the taller bar itself.
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                         ImVec2(ImGui::GetStyle().FramePadding.x, scaled(12.0f)));
     const bool barOpen = ImGui::BeginMainMenuBar();
     ImGui::PopStyleVar();
     if (barOpen) {
-        // The mark: the four face-button glyphs, then the wordmark. Not a menu
-        // (no popup, no hover) - it is what turns a row of menus into the top
-        // of a product. Drawn straight onto the bar and reserved with a Dummy
-        // on the menus' own line, so it cannot move their baseline.
+        drawLogoMenu();  // the mark + wordmark: the button the ten menus live behind
+        drawToolbar();   // shell_ui.cpp; the status message is in the status bar
+        ImGui::EndMainMenuBar();
+    }
+}
+
+// The editor's ten menus (File ... Help), drawn as submenus of the logo menu's
+// popup (drawLogoMenu). Each is an ordinary BeginMenu, exactly what used to sit
+// on the bar itself - a popup of BeginMenus is a menu of submenus to ImGui -
+// so the labels, the items and their shortcuts did not change.
+void App::drawMainMenus() {
+    if (ImGui::BeginMenu("File")) {
+        if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
+        if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+        drawRecentProjectsMenu();
+        ImGui::Separator();
+        const bool sessionClient =
+            session_.role() == session::Session::Role::Client;
+        if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
+            saveAll("Saved");
+        if (sessionClient && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "You joined this project as a session participant -\n"
+                "the HOST owns saving and committing. Leave the session\n"
+                "to keep your local copy and save it yourself.");
+        // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
+        // W that flies the viewport camera, and this throws the project out
+        // of the editor.
+        if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
+            requestCloseProject();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Exit")) requestExit();
+        ImGui::EndMenu();
+    }
+    // Edit stays enabled without a project so the machine-global editor
+    // settings (emulator path, PS2 IP) can be set before creating one; the
+    // project-scoped items below disable themselves on their own state.
+    if (ImGui::BeginMenu("Edit")) {
+        const bool objectSelected =
+            hasProject_ && selectedObject_ >= 0 &&
+            selectedObject_ < (int)project_.objects().size();
+        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
+        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
+        ImGui::Separator();
+        const char* copyLabel =
+            selection_.size() > 1 ? "Copy objects" : "Copy object";
+        // A pending paste is still following the cursor - the same command
+        // settles it (see pasteObject).
+        const char* pasteLabel = pastePending_ ? "Place paste"
+                                 : clipboard_.size() > 1 ? "Paste objects"
+                                                         : "Paste object";
+        if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
+        if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
+        if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
+        if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
+                            hasProject_ && (pastePending_ || !clipboard_.empty())))
+            pasteObject();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Preferences...")) {
+            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
+                     globalEmulatorPath_.c_str());
+            snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+            prefConsoleLogLines_ = globalConsoleLogLines_;
+            prefConsoleLogFiles_ = globalConsoleLogFiles_;
+            snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
+                     globalToolchainImage_.c_str());
+            prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
+            snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
+                     globalDefaultProjectsDir_.c_str());
+            snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
+                     globalDisplayName_.c_str());
+            snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
+                     globalSessionCacheDir_.c_str());
+            prefAiBackend_ = 0;
+            {
+                const auto ids = aigen::backendIds();
+                for (int i = 0; i < (int)ids.size(); ++i)
+                    if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+            }
+            snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
+                     globalAi_.model.c_str());
+            prefAiCustomModel_ = true;
+            for (const char* m : aigen::modelPresets(globalAi_.backend))
+                if (globalAi_.model == m) prefAiCustomModel_ = false;
+            prefAiThinking_ = globalAi_.thinking;
+            openEditorPrefsPopup_ = true;
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("View")) {
+        ImGui::TextDisabled("Interface scale");
+        if (ImGui::MenuItem("Zoom in", "Ctrl+="))
+            setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
+        if (ImGui::MenuItem("Zoom out", "Ctrl+-"))
+            setUiScale(ImClamp(uiScaleApplied_ - 0.1f, 0.5f, 4.0f));
+        if (ImGui::MenuItem("Auto (match display DPI)", "Ctrl+0", uiScaleUser_ == 0.0f))
+            setUiScale(0.0f);
+        ImGui::Separator();
+        const float presets[] = {1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f};
+        for (float v : presets) {
+            char label[16];
+            std::snprintf(label, sizeof(label), "%d%%", (int)std::lround(v * 100.0f));
+            if (ImGui::MenuItem(label, nullptr, std::abs(uiScaleApplied_ - v) < 0.001f))
+                setUiScale(v);
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
+                            uiScaleUser_ == 0.0f ? " (auto)" : "");
+        ImGui::Separator();
+        // The one navigation setting worth reaching without opening a
+        // modal: it changes what a click DOES to the camera, so it gets
+        // toggled far more often than sensitivities are tuned. Same field
+        // the Navigation controls popup edits - one setting, two doors.
+        if (ImGui::MenuItem("Orbit around selected object", nullptr,
+                            nav_.orbitAroundSelection)) {
+            nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
+            saveGlobalConfig();
+            navFocusedIndex_ = -1;  // re-snap next frame if something is selected
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Selecting an object moves the camera pivot onto it, so a\n"
+                "right-drag orbits around that object instead of the terrain\n"
+                "centre. Pan, zoom and the forward drag still move freely.");
+        if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+        // Theme next to the interface scale: both are "how the editor
+        // looks on THIS machine", both live in editor.ini, and a picker
+        // buried in Preferences is one nobody finds. Also in
+        // Edit > Preferences > Appearance.
+        if (ImGui::BeginMenu("Theme")) {
+            for (int i = 0; i < (int)theme::Id::Count; ++i) {
+                const theme::Info& ti = theme::info((theme::Id)i);
+                if (ImGui::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
+                    setTheme((theme::Id)i);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Viewport output");
         {
-            const float barH = ImGui::GetWindowHeight();
-            const float size = scaled(22.0f);
-            const float lineY = ImGui::GetCursorPosY();
-            const ImVec2 wp = ImGui::GetWindowPos();
-            const float x0 = ImGui::GetCursorScreenPos().x + scaled(4.0f);
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            ui::LogoMark(dl, ImVec2(x0, wp.y + (barH - size) * 0.5f), size);
-            const theme::Semantics& sem = theme::semantics();
-            ImFont* face = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
-            const float fs = ImGui::GetFontSize();
-            const float ty = wp.y + (barH - fs) * 0.5f;
-            float x = x0 + size + scaled(8.0f);
-            dl->AddText(face, fs, ImVec2(x, ty), ImGui::GetColorU32(sem.text), "Tyra");
-            x += face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "Tyra").x;
-            dl->AddText(face, fs, ImVec2(x, ty), ImGui::GetColorU32(sem.accent), "X");
-            x += face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "X").x;
-            ImGui::Dummy(ImVec2(x - ImGui::GetCursorScreenPos().x + scaled(10.0f), 1.0f));
-            ImGui::SameLine(0.0f, 0.0f);
-            ImGui::SetCursorPosY(lineY);
-        }
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
-            if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
-            drawRecentProjectsMenu();
-            ImGui::Separator();
-            const bool sessionClient =
-                session_.role() == session::Session::Role::Client;
-            if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
-                saveAll("Saved");
-            if (sessionClient && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "You joined this project as a session participant -\n"
-                    "the HOST owns saving and committing. Leave the session\n"
-                    "to keep your local copy and save it yourself.");
-            // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
-            // W that flies the viewport camera, and this throws the project out
-            // of the editor.
-            if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
-                requestCloseProject();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) requestExit();
-            ImGui::EndMenu();
-        }
-        // Edit stays enabled without a project so the machine-global editor
-        // settings (emulator path, PS2 IP) can be set before creating one; the
-        // project-scoped items below disable themselves on their own state.
-        if (ImGui::BeginMenu("Edit")) {
-            const bool objectSelected =
-                hasProject_ && selectedObject_ >= 0 &&
-                selectedObject_ < (int)project_.objects().size();
-            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
-            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
-            ImGui::Separator();
-            const char* copyLabel =
-                selection_.size() > 1 ? "Copy objects" : "Copy object";
-            // A pending paste is still following the cursor - the same command
-            // settles it (see pasteObject).
-            const char* pasteLabel = pastePending_ ? "Place paste"
-                                     : clipboard_.size() > 1 ? "Paste objects"
-                                                             : "Paste object";
-            if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
-            if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
-            if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
-            if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
-                                hasProject_ && (pastePending_ || !clipboard_.empty())))
-                pasteObject();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Preferences...")) {
-                snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
-                         globalEmulatorPath_.c_str());
-                snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
-                prefConsoleLogLines_ = globalConsoleLogLines_;
-                prefConsoleLogFiles_ = globalConsoleLogFiles_;
-                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
-                         globalToolchainImage_.c_str());
-                prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
-                snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
-                         globalDefaultProjectsDir_.c_str());
-                snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
-                         globalDisplayName_.c_str());
-                snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
-                         globalSessionCacheDir_.c_str());
-                prefAiBackend_ = 0;
-                {
-                    const auto ids = aigen::backendIds();
-                    for (int i = 0; i < (int)ids.size(); ++i)
-                        if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
+            // Two ways of looking at the same scene: the editor's own
+            // image, which fills whatever shape the viewport is docked to,
+            // or the console's - rasterized at the GS framebuffer size of
+            // the project's display mode and fitted into the TV's picture.
+            struct OutItem {
+                bool ps2;
+                const char* label;
+                const char* help;
+            };
+            static const OutItem outs[] = {
+                {false, "Editor",
+                 "The viewport's own image: full resolution, and as wide as\n"
+                 "you docked the panel."},
+                {true, "PS2 output (GS)",
+                 "What the console draws: the scene rasterized at the GS\n"
+                 "framebuffer size of Preferences > Display mode, then\n"
+                 "fitted into the 4:3 / 16:9 picture a TV shows. Pixels are\n"
+                 "the console's, and so is the framing."},
+            };
+            for (const OutItem& it : outs) {
+                if (ImGui::MenuItem(it.label, nullptr, viewportPs2_ == it.ps2,
+                                    hasProject_) &&
+                    viewportPs2_ != it.ps2) {
+                    viewportPs2_ = it.ps2;
+                    saveGlobalConfig();
                 }
-                snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
-                         globalAi_.model.c_str());
-                prefAiCustomModel_ = true;
-                for (const char* m : aigen::modelPresets(globalAi_.backend))
-                    if (globalAi_.model == m) prefAiCustomModel_ = false;
-                prefAiThinking_ = globalAi_.thinking;
-                openEditorPrefsPopup_ = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it.help);
             }
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("View")) {
-            ImGui::TextDisabled("Interface scale");
-            if (ImGui::MenuItem("Zoom in", "Ctrl+="))
-                setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
-            if (ImGui::MenuItem("Zoom out", "Ctrl+-"))
-                setUiScale(ImClamp(uiScaleApplied_ - 0.1f, 0.5f, 4.0f));
-            if (ImGui::MenuItem("Auto (match display DPI)", "Ctrl+0", uiScaleUser_ == 0.0f))
-                setUiScale(0.0f);
-            ImGui::Separator();
-            const float presets[] = {1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f};
-            for (float v : presets) {
-                char label[16];
-                std::snprintf(label, sizeof(label), "%d%%", (int)std::lround(v * 100.0f));
-                if (ImGui::MenuItem(label, nullptr, std::abs(uiScaleApplied_ - v) < 0.001f))
-                    setUiScale(v);
+            if (viewportPs2_ && hasProject_) {
+                const Viewport::Ps2Output o = ps2ViewportOutput();
+                ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
+                                    project_.settings.widescreen ? "16:9" : "4:3");
             }
-            ImGui::Separator();
-            ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
-                                uiScaleUser_ == 0.0f ? " (auto)" : "");
-            ImGui::Separator();
-            // The one navigation setting worth reaching without opening a
-            // modal: it changes what a click DOES to the camera, so it gets
-            // toggled far more often than sensitivities are tuned. Same field
-            // the Navigation controls popup edits - one setting, two doors.
-            if (ImGui::MenuItem("Orbit around selected object", nullptr,
-                                nav_.orbitAroundSelection)) {
-                nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
+            // The two look simulations compose with either output mode:
+            // triangle shading and 16-bit banding are visible (and true)
+            // at any raster.
+            if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
+                                hasProject_)) {
+                viewportPs2Shade_ = !viewportPs2Shade_;
                 saveGlobalConfig();
-                navFocusedIndex_ = -1;  // re-snap next frame if something is selected
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Selecting an object moves the camera pivot onto it, so a\n"
-                    "right-drag orbits around that object instead of the terrain\n"
-                    "centre. Pan, zoom and the forward drag still move freely.");
-            if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
-
-            // Theme next to the interface scale: both are "how the editor
-            // looks on THIS machine", both live in editor.ini, and a picker
-            // buried in Preferences is one nobody finds. Also in
-            // Edit > Preferences > Appearance.
-            if (ImGui::BeginMenu("Theme")) {
-                for (int i = 0; i < (int)theme::Id::Count; ++i) {
-                    const theme::Info& ti = theme::info((theme::Id)i);
-                    if (ImGui::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
-                        setTheme((theme::Id)i);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
-                }
-                ImGui::EndMenu();
-            }
-
-            ImGui::Separator();
-            ImGui::TextDisabled("Viewport output");
-            {
-                // Two ways of looking at the same scene: the editor's own
-                // image, which fills whatever shape the viewport is docked to,
-                // or the console's - rasterized at the GS framebuffer size of
-                // the project's display mode and fitted into the TV's picture.
-                struct OutItem {
-                    bool ps2;
-                    const char* label;
-                    const char* help;
-                };
-                static const OutItem outs[] = {
-                    {false, "Editor",
-                     "The viewport's own image: full resolution, and as wide as\n"
-                     "you docked the panel."},
-                    {true, "PS2 output (GS)",
-                     "What the console draws: the scene rasterized at the GS\n"
-                     "framebuffer size of Preferences > Display mode, then\n"
-                     "fitted into the 4:3 / 16:9 picture a TV shows. Pixels are\n"
-                     "the console's, and so is the framing."},
-                };
-                for (const OutItem& it : outs) {
-                    if (ImGui::MenuItem(it.label, nullptr, viewportPs2_ == it.ps2,
-                                        hasProject_) &&
-                        viewportPs2_ != it.ps2) {
-                        viewportPs2_ = it.ps2;
+                    "Shade the way the console does: lights, occlusion and\n"
+                    "fog per VERTEX, most surfaces flat-shaded - one colour\n"
+                    "per triangle. Off = the editor's smooth per-pixel look.");
+            if (ImGui::BeginMenu("GS colour", hasProject_)) {
+                static const char* kGsColorNames[] = {
+                    "Match project", "Full 32-bit", "16-bit",
+                    "16-bit + dithering"};
+                for (int i = 0; i < 4; ++i) {
+                    if (ImGui::MenuItem(kGsColorNames[i], nullptr,
+                                        viewportGsColor_ == i) &&
+                        viewportGsColor_ != i) {
+                        viewportGsColor_ = i;
                         saveGlobalConfig();
                     }
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it.help);
                 }
-                if (viewportPs2_ && hasProject_) {
-                    const Viewport::Ps2Output o = ps2ViewportOutput();
-                    ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
-                                        project_.settings.widescreen ? "16:9" : "4:3");
-                }
-                // The two look simulations compose with either output mode:
-                // triangle shading and 16-bit banding are visible (and true)
-                // at any raster.
-                if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
-                                    hasProject_)) {
-                    viewportPs2Shade_ = !viewportPs2Shade_;
-                    saveGlobalConfig();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Shade the way the console does: lights, occlusion and\n"
-                        "fog per VERTEX, most surfaces flat-shaded - one colour\n"
-                        "per triangle. Off = the editor's smooth per-pixel look.");
-                if (ImGui::BeginMenu("GS colour", hasProject_)) {
-                    static const char* kGsColorNames[] = {
-                        "Match project", "Full 32-bit", "16-bit",
-                        "16-bit + dithering"};
-                    for (int i = 0; i < 4; ++i) {
-                        if (ImGui::MenuItem(kGsColorNames[i], nullptr,
-                                            viewportGsColor_ == i) &&
-                            viewportGsColor_ != i) {
-                            viewportGsColor_ = i;
-                            saveGlobalConfig();
-                        }
-                    }
-                    ImGui::EndMenu();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "The framebuffer depth the picture is shown at. Match\n"
-                        "project follows Preferences > Colour depth (and its\n"
-                        "dithering); the forced modes answer \"what if\" without\n"
-                        "touching the project.");
-            }
-
-            ImGui::Separator();
-            ImGui::TextDisabled("Render mode");
-            const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
-            // Switching costs no write and no dirty flag: the render mode is
-            // VIEW state, not content, and saveProject() reads it off the
-            // viewport at save time - exactly like the projection below. This
-            // used to call saveAll(), which silently committed every pending
-            // scene edit and cleared the save icon along the way.
-            for (int i = 0; i < 3; ++i) {
-                const bool active = (int)viewport_.viewMode() == i;
-                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
-                    viewport_.setViewMode((Viewport::ViewMode)i);
-            }
-
-            ImGui::Separator();
-            ImGui::TextDisabled("Projection");
-            {
-                // Perspective + the parallel views. The axis entries also aim
-                // the camera down that world axis; orbiting afterwards drops
-                // the lock and returns to whichever free mode was in use
-                // before the axis view was picked.
-                struct ProjItem {
-                    Viewport::Projection p;
-                    const char* label;
-                    const char* shortcut;
-                };
-                static const ProjItem items[] = {
-                    {Viewport::Projection::Perspective, "Perspective", "Num 5"},
-                    {Viewport::Projection::Ortho, "Orthographic", "Num 5"},
-                    {Viewport::Projection::OrthoTop, "Top (-Y)", "Num 7"},
-                    {Viewport::Projection::OrthoBottom, "Bottom (+Y)", "Ctrl+Num 7"},
-                    {Viewport::Projection::OrthoFront, "Front (-Z)", "Num 1"},
-                    {Viewport::Projection::OrthoBack, "Back (+Z)", "Ctrl+Num 1"},
-                    {Viewport::Projection::OrthoRight, "Right (-X)", "Num 3"},
-                    {Viewport::Projection::OrthoLeft, "Left (+X)", "Ctrl+Num 3"},
-                };
-                for (const ProjItem& it : items) {
-                    const bool active = viewport_.projection() == it.p;
-                    if (ImGui::MenuItem(it.label, it.shortcut, active, hasProject_) &&
-                        !active)
-                        setViewProjection(it.p);
-                }
-                if (ImGui::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
-                    showAxisGizmo_ = !showAxisGizmo_;
-                    saveGlobalConfig();
-                }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip(
-                        "The axis widget in the viewport's top-right corner:\n"
-                        "click an axis ball to snap to that orthographic view,\n"
-                        "click the hub to switch perspective/parallel.");
-            }
-
-            ImGui::Separator();
-            ImGui::TextDisabled("Placement");
-            if (ImGui::MenuItem("Snap to surface", nullptr, placementSnap_)) {
-                placementSnap_ = !placementSnap_;
-                saveGlobalConfig();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Inserted and pasted objects rest on the surface under "
-                    "them\n(the terrain, or the top of the object below) "
-                    "instead of\nsinking into it. A machine setting, not "
-                    "project data.");
-
-            ImGui::Separator();
-            ImGui::TextDisabled("Preview");
-            // Editor notes (docs/comments.md). Icons are always present; this
-            // persisted option expands every note instead of only the selected
-            // one.
-            if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
-                showCommentText_ = !showCommentText_;
-                saveGlobalConfig();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Expand every comment's text in the viewport. When off,\n"
-                    "the message icons stay visible and clickable, but only\n"
-                    "the selected comment shows its text. Off by default.\n"
-                    "Notes are editor-only either way: nothing reaches the game.");
-            if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
-                showFog_ = !showFog_;
-                applyProjectToViewport();  // suppress/restore fog in the viewport now
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
-                                  "Turn off to see distant geometry - does not "
-                                  "affect the generated game.");
-            if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
-                                hasProject_))
-                showNavOverlay_ = !showNavOverlay_;
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Show the baked navigation grid the AI flow nodes walk on "
-                    "(green = walkable). Tune it in Project > Preferences > "
-                    "AI navigation.");
-            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
-                                hasProject_))
-                showCollisionBoxes_ = !showCollisionBoxes_;
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Draw the box the GAME blocks the player and the "
-                    "third-person\ncamera with (red). A model collides as its "
-                    "bounding box, not its\nmesh, so this is what explains a "
-                    "prop you cannot walk up to or a\ncamera that pulls in "
-                    "early. The running game can draw the same\nboxes - "
-                    "Preferences > Build > Show collision boxes.");
-            if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
-                                hasProject_)) {
-                showBatchOverlay_ = !showBatchOverlay_;
-                batchDirty_ = true;
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Colour every static object by the batch it merges into, "
-                    "with\nsolo objects in grey, and draw each batch's MERGED "
-                    "BOX. That box\nis what the frustum and the draw-distance "
-                    "test are applied to -\na batch draws as a unit - so an "
-                    "over-wide one is geometry the\nunbatched scene would "
-                    "cull. Tools > Static Batches lists them.");
-            if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
-                                hasProject_))
-                showProcPreview_ = !showProcPreview_;
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Draw what the procedural volumes generate. Turn it off to "
-                    "work on\nwhat is underneath - a finished forest hides the "
-                    "ground it grows on.\nThe graph keeps being evaluated, so "
-                    "the budget readout and the seed\nsimulator stay live; only "
-                    "the geometry goes.");
-            if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
-                                hasProject_))
-                showScrollerPreview_ = !showScrollerPreview_;
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Draw the sliding ghost copies of EVERY endless scroller's\n"
-                    "segments. Turn it off to work on the member objects the\n"
-                    "copies are made of - a running belt fills its whole window\n"
-                    "with them. One belt at a time is 'Show belt preview' in\n"
-                    "that scroller's Properties. The belt markers stay either\n"
-                    "way, and the clone count and warnings stay live.");
-
-            ImGui::Separator();
-            ImGui::TextDisabled("TV safe frame");
-            if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
-            if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
-
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Layout", hasProject_)) {
-            drawLayoutMenu();
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Scene", hasProject_)) {
-            if (ImGui::BeginMenu("Add")) {
-                drawAddObjectMenu();
                 ImGui::EndMenu();
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Drop to floor", "End", false, !selection_.empty()))
-                dropSelectionToFloor();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Rest every selected object on the first surface below it "
-                    "-\nthe terrain or the top of another object.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Project", hasProject_)) {
-            const bool busy = runner_.busy();
-            if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
-                openProjectPreferences();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
-                runner_.exportIso(projectForBuild());
-            if (ImGui::MenuItem("Disc Layout...")) {
-                showDiscLayout_ = true;
-                discPlanDirty_ = true;
-            }
-            ImGui::EndMenu();
-        }
-        // VS-style top-level Build menu (the Project panel keeps its buttons)
-        if (ImGui::BeginMenu("Build", hasProject_)) {
-            const bool busy = runner_.busy();
-            if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
-                runner_.buildAndRun(projectForBuild(), false);
-            if (ImGui::MenuItem("Rebuild", nullptr, false, !busy))
-                runner_.buildAndRun(projectForBuild(), false, true);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Full rebuild: recreates the build container, then compiles "
-                    "the engine\n(VU1 microprograms included) and every game "
-                    "source from scratch.\nSlow on purpose - it is the way out "
-                    "when an incremental build\nmisbehaves. Clean also wipes "
-                    "bin\\ on this machine; Rebuild does not.");
-            if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
-            if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
-                runner_.runEmulatorOnly(project_, project_.activeScene);
-            ImGui::Separator();
-            const bool ps2Ready = !project_.ps2LinkIp.empty();
-            if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
-            if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
-            if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
-            if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
-                runner_.stopPs2(project_);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Kills the file server and resets ps2link - the "
-                                  "console reboots back to its listening state.");
-            if (ImGui::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
-                runner_.powerOffPs2(project_);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Switches the console off - ps2link's own poweroff command,\n"
-                    "the same shutdown its power button performs. Nothing on the\n"
-                    "network can switch it back on again.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Live Link", nullptr,
-                                project_.settings.liveLink)) {
-                project_.settings.liveLink = !project_.settings.liveLink;
-                commitChange();
-            }
-            if (ImGui::MenuItem("Live Debugger", nullptr,
-                                project_.settings.liveDebug)) {
-                project_.settings.liveDebug = !project_.settings.liveDebug;
-                commitChange();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Debug builds report every flow-graph node they run, and "
-                    "take breakpoint,\n"
-                    "pause/step and force-fire commands from "
-                    "the editor (docs/live-debugger.md).\n"
-                    "Open the panel with "
-                    "Tools > Debugger (F9) or the DBG chip in the toolbar.");
-            if (ImGui::MenuItem("Live Logic", nullptr,
-                                project_.settings.liveLogic)) {
-                project_.settings.liveLogic = !project_.settings.liveLogic;
-                commitChange();
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Edit a flow graph and the RUNNING game changes - no "
-                    "rebuild.\nThe editor compiles the graph itself and a debug "
-                    "build interprets it;\ngraphs the interpreter cannot "
-                    "express are named in the Debugger's Logic tab\n"
-                    "(docs/live-logic.md).");
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(
-                    "Mirror scene edits (move/rotate/scale/recolor objects, "
-                    "add/delete them)\ninto the running game without a rebuild "
-                    "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
-                    "off = the game is built without the poller and the "
-                    "editor\nnever writes snapshots. Needs the \"debug\" build "
-                    "profile (Project >\nPreferences > Build). Also toggled by "
-                    "clicking the LIVE chip in the toolbar.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
-            if (ImGui::MenuItem("Clean", nullptr, false, !busy))
-                runner_.clean(project_);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Deletes bin\\ and the container build cache "
-                                  "(obj) - the next build starts from scratch.");
-            ImGui::EndMenu();
+                    "The framebuffer depth the picture is shown at. Match\n"
+                    "project follows Preferences > Colour depth (and its\n"
+                    "dithering); the forced modes answer \"what if\" without\n"
+                    "touching the project.");
         }
 
-        if (ImGui::BeginMenu("Session")) {
-            const bool active = session_.active();
-            if (ImGui::MenuItem("Host Session...", nullptr, false,
-                                hasProject_ && !active))
-                openHostSessionPopup_ = true;
-            if (ImGui::MenuItem("Join Session...", nullptr, false, !active))
-                requestJoinSession();
-            ImGui::Separator();
-            if (ImGui::MenuItem("Session Window", nullptr, showSessionWindow_, active))
-                showSessionWindow_ = !showSessionWindow_;
-            if (ImGui::MenuItem(session_.role() == session::Session::Role::Client
-                                    ? "Leave Session"
-                                    : "Close Session",
-                                nullptr, false, active))
-                closeSession();
-            ImGui::EndMenu();
+        ImGui::Separator();
+        ImGui::TextDisabled("Render mode");
+        const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+        // Switching costs no write and no dirty flag: the render mode is
+        // VIEW state, not content, and saveProject() reads it off the
+        // viewport at save time - exactly like the projection below. This
+        // used to call saveAll(), which silently committed every pending
+        // scene edit and cleared the save icon along the way.
+        for (int i = 0; i < 3; ++i) {
+            const bool active = (int)viewport_.viewMode() == i;
+            if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
+                viewport_.setViewMode((Viewport::ViewMode)i);
         }
 
-        // One flat list under labelled headers rather than submenus: every
-        // doc page, tooltip and AI prompt in the repo names a tool as
-        // "Tools > X", and a submenu would put a word into all of those
-        // paths. Groups answer "what am I working on"; inside a group the
-        // items are ALPHABETICAL, so a tool is found by reading, not by
-        // remembering where it landed the day it was added.
-        if (hasProject_ && ImGui::BeginMenu("Tools")) {
-            ImGui::SeparatorText("Assets");
-            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
-            if (ImGui::MenuItem("Asset Browser...")) {
-                showAssetBrowser_ = true;
-                scanAssetTree();
+        ImGui::Separator();
+        ImGui::TextDisabled("Projection");
+        {
+            // Perspective + the parallel views. The axis entries also aim
+            // the camera down that world axis; orbiting afterwards drops
+            // the lock and returns to whichever free mode was in use
+            // before the axis view was picked.
+            struct ProjItem {
+                Viewport::Projection p;
+                const char* label;
+                const char* shortcut;
+            };
+            static const ProjItem items[] = {
+                {Viewport::Projection::Perspective, "Perspective", "Num 5"},
+                {Viewport::Projection::Ortho, "Orthographic", "Num 5"},
+                {Viewport::Projection::OrthoTop, "Top (-Y)", "Num 7"},
+                {Viewport::Projection::OrthoBottom, "Bottom (+Y)", "Ctrl+Num 7"},
+                {Viewport::Projection::OrthoFront, "Front (-Z)", "Num 1"},
+                {Viewport::Projection::OrthoBack, "Back (+Z)", "Ctrl+Num 1"},
+                {Viewport::Projection::OrthoRight, "Right (-X)", "Num 3"},
+                {Viewport::Projection::OrthoLeft, "Left (+X)", "Ctrl+Num 3"},
+            };
+            for (const ProjItem& it : items) {
+                const bool active = viewport_.projection() == it.p;
+                if (ImGui::MenuItem(it.label, it.shortcut, active, hasProject_) &&
+                    !active)
+                    setViewProjection(it.p);
             }
-            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ambient / drone music generator: audition a patch live,\n"
-                    "render it into res/audio as a looping background track.");
-            if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
-            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
-            if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("The particle library: effects defined once, used by\n"
-                                  "emitters and vehicle tyre smoke.");
-            if (ImGui::MenuItem("Texture Atlas...")) {
-                showTextureAtlas_ = true;
-                atlasPlanDirty_ = true;
+            if (ImGui::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
+                showAxisGizmo_ = !showAxisGizmo_;
+                saveGlobalConfig();
             }
-            if (ImGui::IsItemHovered())
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
-                    "What the build packed into shared texture pages, what it\n"
-                    "refused and why, and what it costs in GS VRAM - plus the\n"
-                    "per-texture keep-out and grouping controls. A page is ONE\n"
-                    "allocation and ONE palette, so what shares one is worth\n"
-                    "looking at.");
-            if (ImGui::MenuItem("Tree Generator...")) {
-                showTreeGenerator_ = true;
-                treePreviewDirty_ = true;
-            }
-
-            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Driveable cars. Define one - model, wheels, how it drives -\n"
-                    "and place it in as many scenes as you like. The wheels are\n"
-                    "found in the model by their geometry, so their names in\n"
-                    "Blender do not matter.");
-
-            ImGui::SeparatorText("Scene");
-            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
-            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
-            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Reusable groups of objects - a hut, a room, a lamp post\n"
-                    "with its light and its script. Stamp them by hand, scatter\n"
-                    "them with a procedural graph, or spawn them at runtime.");
-            if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
-            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
-
-            ImGui::SeparatorText("Lighting & rendering");
-            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-            if (ImGui::MenuItem("Baked Lighting...")) {
-                showAmbienceEditor_ = true;
-                showBakedLighting_ = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Light baked on the host and shipped as pixels: automatic\n"
-                    "model AO multiplied into each model's own texture.");
-            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
-            // The two bakes live in the Ambience Editor now; the menu items
-            // still work and simply open that window on their tab.
-            if (ImGui::MenuItem("Global Illumination...")) {
-                showAmbienceEditor_ = true;
-                showGiBake_ = true;
-            }
-            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Train, cross-validate and inspect the reduced-resolution\n"
-                    "reconstruction network, and look at the pictures it makes.\n"
-                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
-                    "without a terminal. Proof of concept - read the notes.");
-            if (ImGui::MenuItem("Static Batches...")) {
-                showStaticBatches_ = true;
-                batchDirty_ = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Which static objects merged into one submit, what each\n"
-                    "batch costs in VU1 packages against drawing its members\n"
-                    "solo, and WHY every object that is not batched is not.\n"
-                    "A batch is culled as a unit, so its merged box is worth\n"
-                    "looking at.");
-            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
-                    "posterize - and see the micro memory it costs, the VCL it\n"
-                    "generates and what it computes, without a console. Also\n"
-                    "VU0 compute kernels.");
-
-            ImGui::SeparatorText("Screens & menus");
-            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "End credits: headings, role/name pairs, images and page\n"
-                    "breaks, imported from a text file if you like, scrolling\n"
-                    "over music with a skip button and somewhere to go after.");
-            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
-            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
-            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
-            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
-
-            ImGui::SeparatorText("Gameplay");
-            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
-            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
-            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "The game's central memory: named, typed facts like\n"
-                    "\"the generator is repaired\" or \"marta.trust\", the\n"
-                    "reusable conditions over them, the rules that react,\n"
-                    "and a live blackboard of every one of them while the\n"
-                    "game runs.");
-
-            ImGui::SeparatorText("Running game");
-            if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
-            if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Hold the running game's controller from here - click the\n"
-                    "buttons or drive it with the editor's keyboard. PCSX2 does\n"
-                    "not need the focus, and the same channel is scriptable\n"
-                    "(tyrax-editor --pad). Debug builds only.");
-
-            ImGui::SeparatorText("AI");
-            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ask about the editor - it answers from the editor's own\n"
-                    "documentation - or ask for something to be done: it can\n"
-                    "add and change objects, write flow graphs, switch scenes\n"
-                    "and open windows. Uses the AI backend from Edit >\n"
-                    "Preferences; every change it makes is one Ctrl+Z away.");
-            ImGui::EndMenu();
-        }
-        // Deliberately outside the project gate: which build this is, and
-        // whether there is a newer one, are questions somebody has on the
-        // welcome screen too (docs/updates.md).
-        if (ImGui::BeginMenu("Help")) {
-            ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
-                            nullptr, false, false);
-            ImGui::Separator();
-            const bool updateBusy = updateChecking_ || updateDownloading_;
-            if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
-                startUpdateCheck(true);
-            if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
-            ImGui::Separator();
-            if (ImGui::MenuItem("Documentation"))
-                platform::openUrl(std::string("https://github.com/") +
-                                  update::kRepo + "/blob/main/docs/README.md");
-            if (ImGui::MenuItem("Releases"))
-                platform::openUrl(std::string("https://github.com/") +
-                                  update::kRepo + "/releases");
-            if (ImGui::MenuItem("Report an issue"))
-                platform::openUrl(std::string("https://github.com/") +
-                                  update::kRepo + "/issues");
-            ImGui::EndMenu();
+                    "The axis widget in the viewport's top-right corner:\n"
+                    "click an axis ball to snap to that orthographic view,\n"
+                    "click the hub to switch perspective/parallel.");
         }
 
-        drawToolbar();  // shell_ui.cpp; the status message is in the status bar
-        ImGui::EndMainMenuBar();
+        ImGui::Separator();
+        ImGui::TextDisabled("Placement");
+        if (ImGui::MenuItem("Snap to surface", nullptr, placementSnap_)) {
+            placementSnap_ = !placementSnap_;
+            saveGlobalConfig();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Inserted and pasted objects rest on the surface under "
+                "them\n(the terrain, or the top of the object below) "
+                "instead of\nsinking into it. A machine setting, not "
+                "project data.");
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Preview");
+        // Editor notes (docs/comments.md). Icons are always present; this
+        // persisted option expands every note instead of only the selected
+        // one.
+        if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
+            showCommentText_ = !showCommentText_;
+            saveGlobalConfig();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Expand every comment's text in the viewport. When off,\n"
+                "the message icons stay visible and clickable, but only\n"
+                "the selected comment shows its text. Off by default.\n"
+                "Notes are editor-only either way: nothing reaches the game.");
+        if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
+            showFog_ = !showFog_;
+            applyProjectToViewport();  // suppress/restore fog in the viewport now
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
+                              "Turn off to see distant geometry - does not "
+                              "affect the generated game.");
+        if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+                            hasProject_))
+            showNavOverlay_ = !showNavOverlay_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Show the baked navigation grid the AI flow nodes walk on "
+                "(green = walkable). Tune it in Project > Preferences > "
+                "AI navigation.");
+        if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                            hasProject_))
+            showCollisionBoxes_ = !showCollisionBoxes_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Draw the box the GAME blocks the player and the "
+                "third-person\ncamera with (red). A model collides as its "
+                "bounding box, not its\nmesh, so this is what explains a "
+                "prop you cannot walk up to or a\ncamera that pulls in "
+                "early. The running game can draw the same\nboxes - "
+                "Preferences > Build > Show collision boxes.");
+        if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
+                            hasProject_)) {
+            showBatchOverlay_ = !showBatchOverlay_;
+            batchDirty_ = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Colour every static object by the batch it merges into, "
+                "with\nsolo objects in grey, and draw each batch's MERGED "
+                "BOX. That box\nis what the frustum and the draw-distance "
+                "test are applied to -\na batch draws as a unit - so an "
+                "over-wide one is geometry the\nunbatched scene would "
+                "cull. Tools > Static Batches lists them.");
+        if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
+                            hasProject_))
+            showProcPreview_ = !showProcPreview_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Draw what the procedural volumes generate. Turn it off to "
+                "work on\nwhat is underneath - a finished forest hides the "
+                "ground it grows on.\nThe graph keeps being evaluated, so "
+                "the budget readout and the seed\nsimulator stay live; only "
+                "the geometry goes.");
+        if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
+                            hasProject_))
+            showScrollerPreview_ = !showScrollerPreview_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Draw the sliding ghost copies of EVERY endless scroller's\n"
+                "segments. Turn it off to work on the member objects the\n"
+                "copies are made of - a running belt fills its whole window\n"
+                "with them. One belt at a time is 'Show belt preview' in\n"
+                "that scroller's Properties. The belt markers stay either\n"
+                "way, and the clone count and warnings stay live.");
+
+        ImGui::Separator();
+        ImGui::TextDisabled("TV safe frame");
+        if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
+        if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
+
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Layout", hasProject_)) {
+        drawLayoutMenu();
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Scene", hasProject_)) {
+        if (ImGui::BeginMenu("Add")) {
+            drawAddObjectMenu();
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Drop to floor", "End", false, !selection_.empty()))
+            dropSelectionToFloor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Rest every selected object on the first surface below it "
+                "-\nthe terrain or the top of another object.");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Project", hasProject_)) {
+        const bool busy = runner_.busy();
+        if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
+            openProjectPreferences();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
+            runner_.exportIso(projectForBuild());
+        if (ImGui::MenuItem("Disc Layout...")) {
+            showDiscLayout_ = true;
+            discPlanDirty_ = true;
+        }
+        ImGui::EndMenu();
+    }
+    // VS-style top-level Build menu (the Project panel keeps its buttons)
+    if (ImGui::BeginMenu("Build", hasProject_)) {
+        const bool busy = runner_.busy();
+        if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
+            runner_.buildAndRun(projectForBuild(), false);
+        if (ImGui::MenuItem("Rebuild", nullptr, false, !busy))
+            runner_.buildAndRun(projectForBuild(), false, true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Full rebuild: recreates the build container, then compiles "
+                "the engine\n(VU1 microprograms included) and every game "
+                "source from scratch.\nSlow on purpose - it is the way out "
+                "when an incremental build\nmisbehaves. Clean also wipes "
+                "bin\\ on this machine; Rebuild does not.");
+        if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
+            runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
+            runner_.runEmulatorOnly(project_, project_.activeScene);
+        ImGui::Separator();
+        const bool ps2Ready = !project_.ps2LinkIp.empty();
+        if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
+            runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
+        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
+            runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
+        if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
+        if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
+            runner_.stopPs2(project_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Kills the file server and resets ps2link - the "
+                              "console reboots back to its listening state.");
+        if (ImGui::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
+            runner_.powerOffPs2(project_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Switches the console off - ps2link's own poweroff command,\n"
+                "the same shutdown its power button performs. Nothing on the\n"
+                "network can switch it back on again.");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Live Link", nullptr,
+                            project_.settings.liveLink)) {
+            project_.settings.liveLink = !project_.settings.liveLink;
+            commitChange();
+        }
+        if (ImGui::MenuItem("Live Debugger", nullptr,
+                            project_.settings.liveDebug)) {
+            project_.settings.liveDebug = !project_.settings.liveDebug;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Debug builds report every flow-graph node they run, and "
+                "take breakpoint,\n"
+                "pause/step and force-fire commands from "
+                "the editor (docs/live-debugger.md).\n"
+                "Open the panel with "
+                "Tools > Debugger (F9) or the DBG chip in the toolbar.");
+        if (ImGui::MenuItem("Live Logic", nullptr,
+                            project_.settings.liveLogic)) {
+            project_.settings.liveLogic = !project_.settings.liveLogic;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Edit a flow graph and the RUNNING game changes - no "
+                "rebuild.\nThe editor compiles the graph itself and a debug "
+                "build interprets it;\ngraphs the interpreter cannot "
+                "express are named in the Debugger's Logic tab\n"
+                "(docs/live-logic.md).");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Mirror scene edits (move/rotate/scale/recolor objects, "
+                "add/delete them)\ninto the running game without a rebuild "
+                "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
+                "off = the game is built without the poller and the "
+                "editor\nnever writes snapshots. Needs the \"debug\" build "
+                "profile (Project >\nPreferences > Build). Also toggled by "
+                "clicking the LIVE chip in the toolbar.");
+        ImGui::Separator();
+        if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
+        if (ImGui::MenuItem("Clean", nullptr, false, !busy))
+            runner_.clean(project_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Deletes bin\\ and the container build cache "
+                              "(obj) - the next build starts from scratch.");
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Session")) {
+        const bool active = session_.active();
+        if (ImGui::MenuItem("Host Session...", nullptr, false,
+                            hasProject_ && !active))
+            openHostSessionPopup_ = true;
+        if (ImGui::MenuItem("Join Session...", nullptr, false, !active))
+            requestJoinSession();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Session Window", nullptr, showSessionWindow_, active))
+            showSessionWindow_ = !showSessionWindow_;
+        if (ImGui::MenuItem(session_.role() == session::Session::Role::Client
+                                ? "Leave Session"
+                                : "Close Session",
+                            nullptr, false, active))
+            closeSession();
+        ImGui::EndMenu();
+    }
+
+    // One flat list under labelled headers rather than submenus: every
+    // doc page, tooltip and AI prompt in the repo names a tool as
+    // "Tools > X", and a submenu would put a word into all of those
+    // paths. Groups answer "what am I working on"; inside a group the
+    // items are ALPHABETICAL, so a tool is found by reading, not by
+    // remembering where it landed the day it was added.
+    if (hasProject_ && ImGui::BeginMenu("Tools")) {
+        ImGui::SeparatorText("Assets");
+        if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
+        if (ImGui::MenuItem("Asset Browser...")) {
+            showAssetBrowser_ = true;
+            scanAssetTree();
+        }
+        if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Ambient / drone music generator: audition a patch live,\n"
+                "render it into res/audio as a looping background track.");
+        if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
+        if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+        if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The particle library: effects defined once, used by\n"
+                              "emitters and vehicle tyre smoke.");
+        if (ImGui::MenuItem("Texture Atlas...")) {
+            showTextureAtlas_ = true;
+            atlasPlanDirty_ = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "What the build packed into shared texture pages, what it\n"
+                "refused and why, and what it costs in GS VRAM - plus the\n"
+                "per-texture keep-out and grouping controls. A page is ONE\n"
+                "allocation and ONE palette, so what shares one is worth\n"
+                "looking at.");
+        if (ImGui::MenuItem("Tree Generator...")) {
+            showTreeGenerator_ = true;
+            treePreviewDirty_ = true;
+        }
+
+        if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Driveable cars. Define one - model, wheels, how it drives -\n"
+                "and place it in as many scenes as you like. The wheels are\n"
+                "found in the model by their geometry, so their names in\n"
+                "Blender do not matter.");
+
+        ImGui::SeparatorText("Scene");
+        if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+        if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+        if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Reusable groups of objects - a hut, a room, a lamp post\n"
+                "with its light and its script. Stamp them by hand, scatter\n"
+                "them with a procedural graph, or spawn them at runtime.");
+        if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
+        if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
+
+        ImGui::SeparatorText("Lighting & rendering");
+        if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+        if (ImGui::MenuItem("Baked Lighting...")) {
+            showAmbienceEditor_ = true;
+            showBakedLighting_ = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Light baked on the host and shipped as pixels: automatic\n"
+                "model AO multiplied into each model's own texture.");
+        if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+        // The two bakes live in the Ambience Editor now; the menu items
+        // still work and simply open that window on their tab.
+        if (ImGui::MenuItem("Global Illumination...")) {
+            showAmbienceEditor_ = true;
+            showGiBake_ = true;
+        }
+        if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Train, cross-validate and inspect the reduced-resolution\n"
+                "reconstruction network, and look at the pictures it makes.\n"
+                "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                "without a terminal. Proof of concept - read the notes.");
+        if (ImGui::MenuItem("Static Batches...")) {
+            showStaticBatches_ = true;
+            batchDirty_ = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which static objects merged into one submit, what each\n"
+                "batch costs in VU1 packages against drawing its members\n"
+                "solo, and WHY every object that is not batched is not.\n"
+                "A batch is culled as a unit, so its merged box is worth\n"
+                "looking at.");
+        if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                "posterize - and see the micro memory it costs, the VCL it\n"
+                "generates and what it computes, without a console. Also\n"
+                "VU0 compute kernels.");
+
+        ImGui::SeparatorText("Screens & menus");
+        if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "End credits: headings, role/name pairs, images and page\n"
+                "breaks, imported from a text file if you like, scrolling\n"
+                "over music with a skip button and somewhere to go after.");
+        if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+        if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+        if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
+        if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+
+        ImGui::SeparatorText("Gameplay");
+        if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
+        if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
+        if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The game's central memory: named, typed facts like\n"
+                "\"the generator is repaired\" or \"marta.trust\", the\n"
+                "reusable conditions over them, the rules that react,\n"
+                "and a live blackboard of every one of them while the\n"
+                "game runs.");
+
+        ImGui::SeparatorText("Running game");
+        if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+        if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Hold the running game's controller from here - click the\n"
+                "buttons or drive it with the editor's keyboard. PCSX2 does\n"
+                "not need the focus, and the same channel is scriptable\n"
+                "(tyrax-editor --pad). Debug builds only.");
+
+        ImGui::SeparatorText("AI");
+        if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Ask about the editor - it answers from the editor's own\n"
+                "documentation - or ask for something to be done: it can\n"
+                "add and change objects, write flow graphs, switch scenes\n"
+                "and open windows. Uses the AI backend from Edit >\n"
+                "Preferences; every change it makes is one Ctrl+Z away.");
+        ImGui::EndMenu();
+    }
+    // Deliberately outside the project gate: which build this is, and
+    // whether there is a newer one, are questions somebody has on the
+    // welcome screen too (docs/updates.md).
+    if (ImGui::BeginMenu("Help")) {
+        ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
+                        nullptr, false, false);
+        ImGui::Separator();
+        const bool updateBusy = updateChecking_ || updateDownloading_;
+        if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
+            startUpdateCheck(true);
+        if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
+        ImGui::Separator();
+        if (ImGui::MenuItem("Documentation"))
+            platform::openUrl(std::string("https://github.com/") +
+                              update::kRepo + "/blob/main/docs/README.md");
+        if (ImGui::MenuItem("Releases"))
+            platform::openUrl(std::string("https://github.com/") +
+                              update::kRepo + "/releases");
+        if (ImGui::MenuItem("Report an issue"))
+            platform::openUrl(std::string("https://github.com/") +
+                              update::kRepo + "/issues");
+        ImGui::EndMenu();
     }
 }
 
@@ -5220,6 +5202,7 @@ void App::saveAll(const char* status) {
     saveProject();
     if (auto err = project::saveHistory(project_, history_); !err.empty())
         platform::errorBox("Save History", err);
+    markEditsSaved();
     setDirty(false);
     statusMessage_ = status;
 }
@@ -5686,8 +5669,24 @@ void App::commitChange() {
     // edits with a dark save icon and NO prompt on exit, i.e. quietly losable.
     // A commit is by definition an edit worth saving, so mark dirty either way;
     // push() still decides whether it becomes an undo step.
-    history_.push({project_.scenes});
+    // A commit that makes no undo step is an edit to project-wide data (or a
+    // no-op): count it once per widget activation for the top bar's tally.
+    if (!history_.push({project_.scenes})) {
+        const ImGuiID active = ImGui::GetCurrentContext() ? ImGui::GetActiveID() : 0;
+        if (active == 0 || active != projectEditActiveId_) ++projectEditsUnsaved_;
+        projectEditActiveId_ = active;
+    }
     setDirty(true);
+}
+
+int App::unsavedEditCount() const {
+    return history_.stepsFromSaved() + projectEditsUnsaved_;
+}
+
+void App::markEditsSaved() {
+    history_.markSaved();
+    projectEditsUnsaved_ = 0;
+    projectEditActiveId_ = 0;
 }
 
 void App::setDirty(bool dirty) {
@@ -6052,6 +6051,7 @@ void App::closeProject() {
     project_ = Project();  // one empty scene - objects() stays safe to call
     hasProject_ = false;
     dirty_ = false;
+    markEditsSaved();
     history_.reset({project_.scenes});
     clearSelection();
     pastePending_ = false;
@@ -7310,6 +7310,7 @@ void App::attachProject() {
     // pushed an undo snapshot for assets found on disk, but those are
     // rediscovered on every open, so treat the project as saved.
     dirty_ = false;
+    markEditsSaved();
     updateWindowTitle();
 
     // Baseline the error catcher: any assertion already in this project's logs

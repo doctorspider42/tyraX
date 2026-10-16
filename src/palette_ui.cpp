@@ -325,8 +325,11 @@ void App::drawCommandPalette() {
         scrollToSel = true;
     }
     const Entry* chosen = nullptr;
-    if ((ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) && !hits.empty())
-        chosen = hits[paletteSel_].e;
+    const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter);
+    // Ctrl+Enter (Cmd+Return on a Mac - ImGui swaps the two there): hand the
+    // query to the AI Assistant as its draft instead of running a hit.
+    bool askAi = enter && ImGui::GetIO().KeyCtrl;
+    if (enter && !askAi && !hits.empty()) chosen = hits[paletteSel_].e;
 
     // Results.
     // As tall as what it lists, up to 60% of the window.
@@ -399,10 +402,42 @@ void App::drawCommandPalette() {
     }
     ImGui::EndChild();
 
-    // Footer.
+    // Footer: the keys on the left, the way out to the AI Assistant on the
+    // right (a button too - "Ask the AI assistant").
     ImGui::TextDisabled("Up/Down to move   Enter to run   Esc to close");
+    {
+        const bool hasReturn = ImGui::GetFont()->IsGlyphInFont((ImWchar)0x21B5) ||
+                               (ui::monoFont() && ui::monoFont()->IsGlyphInFont((ImWchar)0x21B5));
+        const std::string chord =
+            ui::ShortcutChord("Enter", hasReturn ? "\xE2\x86\xB5" : "Return", "+", true);
+        const char* askLabel = "Ask the AI assistant";
+        const float lh = ImGui::GetTextLineHeight();
+        const float capW = ui::Keycap(nullptr, ImVec2(), lh, chord.c_str());
+        const float askW = ImGui::CalcTextSize(askLabel).x + scaled(8.0f) + capW;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - askW);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton(askLabel, ImVec2(askW, lh))) askAi = true;
+        const bool hov = ImGui::IsItemHovered();
+        ImDrawList* fdl = ImGui::GetWindowDrawList();
+        fdl->AddText(p, ImGui::GetColorU32(hov ? sem.text : sem.textDim), askLabel);
+        ui::Keycap(fdl, ImVec2(p.x + askW - capW, p.y), lh, chord.c_str());
+        if (hov)
+            ImGui::SetTooltip("Open the AI Assistant with what you typed here as the draft message.");
+    }
     ImGui::End();
 
+    if (askAi) {
+        // The query becomes the Assistant's draft - appended on a new line if
+        // something is already drafted there, never sent by itself.
+        std::string draft = chatInputBuf_;
+        if (paletteQuery_[0]) draft += (draft.empty() ? "" : "\n") + std::string(paletteQuery_);
+        std::snprintf(chatInputBuf_, sizeof(chatInputBuf_), "%s", draft.c_str());
+        showAiChat_ = true;
+        chatFocusInput_ = true;
+        pendingFocusWindow_ = "AI Assistant";
+        chosen = nullptr;
+        close = true;
+    }
     if (chosen) {
         chosen->run();
         close = true;

@@ -147,6 +147,18 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // The logo at the top bar's left (mark + "TyraX" + caret) is one button,
+    // "TyraX menu": it - or F10, or Alt tapped on its own - opens a popup whose
+    // items are the ten menus (drawMainMenus) as submenus. shell_ui.cpp.
+    void drawLogoMenu();
+    void drawMainMenus();
+    // Set by --ui-script (a step naming a top-level menu while the logo menu is
+    // closed - devkit_ui.cpp) to open it on the next frame.
+    bool logoMenuOpenRequest_ = false;
+    bool logoMenuOpen_ = false;  // last frame's state, for the script shim
+    bool logoMenuOpenOnPress_ = false;  // so a second click closes, not reopens
+    bool altTapArmed_ = false;   // Alt went down with nothing else (yet)
+    double altTapStart_ = 0.0;
     // Writes the editor's own framebuffer to <TYRAX_SHOT>/shotNN.png every
     // TYRAX_SHOT_EVERY seconds (default 2), and nothing at all when the
     // variable is unset. The only screenshot path that works under a compositor
@@ -173,6 +185,9 @@ private:
     bool paletteFocus_ = false;  // put the caret in the query on the next frame
     char paletteQuery_[128] = "";
     int paletteSel_ = 0;
+    // Put the AI Assistant's input caret in its box on the next frame (the
+    // palette's Ctrl+Enter hands its query over as the draft).
+    bool chatFocusInput_ = false;
     // Which machine the toolbar's Run/Stop pair drives: false = the emulator
     // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
     // `runOnPs2`) - which console is on this desk is not project data. The Play
@@ -1804,7 +1819,16 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    // How many edits the top bar's "N unsaved" counts: the undo steps between
+    // the current state and the saved one (History::stepsFromSaved) plus the
+    // commits to project-wide data, which make no undo step. Those are counted
+    // once per widget activation, so a dragged slider is one edit, not sixty.
+    // Reset (with History::markSaved) by saveAll and on open/close.
+    int unsavedEditCount() const;
+    void markEditsSaved();
+    int projectEditsUnsaved_ = 0;
+    unsigned projectEditActiveId_ = 0;  // the ImGui item the last one came from
+    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
     bool titleShowsJoined_ = false;  // last session-client marker in the title
     std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
