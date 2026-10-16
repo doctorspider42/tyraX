@@ -1994,13 +1994,19 @@ void App::drawMenuBar() {
 // project setting - so nothing pops up in a release build or for anyone who
 // turned the debugger off.
 //
-// Only when CLOSED, and never the reverse: a panel the user closed mid-session
-// stays closed until the next launch, and a launch never steals focus from or
-// re-docks a panel that is already open.
+// Opening is not enough since the Debugger became a tab of the console drawer
+// (Output / Debug / Debugger share the Default layout's bottom node): an open
+// but unselected tab is as invisible as a closed panel. So a debug launch also
+// brings the tab forward (pendingFocusWindow_, settled once the window has been
+// submitted). Never the reverse: a panel the user closed mid-session stays
+// closed until the next launch, and nothing re-docks it. Build progress stays
+// reachable through the status bar's BUILDING / BUILD FAILED chip, which
+// brings Output forward.
 void App::openDebuggerForLaunch() {
-    if (!showDebugger_ && project_.settings.buildProfile == "debug" &&
-        project_.settings.liveDebug)
+    if (project_.settings.buildProfile == "debug" && project_.settings.liveDebug) {
         showDebugger_ = true;
+        pendingFocusWindow_ = "Debugger";
+    }
 }
 
 void App::runSelectedTarget(bool build) {
@@ -5236,20 +5242,19 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Properties", right);
-        // The Debugger is a TAB BEHIND Properties rather than a panel of its
-        // own: a new project should have somewhere for the debugger to appear
-        // the first time it runs the game (Run opens it - runSelectedTarget),
-        // without spending a second column on a panel that is empty until then.
+        // The bottom node is the console drawer: Output, Debug and the
+        // Debugger as three tabs of one node, so everything the running game
+        // says is in one place and Properties keeps its column to itself. The
+        // Debugger is open from a new project's first run (seedBuiltinLayouts)
+        // and a debug launch brings its tab forward (openDebuggerForLaunch).
         //
-        // Properties wins the tab because drawUI submits it first (it is drawn
-        // ~30 lines before drawDebuggerWindow) - a fresh dock node activates
-        // whichever of its windows is submitted first in the frame, which is
-        // the same mechanism documented on the Menu Designer recipe above.
-        // Docking order here does NOT decide it, so do not "fix" this by
-        // swapping these two lines.
-        ImGui::DockBuilderDockWindow("Debugger", right);
+        // Output wins the tab because drawUI submits it first - a fresh dock
+        // node activates whichever of its windows is submitted first in the
+        // frame (the mechanism documented on the Menu Designer recipe above),
+        // so docking order here does NOT decide it.
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Debugger", bottom);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         ImGui::DockBuilderDockWindow("Viewport", center);
         pendingFocusWindow_ = "Viewport";
@@ -13265,6 +13270,45 @@ static bool logLevelChip(logview::Level l, int count, bool on) {
     return clicked;
 }
 
+// --- console drawer ---
+// Output, Debug and the Debugger share the bottom dock node of the Default
+// layout and read as one console drawer: the same header row (actions left,
+// "Select text", level chips right), a dim time column on every entry, and
+// the error/warning count on the log tabs.
+
+// Seconds since local midnight from an "HH:MM:SS" stamp (the runner's own,
+// platform::logTimeStamp). -1 when `s` is not one.
+static int logStampSeconds(const char* s, size_t n) {
+    if (n < 8) return -1;
+    for (int i : {0, 1, 3, 4, 6, 7})
+        if (s[i] < '0' || s[i] > '9') return -1;
+    if (s[2] != ':' || s[5] != ':') return -1;
+    return ((s[0] - '0') * 10 + (s[1] - '0')) * 3600 + ((s[3] - '0') * 10 + (s[4] - '0')) * 60 +
+           (s[6] - '0') * 10 + (s[7] - '0');
+}
+
+// Puts the next header item on the current row when `w` px still fit there,
+// else starts a new row - the header wraps instead of clipping its chips.
+static void logRowNext(float w) {
+    ImGui::SameLine();
+    if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
+// Width of a SmallButton / text-only action with this label.
+static float logButtonWidth(const char* label) {
+    return ImGui::CalcTextSize(label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+}
+
+// A text-only header action (Clear, Copy, Reload...), wrapped like the rest of
+// the row. `first` = the row's first item (no SameLine before it).
+static bool logAction(const char* label, bool first = false) {
+    if (!first) logRowNext(logButtonWidth(label));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    const bool clicked = ImGui::SmallButton(label);
+    ImGui::PopStyleColor();
+    return clicked;
+}
+
 // Hands a panel its current text and classifies what is new in it.
 void App::logSetText(LogView& v, std::string&& text) {
     // Append-only is the common case - a build streaming lines in - so keep the
@@ -13275,17 +13319,38 @@ void App::logSetText(LogView& v, std::string&& text) {
     const bool appended =
         text.size() >= v.text.size() && text.compare(0, v.text.size(), v.text) == 0;
     if (appended && text.size() == v.text.size()) return;  // nothing new
+    // Last frame's provisional tail line keeps the time it first appeared with
+    // when it comes back below as a complete line.
+    int tailTime = -1;
     if (!appended) {
         v.lines.clear();
+        v.times.clear();
         v.parsed = 0;
         v.complete = 0;
         v.state = logview::State{};
+    } else if (v.times.size() > v.complete) {
+        tailTime = v.times[v.complete];
     }
     v.text = std::move(text);
     v.lines.resize(v.complete);  // drop last frame's provisional tail line
+    v.times.resize(v.complete);
     v.parsed = logview::parse(v.text, v.parsed, v.state, v.lines);
     v.complete = v.lines.size();
     logview::appendPartial(v.text, v.parsed, v.state, v.lines);
+
+    // Arrival times of the new lines - one clock read per call, not per line.
+    const std::string nowStamp = platform::logTimeStamp();
+    const int now = logStampSeconds(nowStamp.data(), nowStamp.size());
+    const size_t first = v.times.size();
+    for (size_t i = first; i < v.lines.size(); ++i) {
+        const logview::Line& ln = v.lines[i];
+        int t = -1;  // continuation and blank lines carry no time
+        if (!ln.cont && ln.end > ln.begin + ln.stamp) {
+            if (ln.stamp) t = logStampSeconds(v.text.data() + ln.begin, ln.stamp);
+            else t = (i == first && tailTime >= 0) ? tailTime : now;
+        }
+        v.times.push_back(t);
+    }
     v.dirty = true;
 }
 
@@ -13306,8 +13371,9 @@ void App::logRefresh(LogView& v) {
         if (!ln.cont) v.counts[(int)ln.level]++;
         if (!(v.mask & logview::bit(ln.level))) continue;
         v.visible.push_back((int)i);
-        if (ln.end - ln.begin > widestLen) {
-            widestLen = ln.end - ln.begin;
+        const size_t len = ln.end - ln.begin - ln.stamp;
+        if (len > widestLen) {
+            widestLen = len;
             widest = i;
         }
     }
@@ -13315,11 +13381,13 @@ void App::logRefresh(LogView& v) {
     // so the child cannot measure its own content width - and measuring every
     // line of a megabyte log is not affordable per rebuild. The longest line in
     // BYTES stands in for the widest in pixels (a log's lines are all the same
-    // typeface), and one CalcTextSize on it is free.
+    // typeface), and one CalcTextSize on it is free. The message is measured
+    // without its stamp: the time column is added in drawLogPanel.
     v.width = 0.0f;
     if (widestLen) {
         const logview::Line& ln = v.lines[widest];
-        v.width = ImGui::CalcTextSize(v.text.c_str() + ln.begin, v.text.c_str() + ln.end).x;
+        v.width = ImGui::CalcTextSize(v.text.c_str() + ln.begin + ln.stamp,
+                                      v.text.c_str() + ln.end).x;
     }
     v.widthFont = font;
     // Only the selectable-text mode needs the lines as one string; Copy builds
@@ -13331,28 +13399,24 @@ void App::logRefresh(LogView& v) {
     v.dirty = false;
 }
 
-void App::drawLogPanel(const char* id, LogView& v) {
-    // Here rather than in the callers: a Clear / source switch above this point
-    // has just replaced v.text and cleared v.lines, and `visible` still indexes
-    // the text that is gone. A no-op when nothing changed. Measured in the
-    // fixed-width face the lines below are drawn in (logRefresh re-measures
-    // when the face changes).
+// The end of a log panel's header row, after the caller's own actions:
+// "Select text", then the level chips pushed to the right edge. Each piece
+// moves to a new row when it no longer fits, so a narrow panel stacks instead
+// of clipping.
+void App::drawLogHeader(LogView& v) {
+    // The counts must be current before the chips read them, and a Clear in
+    // the caller's actions may just have replaced the text. Measured in the
+    // fixed-width face the lines are drawn in (logRefresh re-measures when the
+    // face changes).
     {
         ui::FontScope mono(ui::monoFont());
         logRefresh(v);
     }
 
-    // Most severe first - that is the order a reader scans a log console in.
-    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
-        const logview::Level l = (logview::Level)i;
-        if (i != logview::kLevelCount - 1) ImGui::SameLine();
-        if (logLevelChip(l, v.counts[i], (v.mask & logview::bit(l)) != 0)) {
-            v.mask ^= logview::bit(l);
-            v.dirty = true;
-            saveGlobalConfig();
-        }
-    }
-    ImGui::SameLine();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float switchW = IM_TRUNC(IM_TRUNC(ImGui::GetFontSize() * 1.05f) * 1.8f) +
+                          st.ItemInnerSpacing.x + ImGui::CalcTextSize("Select text").x;
+    logRowNext(switchW);
     if (ui::Switch("Select text", &v.selectText)) {
         v.dirty = true;
         v.scrollBottom = true;  // the two modes measure their content differently
@@ -13363,14 +13427,62 @@ void App::drawLogPanel(const char* id, LogView& v) {
             "Draw the filtered log in a read-only text box so it can be\n"
             "selected with the mouse. ImGui's editable text is one colour,\n"
             "so this trades the per-level colouring for selection - the\n"
-            "filter above keeps working either way.");
-    ImGui::Separator();
+            "filter keeps working either way.");
+
+    // Chips: most severe first - the order a reader scans a log console in.
+    // Their labels carry the counts, so the group's width is measured per frame
+    // (four CalcTextSize calls) to right-align it.
+    char text[logview::kLevelCount][48];
+    float chipW[logview::kLevelCount];
+    float groupW = 0.0f;
+    const float chipPadX = ImGui::GetFontSize() * 0.6f;  // logLevelChip's padding
+    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
+        const logview::Level l = (logview::Level)i;
+        snprintf(text[i], sizeof(text[i]), "%d %s", v.counts[i], logview::label(l, v.counts[i] != 1));
+        chipW[i] = ImGui::CalcTextSize(text[i]).x + chipPadX * 2.0f;
+        groupW += chipW[i] + (i != logview::kLevelCount - 1 ? st.ItemSpacing.x : 0.0f);
+    }
+    ImGui::SameLine();
+    float room = ImGui::GetContentRegionAvail().x;
+    if (room < groupW) {
+        // A row of their own, still right-aligned when it fits there.
+        ImGui::NewLine();
+        room = ImGui::GetContentRegionAvail().x;
+    }
+    if (room >= groupW) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room - groupW);
+    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
+        const logview::Level l = (logview::Level)i;
+        if (i != logview::kLevelCount - 1) logRowNext(chipW[i]);
+        if (logLevelChip(l, v.counts[i], (v.mask & logview::bit(l)) != 0)) {
+            v.mask ^= logview::bit(l);
+            v.dirty = true;
+            saveGlobalConfig();
+        }
+    }
+}
+
+void App::drawLogPanel(const char* id, LogView& v) {
+    // Here as well as in drawLogHeader: a Clear / source switch between the two
+    // has just replaced v.text and cleared v.lines, and `visible` would still
+    // index the text that is gone. A no-op when nothing changed.
+    {
+        ui::FontScope mono(ui::monoFont());
+        logRefresh(v);
+    }
+
+    // The time column, measured in the face it is drawn in.
+    float timeW;
+    {
+        ui::FontScope mono(ui::monoFont());
+        timeW = ImGui::CalcTextSize("00:00:00").x + ImGui::GetFontSize() * 0.8f;
+    }
+    const float gutter = scaled(10.0f);
 
     // Own scrolling child so the scroll can be driven directly (see the
     // autoscroll note below).
     if (!v.selectText)
-        ImGui::SetNextWindowContentSize(
-            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(10.0f), 0.0f));
+        ImGui::SetNextWindowContentSize(ImVec2(
+            gutter + timeW + v.width + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(10.0f), 0.0f));
     ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
     // A log is read in columns (timestamps, paths, counts): fixed-width.
@@ -13379,6 +13491,8 @@ void App::drawLogPanel(const char* id, LogView& v) {
     if (v.selectText) {
         // Sizing the input to its own content means this child (not the input)
         // owns the scrollbars, so GetScrollY/SetScrollHereY refer to what we see.
+        // (The joined text is the raw lines: an Output line keeps its runner
+        // stamp, a Debug line has no time - the column is a view, not text.)
         const ImVec2 pad = ImGui::GetStyle().FramePadding;
         const ImVec2 textSize = ImGui::CalcTextSize(v.joined.c_str(), nullptr, false);
         const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -13393,30 +13507,41 @@ void App::drawLogPanel(const char* id, LogView& v) {
         if (v.lines.empty())
             ImGui::TextDisabled("(nothing logged yet)");
         else
-            ImGui::TextDisabled("%d line%s hidden by the filter above.",
+            ImGui::TextDisabled("%d line%s hidden by the filter.",
                                 (int)v.lines.size(), v.lines.size() == 1 ? "" : "s");
     } else {
+        const ImVec4 dim = theme::semantics().textDim;
+        const ImU32 timeCol = ImGui::GetColorU32(ImVec4(dim.x, dim.y, dim.z, dim.w * 0.75f));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
         ImGuiListClipper clipper;
         clipper.Begin((int)v.visible.size());
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-                const logview::Line& ln = v.lines[v.visible[i]];
+                const int li = v.visible[i];
+                const logview::Line& ln = v.lines[li];
+                const ImVec2 p = ImGui::GetCursorScreenPos();
                 // Errors and warnings get a gutter mark in their colour, so a
                 // problem line is found by scanning one column, not by reading.
                 // (The child has no padding, so every line is indented by the
                 // gutter's width and the mark sits in it.)
-                const float gutter = scaled(10.0f);
                 if (ln.level == logview::Level::Error || ln.level == logview::Level::Warning) {
-                    const ImVec2 p = ImGui::GetCursorScreenPos();
                     const ImVec4 c = logLevelColor(ln.level);
-                    ImGui::GetWindowDrawList()->AddRectFilled(
+                    dl->AddRectFilled(
                         ImVec2(p.x + scaled(1.0f), p.y + 1.0f),
                         ImVec2(p.x + scaled(3.5f), p.y + ImGui::GetTextLineHeight() - 1.0f),
                         ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, ln.cont ? 0.4f : 1.0f)), scaled(1.0f));
                 }
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gutter);
+                // The time column: drawn, not submitted - it is chrome, and a
+                // second item per line would double the clipper's work.
+                const int t = (size_t)li < v.times.size() ? v.times[li] : -1;
+                if (t >= 0) {
+                    char hms[12];
+                    snprintf(hms, sizeof(hms), "%02d:%02d:%02d", t / 3600, (t / 60) % 60, t % 60);
+                    dl->AddText(ImVec2(p.x + gutter, p.y), timeCol, hms);
+                }
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gutter + timeW);
                 ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
-                ImGui::TextUnformatted(v.text.c_str() + ln.begin, v.text.c_str() + ln.end);
+                ImGui::TextUnformatted(v.text.c_str() + ln.begin + ln.stamp, v.text.c_str() + ln.end);
                 ImGui::PopStyleColor();
             }
         }
@@ -13437,20 +13562,96 @@ void App::drawLogPanel(const char* id, LogView& v) {
     ImGui::EndChild();
 }
 
+// The window flag that makes a docked log tab reserve room for its badge.
+// ImGui draws a tab's label from the window NAME, and the name is also the
+// window's id (layouts, scripts and editor.ini store "Output" / "Debug"), so a
+// count cannot go into the title. ImGuiWindowFlags_UnsavedDocument is the
+// one stock way to widen a tab without renaming it: the tab keeps a marker
+// slot at its right end, and drawLogTabBadge paints the count over the dot.
+// Only while docked (a floating window would show the dot in its title bar)
+// and only while there is something to count. It lags the counts by a frame,
+// which is invisible.
+static ImGuiWindowFlags logTabFlags(const char* name, const LogView& v) {
+    const int n = v.counts[(int)logview::Level::Error] + v.counts[(int)logview::Level::Warning];
+    if (n == 0) return 0;
+    ImGuiWindow* w = ImGui::FindWindowByName(name);
+    return (w && w->DockIsActive) ? ImGuiWindowFlags_UnsavedDocument : 0;
+}
+
+// Paints "3" (errors, danger) or "5" (warnings only, warn) over the current
+// window's dock-tab marker slot - call right after Begin. The tab bar was laid
+// out and drawn by this frame's dock node update, which ran before any docked
+// window's Begin, so the rect read here is this frame's. Drawn into the node
+// host's list (where the tab itself is), clipped to the tab bar: a popup or
+// floating window over the drawer still covers it.
+void App::drawLogTabBadge(const LogView& v) {
+    const int errors = v.counts[(int)logview::Level::Error];
+    const int warnings = v.counts[(int)logview::Level::Warning];
+    if (errors + warnings == 0) return;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (!(w->Flags & ImGuiWindowFlags_UnsavedDocument) || !w->DockIsActive) return;
+    ImGuiDockNode* node = w->DockNode;
+    if (!node || !node->TabBar || !node->HostWindow || node->IsHiddenTabBar()) return;
+    ImGuiTabBar* bar = node->TabBar;
+    ImGuiTabItem* tab = ImGui::TabBarFindTabByID(bar, w->TabId);
+    if (!tab || tab->Width <= 0.0f) return;
+
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float x0 = bar->BarRect.Min.x + IM_TRUNC(tab->Offset - bar->ScrollingAnim);
+    const ImRect tabRect(x0, bar->BarRect.Min.y, x0 + tab->Width, bar->BarRect.Max.y);
+    // TabItemLabelAndCloseButton's marker slot: a FontSize square at the
+    // tab's right end, inside the frame padding.
+    const float slot = ImGui::GetFontSize();
+    const ImVec2 slotMin(ImMax(tabRect.Min.x, tabRect.Max.x - bar->FramePadding.x - slot),
+                         tabRect.Min.y + bar->FramePadding.y);
+    if (slotMin.x + slot > tabRect.Max.x || tabRect.Max.x < bar->BarRect.Min.x ||
+        tabRect.Min.x > bar->BarRect.Max.x)
+        return;  // scrolled out of the bar, or squeezed too narrow for a slot
+
+    char num[8];
+    const int n = errors ? errors : warnings;
+    if (n > 99) snprintf(num, sizeof(num), "99+");
+    else snprintf(num, sizeof(num), "%d", n);
+    const ImVec4 c = errors ? theme::semantics().danger : theme::semantics().warn;
+
+    ImFont* font = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+    const float fs = IM_TRUNC(ImGui::GetFontSize() * 0.72f);
+    const ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, num);
+    const float h = IM_TRUNC(fs + 2.0f);
+    const float pw = ImMax(h, ts.x + fs * 0.6f);
+    // Centred on the slot, grown leftwards into the label's inner spacing for
+    // wide counts (the right edge stays put so the tab's rounding is clear).
+    const ImVec2 centre(slotMin.x + slot * 0.5f, slotMin.y + slot * 0.5f);
+    const float right = ImMin(centre.x + pw * 0.5f, tabRect.Max.x - st.FramePadding.x * 0.5f);
+    const ImVec2 pMin(right - pw, IM_TRUNC(centre.y - h * 0.5f));
+    const ImVec2 pMax(right, pMin.y + h);
+
+    // Light ink on a dark pill, dark on a light one (the warn amber of most
+    // themes is light enough to need black).
+    const float lum = 0.30f * c.x + 0.59f * c.y + 0.11f * c.z;
+    const ImU32 ink = lum > 0.55f ? IM_COL32(20, 20, 20, 255) : IM_COL32(255, 255, 255, 255);
+    ImDrawList* dl = node->HostWindow->DrawList;
+    dl->PushClipRect(bar->BarRect.Min, bar->BarRect.Max, false);
+    dl->AddRectFilled(pMin, pMax, ImGui::GetColorU32(c), h * 0.5f);
+    dl->AddText(font, fs, ImVec2(IM_TRUNC((pMin.x + pMax.x - ts.x) * 0.5f),
+                                 IM_TRUNC((pMin.y + pMax.y - ts.y) * 0.5f)),
+                ink, num);
+    dl->PopClipRect();
+}
+
 void App::drawOutputWindow() {
-    ImGui::Begin("Output");
+    ImGui::Begin("Output", nullptr, logTabFlags("Output", logOut_));
+    drawLogTabBadge(logOut_);
     logSetText(logOut_, runner_.log());
 
-    // Text-only actions: the level chips next to them are the bar's content.
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    if (ImGui::SmallButton("Clear")) runner_.clearLog();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Copy"))
+    // One header row: the panel's actions on the left, the filter on the right.
+    if (logAction("Clear", true)) runner_.clearLog();
+    if (logAction("Copy"))
         ImGui::SetClipboardText(logview::join(logOut_.text, logOut_.lines, logOut_.mask).c_str());
-    ImGui::PopStyleColor();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
-    ImGui::SameLine();
+    drawLogHeader(logOut_);
+    ImGui::Separator();
     drawLogPanel("##logscroll", logOut_);
     ImGui::End();
 }
@@ -13487,7 +13688,8 @@ static std::string ps2ConsoleLog(const std::string& runnerLog) {
 }
 
 void App::drawDebugWindow() {
-    ImGui::Begin("Debug");
+    ImGui::Begin("Debug", nullptr, logTabFlags("Debug", logDbg_));
+    drawLogTabBadge(logDbg_);
 
     // The source file is resolved and READ first, because the buttons below
     // report on the classified lines (the level counts, Copy) - so the Reload
@@ -13512,48 +13714,71 @@ void App::drawDebugWindow() {
     }
     debugReloadNow_ = false;
 
-    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
-    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
+    // Header row: source + actions on the left, the filter on the right
+    // (drawLogHeader). Game log = the game's own TYRA_LOG output (bin/log.txt,
+    // written on the host fs by the running ELF); Emulator log = PCSX2's
+    // console (emulog.txt).
     const char* sources[] = {"Game log", "Emulator log"};
-    ImGui::SetNextItemWidth(scaled(140));
-    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
+    ImGui::SetNextItemWidth(scaled(120));
+    if (ImGui::Combo("##Source", &debugLogSource_, sources, 2)) {
         logSetText(logDbg_, std::string());  // don't show the other source's content
         debugNextReload_ = 0.0;              // reload immediately from the new source
     }
-
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Reload")) debugReloadNow_ = true;
-    ImGui::SameLine();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Source: the game's own log (bin/log.txt) or PCSX2's emulog.txt.");
+    if (logAction("Reload")) debugReloadNow_ = true;
+    logRowNext(IM_TRUNC(IM_TRUNC(ImGui::GetFontSize() * 1.05f) * 1.8f) +
+               ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize("Auto").x);
     ui::Switch("Auto", &debugAutoReload_);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Copy"))
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Re-read the file twice a second.");
+    if (logAction("Copy"))
         ImGui::SetClipboardText(logview::join(logDbg_.text, logDbg_.lines, logDbg_.mask).c_str());
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear log") && !path.empty()) {
+    if (logAction("Clear log") && !path.empty()) {
         std::ofstream(path, std::ios::trunc);  // best effort; may be held open
         logSetText(logDbg_, std::string());
         debugNextReload_ = 0.0;
     }
-    ImGui::SameLine();
-    // Debug option: pop a copyable dialog when the game hits an assertion.
-    // Off -> errors go only here / to the console (the game logs them either
-    // way). Persisted machine-wide in editor.ini.
-    if (ui::Switch("Pop up on errors", &errorPopupEnabled_)) saveGlobalConfig();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "When the running game hits a fatal error (a failed assertion, e.g.\n"
-            "a missing texture) show it in a copyable dialog. When off, errors\n"
-            "go only to this log / the console.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Empties the file on disk.");
+    drawLogHeader(logDbg_);
 
-    if (path.empty())
-        ImGui::TextDisabled(
-            debugLogSource_ == 0
-                ? "No project open."
-                : "Emulator not found. Set the path in Edit > Preferences.");
-    else
-        ImGui::TextDisabled("%s", path.c_str());
+    // Second row, quiet: where the lines come from (ellipsized - the full path
+    // is the tooltip), and the error dialog switch at the right end.
+    {
+        const char* popLabel = "Pop up on errors";
+        const float popW = IM_TRUNC(IM_TRUNC(ImGui::GetFontSize() * 1.05f) * 1.8f) +
+                           ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(popLabel).x;
+        const std::string what =
+            !path.empty() ? path
+            : debugLogSource_ == 0 ? std::string("No project open.")
+                                   : std::string("Emulator not found. Set the path in Edit > Preferences.");
+        const float pathW = ImMax(0.0f, ImGui::GetContentRegionAvail().x - popW -
+                                            ImGui::GetStyle().ItemSpacing.x * 2.0f);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float h = ImGui::GetFrameHeight();
+        ImGui::Dummy(ImVec2(pathW, h));  // the hover target for the full path
+        if (ImGui::IsItemHovered() && !path.empty()) ImGui::SetTooltip("%s", path.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().textDim);
+        const float ty = at.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
+        ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), ImVec2(at.x, ty),
+                                  ImVec2(at.x + pathW, ty + ImGui::GetTextLineHeight()),
+                                  at.x + pathW, what.c_str(), nullptr, nullptr);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        const float room = ImGui::GetContentRegionAvail().x;
+        if (room > popW) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + room - popW);
+        // Debug option: pop a copyable dialog when the game hits an assertion.
+        // Off -> errors go only here / to the console (the game logs them
+        // either way). Persisted machine-wide in editor.ini.
+        if (ui::Switch(popLabel, &errorPopupEnabled_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "When the running game hits a fatal error (a failed assertion, e.g.\n"
+                "a missing texture) show it in a copyable dialog. When off, errors\n"
+                "go only to this log / the console.");
+    }
+    ImGui::Separator();
 
     drawLogPanel("##debugscroll", logDbg_);
     ImGui::End();

@@ -24,16 +24,21 @@ extra transport, no engine change.
    Debugger*; on by default).
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
 
-That is the whole of it: **launching the game opens the Debugger panel** when
-those first two conditions hold and the panel is closed. There is no separate
-"run with the debugger" action to remember — every launch path does it (the
-top bar's Run, its run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
-new project starts with the panel already docked as a tab behind **Properties**,
-so the first run has somewhere to report.
+That is the whole of it: **launching the game opens the Debugger panel and
+brings its tab forward** when those first two conditions hold. There is no
+separate "run with the debugger" action to remember — every launch path does it
+(the top bar's Run, its run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
+new project starts with the panel already docked in the **console drawer** — the
+bottom dock node of the *Default* layout, a tab beside **Output** and **Debug**
+— so the first run has somewhere to report. (Projects created before this keep
+their saved arrangement; *Layout > Reset to built-in arrangement* applies the
+new one.)
 
-It opens only when closed, and never closes it: a panel you shut mid-session
-stays shut until the next launch, and a launch never re-docks or steals focus
-from one already open. In a release build, or with *Live Debugger* off, nothing
+Bringing the tab forward is the point: in a drawer, an open but unselected tab
+is as invisible as a closed panel. While the build itself runs, the status
+bar's **BUILDING** / **BUILD FAILED** chip is one click from Output. A launch
+never closes the panel or re-docks it: a panel you shut mid-session stays shut
+until the next launch. In a release build, or with *Live Debugger* off, nothing
 appears — there would be nothing to show.
 
 To open it by hand anyway: *Tools > Debugger* (**F9**), or click the **DBG**
@@ -320,7 +325,7 @@ makes an attached snapshot *late*, never absent.
   — the other halves of the scripting story.
 - `examples/script-demo` is a good playground: open it, set the build profile to
   debug (the top bar's build profile pill, left of PCSX2 | PS2), and press F5 — the
-  panel opens by itself.
+  panel's tab comes forward by itself.
 
 The **Render cost** tab captures synchronized phase and object timings on demand,
 with baseline deltas and CSV export. See [profiling](profiling.md#on-demand-render-cost-178).

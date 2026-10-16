@@ -105,6 +105,12 @@ struct LogView {
     logview::State state;
     size_t parsed = 0;    // offset after the last COMPLETE line classified
     size_t complete = 0;  // lines.size() at that offset (the partial tail is dropped)
+    // When each line ARRIVED, parallel to `lines`: seconds since local midnight,
+    // -1 for no time (a continuation line, a blank one). A line carrying the
+    // runner's own "HH:MM:SS " stamp keeps that time; a file source (the Debug
+    // window) is stamped when logSetText first sees the line. A reset (Clear, a
+    // new log, a moved 1 MB tail) restamps everything with the current time.
+    std::vector<int> times;
 
     unsigned mask = logview::kAll;  // levels shown; persisted in editor.ini
     bool selectText = false;        // swap the colours for a selectable text box
@@ -323,10 +329,16 @@ private:
     // filter row with per-level counts, then the lines themselves coloured by
     // level. logSetText() classifies new text (incrementally while a build
     // streams into it), logRefresh() rebuilds the filtered view once per frame,
-    // and drawLogPanel() draws v.text through v's filter.
+    // and drawLogPanel() draws v.text through v's filter. drawLogHeader() ends
+    // the panel's header row: "Select text" then the level chips right-aligned,
+    // after whatever actions the caller put at the row's left (wrapping when
+    // the panel is narrow). drawLogTabBadge() puts the error/warning count on
+    // the panel's dock tab (see its definition for why not in the title).
     void logSetText(LogView& v, std::string&& text);
     void logRefresh(LogView& v);
+    void drawLogHeader(LogView& v);
     void drawLogPanel(const char* id, LogView& v);
+    void drawLogTabBadge(const LogView& v);
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesWindow();         // project-wide defaults (Project menu)

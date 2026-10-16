@@ -4884,11 +4884,12 @@ void seedBuiltinLayouts(Project& p) {
     // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
     // time each is shown (see WindowLayout / LayoutRecipe).
     // "debugger" in the DEFAULT layout: the panel is open from the first run of
-    // a new project, docked as a tab behind Properties (buildLayoutRecipe), so
-    // the first Build & Run has somewhere to report instead of the debugger
-    // being a thing you have to know to go and open. Properties is the selected
-    // tab, so an open Debugger costs one tab header until it has something to
-    // say. Existing projects keep the layouts saved in their .tyra.
+    // a new project, docked as a tab of the bottom console drawer beside Output
+    // and Debug (buildLayoutRecipe), so the first Build & Run has somewhere to
+    // report instead of the debugger being a thing you have to know to go and
+    // open. Output is the selected tab, so an open Debugger costs one tab
+    // header until a debug launch brings it forward. Existing projects keep the
+    // layouts saved in their .tyra.
     p.windowLayouts.push_back(
         {"Default", "", (int)LayoutRecipe::Default, {"debugger"}});
     p.windowLayouts.push_back(
