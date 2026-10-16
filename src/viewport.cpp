@@ -1886,6 +1886,11 @@ void Viewport::shutdown() {
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
+    if (shot_.fbo) glDeleteFramebuffers(1, &shot_.fbo);
+    if (shot_.colorTex) glDeleteTextures(1, &shot_.colorTex);
+    if (shot_.depthRbo) glDeleteRenderbuffers(1, &shot_.depthRbo);
+    if (shot_.gradeFbo) glDeleteFramebuffers(1, &shot_.gradeFbo);
+    if (shot_.gradeTex) glDeleteTextures(1, &shot_.gradeTex);
     if (gradeVao_) glDeleteVertexArrays(1, &gradeVao_);
     if (ps2Program_) glDeleteProgram(ps2Program_);
     if (outFbo_) glDeleteFramebuffers(1, &outFbo_);
@@ -5406,6 +5411,58 @@ static bool modelInView(const Mat4& mvp, const float mn[3], const float mx[3]) {
         if (furthest < -0.001f) return false;
     }
     return true;
+}
+
+uint32_t Viewport::renderShot(int width, int height, const std::vector<SceneObject>& objects,
+                              const float eye[3], const float target[3], float fovDeg,
+                              float rollDeg) {
+    // Swap the scene-pass targets (exactly the set ensureFramebuffer owns)
+    // for the private ones, so render() draws into them and resizes them, not
+    // the panel's. Everything else render() leaves behind that the MAIN image
+    // is read through - matrices for picking/gizmos, the last-image source the
+    // phone stream blits from, the camera override - is saved and restored.
+    auto swapTargets = [&]() {
+        std::swap(fbo_, shot_.fbo);
+        std::swap(colorTex_, shot_.colorTex);
+        std::swap(depthRbo_, shot_.depthRbo);
+        std::swap(gradeFbo_, shot_.gradeFbo);
+        std::swap(gradeTex_, shot_.gradeTex);
+        std::swap(fbWidth_, shot_.w);
+        std::swap(fbHeight_, shot_.h);
+    };
+    float savedView[16], savedProj[16];
+    std::memcpy(savedView, viewM_, sizeof(savedView));
+    std::memcpy(savedProj, projM_, sizeof(savedProj));
+    const uint32_t savedLast = lastImageFbo_;
+    const int savedLastW = lastImageW_, savedLastH = lastImageH_;
+    const bool savedOverride = camOverride_;
+    float savedEye[3], savedTarget[3];
+    std::memcpy(savedEye, camEye_, sizeof(savedEye));
+    std::memcpy(savedTarget, camTarget_, sizeof(savedTarget));
+    const float savedFov = camFov_, savedRoll = camRoll_;
+    const bool savedGuides = guidesVisible_;
+    const bool savedPs2 = ps2_.on;
+
+    swapTargets();
+    setCameraOverride(eye, target, fovDeg, rollDeg);
+    guidesVisible_ = false;
+    ps2_.on = false;
+    const uint32_t tex = render(width, height, objects, std::vector<int>(), -1);
+    ps2_.on = savedPs2;
+    guidesVisible_ = savedGuides;
+    swapTargets();
+
+    camOverride_ = savedOverride;
+    std::memcpy(camEye_, savedEye, sizeof(savedEye));
+    std::memcpy(camTarget_, savedTarget, sizeof(savedTarget));
+    camFov_ = savedFov;
+    camRoll_ = savedRoll;
+    lastImageFbo_ = savedLast;
+    lastImageW_ = savedLastW;
+    lastImageH_ = savedLastH;
+    std::memcpy(viewM_, savedView, sizeof(savedView));
+    std::memcpy(projM_, savedProj, sizeof(savedProj));
+    return tex;
 }
 
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,

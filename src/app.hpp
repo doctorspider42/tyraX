@@ -3096,6 +3096,20 @@ private:
     int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
     float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
     float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+    // The shot at the playhead, resolved by cutscenePosedObjects() whether or
+    // not it also drives the viewport (seqPreview_): the Director renders it
+    // into its own preview (Viewport::renderShot).
+    bool seqShotValid_ = false;
+    float seqShotEye_[3] = {0.0f, 0.0f, 0.0f};
+    float seqShotAt_[3] = {0.0f, 0.0f, -1.0f};
+    float seqShotFov_ = 60.0f, seqShotRoll_ = 0.0f, seqShotShake_ = 0.0f;
+    std::string seqShotCam_;      // Camera entity filming at the playhead ("" free)
+    // Director layout: inspector tab (0 Key, 1 Sequence), the preview band's
+    // height and the inspector's width. View state.
+    int seqInspTab_ = 0;
+    bool seqInspTabForce_ = false;
+    float seqTopH_ = 0.0f;
+    float seqInspW_ = 0.0f;
     // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
     // (src/camtake.hpp) staged for baking into free camera shots. The bake
     // preview is cached and recomputed only when a mapping control changes.
@@ -3153,6 +3167,13 @@ private:
     float phoneRoll_ = 0.0f;  // live Dutch angle, degrees (see phoneMap_)
     bool phoneCamPushed_ = false;  // camera override handed to the viewport?
     double phonePreviewAt_ = 0.0;  // ImGui time of the last streamed frame
+    // For the window's device row: poses per second (counted over ~1 s) and
+    // metres walked since the phone connected.
+    float phonePoseHz_ = 0.0f;
+    double phonePoseRateAt_ = 0.0;
+    int phonePoseRateN_ = 0;
+    float phoneWalked_ = 0.0f;
+    float phoneLastPos_[3] = {0.0f, 0.0f, 0.0f};
     // Recording. The buffer is a plain CamTake, so everything downstream is the
     // file importer's code.
     bool phoneRec_ = false;

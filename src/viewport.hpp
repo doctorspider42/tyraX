@@ -430,6 +430,16 @@ public:
     uint32_t render(int width, int height, const std::vector<SceneObject>& objects,
                     const std::vector<int>& selection, int primary);
 
+    // A second picture of the same scene through an explicit camera, into its
+    // own target - the Cutscene Director's shot preview. The same render()
+    // with the scene-pass targets swapped for a private set, the camera
+    // override set for the one call, and editor guides (grid, axes) and the
+    // PS2 output mode off; everything the main image and the picking depend
+    // on (matrices, the last-image source the phone stream reads) is put back.
+    // Returns the GL texture (bottom-up), valid until the next renderShot.
+    uint32_t renderShot(int width, int height, const std::vector<SceneObject>& objects,
+                        const float eye[3], const float target[3], float fovDeg, float rollDeg);
+
     // Phone camera link (docs/phone-camera.md): reads the image the LAST
     // render() produced back into packed RGB for JPEG streaming to the
     // companion app - so the phone sees exactly the frame the editor viewport
@@ -1435,6 +1445,12 @@ private:
     // without knowing about it.
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
+    // renderShot's private copy of the five targets ensureFramebuffer owns
+    // (swapped in for the one call; see renderShot).
+    struct ShotTargets {
+        uint32_t fbo = 0, colorTex = 0, depthRbo = 0, gradeFbo = 0, gradeTex = 0;
+        int w = 0, h = 0;
+    } shot_;
     // Which framebuffer holds the image the last render() returned (fbo_,
     // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
     // and its size - the source grabPreviewRgb blits from, so the phone sees

@@ -8,6 +8,9 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "widgets.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -457,6 +460,10 @@ void App::phoneCamTick() {
                 // is ten. The tolerance is a world-unit distance, so it follows.
                 phoneMap_.scale = project_.settings.unitsPerMeter;
                 phoneTolerance_ = 0.05f * project_.settings.unitsPerMeter;
+                phoneWalked_ = 0.0f;
+                phonePoseHz_ = 0.0f;
+                phonePoseRateN_ = 0;
+                phonePoseRateAt_ = ImGui::GetTime();
                 break;
             case phonecam::Event::Type::Disconnected:
                 if (phoneRec_) stopPhoneRecording();
@@ -485,6 +492,22 @@ void App::phoneCamTick() {
     }
 
     const std::vector<CamTakeSample> poses = phoneCam_.drainPoses();
+    // Device row figures: pose rate over ~1 s, metres walked (6DoF only - a
+    // rotation-only device never moves).
+    for (const CamTakeSample& smp : poses) {
+        if (phoneHasPose_) {
+            const float dx = smp.pos[0] - phoneLastPos_[0], dy = smp.pos[1] - phoneLastPos_[1],
+                        dz = smp.pos[2] - phoneLastPos_[2];
+            phoneWalked_ += std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        for (int c = 0; c < 3; ++c) phoneLastPos_[c] = smp.pos[c];
+    }
+    phonePoseRateN_ += (int)poses.size();
+    if (ImGui::GetTime() - phonePoseRateAt_ >= 1.0) {
+        phonePoseHz_ = (float)(phonePoseRateN_ / (ImGui::GetTime() - phonePoseRateAt_));
+        phonePoseRateN_ = 0;
+        phonePoseRateAt_ = ImGui::GetTime();
+    }
     if (!poses.empty()) {
         phonePose_ = poses.back();
         phonePoseAt_ = ImGui::GetTime();
@@ -536,274 +559,571 @@ void App::phoneCamTick() {
     }
 }
 
-// Tools > Phone Camera: hosting controls, what the phone has to be told to
-// connect, and the live mapping. Recording lives in the Cutscene Director -
-// this window is the link itself.
+// Tools > Phone Camera: the link and the recorder in one window. Unlinked it is
+// an explanation with ONE action (Start link) and what you need; waiting, it
+// is the address and the pairing code; linked, it is the phone's view, where
+// the shot starts, and Record. Machine-wide stream tuning folds away at the
+// bottom - set once, rarely read.
 void App::drawPhoneCamWindow() {
     if (!showPhoneCamWindow_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(760)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
         ImGui::End();
         return;
     }
-
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
     const bool up = phoneCam_.listening();
     const bool live = phoneCam_.connected();
+    const bool failed = phoneCam_.state() == phonecam::Link::State::Error;
     const phonecam::DeviceInfo dev = phoneCam_.device();
 
-    // --- state line ---------------------------------------------------------
-    if (phoneCam_.state() == phonecam::Link::State::Error) {
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
-        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
-    } else if (live) {
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
-        ImGui::SameLine();
-        ImGui::Text("- %s", dev.name.c_str());
-    } else if (up) {
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
-    } else {
-        ImGui::TextDisabled("Not hosting");
+    std::vector<std::string> cams;  // this scene's Camera entities
+    if (hasProject_)
+        for (const SceneObject& o : project_.objects())
+            if (o.type == PrimitiveType::Camera) cams.push_back(o.name);
+
+    // --- status line ----------------------------------------------------------
+    {
+        char pill[64];
+        int kind = 4;
+        if (failed) {
+            std::snprintf(pill, sizeof(pill), "Link failed###phone_state");
+            kind = 2;
+        } else if (live) {
+            if (phonePoseHz_ > 0.0f)
+                std::snprintf(pill, sizeof(pill), "Live \xc2\xb7 %.0f Hz###phone_state", phonePoseHz_);
+            else
+                std::snprintf(pill, sizeof(pill), "Live###phone_state");
+            kind = phoneRec_ ? 2 : 0;
+        } else if (up) {
+            std::snprintf(pill, sizeof(pill), "Waiting for a phone###phone_state");
+            kind = 1;
+        } else {
+            std::snprintf(pill, sizeof(pill), "Not linked###phone_state");
+        }
+        const float stopW = up ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ui::StatusPillWidth(pill) - stopW);
+        ui::StatusPill(pill, kind);
+        if (up) {
+            ImGui::SameLine();
+            // A square "stop" mark: ends the link (and a recording with it).
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float h = ImGui::GetFrameHeight();
+            if (ImGui::InvisibleButton("Stop link", ImVec2(h, h))) stopPhoneCam();
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            if (t > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h),
+                                  ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, t)),
+                                  ImGui::GetStyle().FrameRounding);
+            const float s = h * 0.28f;
+            dl->AddRectFilled(ImVec2(p.x + h * 0.5f - s, p.y + h * 0.5f - s),
+                              ImVec2(p.x + h * 0.5f + s, p.y + h * 0.5f + s),
+                              ImGui::GetColorU32(t > 0.0f ? sem.danger : sem.textDim), 2.0f);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Stop link - the phone disconnects%s.",
+                                  phoneRec_ ? " and the recording ends" : "");
+        }
     }
+    if (failed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+
+    // What you need - shown until a phone is linked.
+    auto youWillNeed = [&]() {
+        ui::Caption("You will need");
+        auto step = [&](int n, const std::string& text) {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = fs * 0.62f;
+            dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f), r,
+                                ImGui::GetColorU32(sem.field));
+            char num[4];
+            std::snprintf(num, sizeof(num), "%d", n);
+            const ImVec2 ns = ImGui::CalcTextSize(num);
+            dl->AddText(ImVec2(p.x + r - ns.x * 0.5f, p.y), ImGui::GetColorU32(sem.textDim), num);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + r * 2.0f + fs * 0.6f, p.y));
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextWrapped("%s", text.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+        };
+        step(1, "The tyrax-cam app on an iPhone with ARKit, or any browser at the address "
+                "shown after Start link (rotation only).");
+        step(2, "Phone and computer on the same Wi-Fi.");
+        std::string shot;
+        if (cams.empty()) {
+            shot = "A shot to start from: frame one in the viewport, or add a Camera to the "
+                   "scene.";
+        } else {
+            shot = "A shot to start from: select a Camera (";
+            for (size_t i = 0; i < cams.size() && i < 2; ++i) shot += (i ? ", " : "") + cams[i];
+            if (cams.size() > 2) shot += " ... " + std::to_string(cams.size()) + " in this scene";
+            shot += ") or frame one in the viewport.";
+        }
+        step(3, shot);
+    };
 
     if (!up) {
-        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(80.0f));
-        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
-            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
-        if (ImGui::IsItemHovered())
+        // --- connect: say what this is, one action -------------------------------
+        const float avail = ImGui::GetContentRegionAvail().x;
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const ImVec2 c(p.x + avail * 0.5f, p.y + fs * 2.0f);
+            // a phone, drawn: a rounded slab with a lens dot
+            dl->AddRect(ImVec2(c.x - fs * 0.75f, c.y - fs * 1.3f), ImVec2(c.x + fs * 0.75f, c.y + fs * 1.3f),
+                        ImGui::GetColorU32(sem.accent), fs * 0.3f, 0, 2.0f);
+            dl->AddCircleFilled(ImVec2(c.x, c.y + fs * 0.95f), fs * 0.12f, ImGui::GetColorU32(sem.accent));
+            ImGui::Dummy(ImVec2(avail, fs * 4.0f));
+        }
+        auto centred = [&](const char* text, bool bold, bool dim) {
+            ui::FontScope f(bold ? ui::boldFont() : nullptr);
+            const float w = ImMin(avail, ImGui::CalcTextSize(text).x);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - w) * 0.5f);
+            if (dim) ImGui::TextDisabled("%s", text);
+            else ImGui::TextUnformatted(text);
+        };
+        centred("Film with your phone", true, false);
+        centred("Move the phone and the editor camera moves with it.", false, true);
+        centred("Record the move into a cutscene from here.", false, true);
+        ImGui::Spacing();
+        {
+            const float bw = ImGui::CalcTextSize("Start link").x + ImGui::GetStyle().FramePadding.x * 5.0f;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - bw) * 0.5f);
+            if (ui::PrimaryButton("Start link", bw)) startPhoneCam();
+        }
+        {
+            char note[96];
+            std::snprintf(note, sizeof(note), "Opens port %d on this machine", phoneCamPort_);
+            centred(note, false, true);
+            centred("The first time, allow it on private networks.", false, true);
+        }
+        ImGui::Spacing();
+        youWillNeed();
+        ImGui::Spacing();
+        ui::InspectorRows rows(scaled(80.0f), scaled(140.0f));
+        if (ui::Switch("Require pairing code (a 6-digit code the phone must type)",
+                       &phoneCamRequireCode_))
+            saveGlobalConfig();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
                               "desk of your own, wrong in a shared office.");
-    } else {
-        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
-        if (live) {
-            ImGui::SameLine();
-            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        // A caption-left row like the switch above (no InputInt row wrapper:
+        // the field fills the row, which clips its own right-hand label).
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Port");
+        ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(140.0f)));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0)) {
+            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+            saveGlobalConfig();
         }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Stream quality and smoothing appear once a phone is connected.");
+        ImGui::End();
+        return;
     }
 
-    // --- what to type into the phone ---------------------------------------
-    if (up) {
-        ImGui::SeparatorText("Connect the phone to");
+    if (!live) {
+        // --- waiting: what to type into the phone, big ------------------------------
+        ui::Caption("Connect the phone to");
         const std::vector<std::string> ips = wire::localIPv4();
-        if (ips.empty()) {
+        if (ips.empty())
             ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
-        }
         for (const std::string& ip : ips) {
             const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
             ImGui::PushID(ip.c_str());
-            ImGui::Text("%s", addr.c_str());
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushFont(nullptr, fs * 1.35f);
+                ImGui::TextUnformatted(addr.c_str());
+                ImGui::PopFont();
+            }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.2f);
+            if (ui::GhostButton("Copy")) ImGui::SetClipboardText(addr.c_str());
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copy URL"))
-                ImGui::SetClipboardText(("http://" + addr).c_str());
+            if (ui::GhostButton("Copy URL")) ImGui::SetClipboardText(("http://" + addr).c_str());
             ImGui::PopID();
         }
         if (phoneCamRequireCode_) {
-            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::Spacing();
+            ui::Caption("Pairing code");
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushFont(nullptr, fs * 1.8f);
+                ImGui::TextUnformatted(phoneCamCode_.c_str());
+                ImGui::PopFont();
+            }
             ImGui::SameLine();
-            if (ImGui::SmallButton("New code")) {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.4f);
+            if (ui::GhostButton("New code")) {
                 phoneCamCode_ = phonecam::newPairCode();
                 saveGlobalConfig();
-                statusMessage_ =
-                    "New pairing code - restart the link for it to take effect";
+                statusMessage_ = "New pairing code - restart the link for it to take effect";
             }
         }
-        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
-                            "(sideloaded). Opening the http:// address in any\n"
-                            "browser gives a test client that shows the same\n"
-                            "stream and can fake a pose.");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Type the address%s into the tyrax-cam app "
+                            "(github.com/doctorspider42/tyrax-cam). Any browser at the "
+                            "http:// address gets a test client with the same stream.",
+                            phoneCamRequireCode_ ? " and the code" : "");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        youWillNeed();
+        ImGui::End();
+        return;
     }
 
-    // --- the connected device ----------------------------------------------
-    if (live) {
-        ImGui::SeparatorText("Device");
-        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
-        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
-        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
-        ImGui::Text("Tracking: %s",
-                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
-        if (!dev.sixDof && ImGui::IsItemHovered())
+    // --- live: the device ------------------------------------------------------------
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float h = fs * 2.6f;
+        const float w = ImGui::GetContentRegionAvail().x;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(p.x, p.y), ImVec2(p.x + h, p.y + h), ImGui::GetColorU32(sem.field),
+                          ImGui::GetStyle().FrameRounding + 2.0f);
+        ui::DrawGlyph(dl, ui::Glyph::Camera, ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.5f,
+                      ImGui::GetColorU32(sem.accent));
+        const std::string title =
+            dev.name.empty() ? std::string("Phone") : dev.name + (dev.client.empty() ? "" : " \xc2\xb7 " + dev.client);
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(p.x + h + fs * 0.6f, p.y + fs * 0.15f), ImGui::GetColorU32(sem.text),
+                        title.c_str());
+        }
+        const std::string sub = (dev.address.empty() ? std::string() : dev.address + " \xc2\xb7 ") +
+                                (dev.sixDof ? "6DoF tracking" : "rotation only");
+        {
+            ui::FontScope mono(ui::monoFont());
+            dl->AddText(ImVec2(p.x + h + fs * 0.6f, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim),
+                        sub.c_str());
+            if (dev.sixDof) {
+                char walked[32];
+                std::snprintf(walked, sizeof(walked), "%.2f m", phoneWalked_);
+                const float ww = ImGui::CalcTextSize(walked).x;
+                dl->AddText(ImVec2(p.x + w - ww, p.y + fs * 0.15f), ImGui::GetColorU32(sem.textDim), walked);
+                const float lw = ImGui::CalcTextSize("walked").x;
+                dl->AddText(ImVec2(p.x + w - lw, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim), "walked");
+            }
+        }
+        ImGui::Dummy(ImVec2(w, h));
+        if (!dev.sixDof && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("This device reports no world position, so the camera\n"
                               "turns in place instead of walking.");
+    }
+    ImGui::Spacing();
+
+    // --- the phone's view (the hero) ----------------------------------------------
+    {
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float aspect = ps2ViewportOutput().tvAspect > 0.1f ? ps2ViewportOutput().tvAspect : 4.0f / 3.0f;
+        const float h = ImMin(w / aspect, scaled(190.0f));
+        const float iw = h * aspect;
+        const ImVec2 p(ImGui::GetCursorScreenPos().x + (w - iw) * 0.5f, ImGui::GetCursorScreenPos().y);
+        const ImVec2 q(p.x + iw, p.y + h);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
         const double age = ImGui::GetTime() - phonePoseAt_;
         if (phoneHasPose_ && age < 1.0) {
-            ImGui::Text("Stream: %llu poses", (unsigned long long)phoneCam_.poseCount());
-            ImGui::Text("Pose: %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
-                        phonePose_.pos[2]);
-            ImGui::Text("Camera: %.1f %.1f %.1f", phoneEye_[0], phoneEye_[1],
-                        phoneEye_[2]);
+            // The camera the phone is driving, rendered here so the window shows
+            // what the phone shows even when the viewport is someone else's.
+            std::vector<std::string> hide;
+            if (!phoneRecTarget_.empty()) hide.push_back(phoneRecTarget_);
+            viewport_.setHiddenCameras(hide);
+            const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+            const uint32_t tex = viewport_.renderShot((int)(iw * sc), (int)(h * sc), project_.objects(),
+                                                      phoneEye_, phoneTarget_, phoneFov_, phoneRoll_);
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, q, ImVec2(0, 1), ImVec2(1, 0),
+                                IM_COL32_WHITE, r);
         } else {
-            ImGui::TextDisabled(phoneHasPose_ ? "Stream stalled" : "No pose yet");
+            dl->AddRectFilled(p, q, ImGui::GetColorU32(sem.field), r);
+            const char* msg = phoneHasPose_ ? "Stream stalled" : "Waiting for the first pose...";
+            const ImVec2 ms = ImGui::CalcTextSize(msg);
+            dl->AddText(ImVec2((p.x + q.x - ms.x) * 0.5f, (p.y + q.y - ms.y) * 0.5f),
+                        ImGui::GetColorU32(sem.textDim), msg);
         }
+        dl->AddRect(p, q, ImGui::GetColorU32(sem.border), r);
+        // glass labels: what the phone receives, and where it is
+        auto glass = [&](ImVec2 at, const char* text, bool right) {
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(text);
+            const ImVec2 a(right ? at.x - ts.x - fs * 0.8f : at.x, at.y);
+            dl->AddRectFilled(a, ImVec2(a.x + ts.x + fs * 0.8f, a.y + ts.y + fs * 0.4f),
+                              IM_COL32(0, 0, 0, 170), fs * 0.3f);
+            dl->AddText(ImVec2(a.x + fs * 0.4f, a.y + fs * 0.2f), IM_COL32(235, 235, 240, 255), text);
+        };
+        const phonecam::PreviewPrefs pv = phoneCam_.preview();
+        char top[64];
+        std::snprintf(top, sizeof(top), "what the phone shows \xc2\xb7 %d px \xc2\xb7 %d fps", pv.maxWidth, pv.fps);
+        glass(ImVec2(p.x + fs * 0.5f, p.y + fs * 0.5f), top, false);
+        if (phoneHasPose_) {
+            char pos[64];
+            std::snprintf(pos, sizeof(pos), "pos %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
+                          phonePose_.pos[2]);
+            glass(ImVec2(q.x - fs * 0.5f, q.y - fs * 1.9f), pos, true);
+        }
+        ImGui::Dummy(ImVec2(w, h));
     }
+    ImGui::Spacing();
 
-    // --- mapping ------------------------------------------------------------
-    ImGui::SeparatorText("Camera");
-    // Which Camera entity the phone views from AND records into - one control,
-    // because they are one intent. Picking one jumps the phone to where that
-    // camera was placed, and Recentre returns there.
+    // --- where the shot starts ---------------------------------------------------------
+    ui::Caption("Start from");
     {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        // Which Camera entity the phone views from AND records into - one control,
+        // because they are one intent. Picking one jumps the phone to where that
+        // camera was placed, and Recentre returns there.
         const std::string label =
-            phoneRecTarget_.empty() ? "Free shots (from the editor view)"
-                                    : phoneRecTarget_;
+            phoneRecTarget_.empty() ? "Free shots (from the editor view)" : phoneRecTarget_;
         ImGui::BeginDisabled(phoneRec_);
-        ImGui::SetNextItemWidth(scaled(230.0f));
-        if (ImGui::BeginCombo("View from", label.c_str())) {
-            if (ImGui::Selectable("Free shots (from the editor view)",
-                                  phoneRecTarget_.empty()))
+        if (ui::BeginCombo("View from", label.c_str())) {
+            if (ImGui::Selectable("Free shots (from the editor view)", phoneRecTarget_.empty()))
                 selectPhoneCamera(std::string());
-            bool any = false;
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera) any = true;
-            if (any) ImGui::Separator();
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera)
-                    if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
-                        selectPhoneCamera(o.name);
+            if (!cams.empty()) ImGui::Separator();
+            for (const std::string& c : cams)
+                if (ImGui::Selectable(c.c_str(), phoneRecTarget_ == c)) selectPhoneCamera(c);
             ImGui::EndCombo();
         }
         ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                phoneRec_ ? "Locked while recording."
-                          : "The phone starts from this camera's placed pose -\n"
-                            "position, aim and tilt - and Recentre returns there.\n"
-                            "The recording goes into the same camera's track.\n"
-                            "Also selectable on the phone.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(phoneRec_ ? "Locked while recording."
+                                        : "The phone starts from this camera's placed pose -\n"
+                                          "position, aim and tilt - and Recentre returns there.\n"
+                                          "The recording goes into the same camera's track.\n"
+                                          "Also selectable on the phone.");
         if (!phoneRecTarget_.empty() && !phoneStartCamera())
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
-                               "\"%s\" is not in this scene - using the editor view.",
+            ImGui::TextColored(sem.warn, "\"%s\" is not in this scene - using the editor view.",
                                phoneRecTarget_.c_str());
-    }
-    if (ImGui::Checkbox("Drive the viewport camera", &phoneDrive_)) {
-        if (!phoneDrive_) phoneCamPushed_ = false;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The phone's motion moves the editor camera (and so the\n"
-                          "image it is streaming). Off leaves the viewport under\n"
-                          "your own control while the link stays up.");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Game units per real metre. Seeded from the project's\n"
-                          "world scale when the phone connects; raise it to cover\n"
-                          "more map from the same room.");
-    // Same affordance as the take-import modal: the project's world scale is the
-    // right answer, so hand-tuning it away needs one click back.
-    if (phoneMap_.scale != project_.settings.unitsPerMeter) {
+        const float worldW = ImGui::CalcTextSize("World").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - worldW - ImGui::GetStyle().ItemSpacing.x);
+        ui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Game units per real metre. Seeded from the project's\n"
+                              "world scale when the phone connects; raise it to cover\n"
+                              "more map from the same room.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("World scale"))
+        // The project's world scale is the right answer, so hand-tuning it
+        // away needs one click back.
+        if (ui::GhostButton("World", worldW, phoneMap_.scale != project_.settings.unitsPerMeter))
             phoneMap_.scale = project_.settings.unitsPerMeter;
-        if (ImGui::IsItemHovered())
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Back to the project's %.3f units per meter\n"
                               "(Project Preferences > World).",
                               project_.settings.unitsPerMeter);
     }
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Button("Recentre")) phoneCamRecenter();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(phoneRecTarget_.empty()
-                              ? "Back to the editor's own camera, aimed where the\n"
-                                "viewport is looking. Everything the phone does\n"
-                                "is relative to this point."
-                              : "Back to where the selected camera was PLACED -\n"
-                                "its position, aim and tilt. Everything the phone\n"
-                                "does is relative to that pose, and Move only\n"
-                                "offsets from it.");
-    // The start point, editable directly: Recentre snaps it to the viewport
-    // camera, but a shot often wants an exact spot - and the phone can fly it
-    // too (its Move mode), which writes the same three numbers.
-    if (ImGui::DragFloat3("Start point", phoneMap_.origin, 0.1f))
-        phoneMap_.hasAnchor = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
-                          "exactly, or fly it live from the app (its Move button).\n"
-                          "Moving this slides the camera bodily; the phone's own\n"
-                          "motion stays relative to wherever it ends up.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("From view")) {
-        float eye[3], at[3];
-        viewport_.currentCamera(eye, at);
-        for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
-        phoneMap_.hasAnchor = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
-                          "aim alone (Recentre does both).");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
-                          "Recentre sets this from the viewport view.");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
-                          "reaches the shot (the Dutch angle). 1 films the lean\n"
-                          "as held, 0 pins the horizon level and throws hand\n"
-                          "tremble away. Recentre makes the way you are holding\n"
-                          "it right now count as level.");
-    ImGui::SameLine();
-    ImGui::Text("roll %.1f deg", phoneRoll_);
-
-    // --- preview stream -----------------------------------------------------
-    ImGui::SeparatorText("Preview stream");
-    bool prefsChanged = false;
-    static const char* kSizes[] = {"256", "320", "480", "640", "960"};
-    static const int kSizeVals[] = {256, 320, 480, 640, 960};
-    int sizeIdx = 2;
-    for (int i = 0; i < 5; ++i)
-        if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
-    ImGui::SetNextItemWidth(scaled(90.0f));
-    if (ImGui::Combo("Max size", &sizeIdx, kSizes, 5)) {
-        phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
-        prefsChanged = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
-                          "for its own value, which then wins.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    if (ImGui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    if (ImGui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90))
-        prefsChanged = true;
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    if (ImGui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0,
-                         phonecam::kMaxSmoothing,
-                         phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
-        prefsChanged = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Frames allowed in flight beyond the one being sent.\n"
-            "0 is the least delay but the most stutter: one hitch in\n"
-            "encoding or on the Wi-Fi costs a whole frame interval,\n"
-            "because the next grab window is missed. 1-2 keeps the\n"
-            "cadence even for that many frames of delay (~%.0f ms each\n"
-            "at %d fps). The oldest frame is dropped when full, so the\n"
-            "delay never grows past this.",
-            1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15),
-            phoneCamPrefs_.fps);
-    if (prefsChanged) {
-        phoneCam_.setPreviewDefaults(phoneCamPrefs_);
-        saveGlobalConfig();
-    }
-
-    ImGui::Separator();
-    if (phoneRec_) {
-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f), "RECORDING");
+    {
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (ui::GhostButton("Recentre", half)) phoneCamRecenter();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(phoneRecTarget_.empty()
+                                  ? "Back to the editor's own camera, aimed where the\n"
+                                    "viewport is looking. Everything the phone does\n"
+                                    "is relative to this point."
+                                  : "Back to where the selected camera was PLACED -\n"
+                                    "its position, aim and tilt. Everything the phone\n"
+                                    "does is relative to that pose.");
         ImGui::SameLine();
-        ImGui::Text("%.2f s, %d keys", (float)phoneTake_.duration(),
-                    phoneRecStats_.keyCount);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop")) stopPhoneRecording();
-    } else {
-        ImGui::TextDisabled("Record the move into keyframes in\n"
-                            "Tools > Cutscene Director > Phone camera.");
+        // "Drive the viewport camera": the phone's motion moves the editor
+        // camera (and so the image it streams); off keeps the link up while
+        // the viewport is yours again.
+        if (ui::GhostButton(phoneDrive_ ? "Give the viewport back###Drive the viewport camera"
+                                        : "Drive the viewport###Drive the viewport camera",
+                            half)) {
+            phoneDrive_ = !phoneDrive_;
+            if (!phoneDrive_) phoneCamPushed_ = false;
+        }
+        uiscript::markLastItemChecked(phoneDrive_);
+    }
+    {
+        const float room = 3.0f;
+        ImGui::TextDisabled("%.0f m in your room = %.0f units in the scene.", room, room * phoneMap_.scale);
+    }
+    if (ui::Section("Placement")) {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        // The start point, editable directly: Recentre snaps it to the viewport
+        // camera, but a shot often wants an exact spot - and the phone can fly
+        // it too (its Move mode), which writes the same three numbers.
+        if (ui::AxisDrag3("Start point", phoneMap_.origin, 0.1f)) phoneMap_.hasAnchor = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
+                              "exactly, or fly it live from the app (its Move button).");
+        if (ui::GhostButton("From view")) {
+            float eye[3], at[3];
+            viewport_.currentCamera(eye, at);
+            for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
+            phoneMap_.hasAnchor = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
+                              "aim alone (Recentre does both).");
+        ui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
+                              "Recentre sets this from the viewport view.");
+        char tiltFmt[48];
+        std::snprintf(tiltFmt, sizeof(tiltFmt), "%%.2f  (roll %.1f deg)", phoneRoll_);
+        ui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, tiltFmt);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
+                              "reaches the shot (the Dutch angle). 1 films the lean\n"
+                              "as held, 0 pins the horizon level. Recentre makes the\n"
+                              "way you are holding it right now count as level.");
+    }
+    ImGui::Spacing();
+
+    // --- record into a cutscene ----------------------------------------------------------
+    // The thing this feature exists for, so it lives here rather than in the
+    // Director: the sequence is the Director's own selection.
+    {
+        ui::Caption("Record into a cutscene");
+        const char* hint = "the phone's REC does this too";
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(hint).x);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - fs * 0.15f);
+        ImGui::TextDisabled("%s", hint);
+    }
+    const bool haveSeq = selectedSequence_ >= 0 && selectedSequence_ < (int)project_.sequences.size();
+    {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        ImGui::BeginDisabled(phoneRec_);
+        if (ui::BeginCombo("Sequence", haveSeq ? project_.sequences[selectedSequence_].name.c_str()
+                                               : "<pick a cutscene>")) {
+            for (int i = 0; i < (int)project_.sequences.size(); ++i) {
+                ImGui::PushID(i);
+                if (ImGui::Selectable(project_.sequences[i].name.c_str(), i == selectedSequence_)) {
+                    selectedSequence_ = i;
+                    selectedSeqTrack_ = -1;
+                    selectedSeqKey_ = -1;
+                }
+                ImGui::PopID();
+            }
+            if (project_.sequences.empty()) ImGui::TextDisabled("No cutscenes yet.");
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        // Where the keys land follows View from (one intent, one control).
+        {
+            const char* cap = "Into";
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", cap);
+            ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+            if (phoneRecTarget_.empty()) {
+                ImGui::TextUnformatted("free camera shots");
+            } else {
+                ImGui::Text("%s's track", phoneRecTarget_.c_str());
+            }
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextDisabled("\xc2\xb7 follows View from");
+        }
+        // Keyframe density. Every frame is the sync-with-the-game option: one
+        // key per rendered frame, so nothing is interpolated.
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Keys");
+            ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+            char rate[24];
+            std::snprintf(rate, sizeof(rate), "%.0f / s##dens", phoneDensity_);
+            const char* opts[] = {"Every frame", rate, "Optimize"};
+            ImGui::BeginDisabled(phoneRec_);
+            ui::Segmented("##phone_density", opts, 3, &phoneDensityMode_, -1.0f);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("How densely the move is sampled into keys.\n"
+                                  "Every frame = one key per game frame (exact, the biggest table).\n"
+                                  "N / s = keys per second. Optimize = drop keys the PS2's own\n"
+                                  "interpolation reproduces within an error bound (the smallest).");
+            if (phoneDensityMode_ == 1)
+                ui::DragFloat("Rate", &phoneDensity_, 0.5f, 0.5f, 60.0f, "%.1f keys/s");
+            else if (phoneDensityMode_ == 2)
+                ui::SliderFloat("Tolerance", &phoneTolerance_, 0.005f, 1.0f, "%.3f u",
+                                ImGuiSliderFlags_Logarithmic);
+        }
+        ui::Switch("Start at playhead", &phoneRecAtPlayhead_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Recorded keys begin at the playhead (%.2f s) instead of\n"
+                              "at t = 0, so a move can be dropped after an existing shot.",
+                              seqPlayhead_);
+    }
+    ImGui::Spacing();
+    {
+        const bool canRec = haveSeq && phoneHasPose_;
+        char lbl[64];
+        if (phoneRec_)
+            std::snprintf(lbl, sizeof(lbl), "Stop  %.1f s \xc2\xb7 %d keys###Record", (float)phoneTake_.duration(),
+                          phoneRecStats_.keyCount);
+        else
+            std::snprintf(lbl, sizeof(lbl), "Record###Record");
+        if (ui::RecordButton(lbl, phoneRec_, -1.0f, phoneRec_ || canRec)) {
+            if (phoneRec_) stopPhoneRecording();
+            else startPhoneRecording();
+        }
+        // what it costs, in one line
+        float perSec = phoneDensityMode_ == 0 ? projectFrameRate() : phoneDensity_;
+        char cost[96];
+        if (!haveSeq)
+            std::snprintf(cost, sizeof(cost), "Pick a cutscene to record into.");
+        else if (!phoneHasPose_)
+            std::snprintf(cost, sizeof(cost), "Waiting for a pose...");
+        else if (phoneDensityMode_ == 2)
+            std::snprintf(cost, sizeof(cost), "only the keys needed \xc2\xb7 warns past 600 \xc2\xb7 one undo step");
+        else
+            std::snprintf(cost, sizeof(cost), "~%.0f keys a second \xc2\xb7 warns past 600 \xc2\xb7 one undo step",
+                          perSec);
+        const float cw = ImGui::CalcTextSize(cost).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImMax(0.0f, (ImGui::GetContentRegionAvail().x - cw) * 0.5f));
+        ImGui::TextDisabled("%s", cost);
+        if (phoneRec_ && phoneRecStats_.keyCount > 600)
+            ImGui::TextColored(sem.warn, "%d keys is a big table - consider a lower density.",
+                               phoneRecStats_.keyCount);
+        if (phoneRec_ && phoneRecSeq_ != selectedSequence_ && phoneRecSeq_ >= 0 &&
+            phoneRecSeq_ < (int)project_.sequences.size())
+            ImGui::TextDisabled("Recording into \"%s\".", project_.sequences[phoneRecSeq_].name.c_str());
+    }
+    ImGui::Spacing();
+
+    // --- the stream: machine-wide, set once -----------------------------------------------
+    char streamHdr[96];
+    std::snprintf(streamHdr, sizeof(streamHdr), "Stream & smoothing  %d \xc2\xb7 %d fps \xc2\xb7 q%d \xc2\xb7 smooth %d###stream",
+                  phoneCamPrefs_.maxWidth, phoneCamPrefs_.fps, phoneCamPrefs_.quality, phoneCamPrefs_.smoothing);
+    if (ui::Section(streamHdr)) {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        bool prefsChanged = false;
+        static const char* kSizes[] = {"256", "320", "480", "640", "960"};
+        static const int kSizeVals[] = {256, 320, 480, 640, 960};
+        int sizeIdx = 2;
+        for (int i = 0; i < 5; ++i)
+            if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
+        if (ui::Combo("Max size", &sizeIdx, kSizes, 5)) {
+            phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
+            prefsChanged = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
+                              "for its own value, which then wins.");
+        if (ui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
+        if (ui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90)) prefsChanged = true;
+        if (ui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0, phonecam::kMaxSmoothing,
+                          phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
+            prefsChanged = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Frames allowed in flight beyond the one being sent.\n"
+                "0 is the least delay but the most stutter; 1-2 keeps the\n"
+                "cadence even for that many frames of delay (~%.0f ms each\n"
+                "at %d fps). The oldest frame is dropped when full.",
+                1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15), phoneCamPrefs_.fps);
+        if (prefsChanged) {
+            phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+            saveGlobalConfig();
+        }
+        if (ui::GhostButton("Disconnect the phone")) phoneCam_.disconnectDevice();
     }
     ImGui::End();
 }
@@ -915,8 +1235,12 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     // entity, in which case eye/at/fov come from the entity's CURRENT pose in
     // seqPosed_ (object tracks already ran, so an animated camera entity gives
     // a dolly shot). Shots blend across the segment; Step easing = hard cut.
-    // The exact same resolution runs in the generated PS2 player.
-    if (seqPreview_ && s.cameraEnabled && !s.cameraKeys.empty()) {
+    // The exact same resolution runs in the generated PS2 player. The shot is
+    // always resolved (the Director previews it in its own window); it drives
+    // the viewport only with "Also drive the viewport" (seqPreview_).
+    seqShotValid_ = false;
+    seqShotCam_.clear();
+    if (s.cameraEnabled && !s.cameraKeys.empty()) {
         std::vector<SeqCameraKey> ck = s.cameraKeys;
         std::sort(ck.begin(), ck.end(),
                   [](const SeqCameraKey& a, const SeqCameraKey& b) {
@@ -980,7 +1304,15 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
             seqShakeOffset(t, shake, off);
             for (int c = 0; c < 3; ++c) e0[c] += off[c], a0[c] += off[c];
         }
-        viewport_.setCameraOverride(e0, a0, f0, r0);
+        seqShotValid_ = true;
+        for (int c = 0; c < 3; ++c) seqShotEye_[c] = e0[c], seqShotAt_[c] = a0[c];
+        seqShotFov_ = f0;
+        seqShotRoll_ = r0;
+        seqShotShake_ = shake;
+        seqShotCam_ = ck[i].camera;
+    }
+    if (seqShotValid_ && seqPreview_) {
+        viewport_.setCameraOverride(seqShotEye_, seqShotAt_, seqShotFov_, seqShotRoll_);
         seqCameraPushed_ = true;
     } else if (seqCameraPushed_) {
         viewport_.clearCameraOverride();
