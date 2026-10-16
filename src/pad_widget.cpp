@@ -896,7 +896,7 @@ bool PadDiagram(const char* id, PadMode mode, float width, const PadState& s, Pa
             ImVec4 tc = sel || c.kind == PadCallout::Normal ? sem.text : warn ? sem.warn : sem.textDim;
             if (c.kind == PadCallout::Normal && c.button <= Circle) tc = faceCol(pc, c.button);
             // Ellipsize to the pill; the full text is the tooltip.
-            const float room = w - upx(18);
+            const float room = w - upx(18) + 0.5f;
             std::string t = c.text;
             bool cut = false;
             while (t.size() > 1 && font->CalcTextSizeA(cfs, FLT_MAX, 0.0f, t.c_str()).x > room) {
@@ -905,7 +905,7 @@ bool PadDiagram(const char* id, PadMode mode, float width, const PadState& s, Pa
                 cut = true;
             }
             if (cut) t += "\xe2\x80\xa6";
-            ImFont* tf = sel && boldFont() ? boldFont() : font;
+            ImFont* tf = font;  // one face: the width was measured in it
             dl->AddText(tf, cfs, ImVec2(IM_ROUND(a.x + upx(9)), IM_ROUND(y - cfs * 0.5f)), col(tc), t.c_str());
             if (cut && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(a, z)) ImGui::SetTooltip("%s", c.text);
         };
@@ -1064,34 +1064,36 @@ bool PadButtonCombo(const char* label, std::string* name, bool allowNone, const 
             ImGui::TextDisabled("%s", t);
         }
         ImGui::Separator();
+        // The 16 names in two columns, never scrolled: every row is on screen,
+        // so a script's `click DpadUp` lands where the dump says it is.
         const float rowH = ImGui::GetTextLineHeight() + upx(6);
-        const int rows = 16 + (allowNone ? 1 : 0);
-        ImGui::BeginChild("##padlist", ImVec2(std::max(pw, ImGui::GetContentRegionAvail().x),
-                                             std::min(rows, 9) * (rowH + ImGui::GetStyle().ItemSpacing.y)));
+        const float colW = std::max(pw, ImGui::GetContentRegionAvail().x) * 0.5f - upx(2);
         if (allowNone) {
-            if (ImGui::Selectable(noneLabel, name->empty())) {
+            if (ImGui::Selectable(noneLabel, name->empty(), 0, ImVec2(0, rowH))) {
                 changed = !name->empty();
                 name->clear();
             }
         }
         for (int i = 0; i < 16; ++i) {
-            ImGui::PushID(i);
+            // Column-major: Cross..DpadRight on the left, L1..Select on the right.
+            const int row = i / 2;
+            const int bi = (i % 2 == 0) ? row : 8 + row;
+            if (i % 2) ImGui::SameLine(0.0f, upx(4));
+            ImGui::PushID(bi);
             const ImVec2 p = ImGui::GetCursorScreenPos();
-            const bool sel = cur == i;
-            if (ImGui::Selectable("##padrow", sel, 0, ImVec2(0, rowH))) {
-                if (*name != kPadButtonNames[i]) changed = true;
-                *name = kPadButtonNames[i];
+            const bool sel = cur == bi;
+            if (ImGui::Selectable("##padrow", sel, 0, ImVec2(colW, rowH))) {
+                if (*name != kPadButtonNames[bi]) changed = true;
+                *name = kPadButtonNames[bi];
             }
-            uiscript::nameItem(ImGui::GetItemID(), kPadButtonNames[i]);
-            if (sel && ImGui::IsWindowAppearing()) ImGui::SetScrollHereY();
+            uiscript::nameItem(ImGui::GetItemID(), kPadButtonNames[bi]);
             const float gh = ImGui::GetTextLineHeight();
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            const float gw = PadButtonGlyphAt(dl, ImVec2(p.x, p.y + (rowH - gh) * 0.5f), i, gh, sel);
-            dl->AddText(ImVec2(p.x + std::max(gw, gh * 2.4f) + upx(6), p.y + (rowH - gh) * 0.5f),
-                        ImGui::GetColorU32(ImGuiCol_Text), kPadButtonNames[i]);
+            const float gw = PadButtonGlyphAt(dl, ImVec2(p.x + upx(4), p.y + (rowH - gh) * 0.5f), bi, gh, sel);
+            dl->AddText(ImVec2(p.x + upx(4) + std::max(gw, gh * 1.6f) + upx(8), p.y + (rowH - gh) * 0.5f),
+                        ImGui::GetColorU32(ImGuiCol_Text), kPadButtonNames[bi]);
             ImGui::PopID();
         }
-        ImGui::EndChild();
         if (popupFontSize > 0.0f) ImGui::PopFont();
         ImGui::EndCombo();
     }

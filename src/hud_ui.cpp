@@ -1156,15 +1156,15 @@ bool isMoveRole(int role) {
     return role >= InputAction::RoleMoveForward && role <= InputAction::RoleMoveRight;
 }
 
-// The face buttons keep their pad colours where they depict pad buttons (the
-// keycaps and the controller diagram) - by meaning, from the theme.
+// The face buttons keep their REAL pad colours where the name stands for the
+// button (theme::padColors(), the controller drawing's tokens).
 ImVec4 padColour(const std::string& pad) {
-    const theme::Semantics& s = theme::semantics();
-    if (pad == "Cross") return s.accent;
-    if (pad == "Circle") return s.danger;
-    if (pad == "Square") return s.special;
-    if (pad == "Triangle") return s.ok;
-    return s.text;
+    const theme::PadColors& p = theme::padColors();
+    if (pad == "Cross") return p.cross;
+    if (pad == "Circle") return p.circle;
+    if (pad == "Square") return p.square;
+    if (pad == "Triangle") return p.triangle;
+    return theme::semantics().text;
 }
 
 // A keycap in a matrix cell: the binding on a raised pill, or a dim dash.
@@ -1181,6 +1181,38 @@ void keycap(ImDrawList* dl, ImVec2 p, float h, const char* text, ImVec4 col, boo
     dl->AddRectFilled(a, b, tint(sem.surface), 5.0f);
     dl->AddRect(a, b, warn ? tint(sem.warn, 0.9f) : tint(sem.border, 1.4f), 5.0f);
     dl->AddText(ImGui::GetFont(), fs, ImVec2(a.x + pad, p.y + (h - ts.y) * 0.5f), tint(col), text);
+}
+
+// The Pad cell of the matrix: the button's glyph and its name on a pill (warn
+// edge + sign on a clash), "stick" next to the L3 glyph for a move action
+// with no button, a dim dash for nothing.
+void padCell(ImDrawList* dl, ImVec2 p, float h, const std::string& pad, bool stick, bool warn) {
+    const theme::Semantics& sem = theme::semantics();
+    const int bi = padButtonIndex(pad);
+    const float fs = ImGui::GetFontSize() * 0.9f;
+    if (bi < 0 && !stick) {
+        const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, "\xE2\x80\x94");
+        dl->AddText(ImGui::GetFont(), fs, ImVec2(p.x, p.y + (h - ts.y) * 0.5f), tint(sem.textDim, 0.5f),
+                    "\xE2\x80\x94");
+        return;
+    }
+    const char* text = bi >= 0 ? ui::PadItemName(bi) : "stick";
+    const float ph = IM_TRUNC(h * 0.78f), gh = IM_TRUNC(ph * 0.66f), padX = fs * 0.4f;
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text);
+    const float gw = ui::PadButtonGlyphAt(nullptr, ImVec2(), bi >= 0 ? bi : 10, gh);
+    const ImVec2 a(p.x, p.y + (h - ph) * 0.5f), b(p.x + padX + gw + fs * 0.35f + ts.x + padX, a.y + ph);
+    dl->AddRectFilled(a, b, tint(sem.surface), 5.0f);
+    dl->AddRect(a, b, warn ? tint(sem.warn, 0.7f) : tint(sem.border, 1.4f), 5.0f);
+    ui::PadButtonGlyphAt(dl, ImVec2(a.x + padX, p.y + (h - gh) * 0.5f), bi >= 0 ? bi : 10, gh);
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(a.x + padX + gw + fs * 0.35f, p.y + (h - ts.y) * 0.5f),
+                tint(bi >= 0 ? padColour(pad) : sem.textDim), text);
+    if (warn) {
+        // A small warning triangle after the pill.
+        const float t = fs * 0.75f, cx = b.x + fs * 0.4f + t * 0.5f, cy = p.y + h * 0.5f;
+        dl->AddTriangle(ImVec2(cx, cy - t * 0.5f), ImVec2(cx + t * 0.55f, cy + t * 0.45f),
+                        ImVec2(cx - t * 0.55f, cy + t * 0.45f), tint(sem.warn), 1.3f);
+        dl->AddLine(ImVec2(cx, cy - t * 0.15f), ImVec2(cx, cy + t * 0.12f), tint(sem.warn), 1.3f);
+    }
 }
 
 // HID usage code for an ImGui key the picker offers (0 = not offered).
@@ -1252,22 +1284,7 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
     // Pad: the list, or "press to set" from a controller on this machine.
     {
         const bool stick = b.pad.empty() && isMoveRole(action.role);
-        const std::string cur = b.pad.empty() ? (stick ? "(stick)" : "(none)") : b.pad;
-        ImGui::PushStyleColor(ImGuiCol_Text, b.pad.empty() ? sem.textDim : padColour(b.pad));
-        const bool open = ui::BeginCombo("Pad button", cur.c_str());
-        ImGui::PopStyleColor();
-        if (open) {
-            if (ImGui::Selectable(stick ? "(stick)" : "(none)", b.pad.empty())) {
-                b.pad.clear();
-                changed = true;
-            }
-            for (int i = 0; i < 16; ++i)
-                if (ImGui::Selectable(kPadButtonNames[i], b.pad == kPadButtonNames[i])) {
-                    b.pad = kPadButtonNames[i];
-                    changed = true;
-                }
-            ImGui::EndCombo();
-        }
+        if (ui::PadButtonCombo("Pad button", &b.pad, true, nullptr, stick ? "(stick)" : "(none)")) changed = true;
         if (stick) ui::RowHelp("The analog stick drives it; a pad button is optional.");
     }
     {
@@ -1298,10 +1315,8 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
                 }
             }
         }
-        if (inputCapture_ == 1 && inputCaptureNoPad_) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("no controller connected");
-        }
+        if (inputCapture_ == 1 && inputCaptureNoPad_ && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("No controller connected - click the button on the drawn pad.");
     }
 
     {
@@ -1476,7 +1491,8 @@ void App::drawInputMapWindow() {
     ImGui::Dummy(ImVec2(0.0f, fs * 0.15f));
 
     const float bodyH = ImGui::GetContentRegionAvail().y;
-    const float rightW = ImMin(scaled(392.0f), ImGui::GetContentRegionAvail().x * 0.42f);
+    // The controller needs ~540 px for its two callout columns.
+    const float rightW = ImMin(scaled(560.0f), ImGui::GetContentRegionAvail().x * 0.5f);
 
     // Per-context pad clashes in this preset: an action's button also bound
     // to another action of the SAME context.
@@ -1601,8 +1617,7 @@ void App::drawInputMapWindow() {
                 dl->PopClipRect();
                 const bool stick = b.pad.empty() && isMoveRole(a.role);
                 const bool clash = clashOf(i) >= 0;
-                keycap(dl, ImVec2(cx[0], p.y), h, b.pad.empty() ? (stick ? "stick" : "\xE2\x80\x94") : b.pad.c_str(),
-                       b.pad.empty() ? sem.textDim : padColour(b.pad), b.pad.empty(), clash);
+                padCell(dl, ImVec2(cx[0], p.y), h, b.pad, stick, clash);
                 const char* kl = b.key ? inputKeyLabel(b.key) : "";
                 keycap(dl, ImVec2(cx[1], p.y), h, *kl ? kl : "\xE2\x80\x94", sem.text, !*kl, false);
                 static const char* kMouse[] = {"\xE2\x80\x94", "Left", "Right", "Middle"};
@@ -1684,139 +1699,98 @@ void App::drawInputMapWindow() {
         // picks one; Noclip shares the on-foot picture.
         static const char* kCtx[] = {"On foot", "Menus", "Vehicle"};
         ImGui::AlignTextToFramePadding();
-        ui::Caption("DualShock 2");
+        ui::Caption("Controller");
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - scaled(210.0f));
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - fs * 0.3f);
         ui::Segmented("##imctx", kCtx, 3, &inputDiagramCtx_, scaled(210.0f));
         const int dctx = inputDiagramCtx_ == 0 ? CtxFoot : inputDiagramCtx_ == 1 ? CtxMenus : CtxVehicle;
 
-        // The diagram in a 376x250 design box, scaled to the column.
-        const float boxW = ImGui::GetContentRegionAvail().x;
-        const float k = boxW / 376.0f;
-        const float boxH = 250.0f * k;
-        const ImVec2 o = ImGui::GetCursorScreenPos();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        auto P = [&](float x, float y) { return ImVec2(o.x + x * k, o.y + y * k); };
-        // Body: two grips around a bridge.
-        {
-            const ImVec2 pts[] = {P(88, 70),  P(188, 60), P(288, 70), P(330, 78), P(344, 120), P(364, 196),
-                                  P(356, 226), P(334, 230), P(300, 196), P(278, 166), P(188, 174), P(98, 166),
-                                  P(76, 196), P(42, 230),  P(20, 226),  P(12, 196), P(32, 120), P(46, 78)};
-            dl->AddConcavePolyFilled(pts, IM_ARRAYSIZE(pts), tint(sem.surface));
-            dl->AddPolyline(pts, IM_ARRAYSIZE(pts), tint(sem.border, 2.0f), ImDrawFlags_Closed, 1.0f);
-        }
-        // Which actions of this context sit on each pad button.
-        std::string onBtn[16];
-        bool selBtn[16] = {};
+        // The controller (ui::PadDiagram, Annotated): a callout pill per bound
+        // button of this context in fixed slots, the selected action's button
+        // ringed, two actions of one context on one button in warn.
+        std::vector<int> onBtn[16];
         for (int i = 0; i < (int)im.actions.size(); ++i) {
             const InputAction& a = im.actions[i];
-            const int c = roleContext(a.role);
-            if (c != dctx) continue;
+            if (roleContext(a.role) != dctx) continue;
             const int bi = padButtonIndex(bindingOf(a).pad);
-            if (bi < 0) continue;
-            if (!onBtn[bi].empty()) onBtn[bi] += " / ";
-            onBtn[bi] += a.label.empty() ? a.name : a.label;
-            if (i == inputActionSel_) selBtn[bi] = true;
+            if (bi >= 0) onBtn[bi].push_back(i);
         }
-        const ImU32 dim = tint(sem.textDim, 0.7f);
-        auto shoulder = [&](int bi, float x, float y, const char* t) {
-            const bool on = !onBtn[bi].empty();
-            const ImVec2 a = P(x, y), b = P(x + 40, y + 13);
-            dl->AddRectFilled(a, b, on ? tint(sem.accent, 0.25f) : tint(sem.field), 5.0f * k);
-            if (selBtn[bi]) dl->AddRect(a, b, tint(sem.accent), 5.0f * k, 0, 1.5f);
-            const ImVec2 ts = ImGui::CalcTextSize(t);
-            dl->AddText(ImGui::GetFont(), fs * 0.75f, ImVec2((a.x + b.x) * 0.5f - ts.x * 0.375f, a.y + (b.y - a.y - fs * 0.75f) * 0.5f),
-                        on ? tint(sem.text) : dim, t);
+        auto nameOf = [&](int ai) {
+            const InputAction& a = im.actions[ai];
+            return a.label.empty() ? a.name : a.label;
         };
-        shoulder(9, 74, 34, "L2");
-        shoulder(8, 74, 50, "L1");
-        shoulder(12, 262, 34, "R2");
-        shoulder(11, 262, 50, "R1");
-        // D-pad.
-        dl->AddCircleFilled(P(88, 112), 22 * k, tint(sem.field));
-        auto dpad = [&](int bi, float x0, float y0, float x1, float y1) {
-            const ImU32 c = !onBtn[bi].empty() ? tint(sem.text, 0.75f) : tint(sem.textDim, 0.45f);
-            dl->AddLine(P(x0, y0), P(x1, y1), c, 5.0f * k);
-            if (selBtn[bi]) dl->AddCircle(P((x0 + x1) * 0.5f, (y0 + y1) * 0.5f), 7 * k, tint(sem.accent), 0, 1.5f);
-        };
-        dpad(4, 88, 95, 88, 105);
-        dpad(5, 88, 119, 88, 129);
-        dpad(6, 71, 112, 81, 112);
-        dpad(7, 95, 112, 105, 112);
-        // Face buttons: their real shapes, in their pad colours.
-        auto face = [&](int bi, float x, float y, int shape) {
-            const ImVec4 col = padColour(kPadButtonNames[bi]);
-            const float r = 10 * k;
-            const ImVec2 c = P(x, y);
-            dl->AddCircleFilled(c, r, tint(col, onBtn[bi].empty() ? 0.06f : 0.18f));
-            dl->AddCircle(c, r, tint(col, onBtn[bi].empty() ? 0.45f : 1.0f), 0, selBtn[bi] ? 2.5f : 1.4f);
-            const ImU32 ic = tint(col, onBtn[bi].empty() ? 0.5f : 1.0f);
-            const float s = 4.2f * k;
-            if (shape == 0) {  // cross
-                dl->AddLine(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), ic, 1.4f);
-                dl->AddLine(ImVec2(c.x + s, c.y - s), ImVec2(c.x - s, c.y + s), ic, 1.4f);
-            } else if (shape == 1) {  // square
-                dl->AddRect(ImVec2(c.x - s, c.y - s), ImVec2(c.x + s, c.y + s), ic, 0.0f, 0, 1.4f);
-            } else if (shape == 2) {  // triangle
-                dl->AddTriangle(ImVec2(c.x, c.y - s * 1.1f), ImVec2(c.x + s, c.y + s * 0.8f),
-                                ImVec2(c.x - s, c.y + s * 0.8f), ic, 1.4f);
-            } else {  // circle
-                dl->AddCircle(c, s, ic, 0, 1.4f);
+        // What the sticks do in this mode (the axis roles have no button).
+        const char* stickRole[2] = {nullptr, nullptr};
+        if (dctx == CtxFoot) {
+            stickRole[0] = "Move";
+            stickRole[1] = "Look";
+        } else if (dctx == CtxVehicle) {
+            stickRole[0] = "Steer";
+            stickRole[1] = "Look";
+        }
+        std::string calloutText[16];
+        std::vector<ui::PadCallout> callouts;
+        ui::PadState ps;
+        const bool capturing = inputCapture_ == 1 && inputActionSel_ >= 0 && inputActionSel_ < (int)im.actions.size();
+        ps.capture = capturing;
+        for (int bi = 0; bi < 16; ++bi) {
+            std::string t;
+            bool sel = false;
+            for (int ai : onBtn[bi]) {
+                t += (t.empty() ? "" : " / ") + nameOf(ai);
+                sel |= ai == inputActionSel_;
             }
-        };
-        face(2, 288, 96, 2);
-        face(1, 268, 114, 1);
-        face(3, 308, 114, 3);
-        face(0, 288, 132, 0);
-        // Sticks, Select, Start.
-        dl->AddCircleFilled(P(138, 150), 17 * k, tint(sem.field));
-        dl->AddCircle(P(138, 150), 17 * k, selBtn[10] ? tint(sem.accent) : tint(sem.border, 1.5f), 0, 1.2f);
-        dl->AddCircleFilled(P(238, 150), 17 * k, tint(sem.field));
-        dl->AddCircle(P(238, 150), 17 * k, selBtn[13] ? tint(sem.accent) : tint(sem.border, 1.5f), 0, 1.2f);
-        dl->AddRectFilled(P(168, 106), P(184, 113), onBtn[15].empty() ? tint(sem.field) : tint(sem.text, 0.5f), 3 * k);
-        dl->AddRectFilled(P(194, 106), P(210, 113), onBtn[14].empty() ? tint(sem.field) : tint(sem.text, 0.5f), 3 * k);
-
-        // Callouts: a dark pill beside each bound button.
-        auto callout = [&](const std::string& text, float x, float y, int align, ImVec4 col, bool sel) {
-            if (text.empty()) return;
-            const float cfs = IM_TRUNC(fs * 0.82f);
-            const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(cfs, FLT_MAX, 0.0f, text.c_str());
-            const float pw = ts.x + cfs * 0.9f, ph = ts.y + cfs * 0.3f;
-            ImVec2 a = P(x, y);
-            a.x = align < 0 ? a.x - pw : align == 0 ? a.x - pw * 0.5f : a.x;
-            a.y -= ph * 0.5f;
-            a.x = ImClamp(a.x, o.x, o.x + boxW - pw);
-            const ImVec2 b(a.x + pw, a.y + ph);
-            dl->AddRectFilled(a, b, IM_COL32(14, 16, 21, 225), 5.0f);
-            dl->AddRect(a, b, sel ? tint(sem.accent) : tint(sem.border, 1.6f), 5.0f);
-            dl->AddText(ImGui::GetFont(), cfs, ImVec2(a.x + cfs * 0.45f, a.y + cfs * 0.15f), tint(col), text.c_str());
-        };
-        const ImVec4 tc = sem.text;
-        callout(onBtn[9], 94, 24, 0, tc, selBtn[9]);
-        callout(onBtn[8], 70, 56, -1, tc, selBtn[8]);
-        callout(onBtn[12], 282, 24, 0, tc, selBtn[12]);
-        callout(onBtn[11], 306, 56, 1, tc, selBtn[11]);
-        callout(onBtn[2], 302, 88, 1, padColour("Triangle"), selBtn[2]);
-        callout(onBtn[3], 322, 114, 1, padColour("Circle"), selBtn[3]);
-        callout(onBtn[0], 302, 142, 1, padColour("Cross"), selBtn[0]);
-        callout(onBtn[1], 254, 102, -1, padColour("Square"), selBtn[1]);
-        // The d-pad as one label when it is menu navigation.
-        if (!onBtn[4].empty() && !onBtn[5].empty() && !onBtn[6].empty() && !onBtn[7].empty() &&
-            dctx == CtxMenus) {
-            callout("Navigate", 62, 112, -1, tc, selBtn[4] || selBtn[5] || selBtn[6] || selBtn[7]);
-        } else {
-            callout(onBtn[4], 62, 92, -1, tc, selBtn[4]);
-            callout(onBtn[6], 62, 112, -1, tc, selBtn[6]);
-            callout(onBtn[5], 62, 132, -1, tc, selBtn[5]);
-            callout(onBtn[7], 112, 128, 1, tc, selBtn[7]);
+            const int stick = bi == 10 ? 0 : bi == 13 ? 1 : -1;
+            ui::PadCallout c;
+            c.button = bi;
+            if (stick >= 0 && stickRole[stick]) {
+                c.kind = t.empty() ? ui::PadCallout::Role : ui::PadCallout::Normal;
+                t = t.empty() ? std::string(stickRole[stick]) : std::string(stickRole[stick]) + " \xc2\xb7 " + t;
+            }
+            if (t.empty()) continue;
+            if (onBtn[bi].size() > 1) {
+                c.kind = ui::PadCallout::Conflict;
+                ps.conflict |= 1u << bi;
+            } else if (sel) {
+                c.kind = ui::PadCallout::Selected;
+            }
+            if (sel) ps.selected |= 1u << bi;
+            calloutText[bi] = t;
+            callouts.push_back(c);
         }
-        callout(onBtn[15].empty() ? "" : "Select: " + onBtn[15], 172, 70, -1, tc, selBtn[15]);
-        callout(onBtn[14].empty() ? "" : "Start: " + onBtn[14], 206, 70, 1, tc, selBtn[14]);
-        callout(onBtn[10].empty() ? "" : "L3: " + onBtn[10], 138, 178, 0, tc, selBtn[10]);
-        callout(onBtn[13].empty() ? "" : "R3: " + onBtn[13], 238, 178, 0, tc, selBtn[13]);
-        if (dctx == CtxFoot) callout("Move (stick)", 138, 200, 0, sem.textDim, false);
-        if (dctx == CtxVehicle) callout("Steer (stick)", 138, 200, 0, sem.textDim, false);
-        ImGui::Dummy(ImVec2(boxW, boxH + fs * 0.4f));
+        for (ui::PadCallout& c : callouts) c.text = calloutText[c.button].c_str();
+        ui::PadDiagramOut po;
+        ui::PadDiagram("##inputpad", ui::PadMode::Annotated, ImGui::GetContentRegionAvail().x, ps, &po,
+                       callouts.data(), (int)callouts.size());
+        if (po.clicked >= 0) {
+            if (capturing) {
+                // "Click one here": the fallback when no pad is connected.
+                preset.at(im.actions[inputActionSel_].name).pad = kPadButtonNames[po.clicked];
+                inputCapture_ = 0;
+                changed = true;
+            } else if (!onBtn[po.clicked].empty()) {
+                // Select the action on it - the next one when it is already selected.
+                const std::vector<int>& v = onBtn[po.clicked];
+                int next = v[0];
+                for (size_t k = 0; k < v.size(); ++k)
+                    if (v[k] == inputActionSel_) next = v[(k + 1) % v.size()];
+                inputActionSel_ = next;
+            }
+        }
+        if (po.hovered >= 0 && !capturing && !onBtn[po.hovered].empty())
+            ImGui::SetTooltip("%s: %s - click to select it", kPadButtonNames[po.hovered],
+                              calloutText[po.hovered].c_str());
+        if (capturing) {
+            ImGui::PushTextWrapPos(0.0f);
+            const std::string an = nameOf(inputActionSel_);
+            if (po.hovered >= 0)
+                ImGui::TextColored(sem.accent, "%s \xe2\x86\x92 %s", kPadButtonNames[po.hovered], an.c_str());
+            else
+                ImGui::TextColored(sem.textDim, "Press a button for %s on any connected pad - or click one here.",
+                                   an.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::Dummy(ImVec2(0, fs * 0.2f));
         ImGui::Separator();
 
         // The selected action.
