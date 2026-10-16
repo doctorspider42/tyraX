@@ -2456,10 +2456,17 @@ private:
     int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
     staticbatch::Result batchResult_;
     std::vector<std::string> batchWarnings_;
+    double batchComputedAt_ = -1.0;  // ImGui time of the last compute ("updated N s ago")
+    int batchListMode_ = 0;          // 0 = Batches, 1 = Drawn solo
+    float batchListW_ = 0.0f;        // list | detail splitter (0 = default share)
+    char batchFilter_[96] = {};      // texture or object name, substring
     void drawStaticBatchesWindow();
     void refreshStaticBatches();
     void updateBatchOverlay();
     void drawBatchExcludeCheckbox(int objectIndex);
+    void drawBatchDetail();      // the selected batch: cost, members, solo neighbours
+    void drawBatchSoloList();    // Drawn solo, grouped by reason, fix per group
+    void drawBatchSoloRow(int objectIndex, bool compact);
 
     bool showTextureAtlas_ = false;
     bool atlasPlanDirty_ = true;
