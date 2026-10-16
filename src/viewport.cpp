@@ -8092,6 +8092,9 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
 
     // Resolve the clip and its trim window, then pose. Same frame math as the
     // scene preview (updateAnimPose) - source seconds * fps = frame index.
+    animPreviewBones_.clear();
+    int poseFirst = -1, poseCount = 1;
+    float poseFrame = 0.0f;
     if (b && !b->clips.empty()) {
         const glbparser::Clip* clip = &b->clips.front();
         if (!d.clip.empty())
@@ -8122,6 +8125,9 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
         uploadAnimPose(*ad, first, count,
                        d.time * (b->fps > 0.01f ? b->fps : 12.0f),
                        d.inPlace);
+        poseFirst = first;
+        poseCount = count;
+        poseFrame = d.time * (b->fps > 0.01f ? b->fps : 12.0f);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
@@ -8206,6 +8212,47 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     draw(prevFloor_, mul(viewProj, mul(translation(center.x, minY, center.z),
                                        scaleM(radius, 1.0f, radius))),
          1.0f, 1.0f, 1.0f, 0);
+
+    // Skeleton overlay: the bones at the same interpolated frame (and the
+    // same in-place root removal) as uploadAnimPose, projected to image
+    // coords for the panel to draw over the picture.
+    if (d.skeleton && b && poseFirst >= 0 && !b->boneParent.empty() &&
+        b->bonePos.size() == (size_t)b->frameCount * b->boneParent.size() * 3) {
+        float fr = poseFrame;
+        if (fr < 0.0f || fr >= (float)poseCount) fr = std::fmod(fr, (float)poseCount);
+        if (fr < 0.0f) fr += (float)poseCount;
+        const int l0 = (int)fr;
+        const float al = fr - (float)l0;
+        const int f0 = poseFirst + l0, f1 = poseFirst + (l0 + 1) % poseCount;
+        float r0[2] = {0, 0}, r1[2] = {0, 0};
+        if (d.inPlace && b->rootMotion.size() == (size_t)b->frameCount) {
+            const auto& base = b->rootMotion[(size_t)poseFirst];
+            r0[0] = b->rootMotion[(size_t)f0].x - base.x;
+            r0[1] = b->rootMotion[(size_t)f0].z - base.z;
+            r1[0] = b->rootMotion[(size_t)f1].x - base.x;
+            r1[1] = b->rootMotion[(size_t)f1].z - base.z;
+        }
+        const size_t nb = b->boneParent.size();
+        const float* m = viewProj.m;
+        for (size_t i = 0; i < nb; ++i) {
+            const float* p0 = &b->bonePos[((size_t)f0 * nb + i) * 3];
+            const float* p1 = &b->bonePos[((size_t)f1 * nb + i) * 3];
+            const float x = (p0[0] - r0[0]) + ((p1[0] - r1[0]) - (p0[0] - r0[0])) * al;
+            const float y = p0[1] + (p1[1] - p0[1]) * al;
+            const float z = (p0[2] - r0[1]) + ((p1[2] - r1[1]) - (p0[2] - r0[1])) * al;
+            const float cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+            const float cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+            const float cw = m[3] * x + m[7] * y + m[11] * z + m[15];
+            AnimPreviewBone pb;
+            pb.parent = b->boneParent[i];
+            pb.visible = cw > 1e-6f;
+            if (pb.visible) {
+                pb.u = 0.5f + 0.5f * cx / cw;
+                pb.v = 0.5f - 0.5f * cy / cw;
+            }
+            animPreviewBones_.push_back(pb);
+        }
+    }
 
     if (ad && ad->ok) {
         if (d.wireframe) {

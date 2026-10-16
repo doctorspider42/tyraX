@@ -2901,6 +2901,7 @@ private:
     float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip
     bool animEdPlaying_ = true;
     bool animEdWireframe_ = false;
+    bool animEdBones_ = false;  // skeleton overlay on the preview (view state)
     std::string animEdLight_;  // preview lighting, see matEdLight_
     float animEdYaw_ = 40.0f, animEdPitch_ = 15.0f, animEdZoom_ = 1.0f;
     float animEdPanX_ = 0.0f, animEdPanY_ = 0.0f;  // radius-relative target
