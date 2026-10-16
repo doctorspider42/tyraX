@@ -606,6 +606,10 @@ void App::droneNewPatch() {
     const std::string name = droneUniqueTrackName("ambient");
     std::snprintf(droneTrackName_, sizeof(droneTrackName_), "%s", name.c_str());
     droneStatus_ = "New patch.";
+    droneMoodFrom_ = -1;  // the Simple view's session state follows the document
+    droneMoodUndo_.valid = false;
+    droneLoadRFor_.clear();
+    droneLiveHist_.clear();
     dronePushParams();
     if (droneLive_) droneLive_->reset();
 }
@@ -703,6 +707,10 @@ bool App::droneLoadPatch(const std::string& relOrAbs) {
     }
     droneDirty_ = false;
     droneHeadSec_ = 0.0;
+    droneMoodFrom_ = -1;  // the Simple view's session state follows the document
+    droneMoodUndo_.valid = false;
+    droneLoadRFor_.clear();
+    droneLiveHist_.clear();
     droneWaveMin_.clear();
     droneWaveMax_.clear();
     {
@@ -1105,7 +1113,6 @@ void App::drawDroneGeneratorWindow() {
         ImGui::End();
         return;
     }
-    const float s = uiScaleApplied_;
     dronegen::Params& p = droneParams_;
     bool dirty = false;
 
@@ -1154,7 +1161,120 @@ void App::drawDroneGeneratorWindow() {
 
     const theme::Semantics& sem = theme::semantics();
     bool openNewAsk = false;
+
+    // Simple (the default) or Detailed - the same patch, transport and file
+    // either way; only how much of the machinery shows differs.
+    if (droneDetailed_) drawDroneDetailed(dirty, openNewAsk);
+    else drawDroneSimple(dirty, openNewAsk);
+    const std::string saveTarget =
+        dronePatchRel_.empty() ? std::string("res/audio/") + droneTrackName_ + ".drone"
+                               : dronePatchRel_;
+
+    if (openNewAsk) ImGui::OpenPopup(kPopupNewAsk);
+
+    // ---- the popups the buttons above raise -------------------------------
+    if (ImGui::BeginPopupModal(kPopupNewAsk, nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("This patch has unsaved changes.");
+        ImGui::TextDisabled("%s", dronePatchRel_.empty() ? "It was never saved."
+                                                         : dronePatchRel_.c_str());
+        ImGui::Spacing();
+        // What waits on the answer: a rail click on another track, or New.
+        auto next = [&] {
+            droneStop();
+            if (!dronePendingLoad_.empty()) droneLoadPatch(dronePendingLoad_);
+            else droneNewPatch();
+            dronePendingLoad_.clear();
+        };
+        const char* discard = dronePendingLoad_.empty() ? "Discard and start new" : "Discard and open";
+        if (ui::DangerButton(discard, scaled(190.0f))) {
+            next();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ui::PrimaryButton("Save first", scaled(110.0f))) {
+            if (droneSavePatch(saveTarget)) next();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ui::SecondaryButton("Cancel", scaled(90.0f))) {
+            dronePendingLoad_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // Overwrite confirmations. Staged by droneStartRender / droneSavePatch, which
+    // refuse to touch an existing file until the answer comes back here.
+    if (!droneAskWav_.empty() && !ImGui::IsPopupOpen(kPopupOverwrite))
+        ImGui::OpenPopup(kPopupOverwrite);
+    if (ImGui::BeginPopupModal(kPopupOverwrite, nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s already exists.", droneAskWav_.c_str());
+        std::filesystem::path sidecar(droneAskWav_);
+        sidecar.replace_extension(".drone");
+        std::error_code sec;
+        const bool hasPatch =
+            std::filesystem::exists(project_.filePath(sidecar.generic_string()), sec);
+        ImGui::TextDisabled("Rendering replaces the track%s.",
+                            hasPatch ? " and the patch saved beside it" : "");
+        ImGui::Spacing();
+        if (ImGui::Button("Replace", ImVec2(scaled(120.0f), 0))) {
+            const std::string keep = droneAskWav_;
+            droneAskWav_.clear();
+            (void)keep;
+            droneStartRender(true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
+            droneAskWav_.clear();
+            droneStatus_ = "Render cancelled - the existing track was kept.";
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (!droneAskPatch_.empty() && !ImGui::IsPopupOpen(kPopupPatchAsk))
+        ImGui::OpenPopup(kPopupPatchAsk);
+    if (ImGui::BeginPopupModal(kPopupPatchAsk, nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s already exists.", droneAskPatch_.c_str());
+        ImGui::TextDisabled("It is a different patch than the one you have open.");
+        ImGui::Spacing();
+        if (ImGui::Button("Replace it", ImVec2(scaled(120.0f), 0))) {
+            const std::string target = droneAskPatch_;
+            droneAskPatch_.clear();
+            droneSavePatch(target, true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
+            droneAskPatch_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (dirty) {
+        dronePushParams();
+        droneDirty_ = true;  // the document differs from its file
+        ++droneEditSerial_;  // ends the Simple view's "Undo" offer
+    }
+    // Leave nothing armed for whatever draws next: the hook is a per-frame
+    // arrangement between this window and its own knobs.
+    g_autoHook = AutoWriteHook();
+    ImGui::End();
+}
+
+// The Detailed view: the project rail and presets, the transport, the seven
+// tabs and the footer - every parameter of the patch.
+void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
+    const float s = uiScaleApplied_;
+    dronegen::Params& p = droneParams_;
+    const theme::Semantics& sem = theme::semantics();
     const float bodyH = ImGui::GetContentRegionAvail().y;
+
 
     // ---- left rail: tracks in this project, then presets -------------------
     ImGui::BeginChild("##dronerail", ImVec2(scaled(210.0f), bodyH), ImGuiChildFlags_None);
@@ -1484,6 +1604,7 @@ void App::drawDroneGeneratorWindow() {
     ImGui::Dummy(ImVec2(0.0f, scaled(2.0f)));
 
     // ---- tabs -------------------------------------------------------------
+    const float tabRowY = ImGui::GetCursorPosY();
     if (ui::BeginQuietTabBar("dronetabbar")) {
         // Selector only: the content is drawn below, gated by droneTab_.
         static int lastFrame = -10;
@@ -1497,6 +1618,8 @@ void App::drawDroneGeneratorWindow() {
         ui::EndQuietTabBar();
         lastFrame = ImGui::GetFrameCount();
     }
+    // Simple | Detailed at the tab row's right end (the Ambience Editor's spot).
+    drawDroneViewSwitch(ImGui::GetContentRegionMax().x, tabRowY);
     const float footerH = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() +
                           ImGui::GetStyle().ItemSpacing.y * 2.0f;
     ImGui::BeginChild("dronetabs", ImVec2(0, -footerH), false);
@@ -2299,99 +2422,4 @@ void App::drawDroneGeneratorWindow() {
         ImGui::PopTextWrapPos();
     }
     ImGui::EndChild();  // ##dronemain
-
-    if (openNewAsk) ImGui::OpenPopup(kPopupNewAsk);
-
-    // ---- the popups the buttons above raise -------------------------------
-    if (ImGui::BeginPopupModal(kPopupNewAsk, nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("This patch has unsaved changes.");
-        ImGui::TextDisabled("%s", dronePatchRel_.empty() ? "It was never saved."
-                                                         : dronePatchRel_.c_str());
-        ImGui::Spacing();
-        // What waits on the answer: a rail click on another track, or New.
-        auto next = [&] {
-            droneStop();
-            if (!dronePendingLoad_.empty()) droneLoadPatch(dronePendingLoad_);
-            else droneNewPatch();
-            dronePendingLoad_.clear();
-        };
-        const char* discard = dronePendingLoad_.empty() ? "Discard and start new" : "Discard and open";
-        if (ui::DangerButton(discard, scaled(190.0f))) {
-            next();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ui::PrimaryButton("Save first", scaled(110.0f))) {
-            if (droneSavePatch(saveTarget)) next();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ui::SecondaryButton("Cancel", scaled(90.0f))) {
-            dronePendingLoad_.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // Overwrite confirmations. Staged by droneStartRender / droneSavePatch, which
-    // refuse to touch an existing file until the answer comes back here.
-    if (!droneAskWav_.empty() && !ImGui::IsPopupOpen(kPopupOverwrite))
-        ImGui::OpenPopup(kPopupOverwrite);
-    if (ImGui::BeginPopupModal(kPopupOverwrite, nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("%s already exists.", droneAskWav_.c_str());
-        std::filesystem::path sidecar(droneAskWav_);
-        sidecar.replace_extension(".drone");
-        std::error_code sec;
-        const bool hasPatch =
-            std::filesystem::exists(project_.filePath(sidecar.generic_string()), sec);
-        ImGui::TextDisabled("Rendering replaces the track%s.",
-                            hasPatch ? " and the patch saved beside it" : "");
-        ImGui::Spacing();
-        if (ImGui::Button("Replace", ImVec2(scaled(120.0f), 0))) {
-            const std::string keep = droneAskWav_;
-            droneAskWav_.clear();
-            (void)keep;
-            droneStartRender(true);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
-            droneAskWav_.clear();
-            droneStatus_ = "Render cancelled - the existing track was kept.";
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    if (!droneAskPatch_.empty() && !ImGui::IsPopupOpen(kPopupPatchAsk))
-        ImGui::OpenPopup(kPopupPatchAsk);
-    if (ImGui::BeginPopupModal(kPopupPatchAsk, nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("%s already exists.", droneAskPatch_.c_str());
-        ImGui::TextDisabled("It is a different patch than the one you have open.");
-        ImGui::Spacing();
-        if (ImGui::Button("Replace it", ImVec2(scaled(120.0f), 0))) {
-            const std::string target = droneAskPatch_;
-            droneAskPatch_.clear();
-            droneSavePatch(target, true);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(120.0f), 0))) {
-            droneAskPatch_.clear();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    if (dirty) {
-        dronePushParams();
-        droneDirty_ = true;  // the document differs from its file
-    }
-    // Leave nothing armed for whatever draws next: the hook is a per-frame
-    // arrangement between this window and its own knobs.
-    g_autoHook = AutoWriteHook();
-    ImGui::End();
 }

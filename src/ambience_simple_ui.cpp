@@ -457,68 +457,6 @@ bool lookTile(const Look& l, bool selected, float tw, float th) {
     return clicked;
 }
 
-// The Simple view's rows: a dim caption (dotted underline + tooltip when it
-// has help), then the control from the label column on - the column matches
-// InspectorRows' 34% clamp, so these line up with the stock rows around them.
-void rowLabel(const char* text, const char* tip, float lw) {
-    const theme::Semantics& sem = theme::semantics();
-    ImGui::AlignTextToFramePadding();
-    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-    ImGui::TextUnformatted(text);
-    ImGui::PopStyleColor();
-    if (tip) {
-        const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        for (float x = a.x; x < b.x; x += 3.0f)
-            dl->AddRectFilled(ImVec2(x, b.y - 1.0f), ImVec2(x + 1.0f, b.y), ImGui::GetColorU32(sem.textDim));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-    }
-    ImGui::SameLine(lw);
-}
-
-// A thin track with one knob and the value as text at the right end (the
-// design's slider). `fromCol`/`toCol` non-zero paint the track as a gradient
-// instead of filling up to the knob. InvisibleButton named `id` (scripts drag
-// it). Returns true while the value changes.
-bool trackSlider(const char* id, float* v, float lo, float hi, const std::string& shown,
-                 ImU32 fromCol = 0, ImU32 toCol = 0) {
-    const theme::Semantics& sem = theme::semantics();
-    const float w = ImGui::GetContentRegionAvail().x;
-    const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float h = ImGui::GetFrameHeight();
-    ImGui::InvisibleButton(id, ImVec2(w, h));
-    float valueW;
-    {
-        ui::FontScope mono(ui::monoFont());
-        valueW = ImMax(ImGui::CalcTextSize("00:00-00:00").x * 0.6f, ImGui::CalcTextSize(shown.c_str()).x) + 10.0f;
-    }
-    const float x0 = p.x + 7.0f, x1 = p.x + w - valueW - 7.0f;
-    bool changed = false;
-    if (ImGui::IsItemActive() && x1 > x0) {
-        const float t = ImClamp((ImGui::GetIO().MousePos.x - x0) / (x1 - x0), 0.0f, 1.0f);
-        const float nv = lo + (hi - lo) * t;
-        if (nv != *v) *v = nv, changed = true;
-    }
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float cy = p.y + h * 0.5f;
-    const float t = ImClamp((*v - lo) / (hi - lo), 0.0f, 1.0f);
-    const float kx = x0 + (x1 - x0) * t;
-    if (fromCol || toCol) {
-        dl->AddRectFilledMultiColor(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), fromCol, toCol, toCol, fromCol);
-    } else {
-        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), ImGui::GetColorU32(ImGuiCol_FrameBg), 2.0f);
-        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(kx, cy + 2), ImGui::GetColorU32(sem.accent), 2.0f);
-    }
-    const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
-    dl->AddCircleFilled(ImVec2(kx, cy), hot ? 8.0f : 7.0f, IM_COL32(255, 255, 255, 245), 20);
-    {
-        ui::FontScope mono(ui::monoFont());
-        const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
-        dl->AddText(ImVec2(p.x + w - ts.x, cy - ts.y * 0.5f), ImGui::GetColorU32(sem.text), shown.c_str());
-    }
-    return changed;
-}
-
 }  // namespace
 
 // Sky & time, the Simple view: preset bar, the sky, the time of day, looks,
@@ -785,15 +723,15 @@ void App::drawAmbienceSimple(bool& changed) {
             }
             ui::RowHelp("Where the sun comes up. It sets on the opposite side.");
             float peak = 90.0f - c.sunTilt;
-            rowLabel("Height at noon", "How high the sun climbs. Low = long shadows all day.", LW());
-            if (trackSlider("Height at noon", &peak, 10.0f, 88.0f, num("%.0f°", peak))) {
+            ui::RowLabel("Height at noon", "How high the sun climbs. Low = long shadows all day.", LW());
+            if (ui::TrackSlider("Height at noon", &peak, 10.0f, 88.0f, num("%.0f°", peak))) {
                 c.sunTilt = 90.0f - std::round(peak);
                 changed = true;
             }
             {
                 // One track for both ends of the day (a hand-made row: the
                 // label column matches InspectorRows' 34% clamp).
-                rowLabel("Sunrise · sunset", nullptr, LW());
+                ui::RowLabel("Sunrise · sunset", nullptr, LW());
                 if (sunRange("Sunrise and sunset", &c.sunrise, &c.sunset)) changed = true;
             }
         } else {
@@ -803,8 +741,8 @@ void App::drawAmbienceSimple(bool& changed) {
                 dirFrom(dir * 45.0f, el, a.lightDir);
                 changed = true;
             }
-            rowLabel("Sun height", "Low = long shadows, high = short ones.", LW());
-            if (trackSlider("Sun height", &el, 5.0f, 88.0f, num("%.0f°", el))) {
+            ui::RowLabel("Sun height", "Low = long shadows, high = short ones.", LW());
+            if (ui::TrackSlider("Sun height", &el, 5.0f, 88.0f, num("%.0f°", el))) {
                 dirFrom(bearingOf(a.lightDir), std::round(el), a.lightDir);
                 changed = true;
             }
@@ -828,8 +766,8 @@ void App::drawAmbienceSimple(bool& changed) {
                 contrast = a.diffuse / ImMax(0.001f, a.ambient + a.diffuse);
             }
             float pct = bright * 100.0f;
-            rowLabel("Brightness", nullptr, LW());
-            if (trackSlider("Brightness", &pct, 30.0f, 150.0f, num("%.0f%%", pct))) {
+            ui::RowLabel("Brightness", nullptr, LW());
+            if (ui::TrackSlider("Brightness", &pct, 30.0f, 150.0f, num("%.0f%%", pct))) {
                 const float target = pct / 100.0f;
                 if (byKeys) {
                     const float f = bright > 0.01f ? target / bright : 1.0f;
@@ -841,8 +779,8 @@ void App::drawAmbienceSimple(bool& changed) {
             }
             float wv = warm;
             const char* wword = wv < -0.08f ? "cooler" : (wv > 0.08f ? "warmer" : "neutral");
-            rowLabel("Warmth", "The colour of the sunlight: bluish to golden.", LW());
-            if (trackSlider("Warmth", &wv, -0.6f, 0.6f, wword, IM_COL32(110, 155, 255, 255), IM_COL32(255, 177, 92, 255))) {
+            ui::RowLabel("Warmth", "The colour of the sunlight: bluish to golden.", LW());
+            if (ui::TrackSlider("Warmth", &wv, -0.6f, 0.6f, wword, IM_COL32(110, 155, 255, 255), IM_COL32(255, 177, 92, 255))) {
                 const float d = (wv - warm) * 0.5f;
                 auto shift = [d](float* lc) {
                     lc[0] = ImClamp(lc[0] + d, 0.0f, 1.0f);
@@ -854,9 +792,9 @@ void App::drawAmbienceSimple(bool& changed) {
             }
             float cv = contrast;
             const char* cword = cv < 0.38f ? "soft" : (cv > 0.6f ? "hard" : "medium");
-            rowLabel("Shadows", "How much light comes straight from the sun rather than from the whole\n"
+            ui::RowLabel("Shadows", "How much light comes straight from the sun rather than from the whole\n"
                                 "sky. Low = soft and flat, high = bright sides and dark shade.", LW());
-            if (trackSlider("Shadows", &cv, 0.1f, 0.9f, cword)) {
+            if (ui::TrackSlider("Shadows", &cv, 0.1f, 0.9f, cword)) {
                 const float v = cv;
                 auto apply = [v](float& amb, float& dif) {
                     const float sum = amb + dif;
@@ -912,8 +850,8 @@ void App::drawAmbienceSimple(bool& changed) {
             if (ui::Switch(passes.c_str(), &c.runtime)) changed = true;
             if (c.runtime) {
                 float minutes = c.dayLength / 60.0f;
-                rowLabel("A whole day lasts", nullptr, LW());
-                if (trackSlider("A whole day lasts", &minutes, 1.0f, 60.0f, num("%.0f min", minutes))) {
+                ui::RowLabel("A whole day lasts", nullptr, LW());
+                if (ui::TrackSlider("A whole day lasts", &minutes, 1.0f, 60.0f, num("%.0f min", minutes))) {
                     c.dayLength = std::round(minutes) * 60.0f;
                     changed = true;
                 }

@@ -224,6 +224,8 @@ struct EditorConfig {
     bool nativeTitleBar = false;
     // Ambience Editor > Sky & time: the Detailed view instead of Simple.
     bool ambienceDetailed = false;
+    // Drone Generator: the Detailed view (rail, transport, tabs) instead of Simple.
+    bool droneDetailed = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -338,6 +340,7 @@ static EditorConfig loadEditorConfig() {
             cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
         else if (match("nativeTitleBar", v)) cfg.nativeTitleBar = toI(v, 0) != 0;
         else if (match("ambienceDetailed", v)) cfg.ambienceDetailed = toI(v, 0) != 0;
+        else if (match("droneDetailed", v)) cfg.droneDetailed = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -420,7 +423,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
       << "updateSkipVersion=" << cfg.updateSkipVersion << "\n"
       << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n"
-      << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n";
+      << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n"
+      << "droneDetailed=" << (cfg.droneDetailed ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -693,6 +697,7 @@ int App::run(const std::string& initialProjectDir) {
         // cases, so the preference says "takes effect at the next start".
         nativeTitleBar_ = cfg.nativeTitleBar;
         ambienceDetailed_ = cfg.ambienceDetailed;
+        droneDetailed_ = cfg.droneDetailed;
         titleBarMerged_ = !nativeTitleBar_ && platform::mergeTitleBar(window_);
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -1253,7 +1258,8 @@ void App::saveGlobalConfig() {
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
-                      nativeTitleBar_, ambienceDetailed_, std::move(recent)});
+                      nativeTitleBar_, ambienceDetailed_, droneDetailed_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {

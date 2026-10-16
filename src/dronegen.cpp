@@ -2603,4 +2603,715 @@ bool fromText(const std::string& text, Params& out, std::string& title,
     return true;
 }
 
+
+// ---------------------------------------------------------------------------
+// The Simple view's vocabulary: moods, the six sliders, feelings, shapes
+// (docs/drone-generator.md, "Simple and Detailed"; dronegen.hpp says the
+// contract: no new field, read back / rescale only).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Chord tables of the five feelings: semitones from the root, chord A | B.
+struct FeelingDef {
+    int a[4], b[4];
+    int scale;
+};
+const FeelingDef kFeelings[simple::FeelCount] = {
+    {{0, 7, 16, 19}, {5, 12, 16, 21}, ScaleMajor},       // Calm
+    {{0, 7, 14, 19}, {-2, 5, 12, 17}, ScalePentatonic},  // Open
+    {{0, 7, 15, 22}, {5, 12, 15, 19}, ScaleDorian},      // Mysterious
+    {{0, 7, 12, 15}, {1, 8, 13, 20}, ScalePhrygian},     // Uneasy
+    {{0, 1, 7, 13}, {0, 6, 12, 13}, ScalePhrygian},      // Dread
+};
+
+const float kShapeArc[simple::ShapeCount][kArcPoints] = {
+    {0.5f, 0.5f, 0.5f, 0.5f, 0.5f},   // Steady (written as the mean instead)
+    {0.2f, 0.6f, 1.0f, 0.6f, 0.2f},   // Swell
+    {0.2f, 1.0f, 0.3f, 1.0f, 0.2f},   // Two waves
+    {0.1f, 0.3f, 0.55f, 0.8f, 1.0f},  // Build up
+};
+
+const float kLoudness[3] = {0.45f, 0.65f, 0.89f};
+
+bool isMotionSrc(int src) {
+    return src == ModSrcLfo1 || src == ModSrcLfo2 || src == ModSrcLfo3 || src == ModSrcRandom;
+}
+
+AutoLane* laneOf(Params& p, int idx) {
+    if (idx < 0) return nullptr;
+    for (int i = 0; i < p.autoLaneCount && i < kMaxAutoLanes; ++i)
+        if (p.autoLanes[i].param == idx) return &p.autoLanes[i];
+    return nullptr;
+}
+
+int fieldIndex(const Params& p, const void* field) {
+    const ptrdiff_t off = (const char*)field - (const char*)&p;
+    if (off < 0 || (size_t)off >= sizeof(Params)) return -1;
+    return paramIndexForOffset((size_t)off);
+}
+
+// The lane index of a field when the timeline drives it, else -1.
+int laneIndexOf(const Params& p, const void* field) {
+    const int idx = fieldIndex(p, field);
+    return idx >= 0 && autoLaneFind(p, idx) ? idx : -1;
+}
+
+// A field's value as the Simple view reads it: the mean of its keyframes when
+// the timeline drives it (the base value is overwritten every block then).
+float val(const Params& p, const float& field) {
+    const int idx = laneIndexOf(p, &field);
+    if (idx < 0) return field;
+    const AutoLane* l = autoLaneFind(p, idx);
+    if (!l || l->count <= 0) return field;
+    float s = 0.0f;
+    for (int i = 0; i < l->count; ++i) s += l->pts[i].value;
+    return s / (float)l->count;
+}
+
+// The same field of the snapshot.
+template <class T>
+const T& at0(const Params& p, const Params& p0, const T& field) {
+    const ptrdiff_t off = (const char*)&field - (const char*)&p;
+    return *(const T*)((const char*)&p0 + off);
+}
+
+// Rewrites `field` (and every keyframe of its lane) as f(value in snapshot).
+template <class F>
+void xf(Params& p, const Params& p0, float& field, F f) {
+    field = f(at0(p, p0, field));
+    const int idx = fieldIndex(p, &field);
+    if (idx < 0) return;
+    const AutoLane* l0 = autoLaneFind(p0, idx);
+    AutoLane* l = laneOf(p, idx);
+    if (!l0 || !l) return;
+    for (int k = 0; k < l0->count && k < l->count; ++k) l->pts[k].value = f(l0->pts[k].value);
+}
+
+// Sets `field` to `target`; a lane is scaled so its mean lands there.
+void xfTo(Params& p, const Params& p0, float& field, float target) {
+    const float& f0 = at0(p, p0, field);
+    const float m0 = val(p0, f0);
+    if (laneIndexOf(p0, &f0) < 0 || m0 <= 1e-4f) {
+        field = target;
+        if (AutoLane* l = laneOf(p, fieldIndex(p, &field)))
+            for (int k = 0; k < l->count; ++k) l->pts[k].value = target;
+        return;
+    }
+    const float k = target / m0;
+    xf(p, p0, field, [k](float v) { return v * k; });
+}
+
+// clamp to [a, b] widened to the snapshot value, so a field already outside
+// the slider's range does not jump the moment the knob is touched.
+float cl(float x, float a, float b, float v0) {
+    return clampf(x, std::min(a, v0), std::max(b, v0));
+}
+
+float tension(const Step& s) {
+    static const float w[7] = {0.0f, 4.0f, 1.0f, 0.5f, -0.5f, 0.0f, 3.0f};
+    float sum = 0.0f;
+    for (int i = 0; i < s.count; ++i)
+        for (int j = i + 1; j < s.count; ++j) {
+            int ic = std::abs(s.notes[i] - s.notes[j]) % 12;
+            ic = std::min(ic, 12 - ic);
+            sum += w[ic];
+        }
+    return sum;
+}
+
+float tableTension(int f) {
+    Step a, b;
+    a.count = b.count = 4;
+    for (int i = 0; i < 4; ++i) a.notes[i] = kFeelings[f].a[i], b.notes[i] = kFeelings[f].b[i];
+    return (tension(a) + tension(b)) * 0.5f;
+}
+
+void layer(Params& p, int i, int wave, float level, int notes) {
+    Layer& l = p.layers[i];
+    l.on = true;
+    l.wave = wave;
+    l.level = level;
+    l.notes = notes;
+}
+
+void feelInto(Params& p, int feeling, float bars) {
+    simple::applyFeeling(p, feeling);
+    for (int i = 0; i < p.stepCount; ++i) p.steps[i].bars = bars;
+}
+
+void shapeInto(Params& p, int shape) {
+    for (int i = 0; i < kArcPoints; ++i) p.arc[i] = kShapeArc[shape][i];
+}
+
+}  // namespace
+
+Params moodBase() {
+    Params p;
+    for (Layer& l : p.layers) l.on = false;
+    for (ModRow& m : p.mods) m = ModRow();
+    p.lfos[0] = {0.05f, LfoSine, 1.0f, false};
+    p.lfos[1] = {0.13f, LfoSmooth, 1.0f, false};
+    p.lfos[2] = {0.5f, LfoTriangle, 1.0f, false};
+    for (float& a : p.arc) a = 0.5f;
+    p.noise.on = false;
+    p.bells.on = false;
+    p.stepCount = 2;
+    p.beatsPerBar = 4;
+    p.fx = Fx();
+    p.master = Master();
+    return p;
+}
+
+const std::vector<Mood>& moods() {
+    static std::vector<Mood> list;
+    if (!list.empty()) return list;
+    using namespace simple;
+
+    {  // 1. Dark cave
+        Params p = moodBase();
+        p.seed = 66613; p.rootNote = 28; p.bpm = 36.0f; p.glide = 8.0f;
+        feelInto(p, FeelDread, 4.5f);
+        p.scale = ScalePhrygian;
+        layer(p, 0, WaveSine, 0.55f, 0x01);
+        p.layers[0].attack = 14.0f;
+        layer(p, 1, WaveSaw, 0.14f, 0x06);
+        p.layers[1].octave = 1; p.layers[1].unison = 2; p.layers[1].detune = 40.0f; p.layers[1].tone = 0.2f;
+        p.noise.on = true; p.noise.level = 0.12f; p.noise.cutoff = 320.0f; p.noise.res = 0.4f;
+        p.noise.motionRate = 0.03f;
+        p.filter.cutoff = 600.0f; p.filter.res = 0.5f; p.fx.drive = 0.25f;
+        p.fx.revSize = 0.85f; p.fx.revDecay = 11.0f; p.fx.revMix = 0.5f; p.fx.revPredelay = 0.09f;
+        p.fx.delayDiv = 2; p.fx.delayMix = 0.3f; p.fx.delayFeedback = 0.5f; p.fx.delayDamp = 0.7f;
+        p.fx.tilt = -5.0f; p.fx.highCut = 3500.0f;
+        p.bells.on = true; p.bells.timbre = BellPluck; p.bells.density = 4.0f; p.bells.level = 0.3f;
+        p.bells.decay = 1.2f; p.bells.octave = 2; p.bells.bright = 0.2f; p.bells.revSend = 1.0f;
+        p.bells.delaySend = 0.8f;
+        p.mods[0] = {ModSrcLfo1, ModDstCutoff, 0.5f};
+        p.mods[1] = {ModSrcLfo3, ModDstLevel2, 0.3f};
+        p.mods[2] = {ModSrcArc, ModDstCutoff, 0.3f};
+        shapeInto(p, ShapeSwell);
+        list.push_back({"Dark cave", "Low and murky, with far-off drips.", "murky hum, far drips",
+                        0x1B2233, 0x07090F, 0x7E93C4, p});
+    }
+    {  // 2. Calm wind
+        Params p = moodBase();
+        p.seed = 4242; p.rootNote = 33; p.bpm = 60.0f; p.glide = 4.0f;
+        feelInto(p, FeelOpen, 7.5f);
+        layer(p, 0, WaveSine, 0.35f, 0x01);
+        p.layers[0].attack = 6.0f;
+        layer(p, 1, WaveTriangle, 0.14f, 0x0E);
+        p.layers[1].octave = 1; p.layers[1].unison = 3; p.layers[1].detune = 10.0f; p.layers[1].spread = 0.9f;
+        p.layers[1].tone = 0.45f; p.layers[1].attack = 8.0f; p.layers[1].release = 8.0f; p.layers[1].drift = 6.0f;
+        p.noise.on = true; p.noise.level = 0.25f; p.noise.cutoff = 1100.0f; p.noise.res = 0.35f;
+        p.noise.motionRate = 0.06f; p.noise.motionDepth = 0.75f; p.noise.stereo = 1.0f;
+        p.filter.cutoff = 1800.0f; p.filter.res = 0.15f; p.fx.drive = 0.1f;
+        p.fx.chorusMix = 0.3f; p.fx.revSize = 0.8f; p.fx.revDecay = 7.0f; p.fx.revMix = 0.45f;
+        p.fx.delayMix = 0.1f;
+        p.mods[0] = {ModSrcLfo1, ModDstCutoff, 0.15f};
+        p.mods[1] = {ModSrcLfo2, ModDstNoise, 0.3f};
+        list.push_back({"Calm wind", "Soft air over open fifths.", "soft air, open fifths",
+                        0x35566A, 0x121C25, 0xA9D3E6, p});
+    }
+    {  // 3. Tense
+        Params p = moodBase();
+        p.seed = 1313; p.rootNote = 31; p.bpm = 72.0f; p.glide = 1.5f;
+        feelInto(p, FeelUneasy, 9.0f);
+        layer(p, 0, WavePulse, 0.2f, 0x03);
+        p.layers[0].pw = 0.3f; p.layers[0].tone = 0.3f; p.layers[0].attack = 1.5f;
+        layer(p, 1, WaveSine, 0.4f, 0x01);
+        p.layers[1].octave = -1;
+        layer(p, 2, WaveSaw, 0.08f, 0x0C);
+        p.layers[2].octave = 1; p.layers[2].unison = 2; p.layers[2].detune = 25.0f; p.layers[2].tone = 0.35f;
+        p.noise.on = true; p.noise.level = 0.06f; p.noise.cutoff = 2400.0f; p.noise.res = 0.5f;
+        p.filter.cutoff = 1200.0f; p.filter.res = 0.4f; p.fx.drive = 0.3f;
+        p.fx.revSize = 0.5f; p.fx.revDecay = 4.0f; p.fx.revMix = 0.3f;
+        p.fx.delayDiv = 1; p.fx.delayMix = 0.15f; p.fx.delayFeedback = 0.35f;
+        p.bells.on = true; p.bells.timbre = BellPluck; p.bells.density = 3.0f; p.bells.level = 0.2f;
+        p.bells.decay = 1.0f; p.bells.octave = 1; p.bells.chordLock = false; p.bells.bright = 0.3f;
+        p.lfos[2].rate = 1.2f; p.lfos[2].shape = LfoSine;
+        p.mods[0] = {ModSrcLfo3, ModDstLevel1, 0.45f};
+        p.mods[1] = {ModSrcLfo1, ModDstCutoff, 0.3f};
+        p.mods[2] = {ModSrcRandom, ModDstPitch, 0.05f};
+        list.push_back({"Tense", "An uneasy pulse that will not settle.", "uneasy pulse",
+                        0x4A1C24, 0x14090C, 0xFF8A8A, p});
+    }
+    {  // 4. Deep space
+        Params p = moodBase();
+        p.seed = 5150; p.rootNote = 26; p.bpm = 40.0f; p.glide = 6.0f;
+        feelInto(p, FeelOpen, 5.0f);
+        p.scale = ScaleMinor;
+        layer(p, 0, WaveSine, 0.6f, 0x01);
+        p.layers[0].attack = 8.0f; p.layers[0].tone = 0.35f;
+        layer(p, 1, WaveTriangle, 0.2f, 0x07);
+        p.layers[1].octave = 1; p.layers[1].unison = 4; p.layers[1].detune = 22.0f; p.layers[1].spread = 1.0f;
+        p.layers[1].tone = 0.3f; p.layers[1].attack = 12.0f; p.layers[1].drift = 14.0f;
+        p.noise.on = true; p.noise.level = 0.07f; p.noise.cutoff = 220.0f; p.noise.res = 0.15f;
+        p.noise.motionRate = 0.02f;
+        p.filter.cutoff = 900.0f;
+        p.fx.revSize = 0.95f; p.fx.revDecay = 18.0f; p.fx.revMix = 0.55f; p.fx.revDamp = 0.55f;
+        p.fx.delayMix = 0.12f; p.fx.tilt = -3.0f; p.fx.highCut = 5000.0f;
+        p.mods[0] = {ModSrcLfo1, ModDstCutoff, 0.15f};
+        p.mods[1] = {ModSrcLfo2, ModDstLevel2, 0.2f};
+        p.mods[2] = {ModSrcArc, ModDstCutoff, 0.3f};
+        shapeInto(p, ShapeSwell);
+        list.push_back({"Deep space", "Vast and still, a sub you feel.", "vast and still",
+                        0x1C1B48, 0x06061A, 0xA99BFF, p});
+    }
+    {  // 5. Underwater
+        Params p = moodBase();
+        p.seed = 2048; p.rootNote = 33; p.bpm = 50.0f; p.glide = 2.5f;
+        feelInto(p, FeelMysterious, 6.25f);
+        layer(p, 0, WaveTriangle, 0.45f, 0x0F);
+        p.layers[0].tone = 0.18f; p.layers[0].unison = 3; p.layers[0].detune = 12.0f; p.layers[0].attack = 6.0f;
+        layer(p, 1, WaveSine, 0.35f, 0x01);
+        p.layers[1].octave = -1;
+        p.noise.on = true; p.noise.level = 0.1f; p.noise.cutoff = 400.0f; p.noise.res = 0.2f;
+        p.noise.motionRate = 0.12f; p.noise.motionDepth = 0.8f;
+        p.filter.cutoff = 700.0f; p.filter.res = 0.3f;
+        p.fx.chorusMix = 0.55f; p.fx.chorusRate = 0.35f; p.fx.chorusDepth = 0.7f; p.fx.wow = 0.4f;
+        p.fx.revSize = 0.6f; p.fx.revDecay = 6.0f; p.fx.revMix = 0.45f;
+        p.fx.highCut = 2600.0f; p.fx.tilt = -4.0f; p.fx.monoBelow = 200.0f;
+        p.lfos[0].rate = 0.09f;
+        p.mods[0] = {ModSrcLfo1, ModDstCutoff, 0.55f};
+        p.mods[1] = {ModSrcLfo2, ModDstChorusDepth, 0.4f};
+        p.mods[2] = {ModSrcLfo3, ModDstPitch, 0.08f};
+        list.push_back({"Underwater", "Muffled and swaying.", "muffled, swaying",
+                        0x0F4650, 0x061A1E, 0x6FD6D0, p});
+    }
+    {  // 6. Temple
+        Params p = moodBase();
+        p.seed = 777; p.rootNote = 38; p.bpm = 56.0f; p.glide = 3.0f;
+        feelInto(p, FeelCalm, 7.0f);
+        layer(p, 0, WaveOrgan, 0.3f, 0x0F);
+        p.layers[0].tone = 0.6f; p.layers[0].attack = 3.0f;
+        layer(p, 1, WaveSine, 0.4f, 0x01);
+        p.layers[1].octave = -1;
+        layer(p, 2, WaveSaw, 0.1f, 0x0C);
+        p.layers[2].octave = 1; p.layers[2].unison = 3; p.layers[2].detune = 9.0f; p.layers[2].tone = 0.5f;
+        p.filter.cutoff = 3200.0f;
+        p.fx.chorusMix = 0.4f; p.fx.revSize = 1.0f; p.fx.revDecay = 12.0f; p.fx.revMix = 0.5f;
+        p.fx.revPredelay = 0.06f; p.fx.shimmer = 0.25f; p.fx.shimmerSemi = 12;
+        p.fx.delayDiv = 3; p.fx.delayMix = 0.25f; p.fx.delayFeedback = 0.55f;
+        p.bells.on = true; p.bells.timbre = BellFm; p.bells.density = 8.0f; p.bells.level = 0.3f;
+        p.bells.decay = 4.5f; p.bells.octave = 2; p.bells.range = 12; p.bells.quantize = 1;
+        p.bells.chordLock = true; p.bells.bright = 0.6f;
+        p.mods[0] = {ModSrcArc, ModDstBellDensity, 0.5f};
+        p.mods[1] = {ModSrcLfo1, ModDstDelayMix, 0.2f};
+        shapeInto(p, ShapeSwell);
+        list.push_back({"Temple", "A warm choir with slow bells.", "warm choir, chimes",
+                        0x4D3A1C, 0x170F06, 0xF4C77A, p});
+    }
+    {  // 7. Frozen
+        Params p = moodBase();
+        p.seed = 31337; p.rootNote = 40; p.bpm = 44.0f; p.glide = 5.0f;
+        feelInto(p, FeelOpen, 5.5f);
+        layer(p, 0, WaveTriangle, 0.3f, 0x0F);
+        p.layers[0].unison = 5; p.layers[0].detune = 18.0f; p.layers[0].spread = 1.0f; p.layers[0].tone = 0.7f;
+        p.layers[0].attack = 8.0f; p.layers[0].release = 9.0f;
+        layer(p, 1, WaveSine, 0.3f, 0x01);
+        p.layers[1].octave = -2;
+        p.filter.cutoff = 4000.0f;
+        p.fx.chorusMix = 0.45f; p.fx.chorusRate = 0.13f;
+        p.fx.revSize = 1.0f; p.fx.revDecay = 22.0f; p.fx.revMix = 0.6f; p.fx.revDamp = 0.25f;
+        p.fx.shimmer = 0.62f; p.fx.shimmerSemi = 12;
+        p.fx.delayDiv = 4; p.fx.delayMix = 0.3f; p.fx.delayFeedback = 0.62f;
+        p.bells.on = true; p.bells.timbre = BellGlass; p.bells.density = 9.0f; p.bells.level = 0.22f;
+        p.bells.decay = 6.0f; p.bells.octave = 3; p.bells.bright = 0.75f;
+        p.mods[0] = {ModSrcLfo1, ModDstShimmer, 0.3f};
+        p.mods[1] = {ModSrcLfo2, ModDstCutoff, 0.25f};
+        p.mods[2] = {ModSrcArc, ModDstReverbMix, 0.2f};
+        shapeInto(p, ShapeTwoWaves);
+        list.push_back({"Frozen", "Bright, glassy shimmer.", "bright, glassy shimmer",
+                        0x3D5B78, 0x101A26, 0xDDF0FF, p});
+    }
+    {  // 8. Machinery
+        Params p = moodBase();
+        p.seed = 4004; p.rootNote = 29; p.bpm = 72.0f; p.glide = 2.5f;
+        feelInto(p, FeelUneasy, 9.0f);
+        layer(p, 0, WavePulse, 0.26f, 0x03);
+        p.layers[0].pw = 0.42f; p.layers[0].tone = 0.3f; p.layers[0].attack = 2.0f;
+        layer(p, 1, WaveSine, 0.4f, 0x01);
+        p.layers[1].octave = -1;
+        layer(p, 2, WaveFm, 0.08f, 0x04);
+        p.layers[2].octave = 1; p.layers[2].fmRatio = 3.0f; p.layers[2].fmIndex = 2.4f;
+        p.noise.on = true; p.noise.level = 0.16f; p.noise.cutoff = 1600.0f; p.noise.res = 0.6f;
+        p.noise.motionRate = 0.22f;
+        p.filter.cutoff = 1800.0f; p.filter.res = 0.45f; p.fx.drive = 0.35f;
+        p.fx.delayDiv = 1; p.fx.delayMix = 0.22f; p.fx.delayFeedback = 0.4f; p.fx.pingpong = true;
+        p.fx.revDecay = 4.0f; p.fx.revMix = 0.3f;
+        p.lfos[2].rate = 2.9f;
+        p.mods[0] = {ModSrcLfo3, ModDstLevel1, 0.35f};
+        p.mods[1] = {ModSrcLfo1, ModDstCutoff, 0.3f};
+        p.mods[2] = {ModSrcLfo2, ModDstNoise, 0.4f};
+        list.push_back({"Machinery", "A humming engine room.", "humming engine room",
+                        0x3A3530, 0x110F0D, 0xFFA65C, p});
+    }
+    for (Mood& m : list) simple::fitLoopTail(m.params);
+    return list;
+}
+
+namespace simple {
+
+const char* const* feelingNames() {
+    static const char* const n[FeelCount] = {"Calm", "Open", "Mysterious", "Uneasy", "Dread"};
+    return n;
+}
+const char* const* shapeNames() {
+    static const char* const n[ShapeCount] = {"Steady", "Swell", "Two waves", "Build up"};
+    return n;
+}
+
+float motionSum(const Params& p) {
+    float m = 0.0f;
+    for (const ModRow& r : p.mods) {
+        if (!isMotionSrc(r.src) || r.dst == ModDstNone) continue;
+        const float depth = r.src == ModSrcRandom ? 1.0f : val(p, p.lfos[r.src - ModSrcLfo1].depth);
+        m += std::fabs(val(p, r.amount)) * depth;
+    }
+    return m;
+}
+
+int freeModRows(const Params& p) {
+    int n = 0;
+    for (const ModRow& r : p.mods) n += (r.src == ModSrcNone || r.dst == ModDstNone) ? 1 : 0;
+    return n;
+}
+
+bool arcActive(const Params& p) {
+    for (const ModRow& r : p.mods)
+        if (r.src == ModSrcArc && r.dst != ModDstNone && std::fabs(r.amount) > 0.01f) return true;
+    return false;
+}
+
+float read(const Params& p, int slider) {
+    switch (slider) {
+        case SlBright:
+            return clampf(std::log(std::max(1.0f, val(p, p.filter.cutoff)) / 200.0f) / std::log(40.0f), 0.0f, 1.0f);
+        case SlPitch:
+            return clampf((float)(p.rootNote - 21) / 31.0f, 0.0f, 1.0f);
+        case SlMove:
+            return clampf(motionSum(p) / 1.2f, 0.0f, 1.0f);
+        case SlSpace:
+            return clampf(std::log(std::max(0.01f, val(p, p.fx.revDecay)) / 2.0f) / std::log(15.0f), 0.0f, 1.0f);
+        case SlWind:
+            return p.noise.on ? clampf(val(p, p.noise.level) / 0.35f, 0.0f, 1.0f) : 0.0f;
+        case SlChimes:
+            return p.bells.on ? clampf(std::log(1.0f + std::max(0.0f, val(p, p.bells.density))) / std::log(41.0f),
+                                       0.0f, 1.0f)
+                              : 0.0f;
+        default: return 0.0f;
+    }
+}
+
+void write(Params& p, const Params& p0, int slider, float r0, float r1) {
+    p = p0;
+    if (r1 == r0) return;
+    const float d = r1 - r0;
+    switch (slider) {
+        case SlBright: {
+            const float oct = d * std::log2(40.0f);
+            xf(p, p0, p.filter.cutoff, [&](float v) { return cl(v * std::exp2(oct), 200.0f, 8000.0f, v); });
+            xf(p, p0, p.fx.highCut, [&](float v) { return cl(v * std::exp2(0.6f * oct), 1500.0f, 11000.0f, v); });
+            xf(p, p0, p.fx.tilt, [&](float v) { return cl(v + 6.0f * d, -6.0f, 3.0f, v); });
+            for (Layer& l : p.layers)
+                xf(p, p0, l.tone, [&](float v) { return cl(v + 0.4f * d, 0.05f, 1.0f, v); });
+            xf(p, p0, p.noise.cutoff, [&](float v) { return cl(v * std::exp2(0.5f * oct), 80.0f, 6000.0f, v); });
+            xf(p, p0, p.bells.bright, [&](float v) { return cl(v + 0.5f * d, 0.0f, 1.0f, v); });
+            break;
+        }
+        case SlPitch: {
+            p.rootNote = clampi((int)std::lround(21.0f + 31.0f * clampf(r1, 0.0f, 1.0f)), 0, 127);
+            const int delta = p.rootNote - p0.rootNote;
+            if (AutoLane* l = laneOf(p, fieldIndex(p, &p.rootNote)))
+                for (int k = 0; k < l->count; ++k) l->pts[k].value += (float)delta;
+            break;
+        }
+        case SlMove: {
+            const float m0 = motionSum(p0);
+            if (m0 < 0.02f) {
+                if (r1 <= 0.0f) break;
+                int rows[2] = {-1, -1}, n = 0;
+                for (int i = 0; i < kNumMods && n < 2; ++i)
+                    if (p.mods[i].src == ModSrcNone || p.mods[i].dst == ModDstNone) rows[n++] = i;
+                if (n == 0) break;  // no room: the slider is disabled
+                // The two LFOs start from their Params() defaults.
+                p.lfos[0] = {0.05f, LfoSine, 1.0f, false};
+                p.lfos[1] = {0.13f, LfoSmooth, 1.0f, false};
+                if (n == 2) {
+                    p.mods[rows[0]] = {ModSrcLfo1, ModDstCutoff, std::min(1.0f, 0.6f * 1.2f * r1)};
+                    p.mods[rows[1]] = {ModSrcLfo2, ModDstLevel1, std::min(1.0f, 0.4f * 1.2f * r1)};
+                } else {
+                    p.mods[rows[0]] = {ModSrcLfo1, ModDstCutoff, std::min(1.0f, 1.2f * r1)};
+                }
+                p.lfos[0].rate = clampf(0.05f * std::exp2(2.0f * d), 0.005f, 4.0f);
+                p.lfos[1].rate = clampf(0.13f * std::exp2(2.0f * d), 0.005f, 4.0f);
+                xf(p, p0, p.lfos[2].rate, [&](float v) { return cl(v * std::exp2(2.0f * d), 0.005f, 4.0f, v); });
+            } else {
+                const float k = 1.2f * r1 / m0;
+                for (ModRow& row : p.mods)
+                    if (isMotionSrc(row.src) && row.dst != ModDstNone)
+                        xf(p, p0, row.amount, [k](float a) {
+                            return (a < 0.0f ? -1.0f : 1.0f) * clampf(std::fabs(a) * k, 0.0f, 1.0f);
+                        });
+                for (Lfo& l : p.lfos)
+                    if (!l.sync)
+                        xf(p, p0, l.rate, [&](float v) { return cl(v * std::exp2(2.0f * d), 0.005f, 4.0f, v); });
+            }
+            xf(p, p0, p.noise.motionRate, [&](float v) { return cl(v * std::exp2(2.0f * d), 0.005f, 1.0f, v); });
+            for (Layer& l : p.layers)
+                xf(p, p0, l.drift, [&](float v) { return cl(v * std::exp2(1.5f * d), 0.0f, 40.0f, v); });
+            break;
+        }
+        case SlSpace: {
+            xf(p, p0, p.fx.revDecay, [&](float v) { return cl(v * std::pow(15.0f, d), 1.0f, 40.0f, v); });
+            xf(p, p0, p.fx.revMix, [&](float v) { return cl(v + 0.45f * d, 0.05f, 0.85f, v); });
+            xf(p, p0, p.fx.revSize, [&](float v) { return cl(v + 0.5f * d, 0.2f, 1.0f, v); });
+            xf(p, p0, p.fx.revPredelay, [&](float v) { return cl(v + 0.06f * d, 0.0f, 0.15f, v); });
+            xf(p, p0, p.fx.delayMix, [&](float v) { return cl(v + 0.2f * d, 0.0f, 0.6f, v); });
+            fitLoopTail(p);
+            break;
+        }
+        case SlWind: {
+            p.noise.on = r1 >= 0.02f;
+            if (!p.noise.on) break;
+            xfTo(p, p0, p.noise.level, 0.35f * clampf(r1, 0.0f, 1.0f));
+            xf(p, p0, p.noise.motionDepth, [&](float v) { return cl(v + 0.6f * d, 0.0f, 1.0f, v); });
+            xf(p, p0, p.noise.stereo, [](float v) { return std::max(v, 0.6f); });
+            break;
+        }
+        case SlChimes: {
+            if (r1 < 0.03f) {
+                p.bells.on = false;  // density kept: turning them back on returns
+                break;
+            }
+            p.bells.on = true;
+            float dens = std::exp(clampf(r1, 0.0f, 1.0f) * std::log(41.0f)) - 1.0f;
+            dens = clampf(std::round(dens * 2.0f) * 0.5f, 0.5f, 40.0f);
+            xfTo(p, p0, p.bells.density, dens);
+            if (p.bells.level < 0.05f) p.bells.level = 0.25f;
+            break;
+        }
+        default: break;
+    }
+}
+
+bool writable(const Params& p, int slider) {
+    if (slider == SlMove) return motionSum(p) >= 0.02f || freeModRows(p) > 0;
+    return true;
+}
+
+bool automated(const Params& p, int slider) {
+    std::vector<const void*> f;
+    switch (slider) {
+        case SlBright:
+            f = {&p.filter.cutoff, &p.fx.highCut, &p.fx.tilt, &p.noise.cutoff, &p.bells.bright};
+            for (const Layer& l : p.layers) f.push_back(&l.tone);
+            break;
+        case SlPitch: f = {&p.rootNote}; break;
+        case SlMove:
+            for (const ModRow& r : p.mods) f.push_back(&r.amount);
+            for (const Lfo& l : p.lfos) f.push_back(&l.rate);
+            for (const Layer& l : p.layers) f.push_back(&l.drift);
+            f.push_back(&p.noise.motionRate);
+            break;
+        case SlSpace:
+            f = {&p.fx.revDecay, &p.fx.revMix, &p.fx.revSize, &p.fx.revPredelay, &p.fx.delayMix};
+            break;
+        case SlWind: f = {&p.noise.level, &p.noise.motionDepth, &p.noise.stereo}; break;
+        case SlChimes: f = {&p.bells.density}; break;
+        default: break;
+    }
+    for (const void* q : f)
+        if (laneIndexOf(p, q) >= 0) return true;
+    return false;
+}
+
+const char* word(const Params& p, int slider, float r) {
+    static char buf[32];
+    switch (slider) {
+        case SlBright:
+            return r < 0.15f ? "muffled" : r < 0.35f ? "murky" : r < 0.55f ? "soft" : r < 0.75f ? "clear" : "bright";
+        case SlPitch: {
+            const int n = p.rootNote;
+            return n < 26 ? "rumble" : n < 31 ? "deep" : n < 38 ? "low" : n < 45 ? "middle" : "high";
+        }
+        case SlMove:
+            return r < 0.08f   ? "still"
+                   : r < 0.45f ? "gentle"
+                   : r < 0.7f  ? "slow swells"
+                   : r < 0.9f  ? "restless"
+                               : "churning";
+        case SlSpace: {
+            const float dec = val(p, p.fx.revDecay);
+            return dec < 2.5f    ? "small room"
+                   : dec < 5.0f  ? "room"
+                   : dec < 9.0f  ? "hall"
+                   : dec < 15.0f ? "big cavern"
+                   : dec < 24.0f ? "cathedral"
+                                 : "endless";
+        }
+        case SlWind:
+            return r < 0.005f  ? "none"
+                   : r < 0.25f ? "faint air"
+                   : r < 0.5f  ? "light draught"
+                   : r < 0.8f  ? "steady wind"
+                               : "gale";
+        case SlChimes:
+            if (!p.bells.on) return "off";
+            std::snprintf(buf, sizeof buf, "%g a minute", (double)(std::round(val(p, p.bells.density) * 2.0f) * 0.5f));
+            return buf;
+        default: return "";
+    }
+}
+
+bool applyShape(Params& p, int shape) {
+    if (shape < 0 || shape >= ShapeCount) return false;
+    if (shape == ShapeSteady) {
+        float m = 0.0f;
+        for (float a : p.arc) m += a;
+        m /= (float)kArcPoints;
+        for (float& a : p.arc) a = m;
+        return true;
+    }
+    if (!arcActive(p)) {
+        int rows[2] = {-1, -1}, n = 0;
+        for (int i = 0; i < kNumMods && n < 2; ++i)
+            if (p.mods[i].src == ModSrcNone || p.mods[i].dst == ModDstNone) rows[n++] = i;
+        if (n == 0) return false;
+        p.mods[rows[0]] = {ModSrcArc, ModDstCutoff, 0.3f};
+        if (n == 2) p.mods[rows[1]] = {ModSrcArc, ModDstReverbMix, 0.2f};
+    }
+    shapeInto(p, shape);
+    return true;
+}
+
+int readShape(const Params& p, bool* exact) {
+    float lo = p.arc[0], hi = p.arc[0];
+    for (float a : p.arc) lo = std::min(lo, a), hi = std::max(hi, a);
+    if (!arcActive(p) || hi - lo < 0.05f) {
+        if (exact) *exact = true;
+        return ShapeSteady;
+    }
+    int best = ShapeSwell;
+    float bestD = 1e9f;
+    for (int s = ShapeSwell; s < ShapeCount; ++s) {
+        float d = 0.0f;
+        for (int i = 0; i < kArcPoints; ++i) d += (p.arc[i] - kShapeArc[s][i]) * (p.arc[i] - kShapeArc[s][i]);
+        d = std::sqrt(d);
+        if (d < bestD) bestD = d, best = s;
+    }
+    if (exact) *exact = bestD < 0.05f;
+    return best;
+}
+
+void applyFeeling(Params& p, int feeling) {
+    if (feeling < 0 || feeling >= FeelCount) return;
+    const FeelingDef& f = kFeelings[feeling];
+    for (int i = 0; i < std::max(1, std::min(p.stepCount, kMaxSteps)); ++i) {
+        Step& s = p.steps[i];
+        const int* src = (i % 2) ? f.b : f.a;
+        for (int k = 0; k < kMaxChordNotes; ++k) s.notes[k] = k < 4 ? src[k] : 0;
+        s.count = 4;
+    }
+    p.scale = f.scale;
+}
+
+int readFeeling(const Params& p, bool* exact) {
+    const int used = std::max(1, std::min(p.stepCount, kMaxSteps));
+    for (int f = 0; f < FeelCount; ++f) {
+        bool same = true;
+        for (int i = 0; i < used && same; ++i) {
+            const Step& s = p.steps[i];
+            const int* src = (i % 2) ? kFeelings[f].b : kFeelings[f].a;
+            same = s.count == 4;
+            for (int k = 0; k < 4 && same; ++k) same = s.notes[k] == src[k];
+        }
+        if (same) {
+            if (exact) *exact = true;
+            return f;
+        }
+    }
+    static const float* table = [] {
+        static float t[FeelCount];
+        for (int f = 0; f < FeelCount; ++f) t[f] = tableTension(f);
+        return t;
+    }();
+    float score = 0.0f;
+    for (int i = 0; i < used; ++i) score += tension(p.steps[i]);
+    score /= (float)used;
+    int best = 0;
+    float bestD = 1e9f;
+    for (int f = 0; f < FeelCount; ++f) {
+        const float d = std::fabs(score - table[f]);
+        if (d < bestD) bestD = d, best = f;  // strict: a tie keeps the calmer one
+    }
+    if (exact) *exact = false;
+    return best;
+}
+
+void fitLoopTail(Params& p) {
+    const float hi = std::max(2.0f, std::min(30.0f, 0.9f * p.lengthSec));
+    p.master.loopTail = clampf(0.8f * val(p, p.fx.revDecay), 2.0f, hi);
+}
+
+void applyLength(Params& p, float sec) {
+    if (sec <= 0.0f) return;
+    const float pass = progressionBars(p) * barSeconds(p);
+    if (pass > 0.0f) {
+        const int n = std::max(1, (int)std::lround(sec / pass));
+        const float k = (sec / (float)n) / pass;
+        for (int i = 0; i < std::max(1, std::min(p.stepCount, kMaxSteps)); ++i)
+            p.steps[i].bars = std::max(0.25f, p.steps[i].bars) * k;
+    }
+    p.lengthSec = sec;
+    fitLoopTail(p);
+}
+
+void applyLoudness(Params& p, int level) {
+    if (level >= 0 && level < 3) p.master.normalize = kLoudness[level];
+}
+
+int readLoudness(const Params& p) {
+    if (p.master.normalize <= 0.0f) return -1;
+    int best = 0;
+    for (int i = 1; i < 3; ++i)
+        if (std::fabs(p.master.normalize - kLoudness[i]) < std::fabs(p.master.normalize - kLoudness[best])) best = i;
+    return best;
+}
+
+void applyMood(Params& p, int mood) {
+    const std::vector<Mood>& ms = moods();
+    if (mood < 0 || mood >= (int)ms.size()) return;
+    const Params keep = p;
+    p = ms[(size_t)mood].params;
+    p.lengthSec = keep.lengthSec;
+    p.sampleRate = keep.sampleRate;
+    p.stereo = keep.stereo;
+    p.master = keep.master;
+    p.autoLaneCount = 0;
+    applyLength(p, keep.lengthSec);  // whole passes, and the loop tail
+}
+
+bool sameAsMood(const Params& p, int mood) {
+    if (mood < 0 || mood >= (int)moods().size()) return false;
+    Params q = p;
+    applyMood(q, mood);
+    return toText(q, std::string()) == toText(p, std::string());
+}
+
+void anotherTake(Params& p) {
+    uint32_t x = p.seed ? p.seed : 0x1234567u;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    p.seed = x;
+    Rng r;
+    r.seed(mix32(x, 0x7A4Eu));
+    auto nudge = [&](float oct) { return std::exp2((r.uni() * 2.0f - 1.0f) * oct); };
+    for (Lfo& l : p.lfos)
+        if (!l.sync) l.rate = clampf(l.rate * nudge(0.25f), 0.005f, 4.0f);
+    p.bells.density = clampf(p.bells.density * nudge(0.2f), 0.5f, 40.0f);
+    p.noise.motionRate = clampf(p.noise.motionRate * nudge(0.25f), 0.005f, 1.0f);
+}
+
+}  // namespace simple
+
 }  // namespace dronegen

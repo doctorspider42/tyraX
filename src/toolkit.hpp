@@ -322,4 +322,35 @@ bool RangeSlider(const char* label, float* lo, float* hi, float vmin, float vmax
                  const char* fmt = "%.2f", float width = 0.0f);
 // --- end content ---
 
+// --- drone ---
+// The Simple views' rows (Ambience Editor > Sky & time, Drone Generator):
+// a caption in the label column, a thin track with one knob, the value as a
+// word at the right end, and a segmented control that can say "close to".
+
+/** A dim row caption (dotted underline + `tip` tooltip when given), then
+ * SameLine(labelW) so the control starts in the label column. */
+void RowLabel(const char* text, const char* tip, float labelW);
+
+/** A thin track with one knob and the value as text at its right end. The
+ * InvisibleButton is named `id` (the --ui-script name; scripts drag it).
+ * `fromCol`/`toCol` non-zero paint the track as a gradient instead of filling
+ * up to the knob. `detail` null draws `shown` in the mono face; non-null draws
+ * `shown` as a word and `detail` dim and mono after it ("deep E1"). `valueW`
+ * reserves at least that much for the text so the track does not jitter as
+ * the word changes. Returns true while the value changes; the usual
+ * IsItemActivated / IsItemDeactivated report the drag. */
+bool TrackSlider(const char* id, float* v, float lo, float hi, const std::string& shown,
+                 ImU32 fromCol = 0, ImU32 toCol = 0, const char* detail = nullptr,
+                 float valueW = 0.0f, bool enabled = true);
+
+/** Segmented with an "approx" state: `selected` -1 and `approx` >= 0 draw
+ * that option outlined in the accent (the value is only CLOSE to it). Each
+ * option reports checked to --ui-script. `enabled` false greys every option
+ * (hover still reaches the caller's tooltip via IsItemHovered on the last
+ * one is NOT guaranteed - use the returned `hovered`). Returns true when an
+ * option was clicked (even the selected one: a click re-applies it). */
+bool SegmentedApprox(const char* id, const char* const* labels, int count, int* selected, int approx,
+                     float width = 0.0f, bool enabled = true, bool* hovered = nullptr);
+// --- end drone ---
+
 }  // namespace ui
