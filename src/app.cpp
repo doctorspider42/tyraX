@@ -1,4 +1,5 @@
 #include "app.hpp"
+#include "menu_actions.hpp"
 #include "app_internal.hpp"
 #include "roadgen.hpp"
 #include "hudanim.hpp"
@@ -1395,14 +1396,14 @@ void App::drawMenuBar() {
 // on the bar itself - a popup of BeginMenus is a menu of submenus to ImGui -
 // so the labels, the items and their shortcuts did not change.
 void App::drawMainMenus() {
-    if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
-        if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+    if (menuact::BeginMenu("File")) {
+        if (menuact::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
+        if (menuact::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
         drawRecentProjectsMenu();
         ImGui::Separator();
         const bool sessionClient =
             session_.role() == session::Session::Role::Client;
-        if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
+        if (menuact::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
             saveAll("Saved");
         if (sessionClient && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
@@ -1412,21 +1413,21 @@ void App::drawMainMenus() {
         // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
         // W that flies the viewport camera, and this throws the project out
         // of the editor.
-        if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
+        if (menuact::MenuItem("Close Project", nullptr, false, hasProject_))
             requestCloseProject();
         ImGui::Separator();
-        if (ImGui::MenuItem("Exit")) requestExit();
-        ImGui::EndMenu();
+        if (menuact::MenuItem("Exit")) requestExit();
+        menuact::EndMenu();
     }
     // Edit stays enabled without a project so the machine-global editor
     // settings (emulator path, PS2 IP) can be set before creating one; the
     // project-scoped items below disable themselves on their own state.
-    if (ImGui::BeginMenu("Edit")) {
+    if (menuact::BeginMenu("Edit")) {
         const bool objectSelected =
             hasProject_ && selectedObject_ >= 0 &&
             selectedObject_ < (int)project_.objects().size();
-        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
-        if (ImGui::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
+        if (menuact::MenuItem("Undo", "Ctrl+Z", false, history_.canUndo())) undo();
+        if (menuact::MenuItem("Redo", "Ctrl+Y", false, history_.canRedo())) redo();
         ImGui::Separator();
         const char* copyLabel =
             selection_.size() > 1 ? "Copy objects" : "Copy object";
@@ -1435,34 +1436,34 @@ void App::drawMainMenus() {
         const char* pasteLabel = pastePending_ ? "Place paste"
                                  : clipboard_.size() > 1 ? "Paste objects"
                                                          : "Paste object";
-        if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
-        if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
-        if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
-        if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
+        if (menuact::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
+        if (menuact::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
+        if (menuact::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
+        if (menuact::MenuItem(pasteLabel, "Ctrl+V", false,
                             hasProject_ && (pastePending_ || !clipboard_.empty())))
             pasteObject();
         ImGui::Separator();
         // The modal seeds its own fields when it opens (the start page opens
         // it too).
-        if (ImGui::MenuItem("Preferences...")) {
+        if (menuact::MenuItem("Preferences...")) {
             openEditorPrefsPopup_ = true;
         }
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("View")) {
+    if (menuact::BeginMenu("View")) {
         ImGui::TextDisabled("Interface scale");
-        if (ImGui::MenuItem("Zoom in", "Ctrl+="))
+        if (menuact::MenuItem("Zoom in", "Ctrl+="))
             setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
-        if (ImGui::MenuItem("Zoom out", "Ctrl+-"))
+        if (menuact::MenuItem("Zoom out", "Ctrl+-"))
             setUiScale(ImClamp(uiScaleApplied_ - 0.1f, 0.5f, 4.0f));
-        if (ImGui::MenuItem("Auto (match display DPI)", "Ctrl+0", uiScaleUser_ == 0.0f))
+        if (menuact::MenuItem("Auto (match display DPI)", "Ctrl+0", uiScaleUser_ == 0.0f))
             setUiScale(0.0f);
         ImGui::Separator();
         const float presets[] = {1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f};
         for (float v : presets) {
             char label[16];
             std::snprintf(label, sizeof(label), "%d%%", (int)std::lround(v * 100.0f));
-            if (ImGui::MenuItem(label, nullptr, std::abs(uiScaleApplied_ - v) < 0.001f))
+            if (menuact::MenuItem(label, nullptr, std::abs(uiScaleApplied_ - v) < 0.001f))
                 setUiScale(v);
         }
         ImGui::Separator();
@@ -1473,7 +1474,7 @@ void App::drawMainMenus() {
         // modal: it changes what a click DOES to the camera, so it gets
         // toggled far more often than sensitivities are tuned. Same field
         // the Navigation controls popup edits - one setting, two doors.
-        if (ImGui::MenuItem("Orbit around selected object", nullptr,
+        if (menuact::MenuItem("Orbit around selected object", nullptr,
                             nav_.orbitAroundSelection)) {
             nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
             saveGlobalConfig();
@@ -1484,20 +1485,20 @@ void App::drawMainMenus() {
                 "Selecting an object moves the camera pivot onto it, so a\n"
                 "right-drag orbits around that object instead of the terrain\n"
                 "centre. Pan, zoom and the forward drag still move freely.");
-        if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+        if (menuact::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
 
         // Theme next to the interface scale: both are "how the editor
         // looks on THIS machine", both live in editor.ini, and a picker
         // buried in Preferences is one nobody finds. Also in
         // Edit > Preferences > Appearance.
-        if (ImGui::BeginMenu("Theme")) {
+        if (menuact::BeginMenu("Theme")) {
             for (int i = 0; i < (int)theme::Id::Count; ++i) {
                 const theme::Info& ti = theme::info((theme::Id)i);
-                if (ImGui::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
+                if (menuact::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
                     setTheme((theme::Id)i);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
             }
-            ImGui::EndMenu();
+            menuact::EndMenu();
         }
 
         ImGui::Separator();
@@ -1523,7 +1524,7 @@ void App::drawMainMenus() {
                  "the console's, and so is the framing."},
             };
             for (const OutItem& it : outs) {
-                if (ImGui::MenuItem(it.label, nullptr, viewportPs2_ == it.ps2,
+                if (menuact::MenuItem(it.label, nullptr, viewportPs2_ == it.ps2,
                                     hasProject_) &&
                     viewportPs2_ != it.ps2) {
                     viewportPs2_ = it.ps2;
@@ -1539,7 +1540,7 @@ void App::drawMainMenus() {
             // The two look simulations compose with either output mode:
             // triangle shading and 16-bit banding are visible (and true)
             // at any raster.
-            if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
+            if (menuact::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
                                 hasProject_)) {
                 viewportPs2Shade_ = !viewportPs2Shade_;
                 saveGlobalConfig();
@@ -1549,19 +1550,19 @@ void App::drawMainMenus() {
                     "Shade the way the console does: lights, occlusion and\n"
                     "fog per VERTEX, most surfaces flat-shaded - one colour\n"
                     "per triangle. Off = the editor's smooth per-pixel look.");
-            if (ImGui::BeginMenu("GS colour", hasProject_)) {
+            if (menuact::BeginMenu("GS colour", hasProject_)) {
                 static const char* kGsColorNames[] = {
                     "Match project", "Full 32-bit", "16-bit",
                     "16-bit + dithering"};
                 for (int i = 0; i < 4; ++i) {
-                    if (ImGui::MenuItem(kGsColorNames[i], nullptr,
+                    if (menuact::MenuItem(kGsColorNames[i], nullptr,
                                         viewportGsColor_ == i) &&
                         viewportGsColor_ != i) {
                         viewportGsColor_ = i;
                         saveGlobalConfig();
                     }
                 }
-                ImGui::EndMenu();
+                menuact::EndMenu();
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1581,7 +1582,7 @@ void App::drawMainMenus() {
         // scene edit and cleared the save icon along the way.
         for (int i = 0; i < 3; ++i) {
             const bool active = (int)viewport_.viewMode() == i;
-            if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
+            if (menuact::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
                 viewport_.setViewMode((Viewport::ViewMode)i);
         }
 
@@ -1609,11 +1610,11 @@ void App::drawMainMenus() {
             };
             for (const ProjItem& it : items) {
                 const bool active = viewport_.projection() == it.p;
-                if (ImGui::MenuItem(it.label, it.shortcut, active, hasProject_) &&
+                if (menuact::MenuItem(it.label, it.shortcut, active, hasProject_) &&
                     !active)
                     setViewProjection(it.p);
             }
-            if (ImGui::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
+            if (menuact::MenuItem("Axis gizmo", nullptr, showAxisGizmo_)) {
                 showAxisGizmo_ = !showAxisGizmo_;
                 saveGlobalConfig();
             }
@@ -1626,7 +1627,7 @@ void App::drawMainMenus() {
 
         ImGui::Separator();
         ImGui::TextDisabled("Placement");
-        if (ImGui::MenuItem("Snap to surface", nullptr, placementSnap_)) {
+        if (menuact::MenuItem("Snap to surface", nullptr, placementSnap_)) {
             placementSnap_ = !placementSnap_;
             saveGlobalConfig();
         }
@@ -1642,7 +1643,7 @@ void App::drawMainMenus() {
         // Editor notes (docs/comments.md). Icons are always present; this
         // persisted option expands every note instead of only the selected
         // one.
-        if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
+        if (menuact::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
             showCommentText_ = !showCommentText_;
             saveGlobalConfig();
         }
@@ -1652,7 +1653,7 @@ void App::drawMainMenus() {
                 "the message icons stay visible and clickable, but only\n"
                 "the selected comment shows its text. Off by default.\n"
                 "Notes are editor-only either way: nothing reaches the game.");
-        if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
+        if (menuact::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
             showFog_ = !showFog_;
             applyProjectToViewport();  // suppress/restore fog in the viewport now
         }
@@ -1660,7 +1661,7 @@ void App::drawMainMenus() {
             ImGui::SetTooltip("Preview the scene's distance fog in the editor. "
                               "Turn off to see distant geometry - does not "
                               "affect the generated game.");
-        if (ImGui::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
+        if (menuact::MenuItem("Nav mesh overlay", nullptr, showNavOverlay_,
                             hasProject_))
             showNavOverlay_ = !showNavOverlay_;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1668,7 +1669,7 @@ void App::drawMainMenus() {
                 "Show the baked navigation grid the AI flow nodes walk on "
                 "(green = walkable). Tune it in Project > Preferences > "
                 "AI navigation.");
-        if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+        if (menuact::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
                             hasProject_))
             showCollisionBoxes_ = !showCollisionBoxes_;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1679,7 +1680,7 @@ void App::drawMainMenus() {
                 "prop you cannot walk up to or a\ncamera that pulls in "
                 "early. The running game can draw the same\nboxes - "
                 "Preferences > Build > Show collision boxes.");
-        if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
+        if (menuact::MenuItem("Static batches", nullptr, showBatchOverlay_,
                             hasProject_)) {
             showBatchOverlay_ = !showBatchOverlay_;
             batchDirty_ = true;
@@ -1692,7 +1693,7 @@ void App::drawMainMenus() {
                 "test are applied to -\na batch draws as a unit - so an "
                 "over-wide one is geometry the\nunbatched scene would "
                 "cull. Tools > Static Batches lists them.");
-        if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
+        if (menuact::MenuItem("Procedural preview", nullptr, showProcPreview_,
                             hasProject_))
             showProcPreview_ = !showProcPreview_;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1702,7 +1703,7 @@ void App::drawMainMenus() {
                 "ground it grows on.\nThe graph keeps being evaluated, so "
                 "the budget readout and the seed\nsimulator stay live; only "
                 "the geometry goes.");
-        if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
+        if (menuact::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
                             hasProject_))
             showScrollerPreview_ = !showScrollerPreview_;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1716,50 +1717,50 @@ void App::drawMainMenus() {
 
         ImGui::Separator();
         ImGui::TextDisabled("TV safe frame");
-        if (ImGui::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
-        if (ImGui::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
+        if (menuact::MenuItem("PAL 4:3 frame", nullptr, showPal_)) showPal_ = !showPal_;
+        if (menuact::MenuItem("NTSC frame", nullptr, showNtsc_)) showNtsc_ = !showNtsc_;
 
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Layout", hasProject_)) {
+    if (menuact::BeginMenu("Layout", hasProject_)) {
         drawLayoutMenu();
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Scene", hasProject_)) {
-        if (ImGui::BeginMenu("Add")) {
+    if (menuact::BeginMenu("Scene", hasProject_)) {
+        if (menuact::BeginMenu("Add")) {
             drawAddObjectMenu();
-            ImGui::EndMenu();
+            menuact::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Drop to floor", "End", false, !selection_.empty()))
+        if (menuact::MenuItem("Drop to floor", "End", false, !selection_.empty()))
             dropSelectionToFloor();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
                 "Rest every selected object on the first surface below it "
                 "-\nthe terrain or the top of another object.");
         ImGui::Separator();
-        if (ImGui::MenuItem("Scene Preferences...")) openScenePreferences();
-        ImGui::EndMenu();
+        if (menuact::MenuItem("Scene Preferences...")) openScenePreferences();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Project", hasProject_)) {
+    if (menuact::BeginMenu("Project", hasProject_)) {
         const bool busy = runner_.busy();
-        if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
+        if (menuact::MenuItem("Preferences...", "Ctrl+,"))
             openProjectPreferences();
         ImGui::Separator();
-        if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
+        if (menuact::MenuItem("Export PS2 ISO", nullptr, false, !busy))
             runner_.exportIso(projectForBuild());
-        if (ImGui::MenuItem("Disc Layout...")) {
+        if (menuact::MenuItem("Disc Layout...")) {
             showDiscLayout_ = true;
             discPlanDirty_ = true;
         }
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
     // VS-style top-level Build menu (the Project panel keeps its buttons)
-    if (ImGui::BeginMenu("Build", hasProject_)) {
+    if (menuact::BeginMenu("Build", hasProject_)) {
         const bool busy = runner_.busy();
-        if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
+        if (menuact::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
             runner_.buildAndRun(projectForBuild(), false);
-        if (ImGui::MenuItem("Rebuild", nullptr, false, !busy))
+        if (menuact::MenuItem("Rebuild", nullptr, false, !busy))
             runner_.buildAndRun(projectForBuild(), false, true);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
@@ -1768,24 +1769,24 @@ void App::drawMainMenus() {
                 "source from scratch.\nSlow on purpose - it is the way out "
                 "when an incremental build\nmisbehaves. Clean also wipes "
                 "bin\\ on this machine; Rebuild does not.");
-        if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
+        if (menuact::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
             runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
-        if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
+        if (menuact::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
             runner_.runEmulatorOnly(project_, project_.activeScene);
         ImGui::Separator();
         const bool ps2Ready = !project_.ps2LinkIp.empty();
-        if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
+        if (menuact::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
             runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
-        if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
+        if (menuact::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
             runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
         if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
-        if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
+        if (menuact::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
             runner_.stopPs2(project_);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                               "console reboots back to its listening state.");
-        if (ImGui::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
+        if (menuact::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
             runner_.powerOffPs2(project_);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(
@@ -1793,12 +1794,12 @@ void App::drawMainMenus() {
                 "the same shutdown its power button performs. Nothing on the\n"
                 "network can switch it back on again.");
         ImGui::Separator();
-        if (ImGui::MenuItem("Live Link", nullptr,
+        if (menuact::MenuItem("Live Link", nullptr,
                             project_.settings.liveLink)) {
             project_.settings.liveLink = !project_.settings.liveLink;
             commitChange();
         }
-        if (ImGui::MenuItem("Live Debugger", nullptr,
+        if (menuact::MenuItem("Live Debugger", nullptr,
                             project_.settings.liveDebug)) {
             project_.settings.liveDebug = !project_.settings.liveDebug;
             commitChange();
@@ -1811,7 +1812,7 @@ void App::drawMainMenus() {
                 "the editor (docs/live-debugger.md).\n"
                 "Open the panel with "
                 "Tools > Debugger (F9) or the DBG chip in the toolbar.");
-        if (ImGui::MenuItem("Live Logic", nullptr,
+        if (menuact::MenuItem("Live Logic", nullptr,
                             project_.settings.liveLogic)) {
             project_.settings.liveLogic = !project_.settings.liveLogic;
             commitChange();
@@ -1833,31 +1834,31 @@ void App::drawMainMenus() {
                 "profile (Project >\nPreferences > Build). Also toggled by "
                 "clicking the LIVE chip in the toolbar.");
         ImGui::Separator();
-        if (ImGui::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
-        if (ImGui::MenuItem("Clean", nullptr, false, !busy))
+        if (menuact::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
+        if (menuact::MenuItem("Clean", nullptr, false, !busy))
             runner_.clean(project_);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Deletes bin\\ and the container build cache "
                               "(obj) - the next build starts from scratch.");
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Session")) {
+    if (menuact::BeginMenu("Session")) {
         const bool active = session_.active();
-        if (ImGui::MenuItem("Host Session...", nullptr, false,
+        if (menuact::MenuItem("Host Session...", nullptr, false,
                             hasProject_ && !active))
             openHostSessionPopup_ = true;
-        if (ImGui::MenuItem("Join Session...", nullptr, false, !active))
+        if (menuact::MenuItem("Join Session...", nullptr, false, !active))
             requestJoinSession();
         ImGui::Separator();
-        if (ImGui::MenuItem("Session Window", nullptr, showSessionWindow_, active))
+        if (menuact::MenuItem("Session Window", nullptr, showSessionWindow_, active))
             showSessionWindow_ = !showSessionWindow_;
-        if (ImGui::MenuItem(session_.role() == session::Session::Role::Client
+        if (menuact::MenuItem(session_.role() == session::Session::Role::Client
                                 ? "Leave Session"
                                 : "Close Session",
                             nullptr, false, active))
             closeSession();
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
 
     // One flat list under labelled headers rather than submenus: every
@@ -1866,25 +1867,25 @@ void App::drawMainMenus() {
     // paths. Groups answer "what am I working on"; inside a group the
     // items are ALPHABETICAL, so a tool is found by reading, not by
     // remembering where it landed the day it was added.
-    if (hasProject_ && ImGui::BeginMenu("Tools")) {
+    if (hasProject_ && menuact::BeginMenu("Tools")) {
         ImGui::SeparatorText("Assets");
-        if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
-        if (ImGui::MenuItem("Asset Browser...")) {
+        if (menuact::MenuItem("Animation Editor...")) showAnimEditor_ = true;
+        if (menuact::MenuItem("Asset Browser...")) {
             showAssetBrowser_ = true;
             scanAssetTree();
         }
-        if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
+        if (menuact::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Ambient / drone music generator: audition a patch live,\n"
                 "render it into res/audio as a looping background track.");
-        if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
-        if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
-        if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+        if (menuact::MenuItem("Font Manager...")) showFontManager_ = true;
+        if (menuact::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+        if (menuact::MenuItem("Particle Editor...")) showParticles_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The particle library: effects defined once, used by\n"
                               "emitters and vehicle tyre smoke.");
-        if (ImGui::MenuItem("Texture Atlas...")) {
+        if (menuact::MenuItem("Texture Atlas...")) {
             showTextureAtlas_ = true;
             atlasPlanDirty_ = true;
         }
@@ -1895,12 +1896,12 @@ void App::drawMainMenus() {
                 "per-texture keep-out and grouping controls. A page is ONE\n"
                 "allocation and ONE palette, so what shares one is worth\n"
                 "looking at.");
-        if (ImGui::MenuItem("Tree Generator...")) {
+        if (menuact::MenuItem("Tree Generator...")) {
             showTreeGenerator_ = true;
             treePreviewDirty_ = true;
         }
 
-        if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+        if (menuact::MenuItem("Vehicle Editor...")) showVehicles_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Driveable cars. Define one - model, wheels, how it drives -\n"
@@ -1909,20 +1910,20 @@ void App::drawMainMenus() {
                 "Blender do not matter.");
 
         ImGui::SeparatorText("Scene");
-        if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
-        if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
-        if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+        if (menuact::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+        if (menuact::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+        if (menuact::MenuItem("Prefabs...")) showPrefabs_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Reusable groups of objects - a hut, a room, a lamp post\n"
                 "with its light and its script. Stamp them by hand, scatter\n"
                 "them with a procedural graph, or spawn them at runtime.");
-        if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
-        if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
+        if (menuact::MenuItem("Procedural...")) showProcedural_ = true;
+        if (menuact::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
 
         ImGui::SeparatorText("Lighting & rendering");
-        if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-        if (ImGui::MenuItem("Baked Lighting...")) {
+        if (menuact::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+        if (menuact::MenuItem("Baked Lighting...")) {
             showAmbienceEditor_ = true;
             showBakedLighting_ = true;
         }
@@ -1930,21 +1931,21 @@ void App::drawMainMenus() {
             ImGui::SetTooltip(
                 "Light baked on the host and shipped as pixels: automatic\n"
                 "model AO multiplied into each model's own texture.");
-        if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+        if (menuact::MenuItem("Color Grading...")) showGradingEditor_ = true;
         // The two bakes live in the Ambience Editor now; the menu items
         // still work and simply open that window on their tab.
-        if (ImGui::MenuItem("Global Illumination...")) {
+        if (menuact::MenuItem("Global Illumination...")) {
             showAmbienceEditor_ = true;
             showGiBake_ = true;
         }
-        if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+        if (menuact::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Train, cross-validate and inspect the reduced-resolution\n"
                 "reconstruction network, and look at the pictures it makes.\n"
                 "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
                 "without a terminal. Proof of concept - read the notes.");
-        if (ImGui::MenuItem("Static Batches...")) {
+        if (menuact::MenuItem("Static Batches...")) {
             showStaticBatches_ = true;
             batchDirty_ = true;
         }
@@ -1955,7 +1956,7 @@ void App::drawMainMenus() {
                 "solo, and WHY every object that is not batched is not.\n"
                 "A batch is culled as a unit, so its merged box is worth\n"
                 "looking at.");
-        if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+        if (menuact::MenuItem("VU Programs...")) showVuPrograms_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Compose a VU1 microprogram out of stages - wobble, twist,\n"
@@ -1964,21 +1965,21 @@ void App::drawMainMenus() {
                 "VU0 compute kernels.");
 
         ImGui::SeparatorText("Screens & menus");
-        if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+        if (menuact::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "End credits: headings, role/name pairs, images and page\n"
                 "breaks, imported from a text file if you like, scrolling\n"
                 "over music with a skip button and somewhere to go after.");
-        if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
-        if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
-        if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
-        if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+        if (menuact::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+        if (menuact::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+        if (menuact::MenuItem("Menu Preview...")) showMenuPreview_ = true;
+        if (menuact::MenuItem("UI Editor...")) showUiEditor_ = true;
 
         ImGui::SeparatorText("Gameplay");
-        if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
-        if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
-        if (ImGui::MenuItem("World Facts...")) {
+        if (menuact::MenuItem("Input Map...")) showInputMap_ = true;
+        if (menuact::MenuItem("Save Editor...")) showSaveEditor_ = true;
+        if (menuact::MenuItem("World Facts...")) {
             // Focused, not just opened: docked as a background tab it would
             // look like nothing happened (drawWorldFactsWindow).
             showWorldFacts_ = true;
@@ -1993,8 +1994,8 @@ void App::drawMainMenus() {
                 "game runs.");
 
         ImGui::SeparatorText("Running game");
-        if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
-        if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
+        if (menuact::MenuItem("Debugger...", "F9")) showDebugger_ = true;
+        if (menuact::MenuItem("Remote Pad...")) showRemotePad_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Hold the running game's controller from here - click the\n"
@@ -2003,7 +2004,7 @@ void App::drawMainMenus() {
                 "(tyrax-editor --pad). Debug builds only.");
 
         ImGui::SeparatorText("AI");
-        if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+        if (menuact::MenuItem("AI Assistant...")) showAiChat_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Ask about the editor - it answers from the editor's own\n"
@@ -2011,13 +2012,13 @@ void App::drawMainMenus() {
                 "add and change objects, write flow graphs, switch scenes\n"
                 "and open windows. Uses the AI backend from Edit >\n"
                 "Preferences; every change it makes is one Ctrl+Z away.");
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
     // Deliberately outside the project gate: which build this is, and
     // whether there is a newer one, are questions somebody has on the
     // welcome screen too (docs/updates.md).
-    if (ImGui::BeginMenu("Help")) {
-        ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
+    if (menuact::BeginMenu("Help")) {
+        menuact::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
                         nullptr, false, false);
         // Trademark notice: the editor names the console it builds for and
         // draws its pad's buttons where they ARE buttons (Remote Pad, input
@@ -2027,20 +2028,20 @@ void App::drawMainMenus() {
         ImGui::PopTextWrapPos();
         ImGui::Separator();
         const bool updateBusy = updateChecking_ || updateDownloading_;
-        if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
+        if (menuact::MenuItem("Check for updates...", nullptr, false, !updateBusy))
             startUpdateCheck(true);
         if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
         ImGui::Separator();
-        if (ImGui::MenuItem("Documentation"))
+        if (menuact::MenuItem("Documentation"))
             platform::openUrl(std::string("https://github.com/") +
                               update::kRepo + "/blob/main/docs/README.md");
-        if (ImGui::MenuItem("Releases"))
+        if (menuact::MenuItem("Releases"))
             platform::openUrl(std::string("https://github.com/") +
                               update::kRepo + "/releases");
-        if (ImGui::MenuItem("Report an issue"))
+        if (menuact::MenuItem("Report an issue"))
             platform::openUrl(std::string("https://github.com/") +
                               update::kRepo + "/issues");
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
 }
 
@@ -6211,13 +6212,13 @@ void App::drawLayoutMenu() {
     // Switch: one item per layout, radio-checked on the active one.
     for (int i = 0; i < (int)project_.windowLayouts.size(); ++i) {
         const bool active = (i == project_.activeLayout);
-        if (ImGui::MenuItem(project_.windowLayouts[i].name.c_str(), nullptr, active))
+        if (menuact::MenuItem(project_.windowLayouts[i].name.c_str(), nullptr, active))
             switchLayout(i);
     }
     ImGui::Separator();
 
     WindowLayout& L = project_.windowLayouts[project_.activeLayout];
-    if (ImGui::MenuItem("Save current arrangement")) {
+    if (menuact::MenuItem("Save current arrangement")) {
         captureActiveLayout();
         saveAll("Layout saved");
     }
@@ -6226,26 +6227,26 @@ void App::drawLayoutMenu() {
                           "(it is also saved whenever you save the project).",
                           L.name.c_str());
     const bool hasRecipe = L.recipe >= 0;
-    if (ImGui::MenuItem("Reset to built-in arrangement", nullptr, false, hasRecipe))
+    if (menuact::MenuItem("Reset to built-in arrangement", nullptr, false, hasRecipe))
         resetActiveLayoutToRecipe();
     if (hasRecipe && ImGui::IsItemHovered())
         ImGui::SetTooltip("Discard manual changes and rebuild the built-in "
                           "arrangement for '%s'.", L.name.c_str());
 
     ImGui::Separator();
-    if (ImGui::MenuItem("New layout...")) {
+    if (menuact::MenuItem("New layout...")) {
         std::snprintf(layoutNameBuf_, sizeof(layoutNameBuf_), "Layout %d",
                       (int)project_.windowLayouts.size() + 1);
         layoutNameError_.clear();
         openNewLayoutPopup_ = true;
     }
-    if (ImGui::MenuItem("Rename layout...")) {
+    if (menuact::MenuItem("Rename layout...")) {
         std::snprintf(layoutNameBuf_, sizeof(layoutNameBuf_), "%s", L.name.c_str());
         layoutNameError_.clear();
         openRenameLayoutPopup_ = true;
     }
     const bool canDelete = project_.windowLayouts.size() > 1;
-    if (ImGui::MenuItem("Delete layout", nullptr, false, canDelete)) {
+    if (menuact::MenuItem("Delete layout", nullptr, false, canDelete)) {
         project_.windowLayouts.erase(project_.windowLayouts.begin() +
                                      project_.activeLayout);
         if (project_.activeLayout >= (int)project_.windowLayouts.size())
@@ -6490,7 +6491,7 @@ void App::requestOpenRecent(const std::string& dir) {
 // close-then-file-dialog. Entries stay clickable when they probed as missing:
 // the probe is from startup, and the drive may well be back.
 void App::drawRecentProjectsMenu() {
-    if (!ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) return;
+    if (!menuact::BeginMenu("Recent Projects", !recentProjects_.empty())) return;
 
     // Resolved after the loop: opening (or clearing) rewrites recentProjects_,
     // which we are iterating.
@@ -6503,17 +6504,17 @@ void App::drawRecentProjectsMenu() {
         // tooltip rather than in the label - a path in a menu item makes the
         // whole menu as wide as the deepest project on the machine.
         const std::string label = r.valid ? r.name : r.name + "  (missing)";
-        if (ImGui::MenuItem(label.c_str())) pick = r.dir;
+        if (menuact::MenuItem(label.c_str())) pick = r.dir;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s%s", r.dir.c_str(),
                               r.valid ? "" : "\n(no .tyra project file here)");
         ImGui::PopID();
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("Clear list")) clear = true;
+    if (menuact::MenuItem("Clear list")) clear = true;
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Forgets the shortcuts only - nothing on disk is touched");
-    ImGui::EndMenu();
+    menuact::EndMenu();
 
     if (!pick.empty()) requestOpenRecent(pick);
     else if (clear) {
@@ -9885,58 +9886,58 @@ void App::addModelObject(const std::string& relPath, const float* at,
 void App::drawAddObjectMenu() {
     // Pure transform without game geometry - a scene anchor for attached
     // scripts, waypoints and flow-graph logic (sphere marker in the editor).
-    if (ImGui::MenuItem("Empty")) addEmpty();
+    if (menuact::MenuItem("Empty")) addEmpty();
     // An editor note pinned to this spot (docs/comments.md). Top level next to
     // Empty rather than inside a category: it is not a kind of game object,
     // and it is reached while thinking about the scene, not about the game.
-    if (ImGui::MenuItem("Comment")) addComment();
+    if (menuact::MenuItem("Comment")) addComment();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip(
             "A note pinned to a place in the scene - why this prop is here,\n"
             "what still has to be done, what broke last time. Shows as a\n"
             "message icon in the viewport and reads in full in Properties.\n"
             "Editor only: nothing about it reaches the game.");
-    if (ImGui::BeginMenu("Object")) {
-        if (ImGui::BeginMenu("Simple")) {
-            if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
-            if (ImGui::MenuItem("Invisible wall")) {
+    if (menuact::BeginMenu("Object")) {
+        if (menuact::BeginMenu("Simple")) {
+            if (menuact::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (menuact::MenuItem("Invisible wall")) {
                 addObject(PrimitiveType::Box, /*commit=*/false);
                 project_.objects().back().collisionMode = 3;
                 commitChange();
             }
-            if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
-            if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
-            if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
-            if (ImGui::MenuItem("Plane")) addObject(PrimitiveType::Plane);
-            ImGui::EndMenu();
+            if (menuact::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
+            if (menuact::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
+            if (menuact::MenuItem("Cone")) addObject(PrimitiveType::Cone);
+            if (menuact::MenuItem("Plane")) addObject(PrimitiveType::Plane);
+            menuact::EndMenu();
         }
         // Two entities, one picker each (docs/model-import.md): the ENTITY
         // decides static vs animated, not the file - a .glb/.fbx can be
         // placed as either.
-        if (ImGui::MenuItem("Model...")) openModelPicker(false);
+        if (menuact::MenuItem("Model...")) openModelPicker(false);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("A static model - any .obj, .glb or .fbx in the project\n"
                               "(or import a new one from the picker).");
-        if (ImGui::MenuItem("Animated model...")) openModelPicker(true);
+        if (menuact::MenuItem("Animated model...")) openModelPicker(true);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("A .glb/.fbx with its skeleton and clips.");
         // Textured quad with transparency (sign/poster/text on a wall). Assign
         // a material whose map_Kd PNG has an alpha channel in the Properties.
-        if (ImGui::MenuItem("Decal")) addDecal();
+        if (menuact::MenuItem("Decal")) addDecal();
         // Rectangle that re-draws its listed objects mirrored across its
         // plane (real geometry behind the glass - build it into a wall).
-        if (ImGui::MenuItem("Mirror")) addMirror();
+        if (menuact::MenuItem("Mirror")) addMirror();
         // Endless conveyor: tiles named segments of scene objects forever
         // along its axis (the train-window level generator).
-        if (ImGui::MenuItem("Scroller (endless)")) addScroller();
-        ImGui::EndMenu();
+        if (menuact::MenuItem("Scroller (endless)")) addScroller();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Gameplay")) {
-        if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+    if (menuact::BeginMenu("Gameplay")) {
+        if (menuact::MenuItem("Player")) addObject(PrimitiveType::Player);
         // A driveable car. The object is only the placement - what the vehicle
         // IS lives in a definition (Tools > Vehicle Editor, docs/vehicles.md),
         // and a fresh instance adopts the first one so it is never nameless.
-        if (ImGui::MenuItem("Vehicle")) {
+        if (menuact::MenuItem("Vehicle")) {
             addObject(PrimitiveType::Vehicle, /*commit=*/false);
             if (!project_.vehicles.empty())
                 project_.objects().back().vehicleDef = project_.vehicles.front().name;
@@ -9945,7 +9946,7 @@ void App::drawAddObjectMenu() {
         // A spline road (docs/roads.md): points in, terrain-hugging textured
         // chunks at boot. A fresh one gets three points around the placement
         // spot so there is something to see and grab immediately.
-        if (ImGui::MenuItem("Road")) {
+        if (menuact::MenuItem("Road")) {
             addObject(PrimitiveType::Road, /*commit=*/false);
             SceneObject& r = project_.objects().back();
             r.roadPoints = {r.position[0] - 12.0f, r.position[2],
@@ -9955,44 +9956,44 @@ void App::drawAddObjectMenu() {
         }
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
-        if (ImGui::MenuItem("Portal")) addPortal();
-        if (ImGui::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
-        if (ImGui::MenuItem("Save point")) addSavePoint();
+        if (menuact::MenuItem("Portal")) addPortal();
+        if (menuact::MenuItem("Spawn point")) addObject(PrimitiveType::SpawnPoint);
+        if (menuact::MenuItem("Save point")) addSavePoint();
         // Cutscene Director shot marker (bind camera-track keys to it)
-        if (ImGui::MenuItem("Camera")) addObject(PrimitiveType::Camera);
+        if (menuact::MenuItem("Camera")) addObject(PrimitiveType::Camera);
         // Invisible volume: layer streaming zones, mirror/portal/feed target
         // sets, In Area triggers (docs/areas.md).
-        if (ImGui::MenuItem("Area")) addArea();
+        if (menuact::MenuItem("Area")) addArea();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Invisible box - a wireframe here, nothing in the game.\n"
                 "Point a streaming layer's zone, a mirror/portal/camera-feed\n"
                 "target list or an In Area trigger at it instead of typing\n"
                 "distances.");
-        ImGui::EndMenu();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Effects")) {
-        if (ImGui::MenuItem("Fire")) addEmitter(0);
-        if (ImGui::MenuItem("Smoke")) addEmitter(1);
-        if (ImGui::MenuItem("Fog")) addEmitter(2);
-        if (ImGui::MenuItem("Sparks")) addEmitter(3);
-        if (ImGui::MenuItem("Rain")) addEmitter(4);
-        if (ImGui::MenuItem("Custom")) addEmitter(5);
-        ImGui::EndMenu();
+    if (menuact::BeginMenu("Effects")) {
+        if (menuact::MenuItem("Fire")) addEmitter(0);
+        if (menuact::MenuItem("Smoke")) addEmitter(1);
+        if (menuact::MenuItem("Fog")) addEmitter(2);
+        if (menuact::MenuItem("Sparks")) addEmitter(3);
+        if (menuact::MenuItem("Rain")) addEmitter(4);
+        if (menuact::MenuItem("Custom")) addEmitter(5);
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Audio")) {
-        if (ImGui::MenuItem("Sound emitter")) addSoundEmitter();
-        ImGui::EndMenu();
+    if (menuact::BeginMenu("Audio")) {
+        if (menuact::MenuItem("Sound emitter")) addSoundEmitter();
+        menuact::EndMenu();
     }
-    if (ImGui::BeginMenu("Lighting")) {
-        if (ImGui::MenuItem("Point light")) addPointLight();
-        ImGui::EndMenu();
+    if (menuact::BeginMenu("Lighting")) {
+        if (menuact::MenuItem("Point light")) addPointLight();
+        menuact::EndMenu();
     }
     // Procedural authoring region: the box a node graph fills - by scattering,
     // by exact repetition, or both - which the build bakes into ordinary static
     // chunk meshes. This menu item and Tools > Procedural > New volume are the
     // same verb; both land in the graph editor with the volume selected.
-    if (ImGui::MenuItem("Procedural volume...")) addScatterVolume();
+    if (menuact::MenuItem("Procedural volume...")) addScatterVolume();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip(
             "A region filled by a node graph (Tools > Procedural): forests,\n"

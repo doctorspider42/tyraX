@@ -61,6 +61,9 @@
 #include "viewport.hpp"
 
 struct GLFWwindow;
+namespace menuact {
+struct Item;
+}
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
@@ -154,6 +157,10 @@ private:
     // items are the ten menus (drawMainMenus) as submenus. shell_ui.cpp.
     void drawLogoMenu();
     void drawMainMenus();
+    // drawMainMenus as data (menu_actions.hpp): every item it would draw is
+    // appended to `out`; invoke >= 0 runs the item with that ordinal. Must be
+    // called inside a window (the palette's): it opens an item-less child.
+    void harvestMainMenus(std::vector<menuact::Item>* out, int invoke = -1);
     // Set by --ui-script (a step naming a top-level menu while the logo menu is
     // closed - devkit_ui.cpp) to open it on the next frame.
     bool logoMenuOpenRequest_ = false;
