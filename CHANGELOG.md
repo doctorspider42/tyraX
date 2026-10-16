@@ -5,6 +5,12 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 1.172.2 - 2026-10-16
+
+### Releases
+
+- A brief network drop at Apple while the macOS image is finished (stapling the notarization ticket) no longer costs a release its `.dmg`: the step retries for a few minutes, an image whose ticket still cannot be attached ships anyway (it is notarized, and the app inside carries its ticket), and re-running a failed macOS job now adds its image to the release that already went out.
+
 ## 1.172.1 - 2026-10-16
 
 ### macOS
