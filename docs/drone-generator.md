@@ -42,7 +42,14 @@ has seven steps — sat there looking broken.)
 The **Mix** strip at the top of *Layers* is not a second set of gains: each of
 its four dials is the *same* parameter as that layer's *Level* knob, so the two
 always read alike. It exists so four stacks can be balanced without four tab
-clicks.
+clicks. Under it, one pill per layer (**Layer 1**...**Layer 4**, each with its
+wave or `off`) picks the layer whose pitch and shape dials are shown.
+
+Every tab is sections under small caps captions; a row of dials wraps onto the
+next line when the window is narrow. The dial's arc is the value (filled from
+the centre for a symmetric range such as *Pan*), the amber dot means automated.
+On/off settings (*Air on*, *Bells on*, *Ping-pong*, *Seamless loop*...) are
+switches.
 
 ## The signal chain
 
@@ -68,7 +75,8 @@ Two routing decisions are worth knowing because they are audible:
 
 Four independent oscillator stacks. Each holds up to six voices — one per chord
 degree — and each voice can be a **unison** stack of up to five detuned copies
-fanned across the stereo field. `Plays:` picks which chord degrees a layer takes,
+fanned across the stereo field. *Plays* - six chips, one per chord voice - picks
+which chord degrees a layer takes,
 which is the difference between a sub (root only), a pad (all six) and a top
 voice (the upper three).
 
@@ -187,7 +195,7 @@ The intended way to make one is not to add a lane by hand:
 3. Turn a knob. A lane appears for that parameter with a keyframe at the
    playhead, and the amber dot on the knob says it is automated from now on.
 
-(The *Write keyframes* checkbox in the Timeline tab is the same arm, kept for
+(The *Write keyframes* switch in the Timeline tab is the same arm, kept for
 writing at a parked playhead: scrub to a moment, arm, turn a knob.)
 
 That works for **every knob in the tool** without any of them knowing the

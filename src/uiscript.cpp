@@ -523,6 +523,23 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             s.kind = Step::Log;
             for (size_t i = 1; i < tok.size(); ++i)
                 s.arg += (i > 1 ? " " : "") + tok[i];
+        } else if (cmd == "drop") {
+            // An OS file drop (Finder / Explorer) landing on a widget - the
+            // editor's own drop handler is called with the target's centre.
+            if (tok.size() != 3 && tok.size() != 4)
+                return fail("drop needs a target, a file path and an optional <dx>,<dy>");
+            s.kind = Step::Drop;
+            s.arg = tok[1];
+            s.path = tok[2];
+            if (tok.size() == 4) {
+                const size_t comma = tok[3].find(',');
+                double dx = 0, dy = 0;
+                if (comma == std::string::npos || !toNumber(tok[3].substr(0, comma), dx) ||
+                    !toNumber(tok[3].substr(comma + 1), dy))
+                    return fail("drop offset must be <dx>,<dy>");
+                s.dx = (float)dx;
+                s.dy = (float)dy;
+            }
         } else if (cmd == "quit" || cmd == "exit") {
             s.kind = Step::Quit;
         } else {

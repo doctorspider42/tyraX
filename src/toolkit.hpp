@@ -311,4 +311,15 @@ bool Link(const char* label);
 void Heading(const char* title, const char* sub = nullptr);
 // --- end world-a ---
 
+// --- content ---
+/** A two-handle range slider (a remap window, a band): a field-coloured track,
+ * the range between the handles in the accent, the values in the mono face on
+ * the right ("0.25 - 0.65", `fmt` per value). `label` is the ID and the
+ * --ui-script name (not drawn). Pressing picks the nearer handle; the pair
+ * stays ordered. `width` 0 = CalcItemWidth(). Returns true while a value
+ * changes; IsItemDeactivatedAfterEdit() reports the end of a drag. */
+bool RangeSlider(const char* label, float* lo, float* hi, float vmin, float vmax,
+                 const char* fmt = "%.2f", float width = 0.0f);
+// --- end content ---
+
 }  // namespace ui

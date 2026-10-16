@@ -146,6 +146,7 @@ struct Step {
         Dump,
         Log,   // arg = message
         Quit,  // close the editor
+        Drop,  // arg = target, path = file, dx/dy = offset: an OS file drop
     };
     Kind kind = Click;
     std::string arg;
@@ -154,6 +155,7 @@ struct Step {
     double seconds = 0;
     int n = 0;
     std::string source;  // the line it came from, for the log
+    std::string path;    // Drop: the file being dropped
 };
 
 /** Parses a UI script (docs/ui-scripting.md). Commands are separated by

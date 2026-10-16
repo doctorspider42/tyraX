@@ -3939,7 +3939,10 @@ bool App::fontCombo(std::string& fontRef) {
 int App::importHudImageInto(std::vector<HudImage>& target) {
     const std::string src = pickPngFile();
     if (src.empty()) return -1;
+    return importHudImageFile(src, target);
+}
 
+int App::importHudImageFile(const std::string& src, std::vector<HudImage>& target) {
     const std::filesystem::path srcPath(src);
     const std::string fileName = sanitizeAssetName(srcPath.filename().string());
     const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "hud";
@@ -4437,6 +4440,14 @@ void App::drawUiEditorWindow() {
     if (!ImGui::Begin("UI Editor", &showUiEditor_)) {
         ImGui::End();
         return;
+    }
+    {
+        // An OS drop over this window adds image elements (handleFileDrop).
+        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        uiEdDropWin_[0] = wp.x, uiEdDropWin_[1] = wp.y;
+        uiEdDropWin_[2] = wp.x + ws.x, uiEdDropWin_[3] = wp.y + ws.y;
+        uiEdDropFrame_[0] = uiEdDropFrame_[1] = uiEdDropFrame_[2] = uiEdDropFrame_[3] = 0.0f;
+        uiEdDropSeen_ = ImGui::GetFrameCount();
     }
     const theme::Semantics& sem = theme::semantics();
     const float fs = ImGui::GetFontSize();
@@ -5039,6 +5050,8 @@ void App::drawUiEditorWindow() {
         // centre (512x448 pixels). The model commits on release.
         ImGui::SetCursorScreenPos(f0);
         ImGui::InvisibleButton("HUD preview canvas", fSize);
+        uiEdDropFrame_[0] = f0.x, uiEdDropFrame_[1] = f0.y;
+        uiEdDropFrame_[2] = f0.x + fSize.x, uiEdDropFrame_[3] = f0.y + fSize.y;
         const ImVec2 mp = ImGui::GetIO().MousePos;
         auto inRect = [&](ImVec2 a, ImVec2 b, float pad) {
             return mp.x >= a.x - pad && mp.x <= b.x + pad && mp.y >= a.y - pad && mp.y <= b.y + pad;
@@ -7628,6 +7641,7 @@ void App::drawAnimEditorWindow() {
         d.wireframe = animEdWireframe_;
         d.inPlace = curInPlace;
         d.light = previewLight(animEdLight_);
+        d.skeleton = animEdBones_;
         const ImVec2 origin = ImGui::GetCursorScreenPos();
         const ImVec2 omax(origin.x + pw, origin.y + ph);
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -7636,6 +7650,29 @@ void App::drawAnimEditorWindow() {
             dl->AddImageRounded((ImTextureID)(intptr_t)tex, origin, omax, ImVec2(0, 1), ImVec2(1, 0),
                                 IM_COL32_WHITE, rr);
         dl->AddRect(origin, omax, ImGui::GetColorU32(sem.border), rr);
+        // Skeleton overlay: bones as lines child -> parent, joints as dots,
+        // drawn over the picture (an x-ray, like a DCC's bone display).
+        if (animEdBones_) {
+            const std::vector<Viewport::AnimPreviewBone>& bones = viewport_.animPreviewBones();
+            const ImU32 lineCol = ImGui::GetColorU32(ImVec4(sem.special.x, sem.special.y, sem.special.z, 0.9f));
+            const ImU32 rimCol = ImGui::GetColorU32(ImVec4(sem.ground.x, sem.ground.y, sem.ground.z, 0.8f));
+            auto at = [&](const Viewport::AnimPreviewBone& b) {
+                return ImVec2(origin.x + b.u * (float)pw, origin.y + b.v * (float)ph);
+            };
+            dl->PushClipRect(origin, omax, true);
+            for (const Viewport::AnimPreviewBone& b : bones)
+                if (b.visible && b.parent >= 0 && b.parent < (int)bones.size() &&
+                    bones[(size_t)b.parent].visible) {
+                    dl->AddLine(at(bones[(size_t)b.parent]), at(b), rimCol, scaled(3.5f));
+                    dl->AddLine(at(bones[(size_t)b.parent]), at(b), lineCol, scaled(1.75f));
+                }
+            for (const Viewport::AnimPreviewBone& b : bones)
+                if (b.visible) {
+                    dl->AddCircleFilled(at(b), scaled(b.parent < 0 ? 4.0f : 2.75f), rimCol, 12);
+                    dl->AddCircleFilled(at(b), scaled(b.parent < 0 ? 3.0f : 2.0f), lineCol, 12);
+                }
+            dl->PopClipRect();
+        }
         // Image() is display-only and does not reliably become active on a
         // drag: a real input item over it gives every mouse button an owner.
         ImGui::SetCursorScreenPos(origin);
@@ -7669,13 +7706,18 @@ void App::drawAnimEditorWindow() {
         const OverlayPillItem pill[] = {
             {"Shaded", "Shaded", !animEdWireframe_},
             {"Wireframe", "Wireframe", animEdWireframe_},
+            {"##aebonesdiv", nullptr, false},
+            {"Bones", "Bones", animEdBones_},
         };
         ImVec2 pillMax;
-        switch (overlayPill(ImVec2(origin.x + m, origin.y + m), pill, 2, &pillMax)) {
+        switch (overlayPill(ImVec2(origin.x + m, origin.y + m), pill, 4, &pillMax)) {
             case 0: animEdWireframe_ = false; break;
             case 1: animEdWireframe_ = true; break;
+            case 3: animEdBones_ = !animEdBones_; break;
             default: break;
         }
+        if (animEdBones_ && viewport_.animPreviewBones().empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip("This model has no skeleton (rigid animation) - nothing to draw.");
         {
             const float pad = ui::OverlayPad();
             const float w = ui::OverlayMenuButtonWidth(lightTxt) + pad * 2.0f;

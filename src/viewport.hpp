@@ -676,8 +676,18 @@ public:
         bool wireframe = false;   // overlay the triangles
         bool inPlace = false;     // remove horizontal root motion
         PreviewLight light;       // off = the scene's ambience
+        bool skeleton = false;    // fill animPreviewBones() for an overlay
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
+    // The bones of the LAST renderAnimPreview frame with `skeleton` set, in
+    // image coords (u, v in [0,1], origin top-left), parent = index of the
+    // parent bone (-1 = root). Empty when the model has no skin.
+    struct AnimPreviewBone {
+        float u = 0.0f, v = 0.0f;
+        int parent = -1;
+        bool visible = false;  // false = behind the camera
+    };
+    const std::vector<AnimPreviewBone>& animPreviewBones() const { return animPreviewBones_; }
 
     // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
     // an asset file, rendered ONCE into a dedicated framebuffer and copied into
@@ -1591,6 +1601,7 @@ private:
     std::vector<uint32_t> importTextures_;
     uint64_t importVersion_ = 0;
     bool importHasVersion_ = false;
+    std::vector<AnimPreviewBone> animPreviewBones_;  // renderAnimPreview skeleton
     // camera of the last import preview frame (importPreviewRay)
     bool importCamValid_ = false;
     float importEye_[3] = {}, importFwd_[3] = {}, importRight_[3] = {}, importUp_[3] = {};

@@ -4,6 +4,7 @@
 
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -1538,6 +1539,75 @@ void Heading(const char* title, const char* sub) {
     ImGui::Dummy(ImVec2(1.0f, fs * 1.15f + fs * 0.45f));
 }
 // --- end world-a ---
+
+// --- content ---
+bool RangeSlider(const char* label, float* lo, float* hi, float vmin, float vmax, const char* fmt,
+                 float width) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = width > 0.0f ? width : ImGui::CalcItemWidth();
+    const float h = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    (void)pressed;
+    const ImGuiID id = ImGui::GetItemID();
+    const bool active = ImGui::IsItemActive();
+    const bool hovered = ImGui::IsItemHovered();
+
+    char a[32], b[32], txt[72];
+    std::snprintf(a, sizeof a, fmt, *lo);
+    std::snprintf(b, sizeof b, fmt, *hi);
+    std::snprintf(txt, sizeof txt, "%s - %s", a, b);
+    ImFont* mono = monoFont();
+    const float fsz = ImGui::GetFontSize();
+    ImGui::PushFont(mono, 0.0f);
+    const ImVec2 ts = ImGui::CalcTextSize(txt);
+    ImGui::PopFont();
+    const float valW = std::min(ts.x + fsz * 0.8f, w * 0.45f);
+    const float trackR = p.x + w - valW;
+    const float knob = h * 0.3f;
+    const float x0 = p.x + knob + 1.0f, x1 = std::max(x0 + 1.0f, trackR - knob - 1.0f);
+    const float span = vmax - vmin != 0.0f ? vmax - vmin : 1.0f;
+    auto toX = [&](float v) { return x0 + (x1 - x0) * std::clamp((v - vmin) / span, 0.0f, 1.0f); };
+
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    const ImGuiID key = id ^ 0x52414e47u;  // which handle the drag holds
+    const float mx = ImGui::GetIO().MousePos.x;
+    if (ImGui::IsItemActivated()) {
+        const float dl = std::fabs(mx - toX(*lo)), dh = std::fabs(mx - toX(*hi));
+        st->SetInt(key, (dh < dl || (dh == dl && mx > toX(*hi))) ? 1 : 0);
+    }
+    bool changed = false;
+    if (active) {
+        const float v = vmin + std::clamp((mx - x0) / (x1 - x0), 0.0f, 1.0f) * span;
+        if (st->GetInt(key, 0) == 0) {
+            const float nv = std::min(v, *hi);
+            if (nv != *lo) *lo = nv, changed = true;
+        } else {
+            const float nv = std::max(v, *lo);
+            if (nv != *hi) *hi = nv, changed = true;
+        }
+        if (changed) ImGui::MarkItemEdited(id);
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding;
+    const float t = theme::hoverAnim(id, hovered || active, 12.0f);
+    dl->AddRectFilled(p, ImVec2(trackR, p.y + h), c32(mixv(sem.field, sem.text, 0.03f * t)), r);
+    const float cy = p.y + h * 0.5f;
+    const float xl = toX(*lo), xh = toX(*hi);
+    dl->AddRectFilled(ImVec2(xl, cy - h * 0.16f), ImVec2(xh, cy + h * 0.16f), c32(sem.accent, 0.55f),
+                      h * 0.16f);
+    const int which = active ? st->GetInt(key, 0) : -1;
+    for (int k = 0; k < 2; ++k) {
+        const ImVec2 c(k == 0 ? xl : xh, cy);
+        dl->AddCircleFilled(c, knob, c32(sem.ground), 16);
+        dl->AddCircleFilled(c, knob - 1.5f, which == k ? c32(sem.accent) : c32(sem.text), 16);
+    }
+    dl->AddText(mono, mono ? fsz : 0.0f, ImVec2(p.x + w - ts.x, p.y + (h - ts.y) * 0.5f),
+                c32(sem.textDim), txt);
+    return changed;
+}
+// --- end content ---
 
 }  // namespace ui
 // --- end screens-c ---

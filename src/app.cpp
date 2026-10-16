@@ -711,7 +711,10 @@ int App::run(const std::string& initialProjectDir) {
     // res/hud and attach to the selected menu when the Menu Editor is open).
     glfwSetWindowUserPointer(window_, this);
     glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
-        static_cast<App*>(glfwGetWindowUserPointer(w))->handleFileDrop(count, paths);
+        double cx = -1.0, cy = -1.0;
+        glfwGetCursorPos(w, &cx, &cy);  // window coords = ImGui's (no multi-viewport)
+        static_cast<App*>(glfwGetWindowUserPointer(w))->handleFileDrop(count, paths, (float)cx,
+                                                                       (float)cy);
     });
 
     if (!viewport_.init()) {
@@ -12145,8 +12148,47 @@ void App::drawSaveDataSection() {
 // Files dropped from Explorer onto the editor window. PNGs are copied into
 // res/hud; with the Menu Editor open they also attach to the selected menu
 // (the dialog-free import path - native file dialogs wedge on some setups).
-void App::handleFileDrop(int count, const char** paths) {
+void App::handleFileDrop(int count, const char** paths, float x, float y) {
     if (!hasProject_) return;
+
+    // Dropped on the UI Editor: every PNG becomes an image element (copied into
+    // res/hud like Add > Image (PNG)...), placed where it landed when that was
+    // the 512x448 preview, else centred. One commit for the whole drop.
+    auto inside = [&](const float* r) { return x >= r[0] && y >= r[1] && x <= r[2] && y <= r[3]; };
+    if (showUiEditor_ && ImGui::GetFrameCount() - uiEdDropSeen_ <= 2 && inside(uiEdDropWin_)) {
+        const bool onFrame = uiEdDropFrame_[2] > uiEdDropFrame_[0] && inside(uiEdDropFrame_);
+        int added = 0, other = 0, last = -1;
+        for (int i = 0; i < count; ++i) {
+            std::string ext = std::filesystem::path(paths[i]).extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".png") {
+                ++other;
+                continue;
+            }
+            const int at = importHudImageFile(paths[i], project_.hud);
+            if (at < 0) continue;
+            if (onFrame) {
+                // several files at one point fan out a little so none hides another
+                const float k = 0.03f * (float)added;
+                project_.hud[at].pos[0] = std::clamp(
+                    (x - uiEdDropFrame_[0]) / (uiEdDropFrame_[2] - uiEdDropFrame_[0]) + k, 0.0f, 1.0f);
+                project_.hud[at].pos[1] = std::clamp(
+                    (y - uiEdDropFrame_[1]) / (uiEdDropFrame_[3] - uiEdDropFrame_[1]) + k, 0.0f, 1.0f);
+            }
+            last = at;
+            ++added;
+        }
+        if (added > 0) {
+            selectedHud_ = last;
+            uiFxSel_ = 0;
+            commitChange();
+            statusMessage_ = "Added " + std::to_string(added) + " image" + (added == 1 ? "" : "s") +
+                             " to the HUD (res/hud/)";
+        } else if (other > 0) {
+            statusMessage_ = "UI Editor: drop PNG images to add them";
+        }
+        return;
+    }
 
     const bool menuTarget = showMenusEditor_ && selectedMenu_ >= 0 &&
                             selectedMenu_ < (int)project_.menus.size();

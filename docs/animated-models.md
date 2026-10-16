@@ -57,8 +57,10 @@ Open **Tools > Animation Editor**. The model is the dropdown in the header,
 beside the project's `source -> play fps`. The left column lists the model's
 clips - game name, duration, the source name, and who plays it (`walk · 2
 players`, or an amber `not used`) - then **Borrowed from other files**. The
-preview is the centre: Shaded / Wireframe, the preview light and *Reset view*
-on top (drag to orbit, middle-drag to pan, wheel to zoom), and under it the
+preview is the centre: Shaded / Wireframe, **Bones** (the skeleton drawn over
+the model - joints as dots, each bone a line to its parent, at the pose on
+screen; a model without a skin has nothing to draw), the preview light and
+*Reset view* on top (drag to orbit, middle-drag to pan, wheel to zoom), and under it the
 transport: back to start, play/pause, loop, the time as the game plays it,
 a preview speed (0.5x / 1x / 2x) and the **timeline** in source seconds. Its
 green handles are the trim: drag them, and the cut parts are hatched; drag

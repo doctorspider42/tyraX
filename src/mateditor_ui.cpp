@@ -1928,85 +1928,154 @@ void App::matEdGenControls() {
         return;
     MatEdLayer& L = matEdLayers_[matEdActiveLayer_];
     if (!L.genOn) return;
-    ImGui::SeparatorText("Smart mask");
+    const theme::Semantics& sem = theme::semantics();
     bool changed = false, commit = false;
+
+    // Caption "SMART MASK - <layer>" with Invert as a toggle chip on its right.
+    ImGui::Spacing();
+    {
+        const float y = ImGui::GetCursorPosY();
+        const std::string cap = "Smart mask - " + L.name;  // Caption upper-cases byte-wise: ASCII only
+        ui::Caption(cap.c_str());
+        const ImVec2 after = ImGui::GetCursorPos();
+        const float iw = ui::ChipButtonWidth("Invert");
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - iw,
+                                   y - ImGui::GetFontSize() * 0.35f));
+        if (ui::ChipButton("Invert", L.gen.invert)) {
+            L.gen.invert = !L.gen.invert;
+            changed = commit = true;
+        }
+        uiscript::markLastItemChecked(L.gen.invert);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Flip the mask: paint where the source is LOW.");
+        ImGui::SetCursorPos(ImVec2(after.x, std::max(after.y, y + ImGui::GetFrameHeight())));
+    }
+
+    const float minCap = scaled(90), maxCap = scaled(112);
+    ui::InspectorRows rows(minCap, maxCap);
+    // A row the wrappers cannot draw (a two-handle slider, a slider + its
+    // size): the caption in the same column, the field's x and width back.
+    auto manualRow = [&](const char* caption, float& fx, float& fw) {
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float cw = std::floor(std::clamp(avail * 0.34f, minCap, std::max(minCap, maxCap)));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddText(
+            ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(sem.textDim), caption);
+        fx = p.x + cw;
+        fw = std::max(1.0f, avail - cw);
+        ImGui::SetCursorScreenPos(ImVec2(fx, p.y));
+    };
+
     const char* sources[] = {"Edge wear",   "Cavity grime", "Occlusion dirt",
                              "Thin rims",   "Height (Y)",   "Facing up",
                              "Perlin noise", "Worley cells", "Bricks"};
     int src = (int)L.gen.source;
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    if (ImGui::Combo("##gen_src", &src, sources, 9)) {
+    if (ui::Combo("Source", &src, sources, 9)) {
         L.gen.source = (matbake::MaskParams::Source)src;
         changed = commit = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "What drives the mask. Edge wear / cavity grime come from the\n"
-            "baked curvature, dirt from AO, rims from thickness, height and\n"
-            "facing-up from position/normals; the noises sample 3D noise at\n"
-            "the baked surface position, so they continue across UV seams.");
-    ImGui::SameLine();
-    changed |= ImGui::ColorEdit3("##gen_col", L.genColor,
-                                 ImGuiColorEditFlags_NoInputs);
+    ui::RowHelp("What drives the mask. Edge wear / cavity grime come from the\n"
+                "baked curvature, dirt from AO, rims from thickness, height and\n"
+                "facing-up from position/normals; the noises sample 3D noise at\n"
+                "the baked surface position, so they continue across UV seams.");
+    changed |= ui::ColorHex("Colour", L.genColor);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mask fill color.");
+    ui::RowHelp("What the mask paints.");
 
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    changed |= ImGui::DragFloatRange2("Range", &L.gen.rangeLo, &L.gen.rangeHi,
-                                      0.004f, 0.0f, 1.0f, "%.2f");
+    float fx = 0.0f, fw = 0.0f;
+    manualRow("Range", fx, fw);
+    changed |= ui::RangeSlider("Range", &L.gen.rangeLo, &L.gen.rangeHi, 0.0f, 1.0f, "%.2f", fw);
     commit |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip("Remap window over the source signal (smoothstep):\n"
                           "narrow = a hard-edged mask, wide = a soft ramp.");
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Invert", &L.gen.invert)) changed = commit = true;
 
     const bool noisy = src >= (int)matbake::MaskParams::Source::Perlin;
     if (noisy) {
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        changed |= ImGui::DragFloat("Scale", &L.gen.scale, 0.05f, 0.5f, 64.0f,
-                                    "%.1f");
+        changed |= ui::DragFloat("Scale", &L.gen.scale, 0.05f, 0.5f, 64.0f, "%.1f");
         commit |= ImGui::IsItemDeactivatedAfterEdit();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(80.0f));
         int seed = (int)L.gen.seed;
-        if (ImGui::DragInt("Seed", &seed, 0.2f, 0, 9999)) {
+        if (ui::DragInt("Seed", &seed, 0.2f, 0, 9999)) {
             L.gen.seed = (uint32_t)seed;
             changed = commit = true;
         }
         if (src == (int)matbake::MaskParams::Source::Bricks) {
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            changed |= ImGui::DragFloat("Mortar", &L.gen.mortar, 0.002f, 0.01f,
-                                        0.3f, "%.2f");
+            changed |= ui::DragFloat("Mortar", &L.gen.mortar, 0.002f, 0.01f, 0.3f, "%.2f");
             commit |= ImGui::IsItemDeactivatedAfterEdit();
         }
     }
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    changed |= ImGui::SliderFloat("Breakup", &L.gen.breakupAmount, 0.0f, 1.0f,
-                                  "%.2f");
-    commit |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Multiplies the mask by world-space Perlin noise -\n"
-                          "organic, uneven wear instead of a uniform coat.");
-    if (L.gen.breakupAmount > 0.0f) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(90.0f));
-        changed |= ImGui::DragFloat("##gen_bscale", &L.gen.breakupScale, 0.05f,
-                                    0.5f, 64.0f, "x%.1f");
+
+    // Breakup: the amount, and the noise size beside it ("0.55  x9.0").
+    manualRow("Breakup", fx, fw);
+    {
+        const float sp = ImGui::GetStyle().ItemSpacing.x;
+        const float sw = L.gen.breakupAmount > 0.0f ? std::min(scaled(64.0f), fw * 0.35f) : 0.0f;
+        const float sliderW = fw - (sw > 0.0f ? sw + sp : 0.0f);
+        const float y = ImGui::GetCursorScreenPos().y;
+        ImGui::SetNextItemWidth(sliderW);
+        // the stock slider draws its label on the right: clip it away
+        ImGui::PushClipRect(ImVec2(fx, y), ImVec2(fx + sliderW, y + ImGui::GetFrameHeight()), true);
+        changed |= ImGui::SliderFloat("Breakup", &L.gen.breakupAmount, 0.0f, 1.0f, "%.2f");
         commit |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::PopClipRect();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Multiplies the mask by world-space Perlin noise -\n"
+                              "organic, uneven wear instead of a uniform coat.");
+        if (sw > 0.0f) {
+            ImGui::SetCursorScreenPos(ImVec2(fx + fw - sw, y));
+            ImGui::SetNextItemWidth(sw);
+            changed |= ImGui::DragFloat("##gen_bscale", &L.gen.breakupScale, 0.05f, 0.5f, 64.0f, "x%.1f");
+            commit |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Breakup noise size: higher = finer blotches.");
+        }
     }
 
-    if (matBakeMaps_.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                           "Needs baked maps to generate.");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Bake maps now")) matBakeRunOnce_ = true;
-    }
+    if (matBakeMaps_.empty() && ui::Note(1, "Needs baked maps to generate.", "Bake maps now"))
+        matBakeRunOnce_ = true;
     if (changed) {
         matEdRegenLayer(L);
         matEdComposite();
     }
     if (commit) matEdSavePaintTarget();
+}
+
+// A layer row's thumbnail. The layer's straight-alpha pixels are box-sampled
+// (2x2 per cell) into a 14x14 grid over the field checker - cheap enough to
+// redo every frame, so it follows strokes and smart-mask regeneration with
+// nothing to invalidate. The Background (index 0) is opaque by construction.
+void App::matEdLayerThumb(ImDrawList* dl, const MatEdLayer& L, ImVec2 at, float s) const {
+    const theme::Semantics& sem = theme::semantics();
+    const float r = ImGui::GetStyle().FrameRounding;
+    const ImVec2 bt(at.x + s, at.y + s);
+    const int W = matEdPaintW_, H = matEdPaintH_;
+    dl->AddRectFilled(at, bt, ImGui::GetColorU32(sem.field), r);
+    if (W <= 0 || H <= 0 || L.pixels.size() < (size_t)W * H * 4) return;
+    constexpr int N = 14;
+    const float c = s / (float)N;
+    const ImVec4 chkA = sem.field, chkB = sem.surface;
+    dl->PushClipRect(at, bt, true);
+    for (int cy = 0; cy < N; ++cy)
+        for (int cx = 0; cx < N; ++cx) {
+            float acc[4] = {0, 0, 0, 0};
+            for (int sy = 0; sy < 2; ++sy)
+                for (int sx = 0; sx < 2; ++sx) {
+                    const int px = std::min(W - 1, (int)(((float)cx + 0.25f + 0.5f * sx) / N * W));
+                    const int py = std::min(H - 1, (int)(((float)cy + 0.25f + 0.5f * sy) / N * H));
+                    const unsigned char* q = &L.pixels[((size_t)py * W + px) * 4];
+                    const float a = q[3] / 255.0f;
+                    for (int k = 0; k < 3; ++k) acc[k] += q[k] / 255.0f * a;  // premultiplied
+                    acc[3] += a;
+                }
+            for (float& v : acc) v *= 0.25f;
+            const ImVec4& under = ((cx / 2 + cy / 2) & 1) ? chkA : chkB;
+            const ImVec4 col(acc[0] + under.x * (1.0f - acc[3]), acc[1] + under.y * (1.0f - acc[3]),
+                             acc[2] + under.z * (1.0f - acc[3]), 1.0f);
+            const ImVec2 a(at.x + cx * c, at.y + cy * c);
+            dl->AddRectFilled(a, ImVec2(a.x + c + 0.5f, a.y + c + 0.5f), ImGui::GetColorU32(col));
+        }
+    dl->PopClipRect();
+    dl->AddRect(at, bt, ImGui::GetColorU32(sem.border), r);
 }
 
 // --- material presets: reusable smart-mask stacks ------------------------------
@@ -3839,7 +3908,7 @@ void App::drawMaterialEditorWindow() {
 
             // the stack: eye, swatch, name + smart chip, blend, opacity
             const char* blends[] = {"Normal", "Multiply", "Add", "Overlay"};
-            const float rh = fs * 2.2f;
+            const float rh = fs * 2.9f;
             for (int i = (int)matEdLayers_.size() - 1; i >= 0; --i) {
                 MatEdLayer& L = matEdLayers_[i];
                 ImGui::PushID(i);
@@ -3863,17 +3932,12 @@ void App::drawMaterialEditorWindow() {
                     matEdSavePaintTarget();
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Show/hide layer");
-                // swatch: a smart layer's colour, else the paint glyph
-                const float s = rh - fs * 0.8f;
+                // thumbnail: the layer's own pixels (a smart layer: its
+                // generated mask) over a checker, sampled into a small grid
+                // of cells - no texture to keep in sync with the strokes
+                const float s = rh - fs * 0.6f;
                 const ImVec2 sa(p.x + fs * 0.6f + eye, p.y + (rh - s) * 0.5f);
-                if (L.genOn)
-                    dl->AddRectFilled(sa, ImVec2(sa.x + s, sa.y + s),
-                                      ImGui::GetColorU32(ImVec4(L.genColor[0], L.genColor[1], L.genColor[2], 1)), r);
-                else {
-                    dl->AddRectFilled(sa, ImVec2(sa.x + s, sa.y + s), col32(sem.field), r);
-                    ui::DrawGlyph(dl, i == 0 ? ui::Glyph::Box : ui::Glyph::Paint,
-                                  ImVec2(sa.x + s * 0.5f, sa.y + s * 0.5f), s * 0.55f, col32(sem.textDim));
-                }
+                matEdLayerThumb(dl, L, sa, s);
                 float x = sa.x + s + fs * 0.6f;
                 dl->AddText(ImVec2(x, p.y + (rh - fs) * 0.5f), col32(L.visible ? sem.text : sem.textDim),
                             L.name.c_str());
