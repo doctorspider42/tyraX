@@ -4,45 +4,36 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
-## Main-window redesign: the remaining steps (2026-10-16)
+## Main-window redesign: what is left (2026-10-16)
 
-1.173.0 landed the foundation: the new Face buttons palette, panels as cards on
-a ground colour, inset fields, the heading and fixed-width faces and
-`src/widgets.hpp` (`ui::AxisDrag3`) - see docs/editor-theme.md. What is left,
-one PR each, in this order:
+1.173.0 shipped the redesign of the main window (docs/editor-theme.md): the
+palette and panel cards (with the first in-tree ImGui patch,
+`vendor/imgui-tyrax`), the top bar with breadcrumb / workspaces / run
+controls, the status bar, the left rail and one-page Project panel, the
+viewport tool cards, the Properties header with switches and quiet sections,
+the log panels and the command palette. Still open:
 
-1. **Top bar + shell.** Keep `BeginMainMenuBar` (scripts click `Tools`), but on
-   the ground colour with a drawn four-glyph logo; project / scene breadcrumb
-   with the unsaved dot (scene list leaves the Project panel); ⌘K search
-   button; build profile, PCSX2 | PS2 segmented target, Build, a filled Run
-   that becomes "Running · Stop". `BeginViewportSideBar` for a status bar
-   (build state, the LIVE/DBG/LOGIC/SESSION chips with their `##tb_*` ids,
-   PS2 budget meters - VRAM has no estimate yet: add one or hide the meter)
-   and a 48 px icon rail on the left.
-2. **Viewport overlays.** The `SmallButton` rows (app.cpp `Move (1)` ...
-   `World`) become floating panels: a vertical tool palette, a view-options
-   pill, a selection readout, an Editor | As PS2 switch. Labels stay the IDs.
-3. **Inspector.** Header (type tile, borderless name, type · layer, ⋯ menu),
-   labels on the LEFT via a two-column table, `ui::Switch` with a one-line hint
-   instead of the 53 checkboxes in props_ui.cpp (it must report
-   `ImGuiItemStatusFlags_Checkable` so `expect-checked` keeps working),
-   sections as quiet titles instead of the accent-tinted CollapsingHeader band
-   (Header colours are shared with selected rows - needs its own widget).
-4. **Left panel.** The rail picks ONE page (Outliner, Assets, Prefabs, Audio,
-   Lighting, Save data) instead of the stack of CollapsingHeaders; Outliner as
-   a tree grouped by layer with type icons and filter chips. Scripts that click
-   `Scene objects` break - update docs/ui-scripting.md.
-5. **Bottom drawer.** Pill tabs, log rows as time / coloured tag / message;
-   Run in a debug build focuses the Debugger tab instead of a separate window.
-6. **Command palette (Ctrl/⌘+K).** Objects, assets, windows
-   (`chatWindowKeys()`), the embedded docs and a hand-registered command list;
-   a shared action registry for menus is a later refactor.
-7. **Workspaces.** Scene / Logic / Cinema / UI & HUD switch layout recipes
-   (Logic = a new recipe with Flow Graph centred); saved layouts are kept.
-
-Docked panels are drawn with square corners by ImGui; rounded cards need a
-transparent `WindowBg` plus a hand-drawn background, or stay square.
-`docs/img/editor-themes.png` still shows the 1.172 Face buttons palette.
+- **Verify on Windows and Linux.** Built and driven on macOS only. Owed: a
+  `build.ps1` / `build.sh` build (MinGW compiles the ImGui patch for the first
+  time), a `--ui-script` shot of each, and the font picks (Segoe UI Semibold,
+  Inter SemiBold, the mono chains).
+- **Retake `docs/img/editor-themes.png`** - it still shows the 1.172 Face
+  buttons palette; and check Boot screen / Memory card / ImGui dark against the
+  new ground / field / card metrics.
+- **Properties labels on the left.** Every field still carries ImGui's
+  label-on-the-right; the design puts a label column on the left. Needs a
+  `ui::PropRow` (two-column table) and touching every widget in props_ui.cpp.
+- **Outliner as a real tree.** Rows have icons now, but layers/prefab groups
+  are still the old TreeNodes and the type filter is a combo, not chips.
+- **Live "game running" state in the top bar.** Run turns into "Building"
+  during a build only; a running game is visible in the status bar's DBG chip
+  (debug builds). A Runner-side "emulator running" signal would let Run show
+  "Running 00:42".
+- **PS2 budget meters** in the status bar (VRAM, RAM, triangles, EE ms):
+  there is no live VRAM/RAM estimate for a scene yet - add one before a meter.
+- **Command palette registry.** The palette's commands are a hand-written
+  list in palette_ui.cpp; a shared action registry for menus + palette would
+  let every menu item be found.
 
 ## Separate remaining runtime settings from compilation decisions
 
