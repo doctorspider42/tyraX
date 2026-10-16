@@ -2017,12 +2017,6 @@ private:
     // Primitives, Lights... - outlinerCategory() in app.cpp), or -1 for All.
     std::string sceneFilterName_;
     int sceneFilterCat_ = -1;
-    // Objects hidden in the editor one by one (the outliner row's eye), by
-    // OBJECT ID like scrollGhostsOff_. View state for the session, like a
-    // layer's eye is for the layer: the viewport skips them (render and
-    // picking) through isObjectHiddenInEditor, nothing reaches the .tyra or
-    // the game. Cleared by closeProject.
-    std::set<std::string> hiddenObjects_;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.

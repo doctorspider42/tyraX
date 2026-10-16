@@ -1110,6 +1110,7 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.editorGroup.empty())
         json += ", \"editorGroup\": \"" + jsonEscape(o.editorGroup) + "\"";
+    if (o.editorHidden) json += ", \"editorHidden\": true";
     if (!o.prefabSource.empty())
         json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
     // The mesh's numbers for the project's own VU1 program. Omitted at the
@@ -6241,6 +6242,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("editorGroup"))
             o.editorGroup = v->stringOr("");
+        if (const auto* v = jo.find("editorHidden")) o.editorHidden = v->boolOr(false);
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
         if (const auto* v = jo.find("comment")) o.commentText = v->stringOr("");

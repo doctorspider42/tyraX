@@ -6908,7 +6908,6 @@ void App::closeProject() {
     // The input recorder's staging is keyed by a path INSIDE this project, so
     // it must not survive into whichever project opens next.
     replayArm_ = ReplayArm::None;
-    hiddenObjects_.clear();  // ids are only unique within one project
     replayFile_.clear();
     replayFiles_.clear();
     replayScanAt_ = 0.0;
@@ -9964,7 +9963,7 @@ void App::drawSceneSection() {
         auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
-            const bool ownHidden = hiddenObjects_.count(o.id) != 0;
+            const bool ownHidden = o.editorHidden;
             // Inside a prefab group the provenance is already stated by the
             // group header; outside one (a member dragged onto another layer,
             // or a copy pasted somewhere else) the row has to say it itself.
@@ -10306,9 +10305,11 @@ void App::drawSceneSection() {
         }
 
         if (eyeToggled >= 0 && eyeToggled < (int)project_.objects().size()) {
-            // View state, not an edit (hiddenObjects_): no commit, no undo step.
-            const std::string& id = project_.objects()[eyeToggled].id;
-            if (!hiddenObjects_.erase(id)) hiddenObjects_.insert(id);
+            // Saved with the object (SceneObject::editorHidden) and undoable,
+            // like the layer chips below: one commit per click.
+            SceneObject& eo = project_.objects()[eyeToggled];
+            eo.editorHidden = !eo.editorHidden;
+            layerCommitted = true;
         }
 
         if (dropHit) {
@@ -10334,7 +10335,7 @@ void App::drawSceneSection() {
 // layer whose editor eye is off - the viewport skips it (render and picking)
 // and the object list dims it. Unknown layer names count as visible.
 bool App::isObjectHiddenInEditor(const SceneObject& o) const {
-    if (!hiddenObjects_.empty() && hiddenObjects_.count(o.id)) return true;
+    if (o.editorHidden) return true;
     if (o.layer.empty()) return false;
     for (const SceneLayer& l : project_.active().layers)
         if (l.name == o.layer) return !l.editorVisible;

@@ -6194,7 +6194,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 (docs/streaming-layers.md, the Outliner eye): an object's
+// "editorHidden", written only when true. Missing = shown, as before. Editor
+// only - codegen never reads it. Additive; no migration step.
+inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
