@@ -7104,6 +7104,7 @@ void App::sessionTick() {
                 // The worker is already winding down; join it and reset.
                 session_.close();
                 peerPresence_.clear();
+                followPeer_ = -1;
                 viewport_.setPeerSelections({});
                 updateWindowTitle();  // drop the [joined] marker
                 if (joinModalVisible_) {
@@ -7143,6 +7144,14 @@ void App::sessionTick() {
                         for (const auto& id : sel->arr)
                             if (id.type == json::Value::Type::String)
                                 pp.sel.push_back(id.str);
+                    // The editor camera (optional - a peer on an older editor
+                    // sends no "cam", and older editors ignore the key):
+                    // [yaw, pitch, distance, targetX, targetY, targetZ].
+                    if (const auto* cam = msg.find("cam");
+                        cam && cam->type == json::Value::Type::Array && cam->arr.size() >= 6) {
+                        pp.hasCam = true;
+                        for (int k = 0; k < 6; ++k) pp.cam[k] = (float)cam->arr[k].numberOr(0.0);
+                    }
                     peerPresence_[peerId] = std::move(pp);
                     if (host) session_.broadcastFrame(e.frame, e.peer.id);
                 }
@@ -7194,14 +7203,24 @@ void App::sessionTick() {
         for (int i : selection_)
             if (i >= 0 && i < (int)project_.objects().size())
                 sel.push_back(project_.objects()[i].id);
-        if (sel != presenceSentSel_ || project_.activeScene != presenceSentScene_) {
+        float cam[6];
+        viewport_.camState(cam[0], cam[1], cam[2], cam + 3);
+        if (sel != presenceSentSel_ || project_.activeScene != presenceSentScene_ ||
+            !sameSessionCam(cam, presenceSentCam_) || now >= presenceRefreshAt_) {
             std::string j = "{\"t\":\"presence\",\"peer\":" +
                             std::to_string(session_.selfId()) +
                             ",\"scene\":" + std::to_string(project_.activeScene) +
                             ",\"sel\":[";
             for (size_t i = 0; i < sel.size(); ++i)
                 j += (i ? ",\"" : "\"") + sel[i] + "\"";
+            j += "],\"cam\":[";
+            for (int k = 0; k < 6; ++k) {
+                char num[32];
+                std::snprintf(num, sizeof(num), "%s%.4f", k ? "," : "", cam[k]);
+                j += num;
+            }
             j += "]}";
+            std::memcpy(presenceSentCam_, cam, sizeof(cam));
             wire::Frame f;
             f.json = std::move(j);
             if (host) session_.broadcastFrame(f, -1);
@@ -7209,6 +7228,10 @@ void App::sessionTick() {
             presenceSentSel_ = std::move(sel);
             presenceSentScene_ = project_.activeScene;
             presenceNextSend_ = now + 0.2;
+            // Re-sent unchanged every few seconds: presence is fire-and-forget,
+            // and a peer that joined (or was still syncing) after the last
+            // change would otherwise see nobody's selection or camera.
+            presenceRefreshAt_ = now + 3.0;
         }
     }
 
@@ -7241,6 +7264,60 @@ void App::sessionTick() {
     }
 
     sessionPeers_ = session_.peers();
+    sessionFollowTick();
+}
+
+// Session > Follow: the editor camera rides a peer's (presence "cam"). The
+// peer sends at most five times a second, so the view eases toward the last
+// one instead of jumping. Moving the camera yourself stops following - the
+// camera differing from what this tick last set is that signal - and so do
+// the peer leaving or the session ending.
+void App::sessionFollowTick() {
+    if (followPeer_ < 0) return;
+    bool present = false;
+    std::string name;
+    for (const auto& pv : sessionPeers_)
+        if (pv.id == followPeer_) present = true, name = pv.name;
+    const auto it = peerPresence_.find(followPeer_);
+    if (!session_.active() || !present) {
+        followPeer_ = -1;
+        statusMessage_ = "Stopped following - they left the session";
+        return;
+    }
+    if (it == peerPresence_.end() || !it->second.hasCam) return;  // nothing to follow yet
+    const PeerPresence& pp = it->second;
+    float cur[6];
+    viewport_.camState(cur[0], cur[1], cur[2], cur + 3);
+    if (followApplied_ && !sameSessionCam(cur, followCam_)) {
+        followPeer_ = -1;
+        statusMessage_ = "Stopped following " + name;
+        return;
+    }
+    if (pp.scene != project_.activeScene && pp.scene >= 0 &&
+        pp.scene < (int)project_.scenes.size())
+        selectScene(pp.scene);
+    // Ease ~90% of the way in a quarter second, frame-rate independent.
+    const float a = 1.0f - std::exp(-ImGui::GetIO().DeltaTime * 9.0f);
+    float next[6];
+    float dyaw = std::remainder(pp.cam[0] - cur[0], 6.2831853f);
+    next[0] = cur[0] + dyaw * a;
+    for (int k = 1; k < 6; ++k) next[k] = cur[k] + (pp.cam[k] - cur[k]) * a;
+    viewport_.setCamState(next[0], next[1], next[2], next + 3);
+    // Read back what the viewport kept (it clamps pitch), so a clamp is not
+    // mistaken for the user moving the camera on the next tick.
+    viewport_.camState(followCam_[0], followCam_[1], followCam_[2], followCam_ + 3);
+    followApplied_ = true;
+}
+
+// Two presence cameras are "the same view" within what a viewer can see: a
+// thousandth of a radian and of a unit (relative for the orbit distance).
+bool App::sameSessionCam(const float a[6], const float b[6]) {
+    if (std::fabs(std::remainder(a[0] - b[0], 6.2831853f)) > 1e-3f) return false;
+    if (std::fabs(a[1] - b[1]) > 1e-3f) return false;
+    if (std::fabs(a[2] - b[2]) > 1e-3f * std::max(1.0f, std::fabs(b[2]))) return false;
+    for (int k = 3; k < 6; ++k)
+        if (std::fabs(a[k] - b[k]) > 1e-3f * std::max(1.0f, std::fabs(b[k]))) return false;
+    return true;
 }
 
 void App::requestJoinSession() {
@@ -7287,6 +7364,7 @@ void App::closeSession() {
     session_.close();
     showSessionWindow_ = false;
     peerPresence_.clear();
+    followPeer_ = -1;
     viewport_.setPeerSelections({});
     updateWindowTitle();  // drop the [joined] marker
     // A client keeps the synced project open as a local snapshot.
@@ -7882,7 +7960,10 @@ void App::drawSessionWindow() {
                 }
             }
         }
-        const float btnArea = (!me ? ImGui::CalcTextSize("Go to").x + fs * 1.4f : 0.0f) + (hosting && !me ? fs * 1.8f : 0.0f);
+        const auto theirPresence = me ? peerPresence_.end() : peerPresence_.find(peer.id);
+        const bool canFollow = theirPresence != peerPresence_.end() && theirPresence->second.hasCam;
+        const float btnArea = (!me ? ImGui::CalcTextSize("Go to").x + fs * 1.4f : 0.0f) + (hosting && !me ? fs * 1.8f : 0.0f) +
+                              (!me ? ImGui::CalcTextSize("Following").x + fs * 1.4f : 0.0f);
         const ImVec4 clip(tx, p.y, p.x + wAvail - btnArea - scaled(6), p.y + rowH);
         dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(tx, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim),
                     where.c_str(), nullptr, 0.0f, &clip);
@@ -7903,6 +7984,33 @@ void App::drawSessionWindow() {
                 ImGui::PopStyleColor();
                 ImGui::EndPopup();
             }
+            bx -= scaled(4);
+        }
+        if (!me) {
+            // Follow: the editor camera rides theirs (sessionFollowTick).
+            const bool following = followPeer_ == peer.id;
+            const char* fl = following ? "Following###follow" : "Follow###follow";
+            const float fw = ImGui::CalcTextSize(following ? "Following" : "Follow").x +
+                             ImGui::GetStyle().FramePadding.x * 2.0f;
+            bx -= fw;
+            ImGui::SetCursorScreenPos(ImVec2(bx, p.y + (rowH - ImGui::GetFrameHeight()) * 0.5f));
+            ImGui::BeginDisabled(!canFollow && !following);
+            if (following) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.35f));
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+            }
+            if (ImGui::Button(fl)) {
+                followPeer_ = following ? -1 : peer.id;
+                followApplied_ = false;
+                statusMessage_ = following ? "Stopped following " + peer.name : "Following " + peer.name;
+            }
+            uiscript::markLastItemChecked(following);
+            if (following) ImGui::PopStyleColor(2);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", following    ? "Stop following - or just move your camera"
+                                        : canFollow ? "Your viewport camera follows theirs (and their scene)"
+                                                    : "Their editor does not share its camera (older version)");
             bx -= scaled(4);
         }
         if (!me && theirScene >= 0 && theirScene < (int)project_.scenes.size() &&

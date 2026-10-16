@@ -1970,10 +1970,23 @@ private:
     struct PeerPresence {
         int scene = 0;
         std::vector<std::string> sel;  // object ids
+        // Their editor camera (presence "cam", optional - an older editor
+        // sends none): yaw, pitch, distance, target xyz (Viewport::camState).
+        bool hasCam = false;
+        float cam[6] = {0, 0, 0, 0, 0, 0};
     };
     std::map<int, PeerPresence> peerPresence_;
     std::vector<std::string> presenceSentSel_;
     int presenceSentScene_ = -1;
+    float presenceSentCam_[6] = {0, 0, -1, 0, 0, 0};
+    double presenceRefreshAt_ = 0.0;  // next unchanged re-send (late joiners)
+    // Session panel "Follow": the peer whose camera ours rides (-1 = none),
+    // and the camera sessionFollowTick last set (to notice the user moving).
+    int followPeer_ = -1;
+    bool followApplied_ = false;
+    float followCam_[6] = {0, 0, 0, 0, 0, 0};
+    void sessionFollowTick();
+    static bool sameSessionCam(const float a[6], const float b[6]);
     double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame

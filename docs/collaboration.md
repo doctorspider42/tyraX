@@ -49,7 +49,11 @@ While in a session:
   pill with the session's running time, the invite again with *Copy* (people
   join late), **People** - each with an avatar in their presence colour, their
   address, the scene they are in and what they have selected ("editing
-  west-promenade"), **Go to** to open the scene they are in, and on the host a
+  west-promenade"), **Follow** to have your viewport camera ride theirs (it
+  eases after their camera, switches to their scene, and stops the moment you
+  move your own camera, they leave or the session ends; the button reads
+  *Following* while it runs and is greyed out for a peer on an editor too old
+  to share its camera), **Go to** to open the scene they are in, and on the host a
   **...** menu with *Copy address* and *Remove from session* - then a short
   "how it works", and at the bottom **Close session for N people** (the host;
   it asks for a second click, because it ends the session for everyone) or
@@ -114,6 +118,13 @@ Known v1 limitations:
   *Edit > Preferences > Collaboration*), with `cache.json` recording
   size/hash/mtime per synced file. Only files that cache recorded are ever
   deleted by a re-sync — local build outputs are never touched.
+- Presence: each editor sends a small `{"t":"presence"}` frame - its scene,
+  its selection as object ids and its editor camera as
+  `"cam":[yaw, pitch, distance, targetX, targetY, targetZ]` - whenever one of
+  them changes (at most five a second) and unchanged every three seconds, so a
+  peer that joins late or was still syncing catches up. The host relays it.
+  The camera is an optional key: an older editor neither sends nor reads it
+  (no protocol version change), and a peer without it just cannot be followed.
 - Live sync: edits are detected by diffing the model against a shadow of the
   last-broadcast state and shipped as per-unit messages; the host applies and
   rebroadcasts everything (including to the sender), which is what makes
