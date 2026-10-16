@@ -184,8 +184,8 @@ bool ThumbTileEx(const char* label, ImTextureID tex, bool flipY, Glyph fallback,
 void BadgeFlow(const char* text, int kind, bool first, const char* tooltip = nullptr);
 
 /** An info card: a tinted rounded box (kind as StatusLine) with a ring and
- * wrapped text, full width. */
-void Callout(int kind, const char* text);
+ * wrapped text; `width` 0 = the rest of the row. */
+void Callout(int kind, const char* text, float width = 0.0f);
 
 /** A colour dot `d` px across at the cursor, as an item (list rows: effect
  * glows, layer colours, chord colours). `glow` adds a soft halo. */

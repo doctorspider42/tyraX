@@ -1,6 +1,6 @@
 # Drone Generator
 
-![Drone Generator with live controls](img/drone-generator.png)
+![The Drone Generator on the showcase example: Neon Dusk opened from the project rail, the timeline with the rendered waveform and the four-chord strip under it, the chord cards in Harmony, and the footer saying what Render WAV writes.](img/drone-generator.png)
 
 *Tools > Drone Generator* is an ambient / drone music generator built into the
 editor. You dial a piece in against **live playback** — the knobs are heard as you
@@ -88,6 +88,16 @@ from the root and held for a number of bars. Chord changes **glide** (portamento
 rather than jump — that is the drone idiom, and the *Glide* knob is how syrupy it
 gets. Voices that a chord does not use fade out over the layer's *Release*; new
 ones fade in over its *Attack*.
+
+In the *Harmony* tab the chords are **cards**: number and colour (the same
+colour as its segment under the timeline), bars, note names and the semitones.
+Click a card to edit it underneath (bars, the six voices - drag a voice left to
+`-` to drop it - and *Remove chord*); *+ Chord* copies the last one. **A chord
+the track never reaches is dimmed, and a warning says so**: four chords of 8
+bars at 64 BPM are 2:00, so in a 1:00 track chords 3 and 4 are never heard (the
+showcase example's Neon Dusk shipped exactly like that until its chords were
+cut to 4 bars - 16 bars = 1:00 - and the track re-rendered). *Fit length to
+whole passes* sits beside the warning (and below the cards otherwise).
 
 The *Scale* setting is only used by the bells; chords are spelled note by note,
 because "minor" is not a useful abstraction once you want a suspended fourth in
@@ -213,10 +223,15 @@ would look like it worked and quietly do nothing.
 
 ### The transport bar
 
-The strip under the preset row is the position bar: ticks (bars while they are
-readable, otherwise round seconds), the elapsed fill, a **triangle for every
-keyframe in the piece** so you can see where it changes, the playhead, and a
-`0:27.0 / 1:00` readout. Click or drag it to move the playhead — it **seeks the
+The transport card holds `|<`, a round green **Play**, a red **Rec** ring, a
+`0:27.0 / 1:00` readout and the mode switch, and under them ONE timeline that
+is both the position bar and the waveform: bar numbers (round seconds when bars
+would be too dense), the finished track's waveform (the part already played in
+the accent; it is read from the WAV on disk when you open a rendered track), a
+**triangle for every keyframe in the piece** so you can see where it changes,
+the playhead, the output meters at its end and, under it, **the chord sequence
+as coloured segments** pass after pass - the same colours as the chord cards in
+*Harmony*. Click or drag it to move the playhead — it **seeks the
 live playback** (`Synth::setTime`), so the timeline drives playback rather than
 just reporting it. A seek keeps the delay and reverb tails (it is a jump in the
 piece, not a reset) but re-latches held notes at the chord you landed on instead
@@ -240,20 +255,22 @@ the patch seed, so:
   harness check for this compares audio rendered from a patch against audio
   rendered from that patch's saved text.
 
-## The transport: Generate and Record
+## The transport: Sound design and Record
 
-The same synth is used two ways, so the transport has two modes:
+The same synth is used two ways, so the transport has two modes - a segmented
+switch at the right of the transport card that shows the mode you are IN:
 
 **Both** modes play from the playhead and both have `|<` — "let me hear how it
 ends" is a transport need, not a mode. What the mode decides is what happens at
 the end of the piece and whether knobs are recorded:
 
-- **Generate** — free-running sound design. *Play* runs from the playhead and
+- **Sound design** (loops) — free-running. *Play* runs from the playhead and
   keeps going past the end until you stop it; nothing is written. This is the
   mode for dialling a patch in. *Restart* rewinds to bar 1 and re-seeds the
   random streams.
-- **Record** — *Play* starts at the playhead and **stops at the end of the
-  piece**; *Rec* does the same with keyframe writing armed. Stopping parks the
+- **Record** (stops at end) — *Play* starts at the playhead and **stops at the
+  end of the piece**; *Rec* does the same with keyframe writing armed (pressing
+  *Rec* in Sound design switches to Record first). Stopping parks the
   playhead where playback got to, so *Play* resumes rather than restarting (from
   a playhead already parked at the end, *Play* rewinds first).
 
@@ -317,16 +334,31 @@ reports it and the tool keeps working as an offline renderer.
 ## A patch is a project asset
 
 A `.drone` is not just a sidecar of a rendered WAV, it is the **audio project**:
-the thing you twiddle and save. The generator's bottom bar is a document bar -
-**New / Open... / Save**, the open patch's path, and a `*` while it has edits the
-file does not.
+the thing you twiddle and save.
 
-- **Save** writes `res/audio/<name>.drone` (or back over the patch you opened).
-  Saving over your own open patch is what "save" means and happens silently;
-  saving onto a *different* existing patch asks first.
-- **Open...** lists every `.drone` in the project, so a patch is picked by name
-  rather than hunted for in a file dialog (the dialog is still there under
-  *Browse for a file...* for patches from outside the project).
+- The window's left rail lists **every `.drone` in this project** (title, path,
+  a `wav` badge once it has been rendered - amber when the patch was saved after
+  its last render), then **+ New track**, then the **presets** (a preset replaces
+  the sound and keeps the length and file name), and *Open file...* for a patch
+  from outside the project. Clicking a track with unsaved edits open asks first
+  (*Discard and open* / *Save first* / *Cancel*).
+- **Opening the tool on a project that already has a patch opens that patch**
+  (the one named like the current file name, else the first), once per project
+  and only over the untouched default - it no longer opens on *Init Drone*
+  named `ambient` beside an `ambient.drone` it does not show. *+ New track*
+  picks a file name no track uses (`ambient-2`...).
+- The identity row: the patch's **title** (editable), chips for root + scale,
+  tempo, length, format and seed (with **Roll**), and the render state on the
+  right - *not rendered yet*, *rendered*, or **changed since last render**
+  (unsaved edits, or the `.drone` saved after its `.wav`).
+- The footer is the document bar: the **File** name, what a render writes
+  ("res/audio/ambient.wav + ambient.drone - replaces the current file - in
+  Music list"), **Save patch** (`*` while the patch has edits the file does
+  not) and the primary **Render WAV**, which shows its progress inside the
+  button (click it to cancel).
+- **Save patch** writes `res/audio/<name>.drone` (or back over the patch you
+  opened). Saving over your own open patch is what "save" means and happens
+  silently; saving onto a *different* existing patch asks first.
 - **Render WAV** writes the track *and* saves the patch beside it, and the pair
   becomes the open document.
 
@@ -401,7 +433,7 @@ wide, costs less than you would think (the low end is mono anyway).
 |---|---|
 | `src/dronegen.hpp/.cpp` | `Params`, the `Synth` (live, block-based), `LiveSynth` (thread hand-off), the offline `render()` + mastering, the WAV writer, the presets and the `.drone` text format. Host-only, no GL, no `Project`. |
 | `src/audiopreview.hpp/.cpp` | The editor's only audio *output* path: a miniaudio playback device pulling from a callback. The only TU that includes miniaudio. |
-| `src/droneui.cpp` | The window: the rotary knob widget, the arc editor, the chord table, the mod matrix, the scope/analyzer/meters, the timeline (position bar + lane editors + the write hook), and the render + patch I/O buttons. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
+| `src/droneui.cpp` | The window: the track/preset rail, the rotary knob widget, the arc editor, the chord cards, the mod matrix, the meters, the timeline (position bar + waveform + chord strip, lane editors, the write hook), and the render + patch I/O footer. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
 
 Everything DSP is harness-testable without the GUI — link `dronegen.cpp` alone
 and render presets to WAV (see the PROGRESS entry for the checks that harness

@@ -9,6 +9,8 @@
 // that you hear the knob you are turning.
 
 #include <algorithm>
+#include <cfloat>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -17,9 +19,13 @@
 #include <sstream>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "app.hpp"
 #include "platform.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
 
 namespace {
 
@@ -312,18 +318,65 @@ bool arcEditor(const char* id, float* pts, int n, ImVec2 size, float scale) {
 
 // Peak meter with a -12 dB tick, drawn vertically.
 void meterBar(ImDrawList* dl, ImVec2 p, ImVec2 size, float peak, float scale) {
-    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(22, 24, 28, 255));
+    const theme::Semantics& sem = theme::semantics();
+    const float r = size.x * 0.5f;
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), ImGui::GetColorU32(sem.field), r);
     const float t = std::max(0.0f, std::min(1.0f, peak));
     const float h = size.y * t;
-    const ImU32 col = t > 0.99f ? IM_COL32(230, 70, 60, 255)
-                     : t > 0.8f ? IM_COL32(235, 190, 70, 255)
-                                : IM_COL32(120, 200, 130, 255);
-    dl->AddRectFilled(ImVec2(p.x, p.y + size.y - h), ImVec2(p.x + size.x, p.y + size.y),
-                      col);
+    const ImU32 col = ImGui::GetColorU32(t > 0.99f ? sem.danger : t > 0.8f ? sem.warn : sem.ok);
+    if (h > 0.5f)
+        dl->AddRectFilled(ImVec2(p.x, p.y + size.y - h), ImVec2(p.x + size.x, p.y + size.y), col, r);
     const float y = p.y + size.y * (1.0f - 0.25f);  // ~-12 dBFS
-    dl->AddLine(ImVec2(p.x, y), ImVec2(p.x + size.x, y), IM_COL32(90, 94, 104, 255),
-                1.0f * scale);
-    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), IM_COL32(70, 74, 82, 255));
+    dl->AddLine(ImVec2(p.x, y), ImVec2(p.x + size.x, y), ImGui::GetColorU32(sem.border), 1.0f * scale);
+}
+
+// The overview of a WAV already on disk (16-bit PCM, what Render writes), so
+// a track opened from the rail shows its waveform without re-rendering.
+bool waveOverviewFromWav(const std::filesystem::path& abs, std::vector<float>& mn, std::vector<float>& mx) {
+    std::ifstream f(abs, std::ios::binary);
+    if (!f) return false;
+    std::vector<char> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    auto u32 = [&](size_t o) {
+        return (uint32_t)(uint8_t)d[o] | (uint32_t)(uint8_t)d[o + 1] << 8 | (uint32_t)(uint8_t)d[o + 2] << 16 |
+               (uint32_t)(uint8_t)d[o + 3] << 24;
+    };
+    auto u16 = [&](size_t o) { return (uint16_t)((uint8_t)d[o] | (uint8_t)d[o + 1] << 8); };
+    if (d.size() < 12 || std::memcmp(d.data(), "RIFF", 4) != 0 || std::memcmp(d.data() + 8, "WAVE", 4) != 0)
+        return false;
+    int channels = 0, bits = 0, format = 0;
+    size_t dataOff = 0, dataLen = 0;
+    for (size_t o = 12; o + 8 <= d.size();) {
+        const uint32_t len = u32(o + 4);
+        if (std::memcmp(d.data() + o, "fmt ", 4) == 0 && o + 24 <= d.size()) {
+            format = u16(o + 8);
+            channels = u16(o + 10);
+            bits = u16(o + 22);
+        } else if (std::memcmp(d.data() + o, "data", 4) == 0) {
+            dataOff = o + 8;
+            dataLen = std::min<size_t>(len, d.size() - dataOff);
+            break;
+        }
+        o += 8 + len + (len & 1);
+    }
+    if (format != 1 || bits != 16 || channels < 1 || !dataOff) return false;
+    const size_t frames = dataLen / (2 * (size_t)channels);
+    if (frames == 0) return false;
+    const int cols = 900;
+    mn.assign(cols, 0.0f);
+    mx.assign(cols, 0.0f);
+    for (int c = 0; c < cols; ++c) {
+        const size_t a = frames * (size_t)c / cols, b = std::max(a + 1, frames * (size_t)(c + 1) / cols);
+        float lo = 0.0f, hi = 0.0f;
+        for (size_t i = a; i < b && i < frames; ++i)
+            for (int ch = 0; ch < channels; ++ch) {
+                const float v = (int16_t)u16(dataOff + (i * channels + ch) * 2) / 32768.0f;
+                lo = std::min(lo, v);
+                hi = std::max(hi, v);
+            }
+        mn[c] = lo;
+        mx[c] = hi;
+    }
+    return true;
 }
 
 }  // namespace
@@ -476,6 +529,7 @@ void App::droneTickRender() {
     for (const std::string& m : project_.music) known |= (m == droneRenderTarget_);
     if (!known) project_.music.push_back(droneRenderTarget_);
     wavIssueCache_.clear();
+    droneTrackScanAt_ = -1.0;
     droneBuildWaveOverview();
     droneHeadSec_ = 0.0;
 
@@ -513,6 +567,7 @@ bool App::droneSavePatch(const std::string& rel, bool confirmed) {
     dronePatchRel_ = rel;
     droneDirty_ = false;
     droneStatus_ = "Saved " + rel;
+    droneTrackScanAt_ = -1.0;  // the rail and the render state re-read the disk
     assetsChanged();  // it is a project asset now, so the browser must see it
     return true;
 }
@@ -527,10 +582,54 @@ void App::droneNewPatch() {
     droneWaveMin_.clear();
     droneWaveMax_.clear();
     droneRenderResult_ = dronegen::RenderResult();
-    std::snprintf(droneTrackName_, sizeof(droneTrackName_), "ambient");
+    // Never default to the name of a track the project already has: a Render
+    // would then aim at someone's WAV and .drone.
+    const std::string name = droneUniqueTrackName("ambient");
+    std::snprintf(droneTrackName_, sizeof(droneTrackName_), "%s", name.c_str());
     droneStatus_ = "New patch.";
     dronePushParams();
     if (droneLive_) droneLive_->reset();
+}
+
+std::string App::droneUniqueTrackName(const std::string& base) const {
+    if (!hasProject_) return base;
+    for (int k = 1;; ++k) {
+        const std::string n = k == 1 ? base : base + "-" + std::to_string(k);
+        std::error_code ec;
+        if (!std::filesystem::exists(project_.filePath("res/audio/" + n + ".wav"), ec) &&
+            !std::filesystem::exists(project_.filePath("res/audio/" + n + ".drone"), ec))
+            return n;
+    }
+}
+
+void App::droneScanTracks() {
+    droneTrackScanAt_ = ImGui::GetTime();
+    droneTracks_.clear();
+    for (const std::string& rel : dronePatchList()) {
+        DroneTrackRow row;
+        row.rel = rel;
+        const std::filesystem::path abs = project_.filePath(rel);
+        {
+            std::ifstream f(abs, std::ios::binary);
+            std::stringstream ss;
+            ss << f.rdbuf();
+            dronegen::Params tmp;
+            std::string err;
+            if (!dronegen::fromText(ss.str(), tmp, row.title, err)) row.title.clear();
+        }
+        std::filesystem::path wav = abs;
+        wav.replace_extension(".wav");
+        std::error_code ec;
+        row.hasWav = std::filesystem::exists(wav, ec);
+        if (row.hasWav) {
+            // A render writes both files together; a Save afterwards leaves
+            // the patch newer than its track (2 s of slack for the pair).
+            const auto tp = std::filesystem::last_write_time(abs, ec);
+            const auto tw = std::filesystem::last_write_time(wav, ec);
+            if (!ec) row.newerThanWav = tp - tw > std::chrono::seconds(2);
+        }
+        droneTracks_.push_back(std::move(row));
+    }
 }
 
 std::vector<std::string> App::dronePatchList() const {
@@ -587,6 +686,12 @@ bool App::droneLoadPatch(const std::string& relOrAbs) {
     droneHeadSec_ = 0.0;
     droneWaveMin_.clear();
     droneWaveMax_.clear();
+    {
+        std::filesystem::path wav = abs;
+        wav.replace_extension(".wav");
+        std::error_code wec;
+        if (std::filesystem::exists(wav, wec)) waveOverviewFromWav(wav, droneWaveMin_, droneWaveMax_);
+    }
     if (droneLive_) {
         droneLive_->push(droneParams_);
         droneLive_->reset();
@@ -657,19 +762,40 @@ void App::droneWriteAuto(size_t offset, float value) {
     dronePushParams();
 }
 
-// The transport strip: a foobar-style position bar over the whole piece with
-// ticks, the elapsed fill, a draggable playhead and the time readout. Clicking
-// it seeks the live audition too, so the timeline drives playback rather than
-// just reporting it.
+namespace {
+ImU32 colA(ImVec4 c, float a) {
+    c.w *= a;
+    return ImGui::GetColorU32(c);
+}
+
+// One colour per chord of the progression, the same on the timeline strip and
+// the Harmony cards. Meanings from the theme, cycled.
+ImU32 chordColour(int i, float alpha = 1.0f) {
+    const theme::Semantics& s = theme::semantics();
+    const ImVec4 pal[] = {s.accent, s.ok, s.special, s.warn, s.axisZ, s.danger, s.axisY, s.textDim};
+    ImVec4 c = pal[((i % 8) + 8) % 8];
+    c.w *= alpha;
+    return ImGui::GetColorU32(c);
+}
+}  // namespace
+
+// The ONE timeline: the position bar and the rendered waveform in the same
+// strip - bar numbers, the playhead, a triangle per keyframe - with the chord
+// sequence as coloured segments under it and the output meters at its end.
+// Clicking or dragging it seeks the live audition too, so the timeline drives
+// playback rather than just reporting it.
 void App::drawDroneTimelineBar() {
+    const theme::Semantics& sem = theme::semantics();
     const float s = uiScaleApplied_;
     const float len = std::max(1.0f, droneParams_.lengthSec);
     const double head = droneHeadTime();
+    const float fs = ImGui::GetFontSize();
 
-    const float h = scaled(20.0f);
+    const float meterW = scaled(6.0f);
+    const float numH = fs * 0.85f, waveH = scaled(54.0f), stripH = scaled(5.0f);
+    const float h = numH + waveH + scaled(6.0f) + stripH;
     const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float w = std::max(scaled(120.0f), ImGui::GetContentRegionAvail().x -
-                                                 scaled(96.0f));
+    const float w = std::max(scaled(120.0f), ImGui::GetContentRegionAvail().x - meterW * 2.0f - scaled(12.0f));
     ImGui::InvisibleButton("dronepos", ImVec2(w, h));
     const bool hovered = ImGui::IsItemHovered();
     if (ImGui::IsItemActive())
@@ -677,44 +803,83 @@ void App::drawDroneTimelineBar() {
     if (ImGui::IsItemDeactivated()) droneSeek(droneHeadSec_, true);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const ImVec2 br(p.x + w, p.y + h);
-    dl->AddRectFilled(p, br, IM_COL32(24, 26, 31, 255), 3.0f * s);
+    const float wy0 = p.y + numH, wy1 = wy0 + waveH;
+    const float mid = (wy0 + wy1) * 0.5f;
     const float frac = std::max(0.0f, std::min(1.0f, (float)head / len));
-    dl->AddRectFilled(p, ImVec2(p.x + w * frac, br.y), IM_COL32(52, 74, 104, 255),
-                      3.0f * s);
+    const float px = p.x + w * frac;
 
-    // Ticks: bars while they are readable, otherwise a round number of seconds.
+    // Bars: a hairline per bar while readable, a number every fourth.
     const float barSec = dronegen::barSeconds(droneParams_);
-    const bool tickBars = w / (len / barSec) > scaled(16.0f);
-    const float step = tickBars ? barSec
-                                : (len > 240.0f ? 60.0f : len > 90.0f ? 30.0f : 10.0f);
-    for (float t = 0.0f; t <= len; t += step) {
+    const bool tickBars = w / (len / barSec) > scaled(6.0f);
+    const float step = tickBars ? barSec : (len > 240.0f ? 60.0f : len > 90.0f ? 30.0f : 10.0f);
+    int idx = 0;
+    for (float t = 0.0f; t < len - 1e-3f; t += step, ++idx) {
         const float x = p.x + w * (t / len);
-        const bool major = tickBars ? (std::fmod(t / barSec, 4.0f) < 0.01f)
-                                    : (std::fmod(t, step * 3.0f) < 0.01f);
-        dl->AddLine(ImVec2(x, br.y - (major ? h * 0.55f : h * 0.3f)), ImVec2(x, br.y),
-                    IM_COL32(96, 102, 114, major ? 220 : 130));
+        const bool major = tickBars ? (idx % 4 == 0) : (idx % 3 == 0);
+        if (major) {
+            dl->AddLine(ImVec2(x, p.y), ImVec2(x, wy1), ImGui::GetColorU32(sem.border), 1.0f);
+            char lab[16];
+            if (tickBars) std::snprintf(lab, sizeof lab, "%d", idx + 1);
+            else std::snprintf(lab, sizeof lab, "%d:%02d", (int)(t / 60.0f), (int)std::fmod(t, 60.0f));
+            dl->AddText(ImGui::GetFont(), fs * 0.75f, ImVec2(x + 3.0f, p.y), ImGui::GetColorU32(sem.textDim), lab);
+        }
     }
+
+    // The finished track's waveform, played part in the accent.
+    if (!droneWaveMin_.empty()) {
+        const int cols = (int)droneWaveMin_.size();
+        const float colW = std::max(2.0f, 3.0f * s);
+        for (float x = 0.0f; x < w; x += colW) {
+            const int c = std::min(cols - 1, (int)(x / w * (float)cols));
+            const float top = mid - droneWaveMax_[c] * waveH * 0.48f;
+            const float bot = mid - droneWaveMin_[c] * waveH * 0.48f;
+            const bool played = p.x + x < px;
+            dl->AddRectFilled(ImVec2(p.x + x, top), ImVec2(p.x + x + colW * 0.6f, std::max(bot, top + 1.0f)),
+                              colA(played ? sem.accent : sem.textDim, played ? 1.0f : 0.55f));
+        }
+    } else {
+        dl->AddLine(ImVec2(p.x, mid), ImVec2(p.x + w, mid), ImGui::GetColorU32(sem.border));
+        const char* msg = "Render to see the finished track here";
+        const ImVec2 ts = ImGui::CalcTextSize(msg);
+        dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, mid - ts.y - 3.0f), colA(sem.textDim, 0.8f), msg);
+    }
+
     // Keyframes of every lane, so the bar shows where the piece changes.
     const int lanes = std::min(droneParams_.autoLaneCount, dronegen::kMaxAutoLanes);
     for (int i = 0; i < lanes; ++i) {
         const dronegen::AutoLane& lane = droneParams_.autoLanes[i];
         for (int k = 0; k < lane.count; ++k) {
             const float x = p.x + w * std::min(1.0f, lane.pts[k].t / len);
-            dl->AddTriangleFilled(ImVec2(x, p.y), ImVec2(x - 3.0f * s, p.y + 5.0f * s),
-                                  ImVec2(x + 3.0f * s, p.y + 5.0f * s),
-                                  IM_COL32(232, 168, 62, 200));
+            dl->AddTriangleFilled(ImVec2(x, wy0), ImVec2(x - 3.0f * s, wy0 + 5.0f * s),
+                                  ImVec2(x + 3.0f * s, wy0 + 5.0f * s), colA(sem.warn, 0.85f));
         }
     }
-    const float px = p.x + w * frac;
-    dl->AddLine(ImVec2(px, p.y), ImVec2(px, br.y), IM_COL32(245, 210, 100, 255),
-                2.0f * s);
-    dl->AddRect(p, br, IM_COL32(70, 74, 82, 255), 3.0f * s);
+
+    // The chord sequence over the piece, pass after pass.
+    {
+        const float sy = wy1 + scaled(6.0f);
+        float t = 0.0f;
+        int guard = 0;
+        const int n = std::max(1, droneParams_.stepCount);
+        while (t < len && guard++ < 4096) {
+            for (int i = 0; i < n && t < len; ++i) {
+                const float d = std::max(0.05f, droneParams_.steps[i].bars) * barSec;
+                const float x0 = p.x + w * (t / len), x1 = p.x + w * std::min(1.0f, (t + d) / len);
+                dl->AddRectFilled(ImVec2(x0 + 1.0f, sy), ImVec2(std::max(x0 + 2.0f, x1 - 1.0f), sy + stripH),
+                                  chordColour(i, 0.85f), stripH * 0.5f);
+                t += d;
+            }
+        }
+    }
+
+    dl->AddLine(ImVec2(px, p.y), ImVec2(px, wy1), ImGui::GetColorU32(sem.ok), 2.0f * s);
     if (hovered) ImGui::SetTooltip("Click or drag to move the playhead (seeks the audition)");
 
-    ImGui::SameLine();
-    ImGui::Text("%d:%04.1f / %d:%02d", (int)(head / 60.0), std::fmod(head, 60.0),
-                (int)(len / 60.0f), (int)std::fmod(len, 60.0f));
+    // meters
+    const float pl = droneLive_ && droneAuditioning_ ? droneLive_->peakL() : 0.0f;
+    const float pr = droneLive_ && droneAuditioning_ ? droneLive_->peakR() : 0.0f;
+    meterBar(dl, ImVec2(p.x + w + scaled(8.0f), wy0), ImVec2(meterW, waveH), pl, s);
+    meterBar(dl, ImVec2(p.x + w + scaled(10.0f) + meterW, wy0), ImVec2(meterW, waveH), pr, s);
 }
 
 // The Timeline tab: the lane list. A lane is created by arming Write and turning
@@ -915,7 +1080,7 @@ void App::drawDroneGeneratorWindow() {
     droneTickRender();
     if (!showDroneGenerator_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(940.0f), scaled(640.0f)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(1180.0f), scaled(760.0f)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Drone Generator", &showDroneGenerator_)) {
         ImGui::End();
@@ -944,113 +1109,227 @@ void App::drawDroneGeneratorWindow() {
     // timeline, and moving it only sticks while Write is armed.
     if (p.autoLaneCount > 0) dronegen::applyAutomation(p, droneHeadTime());
 
-    // ---- top row: preset, seed, transport --------------------------------
-    const std::vector<dronegen::Preset>& presets = dronegen::presets();
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::BeginCombo("##preset", presets[dronePreset_].name)) {
+    // ---- open the project's own track --------------------------------------
+    // Once per project: a project that already has a patch opens on it instead
+    // of on "Init Drone" named after a file a Render would replace. Only over
+    // the untouched default - never over something being worked on.
+    if (droneAutoOpenFor_ != project_.dir) {
+        droneAutoOpenFor_ = project_.dir;
+        droneTrackScanAt_ = -1.0;
+        droneScanTracks();
+        if (dronePatchRel_.empty() && !droneDirty_ && !droneRendering_ && !droneAuditioning_) {
+            const std::string want = std::string("res/audio/") + droneTrackName_ + ".drone";
+            const DroneTrackRow* pick = nullptr;
+            for (const DroneTrackRow& t : droneTracks_)
+                if (t.rel == want) pick = &t;
+            if (!pick && !droneTracks_.empty()) pick = &droneTracks_.front();
+            if (pick) {
+                droneLoadPatch(pick->rel);
+            } else {
+                const std::string n = droneUniqueTrackName(droneTrackName_);
+                std::snprintf(droneTrackName_, sizeof(droneTrackName_), "%s", n.c_str());
+            }
+        }
+    }
+    if (droneTrackScanAt_ < 0.0 || ImGui::GetTime() - droneTrackScanAt_ > 2.0) droneScanTracks();
+
+    const theme::Semantics& sem = theme::semantics();
+    bool openNewAsk = false;
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+
+    // ---- left rail: tracks in this project, then presets -------------------
+    ImGui::BeginChild("##dronerail", ImVec2(scaled(210.0f), bodyH), ImGuiChildFlags_None);
+    {
+        char cnt[16];
+        std::snprintf(cnt, sizeof cnt, "%d", (int)droneTracks_.size());
+        ui::Caption("In this project", cnt);
+        const float rowH = ImGui::GetFontSize() * 2.6f;
+        for (const DroneTrackRow& t : droneTracks_) {
+            const bool sel = t.rel == dronePatchRel_;
+            const ImVec2 rp = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            const std::string label = (t.title.empty() ? std::filesystem::path(t.rel).stem().string() : t.title) +
+                                      "##" + t.rel;
+            if (ImGui::InvisibleButton(label.c_str(), ImVec2(w, rowH)) && !sel) {
+                if (droneDirty_) {
+                    dronePendingLoad_ = t.rel;
+                    openNewAsk = true;
+                } else {
+                    droneStop();
+                    droneLoadPatch(t.rel);
+                }
+            }
+            uiscript::markLastItemChecked(sel);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("%s%s", t.rel.c_str(), t.hasWav ? "" : "\nnot rendered yet");
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding + 1.0f;
+            if (sel) dl->AddRectFilled(rp, ImVec2(rp.x + w, rp.y + rowH), ImGui::GetColorU32(sem.surface), r);
+            const float fs = ImGui::GetFontSize();
+            // a small waveform mark
+            for (int i = 0; i < 5; ++i) {
+                const float hh = fs * (0.15f + 0.35f * std::fabs(std::sin((float)i * 1.7f + 0.6f)));
+                const float x = rp.x + scaled(8.0f) + (float)i * scaled(3.0f);
+                dl->AddLine(ImVec2(x, rp.y + rowH * 0.5f - hh), ImVec2(x, rp.y + rowH * 0.5f + hh),
+                            ImGui::GetColorU32(sel ? sem.accent : sem.textDim), 1.5f);
+            }
+            const float tx = rp.x + scaled(30.0f);
+            float badgeW = 0.0f;
+            if (t.hasWav) {
+                const float bfs = fs * 0.8f;
+                badgeW = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0.0f, "wav").x + bfs;
+                const ImVec2 b0(rp.x + w - badgeW - scaled(6.0f), rp.y + rowH * 0.5f - fs + 2.0f);
+                const ImVec4 bc = t.newerThanWav ? sem.warn : sem.ok;
+                dl->AddRectFilled(b0, ImVec2(b0.x + badgeW, b0.y + bfs + 4.0f),
+                                  ImGui::GetColorU32(ImVec4(bc.x, bc.y, bc.z, 0.16f)), bfs);
+                dl->AddText(ImGui::GetFont(), bfs, ImVec2(b0.x + bfs * 0.5f, b0.y + 2.0f), ImGui::GetColorU32(bc),
+                            "wav");
+            }
+            dl->PushClipRect(rp, ImVec2(rp.x + w - badgeW - scaled(10.0f), rp.y + rowH), true);
+            {
+                ui::FontScope bold(sel ? ui::boldFont() : nullptr);
+                dl->AddText(ImVec2(tx, rp.y + rowH * 0.5f - fs), ImGui::GetColorU32(sem.text),
+                            label.c_str(), ImGui::FindRenderedTextEnd(label.c_str()));
+            }
+            {
+                ui::FontScope mono(ui::monoFont());
+                dl->AddText(ImGui::GetFont(), fs * 0.84f, ImVec2(tx, rp.y + rowH * 0.5f + 1.0f),
+                            ImGui::GetColorU32(sem.textDim), t.rel.c_str());
+            }
+            dl->PopClipRect();
+        }
+        if (ui::GhostButton("+ New track", -1.0f)) {
+            dronePendingLoad_.clear();
+            if (droneDirty_)
+                openNewAsk = true;
+            else {
+                droneStop();
+                droneNewPatch();
+            }
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A fresh patch with a file name no track in this project uses.");
+        ImGui::Dummy(ImVec2(0.0f, scaled(6.0f)));
+        ui::Caption("Start from a preset");
+        const std::vector<dronegen::Preset>& presets = dronegen::presets();
+        ImGui::BeginChild("##dronepresets", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()));
         for (int i = 0; i < (int)presets.size(); ++i) {
-            if (ImGui::Selectable(presets[i].name, dronePreset_ == i)) {
+            if (ui::ListRow(presets[i].name, nullptr, false, ui::Glyph::Sparkle)) {
+                // A preset is a SOUND: length, rate and the file name stay.
                 dronePreset_ = i;
                 const float keepLen = p.lengthSec;
                 const int keepRate = p.sampleRate;
                 p = presets[i].params;
-                p.lengthSec = keepLen;  // a preset is a sound, not a duration
+                p.lengthSec = keepLen;
                 p.sampleRate = keepRate;
                 dronePatchTitle_ = presets[i].name;
                 dirty = true;
             }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", presets[i].blurb);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("%s\n(replaces the sound; keeps the length and file name)", presets[i].blurb);
         }
-        ImGui::EndCombo();
+        ImGui::EndChild();
+        if (ui::GhostButton("Open file...", -1.0f)) {
+            const std::string path = platform::pickFile(
+                "Open drone patch", {{"TyraX drone patch (*.drone)", {"*.drone"}}});
+            if (!path.empty()) droneLoadPatch(path);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("A .drone patch from outside this project (Save patch gives it a home).");
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("preset");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    int seed = (int)p.seed;
-    if (ImGui::InputInt("##seed", &seed)) {
-        p.seed = (uint32_t)std::max(0, seed);
-        dirty = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Roll")) {
-        uint32_t x = p.seed ? p.seed : 0x1234567u;
-        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
-        p.seed = x;
-        dirty = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("New random stream: bell placement, drift and noise\n"
-                          "change, the patch does not.");
-    ImGui::SameLine();
-    ImGui::TextDisabled("seed");
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
 
-    ImGui::SameLine(0.0f, scaled(20.0f));
-    // Mode picker: two ways to use the same synth. Generate is for dialling a
-    // sound in (free-running, ignores the timeline); Record is for making the
-    // piece (starts at the playhead, stops at the end, writes keyframes).
-    for (int m = 0; m < 2; ++m) {
-        if (m) ImGui::SameLine(0.0f, 2.0f);
-        const bool on = droneMode_ == m;
-        if (on)
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(m ? "Record" : "Generate", ImVec2(scaled(72.0f), 0)) &&
-            droneMode_ != m) {
-            droneStop();
-            droneMode_ = m;
-            if (m == 0) droneWriteArmed_ = false;
-        }
-        if (on) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                m ? "Record mode: the transport follows the timeline. Play runs\n"
-                    "from the playhead and STOPS at the end of the piece; Rec does\n"
-                    "the same while every knob you turn drops a keyframe."
-                  : "Generate mode: free-running audition for dialling a sound in.\n"
-                    "It keeps playing until you stop it and ignores the piece's\n"
-                    "length - nothing is written.");
-    }
+    ImGui::BeginChild("##dronemain", ImVec2(0, bodyH), ImGuiChildFlags_None);
 
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Button("|<", ImVec2(scaled(28.0f), 0))) droneSeek(0.0);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Rewind to the start (works while playing too)");
-    ImGui::SameLine();
-    if (droneAuditioning_) {
-        if (ImGui::Button("Stop", ImVec2(scaled(62.0f), 0))) droneStop();
-    } else {
-        if (ImGui::Button("Play", ImVec2(scaled(62.0f), 0))) dronePlay(false);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(droneMode_ == 1
-                                  ? "Plays from the playhead and stops at the end\n"
-                                    "of the piece."
-                                  : "Plays from the playhead and keeps going past\n"
-                                    "the end until you stop it.");
+    // ---- identity: title, chips, render state ---------------------------------
+    const std::string fileWav = std::string("res/audio/") + droneTrackName_ + ".wav";
+    const DroneTrackRow* fileRow = nullptr;
+    for (const DroneTrackRow& t : droneTracks_)
+        if (t.rel == std::string("res/audio/") + droneTrackName_ + ".drone") fileRow = &t;
+    bool wavExists = false;
+    {
+        std::error_code wec;
+        wavExists = std::filesystem::exists(project_.filePath(fileWav), wec);
     }
-    if (droneMode_ == 1) {
-        ImGui::SameLine();
-        const bool rec = droneRecording_;
-        if (rec)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.62f, 0.16f, 0.16f, 1.0f));
-        if (ImGui::Button(rec ? "Rec ON" : "Rec", ImVec2(scaled(62.0f), 0))) {
-            if (rec)
-                droneStop();
-            else
-                dronePlay(true);
+    {
+        const float y0 = ImGui::GetCursorPosY();
+        // The buffer follows the model unless the field is being typed in.
+        if (ImGui::GetActiveID() != ImGui::GetID("##dronetitle"))
+            std::snprintf(droneTitleBuf_, sizeof droneTitleBuf_, "%s", dronePatchTitle_.c_str());
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 1.3f);
+        const float titleW = ImMin(scaled(220.0f), ImGui::CalcTextSize(droneTitleBuf_[0] ? droneTitleBuf_ : "Untitled").x +
+                                                       scaled(24.0f));
+        ImGui::SetNextItemWidth(ImMax(scaled(90.0f), titleW));
+        if (ImGui::InputTextWithHint("##dronetitle", "Untitled", droneTitleBuf_, sizeof droneTitleBuf_)) {
+            dronePatchTitle_ = droneTitleBuf_;
+            droneDirty_ = true;
         }
-        if (rec) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Plays from the playhead with keyframe writing armed:\n"
-                              "turn a knob and the move is recorded onto its lane.");
-    } else {
-        ImGui::SameLine();
-        if (ImGui::Button("Restart") && droneLive_) {
-            droneLive_->reset();
-            droneHeadSec_ = 0.0;
+        ImGui::PopFont();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("The patch's title (saved in the .drone). The file name is in the footer.");
+        const float rowMid = y0 + (ImGui::GetItemRectSize().y - ImGui::GetTextLineHeight()) * 0.5f;
+        auto chip = [&](const char* text, const char* tip) {
+            ImGui::SameLine(0.0f, scaled(8.0f));
+            ImGui::SetCursorPosY(rowMid);
+            ui::FontScope mono(ui::monoFont());
+            ui::Badge(text, 4);
+            if (tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tip);
+        };
+        char b[64];
+        {
+            std::string root = dronegen::noteName(p.rootNote);
+            while (!root.empty() && (std::isdigit((unsigned char)root.back()) || root.back() == '-')) root.pop_back();
+            std::snprintf(b, sizeof b, "%s %s", root.c_str(), dronegen::scaleNames()[std::clamp(p.scale, 0, (int)dronegen::ScaleCount - 1)]);
+            chip(b, "Root and scale (Harmony).");
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Rewinds to bar 1 and re-seeds the random streams.");
+        std::snprintf(b, sizeof b, "%.0f BPM", (double)p.bpm);
+        chip(b, "Tempo (Harmony).");
+        std::snprintf(b, sizeof b, "%d:%02d", (int)(p.lengthSec / 60.0f), (int)std::fmod(p.lengthSec, 60.0f));
+        chip(b, "Length of the piece (Master).");
+        std::snprintf(b, sizeof b, "%d kHz %s", (int)std::lround(p.sampleRate / 1000.0), p.stereo ? "stereo" : "mono");
+        chip(b, "Render format (Master).");
+        std::snprintf(b, sizeof b, "seed %u", (unsigned)p.seed);
+        chip(b, "The random stream: bell placement, drift and noise.");
+        ImGui::SameLine(0.0f, scaled(4.0f));
+        ImGui::SetCursorPosY(rowMid - (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+        if (ui::GhostButton("Roll")) {
+            uint32_t x = p.seed ? p.seed : 0x1234567u;
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            p.seed = x;
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("New random stream: bell placement, drift and noise\n"
+                              "change, the patch does not.");
+        // Render state, right-aligned: is the WAV on disk what this patch makes?
+        int kind = 4;
+        const char* state = "not rendered yet";
+        if (droneRendering_) {
+            kind = 3;
+            state = "rendering...";
+        } else if (wavExists) {
+            const bool changed = droneDirty_ || (fileRow && fileRow->newerThanWav);
+            kind = changed ? 1 : 0;
+            state = changed ? "changed since last render" : "rendered";
+        }
+        const float sw = ImGui::CalcTextSize(state).x + ImGui::GetFontSize();
+        const float right = ImGui::GetContentRegionMax().x;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() < right - sw) {
+            ImGui::SetCursorPos(ImVec2(right - sw, rowMid));
+            ui::StatusLine(kind, state);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Compares the patch with %s: unsaved edits, or a patch\n"
+                                  "saved after the last render, mean the WAV is behind.",
+                                  fileWav.c_str());
+        }
+        ImGui::SetCursorPosY(y0 + ImGui::GetItemRectSize().y + scaled(14.0f));
     }
 
     // Record mode stops itself at the end of the piece instead of playing on
@@ -1060,134 +1339,151 @@ void App::drawDroneGeneratorWindow() {
         droneLive_->timeSec() >= (double)p.lengthSec) {
         droneStop();
         droneHeadSec_ = (double)p.lengthSec;
-        droneStatus_ = droneRecording_ ? "Reached the end of the piece."
-                                       : "Reached the end of the piece.";
+        droneStatus_ = "Reached the end of the piece.";
     }
 
-    if (droneAuditioning_ && droneLive_) {
-        ImGui::SameLine();
-        const double t = droneHeadTime();
-        const float barSec = dronegen::barSeconds(p);
-        ImGui::TextDisabled("%s  bar %.1f", droneRecording_ ? "recording" : "playing",
-                            t / barSec + 1.0);
-    } else if (!droneAudioError_.empty()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "%s",
-                           droneAudioError_.c_str());
-    }
-
-    // ---- position bar (the timeline's transport) --------------------------
-    drawDroneTimelineBar();
-
-    // ---- display strip: waveform / live scope + spectrum + meters ---------
+    // ---- transport card: to-start, Play, Rec, time, mode; the timeline -------
+    ui::BeginCard("##dronetransport");
     {
-        const float h = scaled(72.0f);
-        ImGui::BeginChild("dronescope", ImVec2(0, h), true,
-                          ImGuiWindowFlags_NoScrollbar);
+        const float h = ImGui::GetFrameHeight() * 1.35f;
+        const float y0 = ImGui::GetCursorPosY();
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 o = ImGui::GetCursorScreenPos();
-        const float availW = ImGui::GetContentRegionAvail().x;
-        const float availH = ImGui::GetContentRegionAvail().y;
-        const float meterW = scaled(10.0f);
-        const float specW = scaled(150.0f);
-        const float waveW = std::max(scaled(80.0f), availW - specW - meterW * 2.0f -
-                                                        scaled(14.0f));
-        const ImVec2 wp = o;
-        const ImVec2 wsz(waveW, availH);
-        dl->AddRectFilled(wp, ImVec2(wp.x + wsz.x, wp.y + wsz.y),
-                          IM_COL32(20, 22, 26, 255));
-        const float mid = wp.y + wsz.y * 0.5f;
-        dl->AddLine(ImVec2(wp.x, mid), ImVec2(wp.x + wsz.x, mid),
-                    IM_COL32(52, 55, 62, 255));
-
-        if (droneAuditioning_ && droneLive_) {
-            // Live scope: the last ~90 ms of output, drawn as a line.
-            static float buf[dronegen::LiveSynth::kScopeSize];
-            const int n = droneLive_->scope(buf, dronegen::LiveSynth::kScopeSize);
-            const int step = std::max(1, n / (int)std::max(1.0f, wsz.x));
-            ImVec2 prev(wp.x, mid);
-            for (int i = 0, col = 0; i < n; i += step, ++col) {
-                const float x = wp.x + (float)col * (wsz.x / (float)(n / step + 1));
-                const ImVec2 cur(x, mid - buf[i] * wsz.y * 0.48f);
-                if (col) dl->AddLine(prev, cur, IM_COL32(120, 210, 150, 220), 1.0f);
-                prev = cur;
+        if (ui::GhostButton("|<", h)) droneSeek(0.0);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Rewind to the start (works while playing too)");
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(y0 - (h - ImGui::GetFrameHeight()) * 0.5f);
+        // Play / Stop: a round green button (labels kept: "Play" / "Stop").
+        {
+            const ImVec2 c0 = ImGui::GetCursorScreenPos();
+            const char* lbl = droneAuditioning_ && !droneRecording_ ? "Stop" : "Play";
+            if (ImGui::InvisibleButton(lbl, ImVec2(h, h))) {
+                if (droneAuditioning_) droneStop();
+                else dronePlay(false);
             }
-            // Analyzer: one-pole smoothed log bands (a visualizer, not a
-            // measurement - it reads the same shared scope ring).
-            for (int b = 0; b < 32; ++b) {
-                // crude band energy: bin the scope by frequency via zero-crossing
-                // free Goertzel at the band centre
-                const float hz = 40.0f * std::pow(2.0f, (float)b * (8.0f / 32.0f));
-                const float w = 2.0f * kPi * hz / (float)std::max(8000, p.sampleRate);
-                const float cc = 2.0f * std::cos(w);
-                float s1 = 0.0f, s2 = 0.0f;
-                for (int i = 0; i < n; ++i) {
-                    const float s0 = buf[i] + cc * s1 - s2;
-                    s2 = s1;
-                    s1 = s0;
+            const bool hov = ImGui::IsItemHovered();
+            const ImVec2 c(c0.x + h * 0.5f, c0.y + h * 0.5f);
+            dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(ImVec4(sem.ok.x, sem.ok.y, sem.ok.z, hov ? 1.0f : 0.85f)), 32);
+            const ImU32 ink = ImGui::GetColorU32(sem.ground);
+            const float k = h * 0.2f;
+            if (droneAuditioning_ && !droneRecording_)
+                dl->AddRectFilled(ImVec2(c.x - k * 0.8f, c.y - k * 0.8f), ImVec2(c.x + k * 0.8f, c.y + k * 0.8f), ink, 1.5f);
+            else
+                dl->AddTriangleFilled(ImVec2(c.x - k * 0.7f, c.y - k), ImVec2(c.x - k * 0.7f, c.y + k),
+                                      ImVec2(c.x + k, c.y), ink);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(droneMode_ == 1 ? "Plays from the playhead and stops at the end\nof the piece."
+                                                  : "Plays from the playhead and keeps going past\nthe end until you stop it.");
+        }
+        ImGui::SameLine();
+        // Rec: a red ring; filled while recording. In Sound design it switches
+        // to Record first (recording only exists there).
+        {
+            const ImVec2 c0 = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("Rec", ImVec2(h, h))) {
+                if (droneRecording_) {
+                    droneStop();
+                } else {
+                    if (droneMode_ != 1) {
+                        droneStop();
+                        droneMode_ = 1;
+                    }
+                    dronePlay(true);
                 }
-                float m = std::sqrt(std::fabs(s1 * s1 + s2 * s2 - cc * s1 * s2)) /
-                          (float)std::max(1, n);
-                m = std::max(0.0f, 1.0f + std::log10(m + 1e-6f) / 3.0f);  // ~-60 dB floor
-                droneBands_[b] += (m - droneBands_[b]) * 0.35f;
             }
-        } else if (!droneWaveMin_.empty()) {
-            const int cols = (int)droneWaveMin_.size();
-            for (int x = 0; x < (int)wsz.x; ++x) {
-                const int c = std::min(cols - 1, (int)((float)x / wsz.x * (float)cols));
-                const float top = mid - droneWaveMax_[c] * wsz.y * 0.48f;
-                const float bot = mid - droneWaveMin_[c] * wsz.y * 0.48f;
-                dl->AddLine(ImVec2(wp.x + (float)x, top), ImVec2(wp.x + (float)x, bot),
-                            IM_COL32(120, 165, 220, 220));
+            uiscript::markLastItemChecked(droneRecording_);
+            const bool hov = ImGui::IsItemHovered();
+            const ImVec2 c(c0.x + h * 0.5f, c0.y + h * 0.5f);
+            if (droneRecording_)
+                dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(ImVec4(sem.danger.x, sem.danger.y, sem.danger.z, 0.35f)), 32);
+            else if (hov)
+                dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(ImVec4(sem.danger.x, sem.danger.y, sem.danger.z, 0.12f)), 32);
+            dl->AddCircle(c, h * 0.5f - 1.0f, ImGui::GetColorU32(sem.danger), 32, 1.5f);
+            dl->AddCircleFilled(c, h * 0.16f, ImGui::GetColorU32(sem.danger), 20);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Record: plays from the playhead with keyframe writing armed -\n"
+                                  "turn a knob and the move is recorded onto its lane.");
+        }
+        ImGui::SameLine(0.0f, scaled(14.0f));
+        {
+            const double head = droneHeadTime();
+            const float len = std::max(1.0f, p.lengthSec);
+            const float ty = y0 + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+            ImGui::SetCursorPosY(ty);
+            {
+                ui::FontScope bold(ui::monoFont());
+                ImGui::Text("%d:%04.1f", (int)(head / 60.0), std::fmod(head, 60.0));
             }
-            const float px = wp.x + wsz.x * std::min(1.0f, (float)(droneHeadTime() /
-                                    std::max(1.0f, p.lengthSec)));
-            dl->AddLine(ImVec2(px, wp.y), ImVec2(px, wp.y + wsz.y),
-                        IM_COL32(240, 200, 90, 255), 1.5f * s);
-        } else {
-            const char* msg = "Audition to see the live output, or render to see the "
-                              "finished track";
-            dl->AddText(ImVec2(wp.x + scaled(8.0f), mid - ImGui::GetTextLineHeight() * 0.5f),
-                        IM_COL32(120, 124, 134, 255), msg);
+            ImGui::SameLine(0.0f, scaled(4.0f));
+            ImGui::SetCursorPosY(ty);
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextDisabled("/ %d:%02d", (int)(len / 60.0f), (int)std::fmod(len, 60.0f));
+            }
+            if (droneAuditioning_) {
+                ImGui::SameLine(0.0f, scaled(10.0f));
+                ImGui::TextDisabled("%s - bar %.1f", droneRecording_ ? "recording" : "playing",
+                                    head / dronegen::barSeconds(p) + 1.0);
+            } else if (!droneAudioError_.empty()) {
+                ImGui::SameLine(0.0f, scaled(10.0f));
+                ImGui::TextColored(sem.warn, "%s", droneAudioError_.c_str());
+            }
+            if (droneMode_ == 0) {
+                ImGui::SameLine(0.0f, scaled(10.0f));
+                ImGui::SetCursorPosY(y0);
+                if (ui::GhostButton("Restart") && droneLive_) {
+                    droneLive_->reset();
+                    droneHeadSec_ = 0.0;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Rewinds to bar 1 and re-seeds the random streams.");
+            }
         }
-        dl->AddRect(wp, ImVec2(wp.x + wsz.x, wp.y + wsz.y), IM_COL32(70, 74, 82, 255));
-
-        // spectrum
-        const ImVec2 sp(wp.x + wsz.x + scaled(6.0f), wp.y);
-        dl->AddRectFilled(sp, ImVec2(sp.x + specW, sp.y + availH), IM_COL32(20, 22, 26, 255));
-        for (int b = 0; b < 32; ++b) {
-            const float bw = specW / 32.0f;
-            const float hh = availH * std::min(1.0f, droneBands_[b]);
-            dl->AddRectFilled(ImVec2(sp.x + bw * (float)b, sp.y + availH - hh),
-                              ImVec2(sp.x + bw * (float)(b + 1) - 1.0f, sp.y + availH),
-                              IM_COL32(90, 150, 220, 220));
+        // Mode, right-aligned: a segmented control showing the CURRENT mode.
+        {
+            static const char* const kModes[] = {"Sound design", "Record"};
+            float segW = scaled(6.0f);
+            for (const char* m : kModes) segW += ImGui::CalcTextSize(m).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - segW);
+            ImGui::SetCursorPosY(y0);
+            int mode = droneMode_;
+            if (ui::Segmented("##dronemode", kModes, 2, &mode)) {
+                droneStop();
+                droneMode_ = mode;
+                if (mode == 0) droneWriteArmed_ = false;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Sound design: free-running audition that loops past the end -\n"
+                                  "for dialling a sound in; nothing is written.\n"
+                                  "Record: Play stops at the end of the piece; Rec writes\n"
+                                  "a keyframe for every knob you turn.");
         }
-        dl->AddRect(sp, ImVec2(sp.x + specW, sp.y + availH), IM_COL32(70, 74, 82, 255));
-
-        // meters
-        const float pl = droneLive_ && droneAuditioning_ ? droneLive_->peakL() : 0.0f;
-        const float pr = droneLive_ && droneAuditioning_ ? droneLive_->peakR() : 0.0f;
-        meterBar(dl, ImVec2(sp.x + specW + scaled(6.0f), wp.y), ImVec2(meterW, availH),
-                 pl, s);
-        meterBar(dl, ImVec2(sp.x + specW + scaled(8.0f) + meterW, wp.y),
-                 ImVec2(meterW, availH), pr, s);
-
-        // click the waveform to move the playhead (a marker for the eye - the
-        // audition always plays from its own transport)
-        ImGui::InvisibleButton("wavehit", ImVec2(waveW, availH));
-        if (ImGui::IsItemActive())
-            droneSeek((double)((ImGui::GetIO().MousePos.x - wp.x) / waveW) *
-                          (double)p.lengthSec,
-                      false);
-        if (ImGui::IsItemDeactivated()) droneSeek(droneHeadSec_, true);
-        ImGui::EndChild();
+        ImGui::SetCursorPosY(y0 + h + scaled(6.0f));
+        drawDroneTimelineBar();
     }
+    ui::EndCard();
+    ImGui::Dummy(ImVec2(0.0f, scaled(2.0f)));
 
     // ---- tabs -------------------------------------------------------------
-    ImGui::BeginChild("dronetabs", ImVec2(0, -scaled(78.0f)), false);
-    if (ImGui::BeginTabBar("dronetabbar")) {
+    if (ui::BeginQuietTabBar("dronetabbar")) {
+        // Selector only: the content is drawn below, gated by droneTab_.
+        static int lastFrame = -10;
+        const bool force = lastFrame != ImGui::GetFrameCount() - 1;
+        static const char* const kTabs[] = {"Harmony", "Layers", "Motion", "Air & Bells",
+                                            "Space", "Master", "Timeline"};
+        for (int i = 0; i < 7; ++i) {
+            const ImGuiTabItemFlags f = force && i == droneTab_ ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ui::QuietTab(kTabs[i], i == droneTab_, f) && !force) droneTab_ = i;
+        }
+        ui::EndQuietTabBar();
+        lastFrame = ImGui::GetFrameCount();
+    }
+    const float footerH = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() +
+                          ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("dronetabs", ImVec2(0, -footerH), false);
+    {
         // ================= HARMONY ==========================
-        if (ImGui::BeginTabItem("Harmony")) {
+        if (droneTab_ == 0) {
             groupTitle("Tonality");
             int rootIdx = p.rootNote;
             if (knobInt("Root", &rootIdx, 12, 72, 33, "%.0f", s,
@@ -1209,96 +1505,215 @@ void App::drawDroneGeneratorWindow() {
                 p.beatsPerBar = bpb;
                 dirty = true;
             }
-
-            ImGui::Spacing();
-            ImGui::TextDisabled("Root note %s   bar = %.2f s   scale",
-                                dronegen::noteName(p.rootNote),
-                                (double)dronegen::barSeconds(p));
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(130.0f));
+            ImGui::SameLine(0.0f, scaled(24.0f));
+            ImGui::BeginGroup();
+            ImGui::Dummy(ImVec2(0.0f, scaled(10.0f)));
+            ImGui::TextDisabled("Scale");
+            ImGui::SetNextItemWidth(scaled(150.0f));
             dirty |= ImGui::Combo("##scale", &p.scale, dronegen::scaleNames(),
                                   dronegen::ScaleCount);
-            if (ImGui::IsItemHovered())
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 ImGui::SetTooltip("Only the bells use the scale; chords are spelled "
                                   "note by note below.");
-
-            groupTitle("Chord progression");
-            ImGui::TextDisabled(
-                "Semitones from the root, one row per chord. Blank cells (-99) are "
-                "unused voices; a layer picks which of the six it plays.");
-            int stepCount = p.stepCount;
-            ImGui::SetNextItemWidth(scaled(160.0f));
-            if (ImGui::SliderInt("Chords", &stepCount, 1, dronegen::kMaxSteps)) {
-                p.stepCount = stepCount;
-                dirty = true;
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextDisabled("bar = %.2f s", (double)dronegen::barSeconds(p));
             }
-            if (ImGui::BeginTable("chords", 3 + dronegen::kMaxChordNotes,
-                                  ImGuiTableFlags_SizingFixedFit |
-                                      ImGuiTableFlags_BordersInnerV)) {
-                ImGui::TableSetupColumn("#");
-                ImGui::TableSetupColumn("bars");
-                for (int i = 0; i < dronegen::kMaxChordNotes; ++i) {
-                    char h[8];
-                    std::snprintf(h, sizeof(h), "v%d", i + 1);
-                    ImGui::TableSetupColumn(h);
+            ImGui::EndGroup();
+
+            // ---- chord progression as cards ---------------------------------
+            ImGui::Dummy(ImVec2(0.0f, scaled(6.0f)));
+            const float barSec = dronegen::barSeconds(p);
+            const float pass = dronegen::progressionBars(p) * barSec;
+            {
+                char cnt[24];
+                std::snprintf(cnt, sizeof cnt, "%d of %d", p.stepCount, dronegen::kMaxSteps);
+                const float y = ImGui::GetCursorPosY();
+                ui::Caption("Chord progression", cnt);
+                const float aw = ImGui::CalcTextSize("+ Chord").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+                ImGui::SetCursorPos(ImVec2(ImGui::GetContentRegionMax().x - aw, y - scaled(4.0f)));
+                if (ui::GhostButton("+ Chord", aw, p.stepCount < dronegen::kMaxSteps)) {
+                    // A new chord copies the last one: the next change usually
+                    // moves one voice, not all of them.
+                    p.steps[p.stepCount] = p.steps[std::max(0, p.stepCount - 1)];
+                    droneChordSel_ = p.stepCount;
+                    ++p.stepCount;
+                    dirty = true;
                 }
-                ImGui::TableSetupColumn("notes");
-                ImGui::TableHeadersRow();
+                ImGui::SetCursorPosY(y + ImGui::GetFontSize() + scaled(10.0f));
+            }
+            if (droneChordSel_ >= p.stepCount) droneChordSel_ = p.stepCount - 1;
+            if (droneChordSel_ < 0) droneChordSel_ = 0;
+            // Which chords the piece never reaches: their first start is at or
+            // past the end (the progression is longer than the track).
+            std::vector<int> unheard;
+            {
+                float t = 0.0f;
                 for (int i = 0; i < p.stepCount; ++i) {
-                    dronegen::Step& st = p.steps[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%d", i + 1);
-                    ImGui::TableNextColumn();
-                    ImGui::SetNextItemWidth(scaled(58.0f));
-                    dirty |= ImGui::DragFloat("##bars", &st.bars, 0.25f, 0.25f, 64.0f,
-                                              "%.2g");
-                    std::string names;
-                    for (int n = 0; n < dronegen::kMaxChordNotes; ++n) {
-                        ImGui::TableNextColumn();
-                        int v = n < st.count ? st.notes[n] : -99;
-                        ImGui::SetNextItemWidth(scaled(44.0f));
-                        ImGui::PushID(n);
-                        if (ImGui::DragInt("##n", &v, 0.25f, -99, 36, v <= -99 ? "-" : "%d")) {
-                            if (v <= -90) {
-                                // clearing a voice shortens the chord from here
-                                st.count = std::min(st.count, n);
-                            } else {
-                                st.notes[n] = std::max(-36, std::min(36, v));
-                                st.count = std::max(st.count, n + 1);
-                            }
-                            dirty = true;
-                        }
-                        ImGui::PopID();
-                        if (n < st.count) {
-                            if (!names.empty()) names += " ";
-                            names += dronegen::noteName(p.rootNote + st.notes[n]);
-                        }
+                    if (t >= p.lengthSec - 1e-3f) unheard.push_back(i);
+                    t += std::max(0.05f, p.steps[i].bars) * barSec;
+                }
+            }
+            {
+                const int perRow = 4;
+                const float gap = ImGui::GetStyle().ItemSpacing.x;
+                const float cw = (ImGui::GetContentRegionAvail().x - gap * (perRow - 1)) / perRow;
+                const float ch = ImGui::GetTextLineHeight() * 3.6f + scaled(14.0f);
+                for (int i = 0; i < p.stepCount; ++i) {
+                    const dronegen::Step& st = p.steps[i];
+                    const bool sel = droneChordSel_ == i;
+                    const bool off = std::find(unheard.begin(), unheard.end(), i) != unheard.end();
+                    if (i % perRow) ImGui::SameLine(0.0f, gap);
+                    const ImVec2 c0 = ImGui::GetCursorScreenPos();
+                    char lab[24];
+                    std::snprintf(lab, sizeof lab, "Chord %d", i + 1);
+                    if (ImGui::InvisibleButton(lab, ImVec2(cw, ch))) droneChordSel_ = i;
+                    uiscript::markLastItemChecked(sel);
+                    const bool hov = ImGui::IsItemHovered();
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+                    const ImVec2 c1(c0.x + cw, c0.y + ch);
+                    const float a = off ? 0.45f : 1.0f;
+                    dl->AddRectFilled(c0, c1, colA(sel ? sem.surface : sem.field, hov && !sel ? 0.8f : 1.0f), r);
+                    dl->AddRect(c0, c1, sel ? colA(sem.accent, 0.6f) : colA(sem.border, 1.0f), r, 0, sel ? 1.5f : 1.0f);
+                    const float fs = ImGui::GetFontSize();
+                    const float x = c0.x + scaled(10.0f);
+                    float y = c0.y + scaled(8.0f);
+                    dl->AddRectFilled(ImVec2(x, y + fs * 0.25f), ImVec2(x + fs * 0.55f, y + fs * 0.8f),
+                                      chordColour(i, a), 2.0f);
+                    char num[8];
+                    std::snprintf(num, sizeof num, "%d", i + 1);
+                    {
+                        ui::FontScope bold(ui::boldFont());
+                        dl->AddText(ImVec2(x + fs * 0.9f, y), colA(sem.text, a), num);
                     }
-                    ImGui::TableNextColumn();
-                    ImGui::TextDisabled("%s", names.c_str());
+                    char bars[24];
+                    std::snprintf(bars, sizeof bars, "%g bar%s", (double)st.bars, st.bars == 1.0f ? "" : "s");
+                    dl->AddText(ImVec2(x + fs * 1.8f, y), colA(sem.textDim, a), bars);
+                    y += fs + scaled(8.0f);
+                    std::string names, semis;
+                    for (int n = 0; n < st.count; ++n) {
+                        if (n) names += " ", semis += " ";
+                        names += dronegen::noteName(p.rootNote + st.notes[n]);
+                        semis += std::to_string(st.notes[n]);
+                    }
+                    dl->PushClipRect(c0, ImVec2(c1.x - 4.0f, c1.y), true);
+                    {
+                        ui::FontScope bold(ui::boldFont());
+                        dl->AddText(ImVec2(x, y), colA(sem.text, a), names.c_str());
+                    }
+                    y += fs + scaled(4.0f);
+                    {
+                        ui::FontScope mono(ui::monoFont());
+                        dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(x, y), colA(sem.textDim, a), semis.c_str());
+                    }
+                    dl->PopClipRect();
+                    if (off && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Never heard: the track ends before this chord starts.");
+                }
+            }
+            // Always offered: a looping track that is not a whole number of
+            // passes lands mid-chord at the loop point.
+            const int fitN = std::max(1, (int)std::lround(p.lengthSec / pass));
+            const float fitted = pass * (float)fitN;
+            const bool fits = std::fabs(fitted - p.lengthSec) < 0.05f;
+            const char* fitLabel = "Fit length to whole passes";
+            const float fitW = ImGui::CalcTextSize(fitLabel).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            auto fitButton = [&] {
+                if (ui::SecondaryButton(fitLabel, fitW, !fits)) {
+                    p.lengthSec = fitted;
+                    dirty = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(fits ? "The length is already a whole number of passes."
+                                           : "Sets the length to %d pass%s = %d:%02d. A looping track whose\n"
+                                             "length is a whole number of passes never lands mid-chord\n"
+                                             "at the loop point.",
+                                      fitN, fitN == 1 ? "" : "es", (int)(fitted / 60.0f),
+                                      (int)std::fmod(fitted, 60.0f));
+            };
+            ImGui::Dummy(ImVec2(0.0f, scaled(4.0f)));
+            if (!unheard.empty()) {
+                // The silent half of a progression is the consequence nobody
+                // hears; say it next to the cause, with the fix beside it.
+                std::string which;
+                for (size_t k = 0; k < unheard.size(); ++k) {
+                    if (k) which += k + 1 == unheard.size() ? " and " : ", ";
+                    which += std::to_string(unheard[k] + 1);
+                }
+                char msg[320];
+                std::snprintf(msg, sizeof msg,
+                              "%s %s never play%s: one pass is %.4g bars = %d:%02d at %.0f BPM, the "
+                              "track is %d:%02d. Fit the length to whole passes, or shorten the chords.",
+                              unheard.size() == 1 ? "Chord" : "Chords", which.c_str(),
+                              unheard.size() == 1 ? "s" : "", (double)dronegen::progressionBars(p),
+                              (int)(pass / 60.0f), (int)std::fmod(pass, 60.0f), (double)p.bpm,
+                              (int)(p.lengthSec / 60.0f), (int)std::fmod(p.lengthSec, 60.0f));
+                const float gapX = ImGui::GetStyle().ItemSpacing.x;
+                const float y0 = ImGui::GetCursorPosY();
+                ui::Callout(1, msg, ImGui::GetContentRegionAvail().x - fitW - gapX);
+                const float ch = ImGui::GetItemRectSize().y;
+                ImGui::SameLine(0.0f, gapX);
+                ImGui::SetCursorPosY(y0 + (ch - ImGui::GetFrameHeight()) * 0.5f);
+                fitButton();
+                ImGui::SetCursorPosY(y0 + ch + ImGui::GetStyle().ItemSpacing.y);
+            } else {
+                fitButton();
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("One pass = %.4g bars = %.1f s.", (double)dronegen::progressionBars(p),
+                                    (double)pass);
+            }
+
+            // ---- the selected chord's notes ---------------------------------
+            ImGui::Dummy(ImVec2(0.0f, scaled(6.0f)));
+            {
+                dronegen::Step& st = p.steps[droneChordSel_];
+                ImGui::PushID(droneChordSel_);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("Chord %d", droneChordSel_ + 1);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(70.0f));
+                dirty |= ImGui::DragFloat("##bars", &st.bars, 0.25f, 0.25f, 64.0f, "%.2g bars");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("How long the chord is held.");
+                for (int n = 0; n < dronegen::kMaxChordNotes; ++n) {
+                    ImGui::SameLine();
+                    int v = n < st.count ? st.notes[n] : -99;
+                    ImGui::SetNextItemWidth(scaled(46.0f));
+                    ImGui::PushID(n);
+                    if (ImGui::DragInt("##n", &v, 0.25f, -99, 36, v <= -99 ? "-" : "%d")) {
+                        if (v <= -90) {
+                            // clearing a voice shortens the chord from here
+                            st.count = std::min(st.count, n);
+                        } else {
+                            st.notes[n] = std::max(-36, std::min(36, v));
+                            st.count = std::max(st.count, n + 1);
+                        }
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Voice %d: semitones from the root (drag left to the end\n"
+                                          "for \"-\", unused - which shortens the chord from here).",
+                                          n + 1);
                     ImGui::PopID();
                 }
-                ImGui::EndTable();
+                ImGui::SameLine();
+                if (ui::GhostButton("Remove chord", 0.0f, p.stepCount > 1)) {
+                    for (int i = droneChordSel_; i + 1 < p.stepCount; ++i) p.steps[i] = p.steps[i + 1];
+                    --p.stepCount;
+                    droneChordSel_ = std::min(droneChordSel_, p.stepCount - 1);
+                    dirty = true;
+                }
+                ImGui::PopID();
             }
-            const float pass = dronegen::progressionBars(p) * dronegen::barSeconds(p);
-            ImGui::TextDisabled("One pass = %.1f bars = %.1f s.",
-                                (double)dronegen::progressionBars(p), (double)pass);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Fit length to whole passes")) {
-                const int n = std::max(1, (int)std::lround(p.lengthSec / pass));
-                p.lengthSec = pass * (float)n;
-                dirty = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("A looping track whose length is a whole number of\n"
-                                  "passes never lands mid-chord at the loop point.");
-            ImGui::EndTabItem();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled("Semitones from the root; each layer picks which voices it plays. "
+                                "Click a chord to edit its notes.");
+            ImGui::PopTextWrapPos();
         }
 
         // ================= LAYERS ==========================
-        if (ImGui::BeginTabItem("Layers")) {
+        if (droneTab_ == 1) {
             // Mixer strip first: balancing four stacks should not need four
             // tab clicks.
             groupTitle("Mix");
@@ -1408,11 +1823,10 @@ void App::drawDroneGeneratorWindow() {
                 }
                 ImGui::EndTabBar();
             }
-            ImGui::EndTabItem();
         }
 
         // ================= MOTION ==========================
-        if (ImGui::BeginTabItem("Motion")) {
+        if (droneTab_ == 2) {
             groupTitle("LFOs");
             for (int i = 0; i < dronegen::kNumLfos; ++i) {
                 dronegen::Lfo& L = p.lfos[i];
@@ -1475,11 +1889,10 @@ void App::drawDroneGeneratorWindow() {
             if (arcEditor("arc", p.arc, dronegen::kArcPoints,
                           ImVec2(scaled(420.0f), scaled(90.0f)), s))
                 dirty = true;
-            ImGui::EndTabItem();
         }
 
         // ================= AIR & BELLS ==========================
-        if (ImGui::BeginTabItem("Air & Bells")) {
+        if (droneTab_ == 3) {
             groupTitle("Air (filtered noise)");
             dirty |= ImGui::Checkbox("Air on", &p.noise.on);
             dirty |= knob("Level##air", &p.noise.level, 0.0f, 0.6f, 0.12f, "%.3f", s);
@@ -1538,11 +1951,10 @@ void App::drawDroneGeneratorWindow() {
             dirty |= knob("To delay", &p.bells.delaySend, 0.0f, 1.5f, 0.5f, "%.2f", s);
             ImGui::SameLine();
             dirty |= knob("To reverb", &p.bells.revSend, 0.0f, 1.5f, 0.8f, "%.2f", s);
-            ImGui::EndTabItem();
         }
 
         // ================= SPACE (FX) ==========================
-        if (ImGui::BeginTabItem("Space")) {
+        if (droneTab_ == 4) {
             groupTitle("Filter & drive");
             ImGui::SetNextItemWidth(scaled(120.0f));
             dirty |= ImGui::Combo("##ftype", &p.filter.type, dronegen::filterNames(),
@@ -1646,11 +2058,10 @@ void App::drawDroneGeneratorWindow() {
             ImGui::SameLine();
             dirty |= knob("Mono under", &p.fx.monoBelow, 20.0f, 500.0f, 140.0f, "%.0f Hz",
                           s, 1.6f, "Bass summed to the centre - kinder to a TV.");
-            ImGui::EndTabItem();
         }
 
         // ================= MASTER ==========================
-        if (ImGui::BeginTabItem("Master")) {
+        if (droneTab_ == 5) {
             groupTitle("Piece");
             dirty |= knob("Length", &p.lengthSec, 5.0f, 600.0f, 60.0f, "%.0f s", s, 1.8f);
             ImGui::SameLine();
@@ -1753,106 +2164,135 @@ void App::drawDroneGeneratorWindow() {
                                     (double)droneRenderResult_.rms,
                                     (double)droneRenderResult_.gainApplied);
             }
-            ImGui::EndTabItem();
         }
 
         // ================= TIMELINE ==========================
-        if (ImGui::BeginTabItem("Timeline")) {
+        if (droneTab_ == 6) {
             drawDroneTimelineTab();
-            ImGui::EndTabItem();
         }
-        ImGui::EndTabBar();
     }
     ImGui::EndChild();
 
-    // ---- bottom bar: the document, the render, the patch I/O --------------
+    // ---- footer: what Render writes, Save patch, Render WAV -------------------
     ImGui::Separator();
-    ImGui::SetNextItemWidth(scaled(150.0f));
-    if (ImGui::InputText("Name", droneTrackName_, sizeof(droneTrackName_)))
-        droneDirty_ = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Names both files: res/audio/<name>.wav and the\n"
-                          "<name>.drone patch beside it.");
-    ImGui::SameLine();
-    if (ImGui::Button("New")) {
-        if (droneDirty_)
-            ImGui::OpenPopup(kPopupNewAsk);
-        else
-            droneNewPatch();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Open...")) ImGui::OpenPopup("droneopen");
-    ImGui::SameLine();
     const std::string saveTarget =
         dronePatchRel_.empty() ? std::string("res/audio/") + droneTrackName_ + ".drone"
                                : dronePatchRel_;
-    if (ImGui::Button("Save")) droneSavePatch(saveTarget);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Writes %s - the patch is a project asset, so it shows up\n"
-                          "in the Asset Browser and reopens from there.",
-                          saveTarget.c_str());
-    ImGui::SameLine();
-    if (!dronePatchRel_.empty())
-        ImGui::TextDisabled("%s%s", dronePatchRel_.c_str(), droneDirty_ ? " *" : "");
-    else
-        ImGui::TextDisabled("unsaved patch%s", droneDirty_ ? " *" : "");
-
-    ImGui::SameLine(0.0f, scaled(16.0f));
-    if (droneRendering_) {
-        ImGui::ProgressBar(droneRenderProgress_.load(), ImVec2(scaled(150.0f), 0));
+    {
+        const float y0 = ImGui::GetCursorPosY();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("File");
         ImGui::SameLine();
-        if (ImGui::Button("Cancel")) droneRenderCancel_.store(true);
-    } else {
-        if (ImGui::Button("Render WAV", ImVec2(scaled(150.0f), 0))) droneStartRender();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Renders res/audio/<name>.wav (and saves the patch\n"
-                              "next to it), then adds the track to the project's\n"
-                              "Music list. Asks before replacing an existing file.");
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::InputText("##Name", droneTrackName_, sizeof(droneTrackName_))) droneDirty_ = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Names both files: res/audio/<name>.wav and the\n"
+                              "<name>.drone patch beside it.");
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("writes");
+        ImGui::SameLine(0.0f, scaled(4.0f));
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(fileWav.c_str());
+        }
+        bool inMusic = false;
+        for (const std::string& m : project_.music) inMusic |= (m == fileWav);
+        ImGui::SameLine(0.0f, scaled(4.0f));
+        ImGui::AlignTextToFramePadding();
+        // The consequence in words, as much of it as fits before the buttons
+        // (the whole sentence is the tooltip either way).
+        const std::string tail = std::string("+ ") + droneTrackName_ + ".drone - " +
+                                 (wavExists ? "replaces the current file" : "a new file") + " - " +
+                                 (inMusic ? "in Music list" : "joins the Music list");
+        const std::string shortTail = wavExists ? "- replaces it" : "- new file";
+        const float room = ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - scaled(150.0f) -
+                           ImGui::CalcTextSize("Save patch").x - ImGui::GetStyle().FramePadding.x * 2.6f -
+                           ImGui::GetStyle().ItemSpacing.x * 3.0f;
+        ImGui::TextDisabled("%s", ImGui::CalcTextSize(tail.c_str()).x <= room ? tail.c_str() : shortTail.c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s\nRender WAV writes the track and saves the patch beside it;\n"
+                              "replacing an existing file asks first.\n\nOpen patch: %s%s", tail.c_str(),
+                              dronePatchRel_.empty() ? "(never saved)" : dronePatchRel_.c_str(),
+                              droneDirty_ ? " - unsaved edits" : "");
+
+        // Right: Save patch, Render WAV (progress inside the button).
+        const float rw = scaled(150.0f);
+        const float sw = ImGui::CalcTextSize("Save patch").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        const float right = ImGui::GetContentRegionMax().x;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() > right - rw - sw - ImGui::GetStyle().ItemSpacing.x) ImGui::NewLine();
+        ImGui::SetCursorPos(ImVec2(right - rw - sw - ImGui::GetStyle().ItemSpacing.x,
+                                   ImGui::GetCursorPosY() > y0 + 1.0f ? ImGui::GetCursorPosY() : y0));
+        if (ui::SecondaryButton(droneDirty_ ? "Save patch *###Save patch" : "Save patch###Save patch", sw))
+            droneSavePatch(saveTarget);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Writes %s - the patch is a project asset, so it shows up\n"
+                              "in the Asset Browser and reopens from there.",
+                              saveTarget.c_str());
+        ImGui::SameLine();
+        if (droneRendering_) {
+            const ImVec2 b0 = ImGui::GetCursorScreenPos();
+            const float bh = ImGui::GetFrameHeight();
+            if (ImGui::InvisibleButton("Cancel##dronerender", ImVec2(rw, bh))) droneRenderCancel_.store(true);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding;
+            const float f = std::clamp(droneRenderProgress_.load(), 0.0f, 1.0f);
+            dl->AddRectFilled(b0, ImVec2(b0.x + rw, b0.y + bh), colA(sem.accent, 0.25f), r);
+            dl->AddRectFilled(b0, ImVec2(b0.x + rw * f, b0.y + bh), colA(sem.accent, 1.0f), r);
+            char t[48];
+            std::snprintf(t, sizeof t, "Rendering %d%%", (int)(f * 100.0f));
+            const ImVec2 ts = ImGui::CalcTextSize(t);
+            dl->AddText(ImVec2(b0.x + (rw - ts.x) * 0.5f, b0.y + (bh - ts.y) * 0.5f), ImGui::GetColorU32(sem.text), t);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Click to cancel the render.");
+        } else {
+            if (ui::PrimaryButton("Render WAV", rw)) droneStartRender();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Renders %s (and saves the patch next to it),\n"
+                                  "then adds the track to the project's Music list.\n"
+                                  "Asks before replacing an existing file.",
+                                  fileWav.c_str());
+        }
     }
-    if (!droneStatus_.empty()) {
-        ImGui::SameLine(0.0f, scaled(12.0f));
+    if (!droneStatus_.empty() || !droneWriteMsg_.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("%s", droneStatus_.c_str());
+        ImGui::PopTextWrapPos();
     }
+    ImGui::EndChild();  // ##dronemain
+
+    if (openNewAsk) ImGui::OpenPopup(kPopupNewAsk);
 
     // ---- the popups the buttons above raise -------------------------------
-    if (ImGui::BeginPopup("droneopen")) {
-        const std::vector<std::string> patches = dronePatchList();
-        if (patches.empty()) ImGui::TextDisabled("No .drone patches in this project yet.");
-        for (const std::string& rel : patches) {
-            const bool open = rel == dronePatchRel_;
-            if (ImGui::Selectable(rel.c_str(), open)) {
-                droneLoadPatch(rel);
-                ImGui::CloseCurrentPopup();
-            }
-        }
-        ImGui::Separator();
-        if (ImGui::Selectable("Browse for a file...")) {
-            const std::string path = platform::pickFile(
-                "Open drone patch", {{"TyraX drone patch (*.drone)", {"*.drone"}}});
-            if (!path.empty()) droneLoadPatch(path);
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
     if (ImGui::BeginPopupModal(kPopupNewAsk, nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted("This patch has unsaved changes.");
         ImGui::TextDisabled("%s", dronePatchRel_.empty() ? "It was never saved."
                                                          : dronePatchRel_.c_str());
         ImGui::Spacing();
-        if (ImGui::Button("Discard and start new", ImVec2(scaled(190.0f), 0))) {
-            droneNewPatch();
+        // What waits on the answer: a rail click on another track, or New.
+        auto next = [&] {
+            droneStop();
+            if (!dronePendingLoad_.empty()) droneLoadPatch(dronePendingLoad_);
+            else droneNewPatch();
+            dronePendingLoad_.clear();
+        };
+        const char* discard = dronePendingLoad_.empty() ? "Discard and start new" : "Discard and open";
+        if (ui::DangerButton(discard, scaled(190.0f))) {
+            next();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Save first", ImVec2(scaled(110.0f), 0))) {
-            droneSavePatch(saveTarget);
-            droneNewPatch();
+        if (ui::PrimaryButton("Save first", scaled(110.0f))) {
+            if (droneSavePatch(saveTarget)) next();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(90.0f), 0))) ImGui::CloseCurrentPopup();
+        if (ui::SecondaryButton("Cancel", scaled(90.0f))) {
+            dronePendingLoad_.clear();
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 

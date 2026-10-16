@@ -631,9 +631,9 @@ void BadgeFlow(const char* text, int kind, bool first, const char* tooltip) {
     }
 }
 
-void Callout(int kind, const char* text) {
+void Callout(int kind, const char* text, float width) {
     const float fs = ImGui::GetFontSize();
-    const float w = ImGui::GetContentRegionAvail().x;
+    const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
     const float padX = fs * 0.75f, padY = fs * 0.55f;
     const float wrapW = ImMax(10.0f, w - padX * 2.0f - fs);
     const ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, wrapW);

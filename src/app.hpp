@@ -2726,6 +2726,24 @@ private:
     bool droneWriteArmed_ = false;
     std::string droneWriteMsg_;    // "Filter cutoff @ 0:12.4" - write feedback
     char droneLaneFilter_[48] = "";  // search box of the "add lane" picker
+    // The left rail's "in this project" list: every .drone under res/, its
+    // title, whether its WAV exists and whether the patch is newer than the
+    // WAV ("changed since last render"). Rescanned every couple of seconds
+    // and right after a save/render (droneTrackScanAt_ < 0).
+    struct DroneTrackRow {
+        std::string rel, title;
+        bool hasWav = false, newerThanWav = false;
+    };
+    std::vector<DroneTrackRow> droneTracks_;
+    double droneTrackScanAt_ = -1.0;
+    // Opening the tool on a project that already has a patch opens that
+    // patch (once per project, and only over the untouched default).
+    std::string droneAutoOpenFor_;
+    std::string dronePendingLoad_;  // a rail click waiting on the unsaved-patch question
+    int droneChordSel_ = 0;         // Harmony: the chord card being edited
+    char droneTitleBuf_[96] = "";
+    void droneScanTracks();
+    std::string droneUniqueTrackName(const std::string& base) const;
 
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
