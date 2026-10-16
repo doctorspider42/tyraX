@@ -492,19 +492,12 @@ bool PrimaryButtonText(const char* id, const char* text, float width, bool enabl
     ImFont* bf = boldFont() ? boldFont() : ImGui::GetFont();
     const float fsz = ImGui::GetFontSize();
     const ImVec2 ts = bf->CalcTextSizeA(fsz, FLT_MAX, 0.0f, text);
-// --- assets-c ---
-bool SecondaryButton(const char* label, float width, bool enabled) {
-    const theme::Semantics& sem = theme::semantics();
-    const ImGuiStyle& st = ImGui::GetStyle();
-    const char* end = ImGui::FindRenderedTextEnd(label);
-    const ImVec2 ts = ImGui::CalcTextSize(label, end);
     const float h = ImGui::GetFrameHeight();
     float w = width > 0.0f ? width : ts.x + st.FramePadding.x * 2.6f;
     if (width < 0.0f) w = ImMax(ts.x + st.FramePadding.x * 2.0f, ImGui::GetContentRegionAvail().x);
     const ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::BeginDisabled(!enabled);
     const bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
-    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
     ImGui::EndDisabled();
     const bool hov = enabled && ImGui::IsItemHovered();
     const bool held = enabled && ImGui::IsItemActive();
@@ -535,6 +528,30 @@ bool NoteCard(int kind, const char* text) {
     dl->AddCircleFilled(ImVec2(p.x + fs * 0.8f, p.y + fs * 0.6f + fs * 0.5f), fs * 0.22f, col);
     ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.5f, p.y + fs * 0.6f));
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::SetCursorScreenPos(p);
+    ImGui::Dummy(ImVec2(w, h));
+    return ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
+}
+// --- end assets-a ---
+
+// --- assets-c ---
+bool SecondaryButton(const char* label, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 ts = ImGui::CalcTextSize(label, end);
+    const float h = ImGui::GetFrameHeight();
+    float w = width > 0.0f ? width : ts.x + st.FramePadding.x * 2.6f;
+    if (width < 0.0f) w = ImMax(ts.x + st.FramePadding.x * 2.0f, ImGui::GetContentRegionAvail().x);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 q(p.x + w, p.y + h);
     const float r = st.FrameRounding;
@@ -652,9 +669,6 @@ void Callout(int kind, const char* text, float width) {
     ImGui::PopTextWrapPos();
     ImGui::SetCursorScreenPos(p);
     ImGui::Dummy(ImVec2(w, h));
-    return ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
-}
-// --- end assets-a ---
 }
 
 void SwatchDot(ImU32 col, float d, bool glow) {
