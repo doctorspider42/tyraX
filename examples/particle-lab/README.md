@@ -22,13 +22,14 @@ textures live in `res/materials/particles/`.
 ## Things to try
 
 - Open *Tools > Particle Editor*, pick **Campfire** and click through its
-  layers (Main / Embers / Glow / Smoke); move the Smoke layer's *Offset* up.
+  layers (Main / Embers / Glow / Smoke), solo one with *<layer> only*; move
+  the Smoke layer's *Offset* up (Placement tab).
 - Drag the `campfire` emitter (click its flame badge in the viewport): all four
   layers travel with it.
-- Change **Campfire**'s *Generate* recipe (turbulence, heat, seed) and release
+- Change **Campfire**'s *Generate* recipe (Texture tab: turbulence, heat, seed) and release
   the slider: the flame texture is re-baked and the viewport updates.
-- Untick *Additive* on Campfire to see why fire wants it.
-- **New effect... > Smoke**, then **Place in scene**.
+- Switch off *Additive* on Campfire to see why fire wants it.
+- **+ New effect > Smoke**, then **Place in scene**.
 
 ## Build & run
 

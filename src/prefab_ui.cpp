@@ -253,7 +253,7 @@ void App::drawPrefabsWindow() {
                 prefabNotesEditing_ = false;  // the buffer belonged to the old one
                 prefabMembersAll_ = false;
             }
-            if (prefabSelected_ == i) uiscript::markLastItemChecked(true);
+            uiscript::markLastItemChecked(prefabSelected_ == i);
             if (!p.notes.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::BeginTooltip();
                 ImGui::PushTextWrapPos(scaled(320));

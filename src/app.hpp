@@ -2161,6 +2161,12 @@ private:
     std::vector<std::vector<ParticlePreviewDot>> particlePreview_;  // per layer
     unsigned particlePreviewRng_ = 1u;
     float particlePreviewAcc_ = 0.0f;
+    // Preview view state (not edits): solo the selected layer, pause, layers
+    // hidden by their eye (indexed like particlePreview_), inspector tab.
+    bool particleSolo_ = false;
+    bool particlePaused_ = false;
+    std::vector<char> particleHidden_;
+    int particleTab_ = 0;  // 0 Behaviour, 1 Texture, 2 Placement
     bool showVehicles_ = false;
     int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
     void drawVehiclePreview(const VehicleDef& v, int modelIndex);

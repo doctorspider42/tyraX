@@ -15,22 +15,39 @@ and glows, baked from a recipe into ordinary PNG + `.mtl` assets.
 
 *Tools > Particle Editor* (window key `particles`):
 
-- **New effect...** starts from a preset for each motion - Fire, Smoke, Fog,
-  Sparks, Rain, Custom - with a matching generated texture already baked.
-  **Duplicate**, **Delete** (linked emitters keep the look they last had,
-  vehicles fall back to the built-in smoke) and **Place in scene** (an emitter
-  linked to the effect, inserted where objects are inserted).
-- **Behaviour**: the motion (the same six emitter kinds - Fire .. Rain are
-  the built-in motions, Custom uses speed / spread / gravity / weight /
-  lifetime / grow), count, size, tint, opacity and **Additive**.
-- **Texture**: *Generate* picks a recipe - *Smoke puff*, *Flame*, *Glow /
-  spark* - or *None* to use any existing material. A recipe has a resolution,
-  a seed, softness, detail and noise scale, plus turbulence and heat for the
-  flame and a colour for smoke and glow. Releasing a control re-bakes.
-- **Preview**: the texture itself, and an animated 2D approximation of the
-  motion. It is an approximation on purpose: the exact per-kind formulas run in
+The window is three columns: the **library**, the **preview** in the middle
+(the thing being made gets the room), and the **inspector**.
+
+- **Library**: each effect with a glow in its main layer's tint and "5 layers
+  - 1 emitter" (vehicles too when one uses it). **+ New effect** in the header
+  starts from a preset for each motion - Fire, Smoke, Fog, Sparks, Rain,
+  Custom - with a matching generated texture already baked. Right-click an
+  effect for **Duplicate** and **Delete** (linked emitters keep the look they
+  last had, vehicles fall back to the built-in smoke).
+- **Preview**: an animated 2D approximation of every layer, with **All
+  layers / <layer> only** (solo the selected layer), **Pause** and
+  **Restart**, and a card with the selected layer's generated texture (its
+  flipbook frames) and its cost - resolution, frames @ fps, GS VRAM. It is an
+  approximation on purpose, and says so: the exact per-kind formulas run in
   the viewport on a placed emitter, and a third copy of them here would be a
   third thing to keep in sync.
+- **Inspector**: the name, "Used by N emitters - M vehicles", the **layer
+  stack** (an eye that hides the layer in the preview only, its colour, name,
+  motion, count and an *add* / *alpha* blend badge), then three tabs for the
+  selected layer:
+  - **Behaviour**: the motion (the same six emitter kinds - Fire .. Rain are
+    the built-in motions, Custom uses speed / spread / gravity / weight /
+    lifetime / grow), count, size, tint, opacity and **Additive**.
+  - **Texture**: *Generate* picks a recipe - *Smoke puff*, *Flame*, *Glow /
+    spark* - or *None* to use any existing material. A recipe has a
+    resolution and frames (the runtime cost, shown on the preview's card),
+    then its bake inputs: a seed, softness, detail and noise scale, plus
+    turbulence and heat for the flame and a colour for smoke and glow.
+    Releasing a control re-bakes.
+  - **Placement**: an extra layer's name, *Offset* and *Area*, and **Remove
+    layer** (also on the layer's right-click menu).
+- The footer: **Duplicate** and the primary **Place in scene** (an emitter
+  linked to the effect, inserted where objects are inserted).
 
 Renaming an effect retargets every emitter and vehicle that names it.
 
@@ -84,7 +101,7 @@ campfire costs what four emitters cost, which is the honest price: the layers
 exist because a real fire IS several kinds of particle. Layers of an emitter
 spawned at runtime (a clone) or inside a prefab are not expanded yet.
 
-![The Particle Editor with the Campfire effect's Embers layer selected; in the viewport the emitters are flame badges.](img/particle-editor-layers.png)
+![The Particle Editor on particle-lab: the Campfire effect with its five layers, Embers selected, the animated preview in the middle and the Embers texture card.](img/particle-editor-layers.png)
 
 ## Viewport icons
 
