@@ -40,7 +40,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
    > PS2 (ps2link) IP*. Machine-global, not project data, so you do this once.
-5. **Run with F6**, stop with the toolbar's Stop. That is it.
+5. **Run with F6**, stop with the top bar's Stop. That is it.
 
 Two things worth knowing before you hit a wall:
 
@@ -414,9 +414,9 @@ tyrax-editor --build <projectDir> --run-ps2 192.168.1.42
 
 ## 4. Deploy and run
 
-**F6** = build && run on PS2, **Ctrl+F6** = run without building. The run
-toolbar's target dropdown has the same thing as *PlayStation 2 (ps2link)* — the
-run triangles turn **blue** when the console is the target and green for PCSX2.
+**F6** = build && run on PS2, **Ctrl+F6** = run without building. The top
+bar's **PCSX2 | PS2** switch picks the target for the Run button (and F5) — Run
+turns **blue** when the console is the target and green for PCSX2.
 
 What the editor does, in order:
 

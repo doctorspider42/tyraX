@@ -205,6 +205,6 @@ drift.
   undo history (the snapshot holds scenes, like sequences and menus do), so
   *Delete* asks for confirmation first and warns when graphs still spawn the
   prefab by name. Placed copies are ordinary scene objects and stay. Editing
-  prefabs is an ordinary unsaved edit like everything else — the toolbar save
-  icon lights and the change reaches disk on Ctrl+S — so until you save,
+  prefabs is an ordinary unsaved edit like everything else — the top bar's **Unsaved**
+  marker appears and the change reaches disk on Ctrl+S — so until you save,
   closing the project without saving is the one way back.

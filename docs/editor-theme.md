@@ -110,10 +110,19 @@ A few things worth knowing because they are decisions rather than defaults:
   cursor: a scrollbar is chrome, not content.
 - **Trees draw hierarchy lines** (ImGui's `DrawLinesToNodes`), which is most of
   what makes a deep object list scannable.
-- **The menu bar carries the wordmark and a hairline in the accent colour.** The
-  bar and the dockspace under it are both dark surfaces with no border between
-  them; without that line the whole top of the window reads as one block.
-- **Hover highlights fade in** (~80 ms) on the hand-drawn toolbar icons and
+- **The window has a frame: a top bar and a status bar, both on the ground.**
+  The top bar is the mark (the four face-button glyphs) and the menus, then a
+  breadcrumb — the project's name (its tooltip is the name, location, terrain
+  and target the Project panel used to list; a click opens Project
+  Preferences), `/`, and the **scene picker** with a *start* badge on the scene
+  the game boots into — and an **Unsaved** marker that is also the save
+  button. On the right: the build profile pill, the **PCSX2 | PS2** target
+  switch, Build, a filled **Run** in the target's colour (with the run variants
+  under its caret) and Stop. The **status bar** at the bottom carries the
+  build state and the LIVE / DBG / LOGIC / SESSION chips on the left, the last
+  status message after them, and the scene's object and selection counts and
+  the interface scale on the right. Both are drawn in `src/shell_ui.cpp`.
+- **Hover highlights fade in** (~80 ms) on the hand-drawn top-bar controls and
   status chips. Sweeping the cursor across a row of icons is the most common
   thing anyone does with that bar, and a hard rectangle appearing under each one
   in turn is the difference between a toolbar and a debug overlay. A *held*
@@ -129,7 +138,7 @@ A few things worth knowing because they are decisions rather than defaults:
 
 > A widget asks for **meaning**, never for a colour.
 
-Anything that cannot go through an `ImGuiCol_` — the toolbar's vector icons, the
+Anything that cannot go through an `ImGuiCol_` — the top bar's vector icons, the
 BUILDING / LIVE / DBG / LOGIC / SESSION chips, viewport overlays — reads
 `theme::semantics()`, which offers `accent`, `accentMuted`, `ok`, `warn`,
 `danger`, `special`, `text`, `textDim`, `surface`, `border`, `ground`, `field`

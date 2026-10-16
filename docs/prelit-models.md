@@ -170,7 +170,7 @@ By default nothing bakes at build time, on purpose: a bake that takes seconds is
 pressed, not implied (the [GI](global-illumination.md) rule). If you would rather
 never ship a stale texture, tick **Re-bake stale pre-lit objects** in *Project >
 Preferences > Build* (the same switch sits under the pre-lit table). Every build
-— the toolbar, `--build`, Run on PS2 — then runs exactly what `--bake-prelit`
+— Run in the top bar, `--build`, Run on PS2 — then runs exactly what `--bake-prelit`
 runs, after the procedural volumes and (with its own switch) the stale GI caches
 are baked and before the sources are refreshed: only the
 `prelitWanted` objects whose signature is stale, in every scene. A build with

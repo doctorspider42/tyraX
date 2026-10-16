@@ -27,7 +27,7 @@ the project opens and every edit streams both ways live.
 
 While in a session:
 
-- The toolbar shows a **SESSION (n)** chip on the host and a blue **JOINED**
+- The status bar shows a **SESSION (n)** chip on the host and a blue **JOINED**
   chip on clients; clicking it opens the *Session* window (participants with
   per-peer colors, the scene each one is editing, Kick buttons for the host).
 - Other participants' selections appear as **colored outlines** in the

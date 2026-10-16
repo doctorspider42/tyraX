@@ -32,6 +32,13 @@ struct FontScope {
     FontScope& operator=(const FontScope&) = delete;
 };
 
+// --- marks -------------------------------------------------------------------
+
+/** The editor's mark: the four face-button glyphs (triangle, circle, cross,
+ * square) in a rounded tile `size` px square at `p`, in the theme's ok /
+ * danger / accent / special colours. Draw-only, no item. */
+void LogoMark(ImDrawList* dl, ImVec2 p, float size);
+
 // --- fields ------------------------------------------------------------------
 
 /** DragFloat3 with the axis named INSIDE each field - a small X/Y/Z in the

@@ -27,7 +27,7 @@ extra transport, no engine change.
 That is the whole of it: **launching the game opens the Debugger panel** when
 those first two conditions hold and the panel is closed. There is no separate
 "run with the debugger" action to remember — every launch path does it (the
-toolbar's Play, the run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
+top bar's Run, its run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
 new project starts with the panel already docked as a tab behind **Properties**,
 so the first run has somewhere to report.
 
@@ -37,7 +37,7 @@ from one already open. In a release build, or with *Live Debugger* off, nothing
 appears — there would be nothing to show.
 
 To open it by hand anyway: *Tools > Debugger* (**F9**), or click the **DBG**
-chip in the toolbar. For the full desk — the graph in the middle, the Debugger
+chip in the status bar. For the full desk — the graph in the middle, the Debugger
 panel in a column of its own — switch to the built-in **Debugger** window
 layout (Layout menu).
 
@@ -58,7 +58,7 @@ being edited with its hit count, breakpoint checkbox and Fire button.
 
 ### The chip
 
-The **DBG** chip in the toolbar (next to LIVE) reads like a status light:
+The **DBG** chip in the status bar (next to LIVE) reads like a status light:
 
 - **DBG 50 fps** (green) — the game is reporting; the number is the game's frame
   counter timed against the editor's own clock. That counter counts **rendered**
@@ -319,7 +319,7 @@ makes an attached snapshot *late*, never absent.
 - [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
   — the other halves of the scripting story.
 - `examples/script-demo` is a good playground: open it, set the build profile to
-  debug (the toolbar's profile dropdown, right of Stop), and press F5 — the
+  debug (the top bar's build profile pill, left of PCSX2 | PS2), and press F5 — the
   panel opens by itself.
 
 The **Render cost** tab captures synchronized phase and object timings on demand,

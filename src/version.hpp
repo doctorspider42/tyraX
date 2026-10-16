@@ -5524,6 +5524,11 @@
 // family's heading cut and a fixed-width face (platform::uiFontFiles/
 // monoFontFiles), exposed through src/widgets.hpp, whose ui::AxisDrag3 replaces
 // DragFloat3 for transforms and collision boxes; the log panels use the mono face.
+// The window frame (src/shell_ui.cpp): a taller main menu bar (FramePadding
+// pushed for BeginMainMenuBar only) with a drawn mark, project / scene
+// breadcrumb (App::selectScene), Unsaved marker, profile pill, PCSX2|PS2
+// segmented target, Build, filled Run + caret, Stop; App::drawStatusBar is a
+// viewport side bar holding the build/live chips (same ##tb_* ids, same labels).
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

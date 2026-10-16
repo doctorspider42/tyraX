@@ -316,6 +316,7 @@ add_executable(tyrax-editor
     src/texbake.cpp
     src/theme.cpp
     src/widgets.cpp
+    src/shell_ui.cpp
     src/tmdl.cpp
     src/treegen.cpp
     src/treeimpostor.cpp

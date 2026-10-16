@@ -614,9 +614,9 @@ image with Sony's unlicensed `vcl` remains only for compiler A/B work. See
 licensing, and [the toolchain research](docs/toolchain-image.md) for the measured
 OpenVCL migration and the seventeen miscompiles it found.
 
-While the build runs, a spinning **BUILDING** chip appears at the end of the menu
-bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
-either brings the *Output* panel forward; the toolbar's Stop button (or
+While the build runs, a spinning **BUILDING** chip appears at the left of the
+status bar, and turns into a red **BUILD FAILED** when a build did not make it.
+Clicking either brings the *Output* panel forward; the top bar's Stop button (or
 **Build > Cancel Build**) cancels a build in progress.
 
 ## Run on a real PS2

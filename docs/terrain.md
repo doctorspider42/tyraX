@@ -23,7 +23,7 @@ scene**, and removing it removes it completely — not just its picture.
 - **New project** (*File > New Project*): the **Create terrain** checkbox, on
   by default. Width and depth stay meaningful either way — they are the
   scene's **world bounds**, the rectangle every walker is clamped to.
-- **New scene** (*Project panel > + Scene*): the same checkbox.
+- **New scene** (the scene picker in the top bar > *New scene...*): the same checkbox.
 - Headless: `tyrax-editor --new <name> <dir> [w] [d] [preset] [unitsPerMeter]
   --no-terrain`.
 

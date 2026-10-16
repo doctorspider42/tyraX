@@ -53,8 +53,8 @@ it.
 ## Getting to Output while a build runs
 
 *Output* is usually a tab in a dock node, so it is often behind something else
-exactly when a build is happening. The menu bar carries the state instead: a
-spinning **BUILDING** chip at the end of the bar while the Runner works, a red
+exactly when a build is happening. The status bar carries the state instead: a
+spinning **BUILDING** chip at its left end while the Runner works, a red
 **BUILD FAILED** afterwards if it did not make it, and nothing at all otherwise.
 Clicking either brings this panel to the front.
 

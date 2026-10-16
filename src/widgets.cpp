@@ -19,6 +19,32 @@ void setMonoFont(ImFont* f) { gMono = f; }
 ImFont* boldFont() { return gBold; }
 ImFont* monoFont() { return gMono; }
 
+void LogoMark(ImDrawList* dl, ImVec2 p, float size) {
+    const theme::Semantics& sem = theme::semantics();
+    const float r = size * 0.26f;
+    dl->AddRectFilled(p, ImVec2(p.x + size, p.y + size), ImGui::GetColorU32(sem.surface), r);
+    dl->AddRect(p, ImVec2(p.x + size, p.y + size), ImGui::GetColorU32(sem.border), r);
+    const float th = ImMax(1.2f, size * 0.065f);  // glyph stroke
+    const float q = size * 0.5f;                  // quadrant size
+    const float g = q * 0.27f;                    // glyph half-extent
+    auto centre = [&](int col, int row) {
+        return ImVec2(p.x + q * (col + 0.5f) + (col ? -size * 0.03f : size * 0.03f),
+                      p.y + q * (row + 0.5f) + (row ? -size * 0.03f : size * 0.03f));
+    };
+    // Same arrangement as on the pad: triangle top, circle right, cross
+    // bottom, square left - folded into a 2x2 grid.
+    const ImVec2 tri = centre(0, 0), cir = centre(1, 0), crs = centre(0, 1), sqr = centre(1, 1);
+    const ImVec2 t[3] = {ImVec2(tri.x, tri.y - g), ImVec2(tri.x + g * 1.05f, tri.y + g * 0.8f),
+                         ImVec2(tri.x - g * 1.05f, tri.y + g * 0.8f)};
+    dl->AddPolyline(t, 3, ImGui::GetColorU32(sem.ok), ImDrawFlags_Closed, th);
+    dl->AddCircle(cir, g, ImGui::GetColorU32(sem.danger), 0, th);
+    const ImU32 cx = ImGui::GetColorU32(sem.accent);
+    dl->AddLine(ImVec2(crs.x - g, crs.y - g), ImVec2(crs.x + g, crs.y + g), cx, th);
+    dl->AddLine(ImVec2(crs.x + g, crs.y - g), ImVec2(crs.x - g, crs.y + g), cx, th);
+    dl->AddRect(ImVec2(sqr.x - g * 0.9f, sqr.y - g * 0.9f), ImVec2(sqr.x + g * 0.9f, sqr.y + g * 0.9f),
+                ImGui::GetColorU32(sem.special), size * 0.03f, 0, th);
+}
+
 bool AxisDrag3(const char* label, float v[3], float speed, float vmin, float vmax,
                const char* fmt) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();

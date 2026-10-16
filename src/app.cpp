@@ -980,6 +980,7 @@ void App::drawUI() {
     modelImportTick();
 
     drawMenuBar();
+    drawStatusBar();
     drawViewportWindow();
     drawProjectWindow();
     drawPropertiesWindow();
@@ -1278,13 +1279,41 @@ void App::setTheme(theme::Id id) {
 }
 
 void App::drawMenuBar() {
-    if (ImGui::BeginMainMenuBar()) {
-        // Wordmark: the accent colour, once, where every application puts its
-        // name. It is not a menu (no popup, no hover highlight) - it is what
-        // turns a bare row of menus into the top of a product.
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(4.0f));
-        ImGui::TextColored(theme::semantics().accent, "TyraX");
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(6.0f));
+    // A taller bar than one row of menus: ImGui sizes the main menu bar - and
+    // the baseline its menu titles sit on - from FramePadding at Begin time, so
+    // the larger padding is pushed for BeginMainMenuBar alone. Everything drawn
+    // inside (menus, their popups, the toolbar) is back on the normal metrics;
+    // the toolbar centres its controls on the taller bar itself.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(ImGui::GetStyle().FramePadding.x, scaled(12.0f)));
+    const bool barOpen = ImGui::BeginMainMenuBar();
+    ImGui::PopStyleVar();
+    if (barOpen) {
+        // The mark: the four face-button glyphs, then the wordmark. Not a menu
+        // (no popup, no hover) - it is what turns a row of menus into the top
+        // of a product. Drawn straight onto the bar and reserved with a Dummy
+        // on the menus' own line, so it cannot move their baseline.
+        {
+            const float barH = ImGui::GetWindowHeight();
+            const float size = scaled(22.0f);
+            const float lineY = ImGui::GetCursorPosY();
+            const ImVec2 wp = ImGui::GetWindowPos();
+            const float x0 = ImGui::GetCursorScreenPos().x + scaled(4.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            ui::LogoMark(dl, ImVec2(x0, wp.y + (barH - size) * 0.5f), size);
+            const theme::Semantics& sem = theme::semantics();
+            ImFont* face = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+            const float fs = ImGui::GetFontSize();
+            const float ty = wp.y + (barH - fs) * 0.5f;
+            float x = x0 + size + scaled(8.0f);
+            dl->AddText(face, fs, ImVec2(x, ty), ImGui::GetColorU32(sem.text), "Tyra");
+            x += face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "Tyra").x;
+            dl->AddText(face, fs, ImVec2(x, ty), ImGui::GetColorU32(sem.accent), "X");
+            x += face->CalcTextSizeA(fs, FLT_MAX, 0.0f, "X").x;
+            ImGui::Dummy(ImVec2(x - ImGui::GetCursorScreenPos().x + scaled(10.0f), 1.0f));
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::SetCursorPosY(lineY);
+        }
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
@@ -1946,26 +1975,7 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
-        drawToolbar();
-
-        if (!statusMessage_.empty()) {
-            const float w = ImGui::CalcTextSize(statusMessage_.c_str()).x;
-            ImGui::SameLine(ImGui::GetWindowWidth() - w - 16.0f);
-            ImGui::TextDisabled("%s", statusMessage_.c_str());
-        }
-        // A hairline along the bottom edge of the bar, in the accent colour.
-        // The menu bar and the dockspace under it are both dark surfaces with
-        // no border between them, so without this the whole top of the window
-        // reads as one undifferentiated block.
-        {
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 p = ImGui::GetWindowPos();
-            const float y = p.y + ImGui::GetWindowHeight() - scaled(1.0f);
-            dl->AddRectFilled(
-                ImVec2(p.x, y),
-                ImVec2(p.x + ImGui::GetWindowWidth(), y + scaled(1.0f)),
-                ImGui::GetColorU32(theme::semantics().accentMuted));
-        }
+        drawToolbar();  // shell_ui.cpp; the status message is in the status bar
         ImGui::EndMainMenuBar();
     }
 }
@@ -1996,547 +2006,6 @@ void App::runSelectedTarget(bool build) {
     if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build, false, project_.activeScene);
     else if (build) runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
     else runner_.runEmulatorOnly(project_, project_.activeScene);
-}
-
-// Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
-// Save, Build, then ONE run group - [Play, dropdown, Stop] - driving whichever
-// target the dropdown selects (green Play = emulator, blue Play = real PS2),
-// then the live chips. The Visual-Studio-style caret picks the target and
-// carries the run variants (run without build, debug). Icons are vector-drawn
-// on the menu-bar draw list (the editor loads no icon font) so they stay crisp
-// at any UI scale, and they share one stroke weight so the set reads as a set.
-// Spacing is explicit: a pair sits tight, groups get a wider gap.
-void App::drawToolbar() {
-    if (!hasProject_) return;
-
-    const bool busy = runner_.busy();
-    const bool ps2Ready = !project_.ps2LinkIp.empty();
-    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-    const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
-    // The chips say what a state MEANS, so they read their colours from the
-    // theme (theme.hpp) instead of naming one: green/amber/red hardcoded here
-    // is green/amber/red in a violet editor. colInfo is the accent - "the
-    // other run target", "a live channel" - which every theme keeps distinct
-    // from ok/warn/danger.
-    const theme::Semantics& sem = theme::semantics();
-    const ImU32 colOk = ImGui::GetColorU32(sem.ok);
-    const ImU32 colWarn = ImGui::GetColorU32(sem.warn);
-    const ImU32 colInfo = ImGui::GetColorU32(sem.accent);
-    const ImU32 colStop = ImGui::GetColorU32(sem.danger);
-    const float h = ImGui::GetFrameHeight();
-    const float round = ImGui::GetStyle().FrameRounding;
-    const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
-    const float gapGroup = h * 0.55f;               // between button groups
-
-    // An icon button on the menu-bar line, `lead` px left of the previous item
-    // and `bw` wide. `paint(dl, a, b, enabled)` draws the glyph into the padded
-    // inner rect [a,b]. Returns true on click (ignored while disabled - the
-    // icon dims instead).
-    auto button = [&](const char* id, float lead, float bw, bool enabled,
-                      const char* tip, auto&& paint) -> bool {
-        ImGui::SameLine(0.0f, lead);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton(id, ImVec2(bw, h));
-        const bool hovered =
-            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
-        const bool held = enabled && ImGui::IsItemActive();
-        const bool clicked = enabled && ImGui::IsItemClicked();
-        // The highlight fades in and out instead of snapping: sweeping the
-        // cursor along a row of icons is the most common thing anyone does with
-        // this bar, and a hard rectangle appearing under each one in turn is
-        // the difference between a toolbar and a debug overlay. Held buttons
-        // jump straight to the active fill - a press must feel immediate.
-        const float hoverT =
-            theme::hoverAnim(ImGui::GetItemID(), enabled && hovered, 12.0f);
-        if (held || hoverT > 0.0f)
-            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + h),
-                              ImGui::GetColorU32(held ? ImGuiCol_ButtonActive
-                                                      : ImGuiCol_ButtonHovered,
-                                                 held ? 1.0f : hoverT),
-                              round);
-        const float pad = h * 0.28f;
-        // Square glyph rect regardless of button width (carets are narrower).
-        const float cx = p.x + bw * 0.5f;
-        const ImVec2 a(cx - (h * 0.5f - pad), p.y + pad);
-        const ImVec2 b(cx + (h * 0.5f - pad), p.y + h - pad);
-        paint(dl, a, b, enabled);
-        if (tip && hovered) ImGui::SetTooltip("%s", tip);
-        return clicked;
-    };
-    auto iconButton = [&](const char* id, float lead, bool enabled,
-                          const char* tip, auto&& paint) -> bool {
-        return button(id, lead, h, enabled, tip, paint);
-    };
-
-    // The status chips (LIVE / DBG / LOGIC / SESSION) all draw their own dot +
-    // label, so they need the icon buttons' faded highlight spelled out once
-    // rather than four times. Call right after the chip's InvisibleButton.
-    auto chipHover = [&](ImDrawList* dl, ImVec2 p, float chipW) {
-        const float t =
-            theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
-        if (t > 0.0f)
-            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered, t),
-                              round);
-    };
-
-    // One stroke weight for every outlined glyph - that, plus the shared glyph
-    // rect above, is what makes the icons read as one set instead of five
-    // drawings that happen to sit in a row.
-    const float stroke = ImMax(1.5f, h * 0.075f);
-
-    // Reusable glyph painters.
-    auto paintPlay = [](ImU32 c) {
-        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-            const float w = b.x - a.x, hh = b.y - a.y;
-            dl->AddTriangleFilled(ImVec2(a.x + w * 0.08f, a.y),
-                                  ImVec2(a.x + w * 0.08f, b.y),
-                                  ImVec2(b.x, a.y + hh * 0.5f), c);
-        };
-    };
-    auto paintStop = [](ImU32 c) {
-        return [c](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-            dl->AddRectFilled(a, b, c, (b.x - a.x) * 0.14f);
-        };
-    };
-    // Small downward caret centered in the (narrow) button rect.
-    auto paintCaret = [h](ImU32 c) {
-        return [c, h](ImDrawList* dl, ImVec2 a, ImVec2 b, bool) {
-            const float cx = (a.x + b.x) * 0.5f, cy = (a.y + b.y) * 0.5f;
-            const float s = h * 0.13f;
-            dl->AddTriangleFilled(ImVec2(cx - s, cy - s * 0.5f),
-                                  ImVec2(cx + s, cy - s * 0.5f),
-                                  ImVec2(cx, cy + s * 0.7f), c);
-        };
-    };
-
-    // Save: a floppy drawn as one closed outline with the classic clipped
-    // top-right corner, plus a filled shutter and label. Normal when clean,
-    // amber when there are unsaved edits. Enabled unless we joined a session as
-    // a client (the host owns saving).
-    const bool saveAllowed = session_.role() != session::Session::Role::Client;
-    if (iconButton(
-            "##tb_save", gapGroup, saveAllowed,
-            !saveAllowed ? "The session host owns saving"
-            : dirty_     ? "Save - unsaved changes (Ctrl+S)"
-                         : "Save (Ctrl+S)",
-            [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                const ImU32 c = !en      ? colDim
-                                : dirty_ ? colWarn
-                                         : colText;
-                const float w = b.x - a.x, hh = b.y - a.y;
-                const float cut = w * 0.30f;  // clipped top-right corner
-                const ImVec2 body[5] = {
-                    ImVec2(a.x, a.y),         ImVec2(b.x - cut, a.y),
-                    ImVec2(b.x, a.y + cut),   ImVec2(b.x, b.y),
-                    ImVec2(a.x, b.y)};
-                dl->AddPolyline(body, 5, c, ImDrawFlags_Closed, stroke);
-                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, a.y),  // shutter
-                                  ImVec2(a.x + w * 0.58f, a.y + hh * 0.34f), c);
-                dl->AddRectFilled(ImVec2(a.x + w * 0.24f, b.y - hh * 0.34f),
-                                  ImVec2(b.x - w * 0.24f, b.y), c);  // label
-            }))
-        saveAll("Saved");
-
-    // Build only (no run): an isometric box - the build's output - in the same
-    // stroke as the floppy, so the pair reads as one family and neither is
-    // confused with the filled Play/Stop shapes.
-    if (iconButton("##tb_build", gapPair, !busy,
-                   "Build (no run) (Ctrl+Shift+B)",
-                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const ImU32 c = en ? colText : colDim;
-                       const float w = b.x - a.x, hh = b.y - a.y;
-                       const float cx = a.x + w * 0.5f;
-                       const float sh = hh * 0.26f;  // corner shoulder height
-                       const ImVec2 top(cx, a.y), bot(cx, b.y);
-                       const ImVec2 ul(a.x, a.y + sh), ur(b.x, a.y + sh);
-                       const ImVec2 ll(a.x, b.y - sh), lr(b.x, b.y - sh);
-                       const ImVec2 mid(cx, a.y + sh * 2.0f);
-                       const ImVec2 hex[6] = {top, ur, lr, bot, ll, ul};
-                       dl->AddPolyline(hex, 6, c, ImDrawFlags_Closed, stroke);
-                       dl->AddLine(mid, ul, c, stroke);  // the three edges
-                       dl->AddLine(mid, ur, c, stroke);  // meeting at the front
-                       dl->AddLine(mid, bot, c, stroke); // corner
-                   }))
-        runner_.buildAndRun(projectForBuild(), false);
-
-    // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
-    // ONE pair for both targets; the dropdown picks which machine it drives and
-    // the Play glyph's color says so (the theme's "ok" = the emulator, its
-    // accent = the real console; every theme keeps those two apart).
-    const bool targetReady = !runOnPs2_ || ps2Ready;
-    const bool debugProfile = project_.settings.buildProfile == "debug";
-    const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
-    const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
-    if (iconButton("##tb_run", gapGroup, !busy && targetReady,
-                   !targetReady    ? noIpTip
-                   : runOnPs2_     ? "Build && Run on PS2 (F6)"
-                                   : "Build && Run in PCSX2 (F5)",
-                   paintPlay(!busy && targetReady ? colTarget : colDim)))
-        runSelectedTarget(true);
-    ImGui::SameLine(0.0f, 1.0f);
-    const ImVec2 caretPos = ImGui::GetCursorScreenPos();
-    const ImVec2 runMenuAnchor(caretPos.x, caretPos.y + h);
-    if (button("##tb_run_more", 1.0f, h * 0.55f, true,
-               "Run target and options...", paintCaret(colText)))
-        ImGui::OpenPopup("run_menu");
-    // Stop: cancels a running build, else stops the selected target - closes
-    // PCSX2, or on the console kills the file server + resets ps2link. The
-    // emulator side is always available: it looks for the instance booting THIS
-    // project's ELF, which is a no-op when there is none and leaves the other
-    // worktrees' emulators alone.
-    const bool stopEnabled = busy || targetReady;
-    if (iconButton("##tb_stop", gapPair, stopEnabled,
-                   busy            ? "Cancel build"
-                   : !targetReady  ? noIpTip
-                   : runOnPs2_     ? "Stop the game on the PS2"
-                                   : "Stop PCSX2",
-                   paintStop(stopEnabled ? colStop : colDim))) {
-        if (busy) runner_.cancel();
-        else if (runOnPs2_) runner_.stopPs2(project_);
-        else runner_.stopEmulator(project_);
-    }
-
-    // Build profile, where the Debug button used to be. That button was "Run,
-    // and also open the Debugger panel" - which is now what Run itself does
-    // whenever the project is built with the debugger on (runSelectedTarget),
-    // so the button had nothing left of its own to do. What the toolbar was
-    // missing instead is the switch every one of the chips to its right
-    // depends on: Live Link, the Live Debugger and Live Logic exist only in a
-    // debug build, and their dimmed tooltips all ended in "...switch the
-    // profile in Project > Preferences > Build". It is one click from here now,
-    // and the chips appear and disappear as it moves.
-    //
-    // Deliberately a labelled combo rather than another drawn glyph: this is
-    // the one control on the bar whose CURRENT VALUE has to be readable at a
-    // glance - "why is there no LIVE chip" is answered by seeing "Release"
-    // sitting here, and no icon says that.
-    {
-        int profileIdx = debugProfile ? 1 : 0;
-        const char* profileNames[2] = {"Release", "Debug"};
-        ImGui::SameLine(0.0f, gapGroup);
-        ImGui::SetNextItemWidth(ImGui::CalcTextSize("Release").x + h +
-                                ImGui::GetStyle().FramePadding.x * 2.0f);
-        if (ImGui::Combo("##tb_profile", &profileIdx, profileNames, 2)) {
-            project_.settings.buildProfile = profileIdx == 1 ? "debug" : "release";
-            commitChange();
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Build profile (same setting as Project > Preferences > "
-                "Build).\n"
-                "Debug carries the devkit channels, the overlays, -g and the "
-                "unstripped\nELF the crash reporter needs - Live Link, the Live "
-                "Debugger and Live\nLogic exist in debug builds only. Release "
-                "carries none of it.");
-    }
-
-    // Live Link chip: a dot + label after the run group, ALSO the on/off
-    // switch (clicking toggles the project's Live Link preference, same as
-    // Build > Live Link). Shown whenever the project builds in the debug
-    // profile: gray "LIVE off" = disabled, dim "LIVE (build)" = enabled but
-    // no Live-Link-capable build yet (F5), green "LIVE" = edits stream into
-    // the running game, amber "LIVE (rebuild)" = an edit the session can't
-    // absorb - rebuild to resync. Hidden in the release profile (the poller
-    // only exists in debug builds).
-    if (project_.settings.buildProfile == "debug") {
-        const bool on = project_.settings.liveLink;
-        ImU32 c = colDim;
-        const char* label = "LIVE off";
-        const char* tip =
-            "Live Link is off (project setting) - the game is built without "
-            "the poller\nand the editor writes no snapshots. Click to enable "
-            "(then Build & Run).";
-        if (on) {
-            switch (liveLinkState_) {
-                case LiveLinkState::Live:
-                    c = colOk;
-                    label = "LIVE";
-                    // Say what it does NOT carry. This is the chip people
-                    // watch, and green here was being read as "everything I
-                    // change is live" - a flow-graph edit is Live LOGIC's job
-                    // (its own chip), and with that off it needs a rebuild.
-                    tip = "Live Link: object edits (move/rotate/scale/recolor,"
-                          " add/delete) stream\ninto the running game. Flow "
-                          "GRAPHS are not object edits - those are\nLive "
-                          "Logic's (the LOGIC chip). Click to turn off "
-                          "(project setting).";
-                    break;
-                case LiveLinkState::RebuildNeeded:
-                    c = colWarn;
-                    label = "LIVE (rebuild)";
-                    tip = "Live Link: the scene changed in a way the session "
-                          "can't absorb (model/\nmaterial swaps, lights, "
-                          "projected decals, mirrors, layers, objects with\n"
-                          "logic...) - Build & Run (F5) to resync. Click to "
-                          "turn off.";
-                    break;
-                default:  // Off (transient) / NoBuild
-                    label = "LIVE (build)";
-                    tip = "Live Link is on, but the last build has no poller "
-                          "yet - Build & Run\n(F5) once and edits start "
-                          "streaming. Click to turn off.";
-                    break;
-            }
-        }
-        ImGui::SameLine(0.0f, gapGroup);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float dotR = h * 0.14f;
-        const float textW = ImGui::CalcTextSize(label).x;
-        if (ImGui::InvisibleButton("##tb_livelink",
-                                   ImVec2(dotR * 2.0f + 4.0f + textW, h))) {
-            project_.settings.liveLink = !on;
-            commitChange();
-        }
-        chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
-        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
-        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
-                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                    c, label);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-    }
-
-    // Live Debugger chip, next to LIVE and read the same way: green DBG = the
-    // game is reporting what its graphs do, orange = stopped at a breakpoint
-    // (with the frame it stopped on), amber = the running build predates the
-    // current graphs, dim = nothing reporting yet. Clicking opens the panel
-    // (the on/off switch is a project preference, in Build > Live Debugger).
-    if (project_.settings.buildProfile == "debug" && project_.settings.liveDebug) {
-        ImU32 c = colDim;
-        char label[48] = "DBG";
-        const char* tip =
-            "Live Debugger: waiting for a game to report. Build & Run (F5) and "
-            "the\n"
-            "graph starts lighting up as it runs. Click to open the "
-            "Debugger panel (F9).";
-        switch (dbgState_) {
-            case DbgState::Running:
-                c = colOk;
-                std::snprintf(label, sizeof(label), "DBG %.0f fps", dbgFps_);
-                tip = "Live Debugger: the running game is reporting every "
-                      "flow-graph node it\n"
-                      "fires - watch the Flow Graph light "
-                      "up. Click to open the Debugger (F9).";
-                break;
-            case DbgState::Halted:
-                c = IM_COL32(245, 130, 90, 255);
-                std::snprintf(label, sizeof(label), "DBG halted @ %u",
-                              dbgSnap_.frame);
-                tip = "Live Debugger: the game is stopped (breakpoint or "
-                      "Pause). F10 continues,\n"
-                      "F11 steps one frame. Click to "
-                      "open the Debugger panel.";
-                break;
-            case DbgState::Stale:
-                c = colWarn;
-                std::snprintf(label, sizeof(label), "DBG (rebuild)");
-                tip = "Live Debugger: the running game was built from "
-                      "different graphs, so node\n"
-                      "numbering no longer matches. "
-                      "Build & Run (F5) to resync.";
-                break;
-            default: break;
-        }
-        ImGui::SameLine(0.0f, gapPair);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float dotR = h * 0.14f;
-        const float textW = ImGui::CalcTextSize(label).x;
-        const float chipW = dotR * 2.0f + 4.0f + textW;
-        if (ImGui::InvisibleButton("##tb_livedbg", ImVec2(chipW, h)))
-            showDebugger_ = true;
-        chipHover(dl, p, chipW);
-        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
-        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
-                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                    c, label);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-    }
-
-    // Live Logic chip: only interesting once graphs differ from the build -
-    // blue "LOGIC (n)" = n graphs are running from the editor's patch instead
-    // of their compiled C++, amber "LOGIC (rebuild)" = an edited graph uses
-    // something the interpreter cannot run. Clicking opens the Debugger's
-    // Logic tab.
-    if (project_.settings.buildProfile == "debug" &&
-        (liveLogicState_ == LogicState::Patched ||
-         liveLogicState_ == LogicState::Blocked ||
-         liveLogicState_ == LogicState::OffStale)) {
-        const bool offStale = liveLogicState_ == LogicState::OffStale;
-        const bool blocked = liveLogicState_ == LogicState::Blocked;
-        char label[48];
-        if (offStale)
-            std::snprintf(label, sizeof(label), "LOGIC (off)");
-        else if (blocked)
-            std::snprintf(label, sizeof(label), "LOGIC (rebuild)");
-        else
-            std::snprintf(label, sizeof(label), "LOGIC (%d)",
-                          liveLogicPatchCount_);
-        const ImU32 c = (blocked || offStale) ? colWarn
-                                              : colInfo;
-        // The off-stale line is the one people arrive at from the GREEN LIVE
-        // chip: Live Link streams object edits and has never carried graph
-        // logic, so it stays green while a graph edit sits in the editor only.
-        // Say both halves - what is not live, and the two ways out.
-        const char* tip =
-            offStale  ? "A flow graph changed since the build, and Live Logic "
-                        "is OFF - the\nrunning game is still on its compiled "
-                        "graphs. (LIVE stays green:\nLive Link streams object "
-                        "edits, never graph logic.)\nBuild & Run (F5), or turn "
-                        "Live Logic on in Project Preferences > Build."
-            : blocked ? "Live Logic: an edited graph uses nodes the interpreter "
-                        "cannot run\n(audio, AI, animation, spawning, runtime "
-                        "text, branching nodes...)\n- Build & Run (F5). Click "
-                        "for the list."
-                      : "Live Logic: these graphs were compiled by the editor and "
-                        "are running\nin the game right now, with no rebuild. "
-                        "Click to see them.";
-        ImGui::SameLine(0.0f, gapPair);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float dotR = h * 0.14f;
-        const float textW = ImGui::CalcTextSize(label).x;
-        const float chipW = dotR * 2.0f + 4.0f + textW;
-        if (ImGui::InvisibleButton("##tb_livelogic", ImVec2(chipW, h)))
-            showDebugger_ = true;
-        chipHover(dl, p, chipW);
-        dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
-        dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
-                           p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                    c, label);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-    }
-
-    // Collaboration session chip (same pattern as the LIVE chip): hidden when
-    // idle, green "SESSION (n)" while hosting, blue "JOINED" as a client,
-    // amber while connecting/syncing. Click opens the Session window.
-    {
-        const auto st = session_.state();
-        if (st != session::Session::State::Idle &&
-            st != session::Session::State::Error) {
-            char label[32] = "SESSION";
-            ImU32 c = colWarn;
-            const char* tip = "Connecting...";
-            switch (st) {
-                case session::Session::State::Listening: {
-                    const int others = (int)sessionPeers_.size() - 1;
-                    std::snprintf(label, sizeof(label), "SESSION (%d)",
-                                  others < 0 ? 0 : others);
-                    c = colOk;
-                    tip = "Hosting a live session - click for peers / kick / "
-                          "close.";
-                    break;
-                }
-                case session::Session::State::Live:
-                    std::snprintf(label, sizeof(label), "JOINED");
-                    c = colInfo;
-                    tip = "Joined a live session - the host owns saving. Click "
-                          "for the Session window.";
-                    break;
-                default:  // Starting / Connecting / Syncing
-                    std::snprintf(label, sizeof(label), "SYNC");
-                    tip = "Session is starting up / transferring the project.";
-                    break;
-            }
-            ImGui::SameLine(0.0f, gapGroup);
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            const float dotR = h * 0.14f;
-            const float textW = ImGui::CalcTextSize(label).x;
-            if (ImGui::InvisibleButton("##tb_session",
-                                       ImVec2(dotR * 2.0f + 4.0f + textW, h)))
-                showSessionWindow_ = true;
-            chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
-            dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
-            dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
-                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                        c, label);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        }
-    }
-
-    // Build status, last on the bar. It lived in the Project panel, which is
-    // the least likely place for it to be seen - that panel is routinely docked
-    // behind another tab, while this bar carries every other build control and
-    // is always on screen. Hidden while idle and after a clean build, like the
-    // SESSION chip: a permanent "ready" chip is one more thing to read and says
-    // nothing. Clicking brings the Output panel forward, which is where both
-    // the progress and the failure are. The hit box carries a REAL label rather
-    // than a "##" id (the chat window's "Copy message" precedent): an
-    // InvisibleButton draws nothing either way, and a label-less widget is one
-    // --ui-script can never target.
-    {
-        const bool failed = runner_.state() == Runner::State::Failed;
-        if (busy || failed) {
-            const char* label = busy ? "BUILDING" : "BUILD FAILED";
-            const ImU32 c = busy ? colInfo : colStop;
-            ImGui::SameLine(0.0f, gapGroup);
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            const float r = h * 0.18f;
-            const float textW = ImGui::CalcTextSize(label).x;
-            const float chipW = r * 2.0f + 4.0f + textW;
-            if (ImGui::InvisibleButton("Build status", ImVec2(chipW, h)))
-                pendingFocusWindow_ = "Output";
-            chipHover(dl, p, chipW);
-            const ImVec2 mid(p.x + r, p.y + h * 0.5f);
-            if (busy) {
-                // A drawn arc rather than the "|/-\" it replaces: a spinning
-                // ASCII character is indistinguishable from a stuck one at this
-                // size, and the rest of the bar is vector glyphs anyway.
-                const float t = (float)ImGui::GetTime() * 5.0f;
-                dl->PathArcTo(mid, r, t, t + 4.2f, 20);
-                dl->PathStroke(c, 0, ImMax(1.5f, h * 0.07f));
-            } else {
-                dl->AddCircleFilled(mid, h * 0.14f, c);
-            }
-            dl->AddText(ImVec2(p.x + r * 2.0f + 4.0f,
-                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                        c, label);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    busy ? "Building - Stop cancels it (or Build > Cancel "
-                           "Build).\nClick for the Output panel."
-                         : "The last build failed. Click for the Output "
-                           "panel - the first error is in there.");
-        }
-    }
-
-    // The Play caret's dropdown (anchored just under the caret): which machine
-    // to run on, then the run variants for it. Debug needs the debug build
-    // profile - Live Link, the Debugger and Live Logic only exist there - so
-    // the entry stays visible but disabled and says where to turn it on.
-    ImGui::SetNextWindowPos(runMenuAnchor);
-    if (ImGui::BeginPopup("run_menu")) {
-        if (ImGui::MenuItem("Emulator (PCSX2)", nullptr, !runOnPs2_)) {
-            runOnPs2_ = false;
-            saveGlobalConfig();
-        }
-        if (ImGui::MenuItem("PlayStation 2 (ps2link)", nullptr, runOnPs2_,
-                            ps2Ready)) {
-            runOnPs2_ = true;
-            saveGlobalConfig();
-        }
-        if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", noIpTip);
-        ImGui::Separator();
-        const char* runKey = runOnPs2_ ? "F6" : "F5";
-        const char* noBuildKey = runOnPs2_ ? "Ctrl+F6" : "Ctrl+F5";
-        if (ImGui::MenuItem("Run", runKey, false, !busy && targetReady))
-            runSelectedTarget(true);
-        if (ImGui::MenuItem("Run without build", noBuildKey, false,
-                            !busy && targetReady))
-            runSelectedTarget(false);
-        // No "Debug" entry: it was Run plus opening the Debugger panel, and Run
-        // now opens it by itself whenever the project is built with the
-        // debugger on (runSelectedTarget). Leaving it here would be a second
-        // name for the same action - and the one that used to be different is
-        // now the default. F9 and Window > Debugger still open the panel
-        // by hand, in a release build too.
-        ImGui::EndPopup();
-    }
 }
 
 // Baked shadow decals (docs/shadows.md): push the CACHED bake into the
@@ -5447,65 +4916,9 @@ void App::drawProjectWindow() {
         return;
     }
 
-    ImGui::Text("Name:");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(project_.name.c_str());
-
-    ImGui::Text("Location:");
-    ImGui::SameLine(110);
-    ImGui::TextWrapped("%s", project_.dir.c_str());
-
-    ImGui::Text("Terrain:");
-    ImGui::SameLine(110);
-    // Without a terrain the size is still the scene's world bounds, so it stays
-    // on this row - what changes is that there is no ground (docs/terrain.md).
-    ImGui::Text(project_.active().terrain.enabled
-                    ? "%d x %d units (scene %s)"
-                    : "none - %d x %d world (scene %s)",
-                project_.active().terrain.width, project_.active().terrain.depth,
-                project_.active().name.c_str());
-
-    ImGui::Text("Target:");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(project_.elfName().c_str());
-
-    if (ImGui::CollapsingHeader("Scenes", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::SmallButton("+ Scene")) {
-            openNewScenePopup_ = true;
-            newSceneError_.clear();
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Preferences...")) openScenePreferences();
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Each scene has its own objects and flow graphs.\n"
-                              "The game starts in the first scene; switch with the\n"
-                              "Switch Scene flow node. Terrain, HUD and audio are shared.");
-        for (int i = 0; i < (int)project_.scenes.size(); ++i) {
-            ImGui::PushID(i + 3000);
-            const std::string label =
-                project_.scenes[i].name +
-                (i == project_.startScene ? "  (start)" : "") + "##scene";
-            if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
-                                  ImGuiSelectableFlags_AllowOverlap) &&
-                project_.activeScene != i) {
-                project_.activeScene = i;
-                clearSelection();
-                cancelPastePlacement();  // staged copies belong to the old scene
-                flowGraphObject_ = -1;
-                flowPositionsApplied_ = false;
-                applyProjectToViewport();  // terrain/lighting are per scene
-            }
-            if (project_.scenes.size() > 1) {
-                ImGui::SameLine(ImGui::GetContentRegionMax().x - 22.0f);
-                // deletion is confirmed in a modal (objects + graphs go with it)
-                if (ImGui::SmallButton("x")) deleteScenePending_ = i;
-            }
-            ImGui::PopID();
-        }
-    }
-
+    // The project's name, location, terrain and target, and the scene list,
+    // live in the top bar's breadcrumb (shell_ui.cpp: the project name's
+    // tooltip and the scene picker) - on screen whatever this panel is doing.
     drawSceneSection();
     drawLayersSection();
     drawAssetsSection();

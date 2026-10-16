@@ -129,5 +129,5 @@ disc's startup group on ISO export.
 
 Loading screens are project-wide data (like Ambience presets and Color
 Grading), so edits here are not part of undo — but they are ordinary unsaved
-edits: the toolbar save icon lights and Ctrl+S writes them. The per-scene
+edits: the top bar shows **Unsaved** and Ctrl+S writes them. The per-scene
 *assignment* is undoable with the rest of the scene.

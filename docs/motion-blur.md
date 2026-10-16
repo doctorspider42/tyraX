@@ -106,7 +106,7 @@ green through either (it streams *object* edits and has never carried graph
 logic — see [Live Logic](live-logic.md)):
 
 - **Live Logic has to be ON** (*Project Preferences > Build*). With it off, a
-  graph edit reaches nothing until the next build; the toolbar says so with an
+  graph edit reaches nothing until the next build; the status bar says so with an
   amber **LOGIC (off)**.
 - **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
   in the same graph puts it out of reach of the interpreter, whatever the Set

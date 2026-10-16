@@ -149,6 +149,11 @@ private:
     // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
     // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // The bar along the bottom: build state, live channels, scene counts.
+    void drawStatusBar();
+    // Make scene i the active one (clears the selection, reapplies terrain and
+    // lighting). No-op for the active scene or an out-of-range index.
+    void selectScene(int i);
     // Which machine the toolbar's Run/Stop pair drives: false = the emulator
     // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
     // `runOnPs2`) - which console is on this desk is not project data. The Play

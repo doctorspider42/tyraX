@@ -13,6 +13,8 @@ history.
 - **Position, rotation and scale name their axis inside each field**: a red X, green Y and blue Z, the same colours as the move gizmo, and the numbers are in a fixed-width face so they no longer jitter while you drag. Collision box min/max read the same way.
 - **The Output and Debug logs use a fixed-width font**, so timestamps, paths and counts line up.
 - Inspector section titles use the interface font's heavier cut.
+- **A new top bar**: the TyraX mark and the menus, then *project / scene* - the scene picker switches scenes and holds *New scene* and *Scene preferences*, and hovering the project name shows its location, terrain and target - and an **Unsaved** marker that saves when clicked. On the right: the build profile, a **PCSX2 | PS2** switch for the run target, Build, a green **Run** button and Stop. [The editor's look](https://github.com/doctorspider42/tyraX/blob/main/docs/editor-theme.md)
+- **A status bar** along the bottom: the BUILDING / BUILD FAILED, LIVE, DBG, LOGIC and SESSION chips moved there from the top, with the scene's object and selection counts on the right. The Project panel no longer repeats the project's details and scene list - they are in the top bar.
 
 ## 1.172.0 - 2026-10-12
 
