@@ -109,11 +109,11 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
-    // Credits Editor: the preview strip's share of the window HEIGHT
-    // (0.15..0.75), set by dragging the splitter above it. Same reasoning as
+    // Credits Editor: the block list's share of the window WIDTH
+    // (0.18..0.36), set by dragging the splitter beside it. Same reasoning as
     // matEdSplit - how much room a preview deserves is a property of the
     // monitor and of what you are doing, not of the project.
-    float creditsSplit = 0.42f;
+    float creditsSplit = 0.3f;
     // Lighting the Material / Animation Editor previews bake with: "" = the
     // scene's ambience, "*" = the neutral studio default, anything else = an
     // ambience preset name. A view preference of this machine, not project

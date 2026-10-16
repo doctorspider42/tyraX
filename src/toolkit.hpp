@@ -117,5 +117,38 @@ void Monogram(ImDrawList* dl, ImVec2 c, float radius, const char* initials, ImU3
  * high filling the row, accent ring when selected. The caller draws the
  * content into the rect it reports (GetItemRectMin/Max). Returns clicked. */
 bool ChoiceCard(const char* label, bool selected, float height);
+// --- screens-c ---
+// Pieces the screen editors (Menu Editor, Menu Preview, Credits, Save Editor)
+// share: pill tabs with a detail, quiet chip buttons, small icon buttons,
+// meters and role pills.
+
+/** A pill tab: `label` (the ID and --ui-script name) with `detail` dim in the
+ * mono face after it ("end-credits 0:33"). Accent-tinted when `selected`;
+ * reported as checkable with `selected`. Returns clicked. */
+bool PillTab(const char* label, const char* detail, bool selected);
+/** Width a PillTab with this label/detail takes. */
+float PillTabWidth(const char* label, const char* detail);
+
+/** A quiet rounded chip button ("+ Row", "Replay open"): a raised fill, the
+ * accent tint when `active`. `width` 0 = fit. Returns clicked. */
+bool ChipButton(const char* label, bool active = false, float width = 0.0f, bool enabled = true);
+float ChipButtonWidth(const char* label);
+
+/** The icons ToolIconButton draws. */
+enum class ToolIcon { Play, Pause, Restart, PopOut, Up, Down, Plus };
+/** A square icon-only button named `label` (the ID, --ui-script name and
+ * tooltip). `size` 0 = one frame high. Returns clicked. */
+bool ToolIconButton(const char* label, ToolIcon icon, float size = 0.0f, bool enabled = true);
+
+/** A thin horizontal meter `width` px wide (0 = fill): `fraction` of it in the
+ * accent, or the warn/danger colour past `warnAt`/`dangerAt`. */
+void Meter(float fraction, float width = 0.0f, float warnAt = 2.0f, float dangerAt = 2.0f);
+
+/** A small rounded tag in a colour (role pills: "Title screen", "Save menu").
+ * kind as Badge (0 ok, 1 warn, 2 danger, 3 accent, 4 dim, 5 special). Draws at
+ * the cursor and advances like Badge. */
+void Pill(const char* text, int kind);
+float PillWidth(const char* text);
+// --- end screens-c ---
 
 }  // namespace ui

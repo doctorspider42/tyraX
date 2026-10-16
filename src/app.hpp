@@ -2903,9 +2903,9 @@ private:
     int crSelBlock_ = -1;
     float crPreviewTime_ = 0.0f;
     bool crPreviewPlaying_ = false;
-    // The preview strip's share of the window height, dragged on the splitter
-    // above it and persisted in editor.ini (machine setting, like matEdSplit_).
-    float creditsSplit_ = 0.42f;
+    // The block list's share of the window width, dragged on the splitter
+    // beside it and persisted in editor.ini (machine setting, like matEdSplit_).
+    float creditsSplit_ = 0.3f;
     std::vector<unsigned int> crPreviewTex_;  // one GL texture per page
     // What those textures were baked FROM: a copy of the roll (compared with
     // its operator==, so a new field can never be forgotten here the way a
@@ -2924,6 +2924,24 @@ private:
     // The roll's total running time in seconds, as the generated player will
     // pace it - what the window reports next to the page count.
     float creditsDuration(const CreditsRoll& r) const;
+    // When block `i` of the previewed roll is centred on screen (crLayout_).
+    float creditsBlockTime(const CreditsRoll& r, int i) const;
+    int crTab_ = 1;               // Look / Playback / Block
+    bool crTabForce_ = true;      // crTab_ changed in code: select it this frame
+    bool crPreviewSeek_ = true;   // move the playhead to the first content
+    bool crImportRequest_ = false;  // open the import picker outside the popup
+    // A "used by / started by / handled by" link the screen editors show: a
+    // line of text and where a click goes - a menu (Menu Editor) or one
+    // object's flow graph.
+    struct ToolRef {
+        std::string text;
+        int menu = -1;
+        int scene = -1, object = -1;
+    };
+    std::vector<ToolRef> creditsStartedBy(const std::string& roll) const;
+    // Shows that object's graph in the Flow Graph window (active scene only;
+    // anything else says where it is in the status bar).
+    void openGraphOf(int scene, int object);
     void drawCreditsWindow();
     // Import a text file (docs/credits.md markup) into `r`, replacing its
     // blocks. Returns an error message, or "" on success.

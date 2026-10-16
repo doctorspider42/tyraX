@@ -487,3 +487,192 @@ bool ChoiceCard(const char* label, bool selected, float height) {
 }
 
 }  // namespace ui
+
+// --- screens-c ---
+namespace ui {
+namespace {
+
+ImU32 pillKindCol(int kind) {
+    if (kind == 5) return c32(theme::semantics().special);
+    return kindCol(kind);
+}
+
+float pillPadX() { return ImGui::GetFontSize() * 0.6f; }
+
+}  // namespace
+
+float PillTabWidth(const char* label, const char* detail) {
+    float w = ImGui::CalcTextSize(label, ImGui::FindRenderedTextEnd(label)).x + pillPadX() * 2.0f;
+    if (detail && *detail) {
+        FontScope mono(monoFont());
+        w += ImGui::CalcTextSize(detail).x + ImGui::GetStyle().ItemInnerSpacing.x;
+    }
+    return w;
+}
+
+bool PillTab(const char* label, const char* detail, bool selected) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = PillTabWidth(label, detail), h = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const ImGuiID id = ImGui::GetItemID();
+    ImGuiContext& g = *GImGui;
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label,
+                                g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                    (selected ? ImGuiItemStatusFlags_Checked : 0));
+    (void)g;
+    const float t = theme::hoverAnim(id, ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = h * 0.5f;
+    if (selected) {
+        dl->AddRectFilled(p, q, c32(sem.accent, 0.16f), r);
+        dl->AddRect(p, q, c32(sem.accent, 0.45f), r);
+    } else {
+        dl->AddRectFilled(p, q, c32(sem.surface, 0.6f + 0.4f * t), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+    }
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
+    float x = p.x + pillPadX();
+    dl->AddText(ImVec2(x, ty), c32(selected ? sem.text : mixv(sem.text, sem.textDim, 0.25f)), label, end);
+    if (detail && *detail) {
+        x += ImGui::CalcTextSize(label, end).x + ImGui::GetStyle().ItemInnerSpacing.x;
+        FontScope mono(monoFont());
+        dl->AddText(ImVec2(x, ty), c32(sem.textDim, 0.9f), detail);
+    }
+    return pressed;
+}
+
+float ChipButtonWidth(const char* label) {
+    return ImGui::CalcTextSize(label, ImGui::FindRenderedTextEnd(label)).x + pillPadX() * 2.0f;
+}
+
+bool ChipButton(const char* label, bool active, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = width > 0.0f ? width : ChipButtonWidth(label);
+    const float h = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    ImGui::EndDisabled();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), enabled && ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = h * 0.5f;
+    if (active) {
+        dl->AddRectFilled(p, q, c32(sem.accent, 0.16f + 0.08f * t), r);
+        dl->AddRect(p, q, c32(sem.accent, 0.4f), r);
+    } else {
+        dl->AddRectFilled(p, q, c32(mixv(sem.surface, sem.text, 0.04f + 0.06f * t)), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+    }
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 ts = ImGui::CalcTextSize(label, end);
+    const ImU32 ink = !enabled ? c32(sem.textDim, 0.6f)
+                               : active ? c32(mixv(sem.accent, sem.text, 0.45f))
+                                        : c32(mixv(sem.text, sem.textDim, 0.15f));
+    dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), ink, label, end);
+    return pressed && enabled;
+}
+
+bool ToolIconButton(const char* label, ToolIcon icon, float size, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const float s = size > 0.0f ? size : ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(s, s));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + s, p.y + s);
+    const float r = ImGui::GetStyle().FrameRounding;
+    dl->AddRectFilled(p, q, c32(mixv(sem.surface, sem.text, 0.03f + 0.07f * t)), r);
+    const ImU32 ink = enabled ? c32(sem.text, 0.9f) : c32(sem.textDim, 0.5f);
+    const ImVec2 c(p.x + s * 0.5f, p.y + s * 0.5f);
+    const float u = s * 0.18f, th = ImMax(1.2f, s * 0.06f);
+    switch (icon) {
+        case ToolIcon::Play:
+            dl->AddTriangleFilled(ImVec2(c.x - u * 0.8f, c.y - u * 1.1f), ImVec2(c.x - u * 0.8f, c.y + u * 1.1f),
+                                  ImVec2(c.x + u * 1.1f, c.y), ink);
+            break;
+        case ToolIcon::Pause:
+            dl->AddRectFilled(ImVec2(c.x - u * 0.9f, c.y - u), ImVec2(c.x - u * 0.25f, c.y + u), ink, 1.0f);
+            dl->AddRectFilled(ImVec2(c.x + u * 0.25f, c.y - u), ImVec2(c.x + u * 0.9f, c.y + u), ink, 1.0f);
+            break;
+        case ToolIcon::Restart: {
+            const float a0 = 3.14159f * 1.3f, a1 = 3.14159f * 2.95f;
+            dl->PathArcTo(c, u * 1.1f, a0, a1, 16);
+            dl->PathStroke(ink, 0, th);
+            const ImVec2 a(c.x + std::cos(a0) * u * 1.1f, c.y + std::sin(a0) * u * 1.1f);
+            dl->AddTriangleFilled(ImVec2(a.x - u * 0.6f, a.y - u * 0.1f), ImVec2(a.x + u * 0.3f, a.y - u * 0.55f),
+                                  ImVec2(a.x + u * 0.15f, a.y + u * 0.5f), ink);
+            break;
+        }
+        case ToolIcon::PopOut:
+            dl->AddRect(ImVec2(c.x - u * 1.1f, c.y - u * 0.7f), ImVec2(c.x + u * 0.7f, c.y + u * 1.1f), ink, 1.5f,
+                        0, th);
+            dl->AddLine(ImVec2(c.x - u * 0.1f, c.y + u * 0.1f), ImVec2(c.x + u * 1.2f, c.y - u * 1.2f), ink, th);
+            dl->AddLine(ImVec2(c.x + u * 0.4f, c.y - u * 1.2f), ImVec2(c.x + u * 1.2f, c.y - u * 1.2f), ink, th);
+            dl->AddLine(ImVec2(c.x + u * 1.2f, c.y - u * 1.2f), ImVec2(c.x + u * 1.2f, c.y - u * 0.4f), ink, th);
+            break;
+        case ToolIcon::Up:
+        case ToolIcon::Down: {
+            const float d = icon == ToolIcon::Up ? -1.0f : 1.0f;
+            dl->AddLine(ImVec2(c.x - u, c.y - d * u * 0.45f), ImVec2(c.x, c.y + d * u * 0.55f), ink, th);
+            dl->AddLine(ImVec2(c.x, c.y + d * u * 0.55f), ImVec2(c.x + u, c.y - d * u * 0.45f), ink, th);
+            break;
+        }
+        case ToolIcon::Plus:
+            dl->AddLine(ImVec2(c.x - u, c.y), ImVec2(c.x + u, c.y), ink, th);
+            dl->AddLine(ImVec2(c.x, c.y - u), ImVec2(c.x, c.y + u), ink, th);
+            break;
+    }
+    if (hov && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        const char* end = ImGui::FindRenderedTextEnd(label);
+        ImGui::SetTooltip("%.*s", (int)(end - label), label);
+    }
+    return pressed && enabled;
+}
+
+void Meter(float fraction, float width, float warnAt, float dangerAt) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
+    const float lineH = ImGui::GetTextLineHeight();
+    const float h = ImMax(3.0f, ImGui::GetFontSize() * 0.28f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float y = p.y + (lineH - h) * 0.5f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + w, y + h), c32(sem.field), h);
+    const float f = ImClamp(fraction, 0.0f, 1.0f);
+    const ImVec4 col = fraction >= dangerAt ? sem.danger : fraction >= warnAt ? sem.warn : sem.accent;
+    if (f > 0.0f) dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + ImMax(h, w * f), y + h), c32(col), h);
+    ImGui::Dummy(ImVec2(w, lineH));
+}
+
+float PillWidth(const char* text) {
+    const float fs = ImGui::GetFontSize() * 0.82f;
+    return ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text).x + fs * 1.1f;
+}
+
+void Pill(const char* text, int kind) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize() * 0.82f;
+    ImFont* f = ImGui::GetFont();
+    const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, text);
+    const float padX = fs * 0.55f, h = fs + 5.0f;
+    const float lineH = ImGui::GetTextLineHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float y = p.y + (lineH - h) * 0.5f;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec4 base = ImGui::ColorConvertU32ToFloat4(pillKindCol(kind));
+    dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + ts.x + padX * 2.0f, y + h),
+                      c32(kind == 4 ? sem.surface : base, kind == 4 ? 1.0f : 0.14f), h * 0.5f);
+    dl->AddText(f, fs, ImVec2(p.x + padX, y + 2.5f),
+                kind == 4 ? c32(sem.textDim) : c32(mixv(base, sem.text, 0.2f)), text);
+    ImGui::Dummy(ImVec2(ts.x + padX * 2.0f, lineH));
+}
+
+}  // namespace ui
+// --- end screens-c ---
