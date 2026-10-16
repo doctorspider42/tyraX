@@ -1432,33 +1432,9 @@ void App::drawMainMenus() {
                             hasProject_ && (pastePending_ || !clipboard_.empty())))
             pasteObject();
         ImGui::Separator();
+        // The modal seeds its own fields when it opens (the start page opens
+        // it too).
         if (ImGui::MenuItem("Preferences...")) {
-            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
-                     globalEmulatorPath_.c_str());
-            snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
-            prefConsoleLogLines_ = globalConsoleLogLines_;
-            prefConsoleLogFiles_ = globalConsoleLogFiles_;
-            snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
-                     globalToolchainImage_.c_str());
-            prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
-            snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
-                     globalDefaultProjectsDir_.c_str());
-            snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
-                     globalDisplayName_.c_str());
-            snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
-                     globalSessionCacheDir_.c_str());
-            prefAiBackend_ = 0;
-            {
-                const auto ids = aigen::backendIds();
-                for (int i = 0; i < (int)ids.size(); ++i)
-                    if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
-            }
-            snprintf(prefAiModel_, sizeof(prefAiModel_), "%s",
-                     globalAi_.model.c_str());
-            prefAiCustomModel_ = true;
-            for (const char* m : aigen::modelPresets(globalAi_.backend))
-                if (globalAi_.model == m) prefAiCustomModel_ = false;
-            prefAiThinking_ = globalAi_.thinking;
             openEditorPrefsPopup_ = true;
         }
         ImGui::EndMenu();
@@ -17312,291 +17288,81 @@ void App::drawPreferencesWindow() {
 }
 
 // Machine-global editor settings (Edit > Preferences), stored in editor.ini and
-// shared by every project on this PC: the emulator path and the dev-PS2 IP.
-// Applied on Save - persisted to the global config and pushed into the open
-// project so the Runner (which reads project_) picks them up immediately.
+// shared by every project on this machine. ONE commit model, the Project
+// Preferences one: every change applies the moment it is made (text fields
+// on Enter / leaving the field) and is saved to editor.ini right away; the
+// footer has one Done. It used to stage the text fields for Save while the
+// theme, title-bar and update switches saved themselves - so Cancel did not
+// cancel half of the dialog.
 void App::drawEditorPreferencesModal() {
+    namespace stdfs = std::filesystem;
     if (openEditorPrefsPopup_) {
         ImGui::OpenPopup("Editor Preferences");
         openEditorPrefsPopup_ = false;
-    }
-
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    // AN EXPLICIT SIZE, NOT AlwaysAutoResize - the Project Preferences shape,
-    // for the reason that dialog documents. This one had grown past the screen
-    // too: with the AI assistant section in it, Save and Cancel sat ~700 px
-    // BELOW the bottom of a 1080p display and could only be reached by
-    // scrolling the whole dialog first (measured with `--ui-script dump`: the
-    // buttons at y=2707 in a 1973-high window). The footer is outside the
-    // scrolling body now, so it stays one click away however much anybody adds
-    // above it.
-    ImGui::SetNextWindowSize(
-        ImVec2(scaled(560),
-               std::min(scaled(760), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
-        ImGuiCond_Appearing);
-
-    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr, 0)) return;
-
-    const float footerH =
-        ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0f;
-    ImGui::BeginChild("##body", ImVec2(0, -footerH));
-
-    ImGui::TextDisabled(
-        "Settings for this editor installation - shared by every project and\n"
-        "stored outside the .tyra file (in editor.ini, next to the other machine "
-        "settings).");
-
-    // Appearance applies IMMEDIATELY and saves itself, unlike the staged text
-    // fields below: a theme you cannot see until you press Save is a theme you
-    // cannot choose. Same reasoning as the Navigation modal.
-    ImGui::SeparatorText("Appearance");
-    if (ImGui::BeginCombo("Theme", theme::info(theme_).label)) {
-        for (int i = 0; i < (int)theme::Id::Count; ++i) {
-            const theme::Info& ti = theme::info((theme::Id)i);
-            if (ImGui::Selectable(ti.label, theme_ == (theme::Id)i))
-                setTheme((theme::Id)i);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
-        }
-        ImGui::EndCombo();
-    }
-    {
-        // prefHelp takes a plain string, and this one reports live state.
-        char tip[256];
-        snprintf(tip, sizeof(tip),
-                 "Interface font: %s, numbers in %s (built in; the system fonts\n"
-                 "fill in missing symbols). Scale: View > Interface scale - currently %d%%%s.",
-                 uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
-                 monoFontLabel_.empty() ? "the interface font" : monoFontLabel_.c_str(),
-                 (int)std::lround(uiScaleApplied_ * 100.0f),
-                 uiScaleUser_ == 0.0f ? " (auto)" : "");
-        prefHelp(tip);
-    }
-    // The theme's own one-liner stays inline: it changes with the selection, so
-    // it is a readout rather than documentation.
-    ImGui::TextDisabled("%s", theme::info(theme_).desc);
-
-    // Saves itself like the theme, but only takes effect at the next start
-    // (App::run merges the title bar once - docs/editor-theme.md "Title bar").
-    ImGui::BeginDisabled(!platform::titleBarMergeSupported());
-    if (ImGui::Checkbox("Use the native title bar", &nativeTitleBar_)) saveGlobalConfig();
-    ImGui::EndDisabled();
-    prefHelp(platform::titleBarMergeSupported()
-                 ? "Off: the system title bar is merged into the editor's top bar\n"
-                   "(drag its empty parts, double-click to zoom). On: the OS draws\n"
-                   "its own title bar above it. Takes effect when TyraX restarts."
-                 : "Linux always uses the desktop's own title bar.");
-    if (nativeTitleBar_ == titleBarMerged_ && platform::titleBarMergeSupported())
-        ImGui::TextDisabled("Restart TyraX to apply.");
-
-    ImGui::SeparatorText("New projects");
-    ImGui::InputText("Default folder", prefDefaultProjectsDir_,
-                     sizeof(prefDefaultProjectsDir_));
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Browse...##projdir")) {
-        const std::string dir = pickFolder();
-        if (!dir.empty())
-            snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
-                     dir.c_str());
-    }
-    if (prefDefaultProjectsDir_[0] != '\0') {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##projdir")) prefDefaultProjectsDir_[0] = '\0';
-    }
-    prefHelp(
-        "Parent folder proposed as the location when you create a new project\n"
-        "(File > New Project). Leave empty to default to ~/TyraProjects.");
-
-    ImGui::SeparatorText("Emulator");
-    ImGui::InputText("PCSX2 path", prefEmulatorPath_, sizeof(prefEmulatorPath_));
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Browse...##pcsx2")) {
-        const std::string exe = pickExeFile();
-        if (!exe.empty())
-            snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s", exe.c_str());
-    }
-    if (prefEmulatorPath_[0] != '\0') {
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Clear##pcsx2")) prefEmulatorPath_[0] = '\0';
-    }
-    prefHelp(
-        "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
-        "under Program Files. The emulator's log appears in the Debug window.");
-
-    ImGui::SeparatorText("Real PS2 (network deploy)");
-    ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
-    prefHelp(
-        "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
-        "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
-        "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
-    ImGui::InputInt("Console log lines", &prefConsoleLogLines_, 1000, 10000);
-    if (prefConsoleLogLines_ < 0) prefConsoleLogLines_ = 0;
-    prefHelp(
-        "Every Run on PS2 session also writes the console's log to\n"
-        "<project>/logs/ps2-<date>-<time>.log, flushed line by line, so a crash\n"
-        "or an unwatched run still leaves a record. A file keeps the last this\n"
-        "many lines (it holds up to twice that before trimming). 0 = no file.");
-    ImGui::InputInt("Console logs kept", &prefConsoleLogFiles_, 1, 5);
-    if (prefConsoleLogFiles_ < 1) prefConsoleLogFiles_ = 1;
-    prefHelp(
-        "How many session files stay in a project's logs/ folder. Starting a\n"
-        "session deletes the oldest ones beyond this.");
-
-    ImGui::SeparatorText("Build toolchain");
-    const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
-    ImGui::Combo("Build backend", &prefBuildBackend_, backendLabels, 2);
-    prefHelp(
-        "Native is the default and needs no Docker daemon. On Linux and macOS it\n"
-        "runs the bundled PS2DEV/OpenVCL toolchain directly; on Windows the same\n"
-        "pinned Linux toolchain runs through WSL. The first build provisions it in\n"
-        "the editor cache. Docker remains available as a compatibility fallback.");
-
-    ImGui::BeginDisabled(prefBuildBackend_ != 1);
-    // The buffer is the single truth and the combo is a shortcut into it: the
-    // selected row is DERIVED from the text every frame, so typing an image by
-    // hand cannot leave the two disagreeing. Empty is a real choice, not an
-    // unset value - it means "say nothing", which is what keeps a project's own
-    // .env working.
-    struct ToolchainChoice {
-        const char* label;
-        const char* image;
-    };
-    // The GHCR row names the FROM-SOURCE package, because that is the only one
-    // CI publishes. The inherited image stays in the repo as the A/B reference
-    // against Sony's vcl and is built locally (docker/build.*), which is what
-    // the "locally built" row picks up - it is the tag those scripts default to.
-    static const ToolchainChoice kToolchains[] = {
-        {"Project default (.env, else h4570/tyra)", ""},
-        {"Original Tyra (h4570/tyra)", "h4570/tyra"},
-        {"TyraX toolchain (GHCR)",
-         "ghcr.io/doctorspider42/tyrax-toolchain-src:latest"},
-        {"TyraX toolchain (locally built)", "tyrax-toolchain:local"},
-    };
-    int toolchainSel = -1;  // -1 = none of the presets, i.e. a custom image
-    for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i)
-        if (std::strcmp(prefToolchainImage_, kToolchains[i].image) == 0) toolchainSel = i;
-    const char* toolchainLabel =
-        toolchainSel >= 0 ? kToolchains[toolchainSel].label : "Custom";
-    if (ImGui::BeginCombo("Compiler image", toolchainLabel)) {
-        for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i) {
-            if (ImGui::Selectable(kToolchains[i].label, toolchainSel == i))
-                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
-                         kToolchains[i].image);
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::InputText("Image name", prefToolchainImage_, sizeof(prefToolchainImage_));
-    prefHelp(
-        "Docker image the GAME is compiled in - not the editor. The TyraX image\n"
-        "is built from the official ps2dev base with a from-source VU assembler,\n"
-        "the audsrv fork and our patched ps2link (docs/toolchain-image.md); pick\n"
-        "Original Tyra to fall back on the 2022 image every game here was built\n"
-        "with - it is also the only one carrying Sony's vcl.\n"
-        "The GHCR image needs a docker login while this repo is private.\n"
-        "Leave empty to decide nothing here, so a project's own .env still wins.\n"
-        "Changing this rebuilds the engine and the VU microcode on the next build.\n"
-        "\n"
-        "Headless builds (tyrax-editor --build) do not read this - they follow the\n"
-        "project's .env, the same way they auto-detect the emulator.");
-    ImGui::EndDisabled();
-
-    ImGui::SeparatorText("Collaboration sessions");
-    ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
-    prefHelp(
-        "The name other participants see in a live session. Leave empty to\n"
-        "use your Windows user name.");
-    ImGui::InputText("Joined-project cache", prefSessionCacheDir_,
-                     sizeof(prefSessionCacheDir_));
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Browse...##sesscache")) {
-        const std::string dir = pickFolder();
-        if (!dir.empty())
-            snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
-                     dir.c_str());
-    }
-    prefHelp(
-        "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
-        "files never transfer twice). Leave empty for\n"
-        "the editor config folder (remote-cache).");
-
-    ImGui::SeparatorText("AI assistant");
-    {
-        const auto ids = aigen::backendIds();
-        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size())
-            prefAiBackend_ = 0;
-        if (ImGui::BeginCombo("Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+        // Seed the edit buffers from the live settings.
+        snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s", globalEmulatorPath_.c_str());
+        snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+        prefConsoleLogLines_ = globalConsoleLogLines_;
+        prefConsoleLogFiles_ = globalConsoleLogFiles_;
+        snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s", globalToolchainImage_.c_str());
+        prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
+        snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
+                 globalDefaultProjectsDir_.c_str());
+        snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s", globalDisplayName_.c_str());
+        snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s", globalSessionCacheDir_.c_str());
+        prefAiBackend_ = 0;
+        {
+            const auto ids = aigen::backendIds();
             for (int i = 0; i < (int)ids.size(); ++i)
-                if (ImGui::Selectable(aigen::backendLabel(ids[i]),
-                                      prefAiBackend_ == i))
-                    prefAiBackend_ = i;
-            ImGui::EndCombo();
+                if (globalAi_.backend == ids[i]) prefAiBackend_ = i;
         }
-        // Model: a dropdown of the backend's known models plus "Custom..." -
-        // picking Custom opens a free-text field, so brand-new models work
-        // the day they ship. "" = the backend's default model.
-        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
-        auto modelLabel = [](const char* m) {
-            return *m ? m : "Backend default";
-        };
-        // A staged model the list doesn't know (hand-typed earlier, or the
-        // backend just changed) can only be shown as Custom.
-        bool listed = false;
-        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
-        if (!listed) prefAiCustomModel_ = true;
-        if (ImGui::BeginCombo("Model", prefAiCustomModel_
-                                           ? "Custom..."
-                                           : modelLabel(prefAiModel_))) {
-            for (const char* m : models) {
-                const bool sel =
-                    !prefAiCustomModel_ && prefAiModel_ == std::string(m);
-                if (ImGui::Selectable(modelLabel(m), sel)) {
-                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
-                    prefAiCustomModel_ = false;
-                }
+        snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", globalAi_.model.c_str());
+        prefAiCustomModel_ = true;
+        for (const char* m : aigen::modelPresets(globalAi_.backend))
+            if (globalAi_.model == m) prefAiCustomModel_ = false;
+        prefAiThinking_ = globalAi_.thinking;
+        prefSearch_[0] = '\0';
+        // What an empty PCSX2 path means on this machine (the disk is probed
+        // once per open, not per frame).
+        prefDetectedPcsx2_ = detectEmulatorPath();
+        // The theme cards' swatches: each theme's palette read once by
+        // applying it to a scratch style, then the current theme re-applied.
+        if (!prefSwatchesReady_) {
+            prefSwatchesReady_ = true;
+            for (int i = 0; i < (int)theme::Id::Count && i < 4; ++i) {
+                ImGuiStyle tmp;
+                theme::apply((theme::Id)i, tmp);
+                const theme::Semantics& s = theme::semantics();
+                prefSwatches_[i][0] = tmp.Colors[ImGuiCol_WindowBg];
+                prefSwatches_[i][1] = s.surface;
+                prefSwatches_[i][2] = s.accent;
+                prefSwatches_[i][3] = s.ok;
+                prefSwatches_[i][4] = s.special;
             }
-            if (ImGui::Selectable("Custom...", prefAiCustomModel_))
-                prefAiCustomModel_ = true;
-            ImGui::EndCombo();
-        }
-        if (prefAiCustomModel_)
-            ImGui::InputTextWithHint("Model id", "as the backend expects it",
-                                     prefAiModel_, sizeof(prefAiModel_));
-        ImGui::Checkbox("Thinking", &prefAiThinking_);
-        prefHelp(
-            "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
-            "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
-            "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
-            "uses curl. Thinking = extended reasoning where the backend\n"
-            "supports it (slower, better on tricky logic).");
-    }
-
-    // Applies IMMEDIATELY and saves itself, like the theme above and unlike the
-    // staged text fields: it is one switch, and staging it would make Cancel
-    // read as "do not check for updates" (docs/updates.md).
-    ImGui::SeparatorText("Updates");
-    if (ImGui::Checkbox("Check for updates at startup", &globalUpdateCheck_))
-        saveGlobalConfig();
-    prefHelp(
-        "Asks GitHub once, at startup, whether there is a newer TyraX, and\n"
-        "says so only if there is. Off means nothing leaves this machine on\n"
-        "its own - Help > Check for updates still works whenever you ask.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(updateChecking_ || updateDownloading_);
-    if (ImGui::SmallButton("Check now")) startUpdateCheck(true);
-    ImGui::EndDisabled();
-    if (!globalUpdateSkip_.empty()) {
-        ImGui::TextDisabled("Skipping %s.", globalUpdateSkip_.c_str());
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop skipping")) {
-            globalUpdateSkip_.clear();
-            saveGlobalConfig();
+            // ImGui dark's apply() writes the CONTEXT style too - re-apply the
+            // whole current theme (colours, metrics, scale), not just semantics.
+            applyTheme();
         }
     }
 
-    ImGui::EndChild();  // the scrolling body; the footer below is pinned
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    // An explicit size, footer outside the scrolling body: the old one-long-
+    // scroll dialog put Save ~700 px below a 1080p screen.
+    ImGui::SetNextWindowSize(ImVec2(ImMin(scaled(900), vp->WorkSize.x * 0.95f),
+                                    ImMin(scaled(640), vp->WorkSize.y * 0.9f)),
+                             ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
+                                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar))
+        return;
 
-    ImGui::Separator();
-    if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float fs = ImGui::GetFontSize();
+
+    // Every edit lands here: buffers -> live settings -> editor.ini -> the
+    // open project (the Runner reads the transport fields off project_).
+    auto apply = [&]() {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
         globalConsoleLogLines_ = prefConsoleLogLines_;
@@ -17610,22 +17376,423 @@ void App::drawEditorPreferencesModal() {
         globalAi_.model = prefAiModel_;
         globalAi_.thinking = prefAiThinking_;
         saveGlobalConfig();
-        // Feed the new values into the open project (the Runner's transport).
         if (hasProject_) {
             project_.emulatorPath = globalEmulatorPath_;
             project_.ps2LinkIp = globalPs2Ip_;
             project_.consoleLogLines = globalConsoleLogLines_;
             project_.consoleLogFiles = globalConsoleLogFiles_;
-            // The Runner reads the image off the project too, so an already-open
-            // one has to be told now - otherwise the change only takes effect the
-            // next time the project is opened.
             project_.toolchainImage = globalToolchainImage_;
             project_.buildBackend = globalBuildBackend_;
         }
+        welcomeProbeAt_ = -1.0;  // the start page's chips re-read now
+    };
+
+    static const char* const kCats[] = {"Appearance", "Projects", "Running games", "Build",
+                                        "Collaboration", "AI assistant", "Updates"};
+    static const ui::Glyph kCatGlyph[] = {ui::Glyph::Paint,  ui::Glyph::Folder, ui::Glyph::Screen,
+                                          ui::Glyph::Box,    ui::Glyph::Person, ui::Glyph::Sparkle,
+                                          ui::Glyph::Rotate};
+    const int kCatCount = IM_ARRAYSIZE(kCats);
+    prefCategory_ = ImClamp(prefCategory_, 0, kCatCount - 1);
+    const bool needsRestart = platform::titleBarMergeSupported() && nativeTitleBar_ == titleBarMerged_;
+
+    const float footerH = ImGui::GetFrameHeight() + st.ItemSpacing.y * 2.0f + scaled(8);
+    const float bodyH = ImGui::GetContentRegionAvail().y - footerH;
+
+    // ---- sidebar: search + categories ----
+    ImGui::BeginChild("##prefs_nav", ImVec2(scaled(210), bodyH), ImGuiChildFlags_None);
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    ImGui::TextUnformatted("This machine, every project");
+    ImGui::PopStyleColor();
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##prefs_search", "Search settings", prefSearch_, sizeof(prefSearch_));
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+    for (int i = 0; i < kCatCount; ++i) {
+        const bool sel = prefSearch_[0] == '\0' && prefCategory_ == i;
+        const char* sub = (i == 0 && needsRestart) ? "restart" : "";
+        if (ui::ListRow(kCats[i], sub, sel, kCatGlyph[i], 0, true, ImGui::GetFrameHeight() + scaled(4))) {
+            prefCategory_ = i;
+            prefSearch_[0] = '\0';
+        }
+        if (sel) uiscript::markLastItemChecked(true);
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, scaled(16));
+
+    // ---- body ----
+    std::string query = prefSearch_;
+    for (char& c : query) c = (char)tolower((unsigned char)c);
+    int lastCatShown = -1;
+    // Whether the row (category, caption, description) is visible: its own
+    // category, or - while searching - any row whose text matches.
+    auto show = [&](int cat, const char* label, const char* desc) {
+        if (query.empty()) return cat == prefCategory_;
+        std::string hay = std::string(label) + " " + (desc ? desc : "") + " " + kCats[cat];
+        for (char& c : hay) c = (char)tolower((unsigned char)c);
+        if (hay.find(query) == std::string::npos) return false;
+        if (cat != lastCatShown) {
+            lastCatShown = cat;
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+            ui::Caption(kCats[cat]);
+        }
+        return true;
+    };
+    const float labelW = scaled(150);
+    float colX = 0.0f;
+    // A settings row: dim caption on the left, the control at the column.
+    auto rowStart = [&](const char* caption) {
+        colX = ImGui::GetCursorPosX() + labelW;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(caption);
+        ImGui::SameLine(colX);
+    };
+    // The description under a control, dim, wrapped, at the column.
+    auto rowDesc = [&](const char* text) {
+        ImGui::SetCursorPosX(colX);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+    };
+    // A path field with browse / clear buttons; commits on Enter, blur or a
+    // button. `hint` is what empty means.
+    auto pathField = [&](const char* label, char* buf, size_t n, const char* hint, bool exe) {
+        const float bw = ImGui::GetFrameHeight();
+        const bool has = buf[0] != '\0';
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - (bw + st.ItemSpacing.x) * (has ? 2 : 1));
+        ImGui::InputTextWithHint(label, hint, buf, n);
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        ImGui::SameLine();
+        ImGui::PushID(label);
+        if (ImGui::Button("...##browse", ImVec2(bw, 0))) {
+            const std::string picked = exe ? pickExeFile() : pickFolder();
+            if (!picked.empty()) {
+                snprintf(buf, n, "%s", picked.c_str());
+                apply();
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Browse...");
+        if (has) {
+            ImGui::SameLine();
+            if (ImGui::Button("x##clear", ImVec2(bw, 0))) {
+                buf[0] = '\0';
+                apply();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clear - back to the default");
+        }
+        ImGui::PopID();
+    };
+
+    ImGui::BeginChild("##prefs_body", ImVec2(0, bodyH), ImGuiChildFlags_None);
+    if (query.empty()) {
+        ui::FontScope bold(ui::boldFont());
+        ImGui::PushFont(nullptr, fs * 1.25f);
+        ImGui::TextUnformatted(kCats[prefCategory_]);
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(0, scaled(6)));
+    }
+
+    // ---- Appearance ----
+    if (show(0, "Theme", "Graphite Boot screen Memory card ImGui dark colour palette")) {
+        if (query.empty()) ui::Caption("Theme");
+        const int n = (int)theme::Id::Count;
+        const float gap = scaled(10);
+        const float cw = std::floor((ImGui::GetContentRegionAvail().x - gap) / 2.0f);
+        for (int i = 0; i < n; ++i) {
+            const theme::Info& ti = theme::info((theme::Id)i);
+            if (i % 2) ImGui::SameLine(0.0f, gap);
+            ImGui::PushID(i);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::BeginChild("##themecard", ImVec2(cw, fs * 5.2f), ImGuiChildFlags_None,
+                              ImGuiWindowFlags_NoScrollbar);
+            if (ui::ChoiceCard(ti.label, theme_ == (theme::Id)i, fs * 5.2f) && theme_ != (theme::Id)i)
+                setTheme((theme::Id)i);
+            if (theme_ == (theme::Id)i) uiscript::markLastItemChecked(true);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float pad = scaled(10);
+            // Swatches: background, panel, accent, ok, special.
+            if (i < 4)
+                for (int k = 0; k < 5; ++k) {
+                    const ImVec2 a(p.x + pad + k * (fs * 1.1f), p.y + pad);
+                    dl->AddRectFilled(a, ImVec2(a.x + fs * 0.95f, a.y + fs * 0.95f),
+                                      ImGui::GetColorU32(prefSwatches_[i][k]), 4.0f);
+                    dl->AddRect(a, ImVec2(a.x + fs * 0.95f, a.y + fs * 0.95f),
+                                ImGui::GetColorU32(sem.border), 4.0f);
+                }
+            {
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(ImVec2(p.x + pad + fs * 5.8f, p.y + pad - 1), ImGui::GetColorU32(sem.text), ti.label);
+            }
+            dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(p.x + pad, p.y + pad + fs * 1.5f),
+                        ImGui::GetColorU32(sem.textDim), ti.desc, nullptr, cw - pad * 2);
+            ImGui::EndChild();
+            ImGui::PopID();
+        }
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+    }
+    if (show(0, "Native title bar", "merged title bar restart system")) {
+        rowStart("Title bar");
+        ImGui::BeginDisabled(!platform::titleBarMergeSupported());
+        if (ui::Switch("Use the native title bar", &nativeTitleBar_)) saveGlobalConfig();
+        ImGui::EndDisabled();
+        if (needsRestart) {
+            ImGui::SameLine();
+            ui::Badge("Restart TyraX to apply", 1);
+        }
+        rowDesc(platform::titleBarMergeSupported()
+                    ? "Off: the system title bar is part of the editor's top bar. On: the OS draws its own."
+                    : "Linux always uses the desktop's own title bar.");
+    }
+    if (show(0, "Interface font", "font Geist scale zoom")) {
+        rowStart("Interface");
+        char line[200];
+        snprintf(line, sizeof(line), "%s, numbers in %s - %d%%%s", uiFontLabel_.empty() ? "built-in font" : uiFontLabel_.c_str(),
+                 monoFontLabel_.empty() ? "the interface font" : monoFontLabel_.c_str(),
+                 (int)std::lround(uiScaleApplied_ * 100.0f), uiScaleUser_ == 0.0f ? " (auto)" : "");
+        ImGui::TextUnformatted(line);
+        rowDesc("Built in. Scale: View > Interface scale (Ctrl+= / Ctrl+-).");
+    }
+
+    // ---- Projects ----
+    if (show(1, "Default folder", "new projects location TyraProjects examples copy")) {
+        rowStart("Default folder");
+        const std::string def = defaultNewProjectLocation("");
+        pathField("##projdir", prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_),
+                  ("Default: " + def).c_str(), false);
+        rowDesc("Where New Project proposes to create projects, and where opened examples are copied.");
+    }
+
+    // ---- Running games ----
+    if (show(2, "PCSX2", "emulator path pcsx2-qt run F5")) {
+        if (query.empty()) ui::Caption("Emulator");
+        rowStart("PCSX2");
+        const std::string hint = prefDetectedPcsx2_.empty() ? std::string("Not found - Browse to the PCSX2 app")
+                                                            : "Auto-detected: " + prefDetectedPcsx2_;
+        // Keep the old label as the ID (docs and scripts name "PCSX2 path").
+        pathField("##PCSX2 path", prefEmulatorPath_, sizeof(prefEmulatorPath_), hint.c_str(), true);
+        std::error_code ec;
+        if (prefEmulatorPath_[0]) {
+            const bool ok = stdfs::exists(prefEmulatorPath_, ec);
+            ImGui::SetCursorPosX(colX);
+            ui::StatusLine(ok ? 0 : 2, ok ? "Found" : "No file at this path - Run cannot start PCSX2");
+        } else {
+            ImGui::SetCursorPosX(colX);
+            ui::StatusLine(prefDetectedPcsx2_.empty() ? 1 : 0,
+                           prefDetectedPcsx2_.empty() ? "Not found - install PCSX2 or browse to it"
+                                                      : "Found automatically");
+        }
+        rowDesc("Used by Run (F5); its log shows in the Debug panel.");
+    }
+    if (show(2, "ps2link IP", "real PS2 console network deploy F6")) {
+        if (query.empty()) ui::Caption("Real PS2");
+        rowStart("ps2link IP");
+        ImGui::SetNextItemWidth(scaled(200));
+        ImGui::InputTextWithHint("##PS2 (ps2link) IP", "192.168.0.10", prefPs2Ip_, sizeof(prefPs2Ip_));
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        if (!prefPs2Ip_[0]) {
+            ImGui::SetCursorPosX(colX);
+            ui::StatusLine(1, "Not set - Run on PS2 (F6) stays off.");
+        }
+        rowDesc("A PS2 on this network running PS2LINK.ELF. The game boots over ethernet with assets served "
+                "from this computer.");
+    }
+    if (show(2, "Console log", "lines files kept logs ps2")) {
+        rowStart("Console log");
+        ImGui::SetNextItemWidth(scaled(110));
+        ImGui::InputInt("##Console log lines", &prefConsoleLogLines_, 0, 0);
+        if (prefConsoleLogLines_ < 0) prefConsoleLogLines_ = 0;
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        ImGui::SameLine();
+        ImGui::TextUnformatted("lines per file, keep");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(70));
+        ImGui::InputInt("##Console logs kept", &prefConsoleLogFiles_, 0, 0);
+        if (prefConsoleLogFiles_ < 1) prefConsoleLogFiles_ = 1;
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        ImGui::SameLine();
+        ImGui::TextUnformatted("files");
+        rowDesc("Every Run on PS2 session writes logs/ps2-<date>-<time>.log line by line, so a crash still "
+                "leaves a record. 0 lines = no file.");
+    }
+    if (query.empty() && prefCategory_ == 2) {
+        if (ui::BeginCard("##prefs_perproject")) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Debug profile, Live Link and the Live Debugger are per project.");
+            if (hasProject_) {
+                ImGui::SameLine();
+                if (ImGui::TextLink("Project Preferences")) {
+                    ImGui::CloseCurrentPopup();
+                    openProjectPreferences();
+                }
+            }
+        }
+        ui::EndCard();
+    }
+
+    // ---- Build ----
+    if (show(3, "Build backend", "native PS2DEV OpenVCL docker toolchain compiler image")) {
+        rowStart("Build backend");
+        const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::Combo("##Build backend", &prefBuildBackend_, backendLabels, 2)) apply();
+        rowDesc("Native needs no Docker: the bundled PS2DEV toolchain runs directly (through WSL on "
+                "Windows) and the first build sets it up in the editor cache. Docker is the compatibility "
+                "fallback.");
+    }
+    if (prefBuildBackend_ == 1 && show(3, "Compiler image", "docker image name GHCR h4570 tyra")) {
+        // The buffer is the single truth and the combo a shortcut into it.
+        struct ToolchainChoice {
+            const char* label;
+            const char* image;
+        };
+        static const ToolchainChoice kToolchains[] = {
+            {"Project default (.env, else h4570/tyra)", ""},
+            {"Original Tyra (h4570/tyra)", "h4570/tyra"},
+            {"TyraX toolchain (GHCR)", "ghcr.io/doctorspider42/tyrax-toolchain-src:latest"},
+            {"TyraX toolchain (locally built)", "tyrax-toolchain:local"},
+        };
+        int toolchainSel = -1;
+        for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i)
+            if (std::strcmp(prefToolchainImage_, kToolchains[i].image) == 0) toolchainSel = i;
+        rowStart("Compiler image");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##Compiler image", toolchainSel >= 0 ? kToolchains[toolchainSel].label : "Custom")) {
+            for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i)
+                if (ImGui::Selectable(kToolchains[i].label, toolchainSel == i)) {
+                    snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s", kToolchains[i].image);
+                    apply();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::Dummy(ImVec2(0, 0));
+        rowStart("Image name");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##Image name", "empty = the project's .env decides", prefToolchainImage_,
+                                 sizeof(prefToolchainImage_));
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        rowDesc("The Docker image the GAME compiles in (docs/toolchain-image.md). Changing it rebuilds the "
+                "engine on the next build. Headless --build follows the project's .env instead.");
+    }
+
+    // ---- Collaboration ----
+    if (show(4, "Display name", "session name peers collaboration")) {
+        rowStart("Display name");
+        const std::string user = platform::userName();
+        ImGui::SetNextItemWidth(scaled(240));
+        ImGui::InputTextWithHint("##Display name", user.empty() ? "user" : user.c_str(), prefDisplayName_,
+                                 sizeof(prefDisplayName_));
+        if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        rowDesc("What the other people in a live session see. Empty = your system user name.");
+    }
+    if (show(4, "Joined-project cache", "session cache folder remote")) {
+        rowStart("Joined-project cache");
+        const stdfs::path cfg = platform::configDir();
+        const std::string def = cfg.empty() ? std::string("the config folder") : (cfg / "remote-cache").string();
+        pathField("##sesscache", prefSessionCacheDir_, sizeof(prefSessionCacheDir_), ("Default: " + def).c_str(),
+                  false);
+        rowDesc("Where projects you join are kept; joining again fetches only what changed.");
+    }
+
+    // ---- AI assistant ----
+    if (show(5, "AI backend", "model thinking claude copilot openai generate flow graph")) {
+        const auto ids = aigen::backendIds();
+        if (prefAiBackend_ < 0 || prefAiBackend_ >= (int)ids.size()) prefAiBackend_ = 0;
+        rowStart("Backend");
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo("##Backend", aigen::backendLabel(ids[prefAiBackend_]))) {
+            for (int i = 0; i < (int)ids.size(); ++i)
+                if (ImGui::Selectable(aigen::backendLabel(ids[i]), prefAiBackend_ == i)) {
+                    prefAiBackend_ = i;
+                    apply();
+                }
+            ImGui::EndCombo();
+        }
+        rowDesc("Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot'; the OpenAI API needs OPENAI_API_KEY.");
+        // Model: the backend's known models plus Custom (a free-text id), so a
+        // brand-new model works the day it ships. "" = the backend default.
+        const auto models = aigen::modelPresets(ids[prefAiBackend_]);
+        auto modelLabel = [](const char* m) { return *m ? m : "Backend default"; };
+        bool listed = false;
+        for (const char* m : models) listed |= (prefAiModel_ == std::string(m));
+        if (!listed) prefAiCustomModel_ = true;
+        rowStart("Model");
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo("##Model", prefAiCustomModel_ ? "Custom..." : modelLabel(prefAiModel_))) {
+            for (const char* m : models)
+                if (ImGui::Selectable(modelLabel(m), !prefAiCustomModel_ && prefAiModel_ == std::string(m))) {
+                    snprintf(prefAiModel_, sizeof(prefAiModel_), "%s", m);
+                    prefAiCustomModel_ = false;
+                    apply();
+                }
+            if (ImGui::Selectable("Custom...", prefAiCustomModel_)) prefAiCustomModel_ = true;
+            ImGui::EndCombo();
+        }
+        if (prefAiCustomModel_) {
+            ImGui::Dummy(ImVec2(0, 0));
+            rowStart("Model id");
+            ImGui::SetNextItemWidth(scaled(260));
+            ImGui::InputTextWithHint("##Model id", "as the backend expects it", prefAiModel_, sizeof(prefAiModel_));
+            if (ImGui::IsItemDeactivatedAfterEdit()) apply();
+        }
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+        rowStart("Thinking");
+        if (ui::Switch("Extended thinking", &prefAiThinking_)) apply();
+        rowDesc("Extended reasoning where the backend supports it - slower, better on tricky logic. Used by "
+                "Flow Graph > Generate with AI and --ai-graph.");
+    }
+
+    // ---- Updates ----
+    if (show(6, "Check for updates at startup", "update version release github skip")) {
+        rowStart("At startup");
+        if (ui::Switch("Check for updates at startup", &globalUpdateCheck_)) saveGlobalConfig();
+        rowDesc("Asks GitHub once, at startup, and says something only when there is a newer TyraX. Off: "
+                "nothing leaves this machine on its own.");
+        rowStart("Now");
+        ImGui::BeginDisabled(updateChecking_ || updateDownloading_);
+        if (ImGui::Button("Check now")) startUpdateCheck(true);
+        ImGui::EndDisabled();
+        if (!updateStatus_.empty()) {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextUnformatted(updateStatus_.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+        if (!globalUpdateSkip_.empty()) {
+            rowStart("Skipped");
+            ImGui::Text("%s", globalUpdateSkip_.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Stop skipping")) {
+                globalUpdateSkip_.clear();
+                saveGlobalConfig();
+            }
+        }
+    }
+    if (!query.empty() && lastCatShown < 0) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::Text("No setting matches \"%s\".", prefSearch_);
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+
+    // ---- footer ----
+    ImGui::Separator();
+    ImGui::Dummy(ImVec2(0, scaled(2)));
+    const float footY = ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(footY + st.FramePadding.y);
+    ui::StatusLine(0, "Changes apply right away and are kept in editor.ini");
+    const float doneW = ImGui::CalcTextSize("Done").x + st.FramePadding.x * 5.0f;
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - doneW);
+    ImGui::SetCursorPosY(footY);
+    if (ui::PrimaryButton("Done", doneW) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        // A field still being typed in commits on the way out.
+        apply();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 

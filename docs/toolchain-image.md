@@ -92,7 +92,7 @@ committing one.
 
 Two doors, and they are for different jobs.
 
-**In the editor: *Edit > Preferences > Build toolchain*.** A combo with the images
+**In the editor: *Edit > Preferences > Build* (with the Docker fallback picked).** A combo with the images
 worth naming - the project default, the original `h4570/tyra`, this repo's
 published one (`tyrax-toolchain-src`), a locally built one (`tyrax-toolchain:local`,
 the tag `docker/build.*` writes, which is how the unpublished A/B reference is
@@ -4207,7 +4207,7 @@ moving a token breaks the ordering everything depends on.
 same toolchain from the official `ps2dev/ps2dev` base instead of inheriting the
 2022 `h4570/tyra` layers. `docker\build.ps1 -FromSource` / `docker/build.sh
 --from-source` builds it; the editor picks between the two per machine in
-*Edit > Preferences > Build toolchain*.
+*Edit > Preferences > Build* (with the Docker fallback picked).
 
 The base is **pinned by digest**, not by tag, the same way the inherited one is.
 Not because it is old - it is three months old against the inherited image's four

@@ -631,7 +631,7 @@ PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served fr
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
 *Output* as `[ps2]` lines, and into a bounded, crash-safe
 [`logs/` file](docs/ps2link-setup.md#the-session-log) per session. Set the IP in
-`Edit > Preferences > Real PS2`.
+`Edit > Preferences > Running games`.
 **Stop on PS2** ends the session and hands the console back to ps2link;
 **Power Off PS2** switches the console itself off, without leaving the desk.
 

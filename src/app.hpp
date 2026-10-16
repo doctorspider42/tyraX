@@ -3547,7 +3547,8 @@ private:
     // per-frame cost while a slider is being dragged.
     bool prefsViewportDirty_ = false;
 
-    // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
+    // "Editor Preferences" modal edit buffers (Edit > Preferences). Every
+    // change is applied and saved at once - the buffers only hold typing.
     // Machine-global settings, mirror of globalEmulatorPath_ / globalPs2Ip_.
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
@@ -3563,6 +3564,11 @@ private:
     // is not one of the backend's listed models (or the user picked Custom).
     bool prefAiCustomModel_ = false;
     bool prefAiThinking_ = false;
+    int prefCategory_ = 0;          // the sidebar's page (Appearance...)
+    char prefSearch_[64] = "";      // filters rows across every page
+    std::string prefDetectedPcsx2_; // what an empty PCSX2 path resolves to
+    bool prefSwatchesReady_ = false;
+    ImVec4 prefSwatches_[4][5];     // the theme cards' colours, read once
 
     // "Generate with AI" modal (Flow Graph window). The Generator runs on its
     // own worker thread; the modal polls it every frame, shows a spinner and a

@@ -84,7 +84,7 @@ Known v1 limitations:
   does not rehash unchanged assets every time.
 - Client cache: joined projects materialize under
   `<editor config folder>/remote-cache/<projectId>/project` (override in
-  *Edit > Preferences > Collaboration sessions*), with `cache.json` recording
+  *Edit > Preferences > Collaboration*), with `cache.json` recording
   size/hash/mtime per synced file. Only files that cache recorded are ever
   deleted by a re-sync — local build outputs are never touched.
 - Live sync: edits are detected by diffing the model against a shadow of the

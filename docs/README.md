@@ -267,6 +267,9 @@ a Mac) finds any command, object or window by name.
   the editor shows with nothing open: recent projects, the bundled examples
   opened as a copy, the setup checks, the New Project dialog and the loading
   card.
+- [Editor Preferences](editor-preferences.md) — the machine-wide settings
+  (theme, projects folder, PCSX2, ps2link IP, build backend, session name, AI
+  backend, updates): seven pages, search, applied as you change them.
 - [The editor's look: themes and the interface font](editor-theme.md) — the
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens

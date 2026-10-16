@@ -38,8 +38,8 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
-4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
-   > PS2 (ps2link) IP*. Machine-global, not project data, so you do this once.
+4. **Point the editor at it** — *Edit > Preferences > Running games
+   > ps2link IP*. Machine-global, not project data, so you do this once.
 5. **Run with F6**, stop with the top bar's Stop. That is it.
 
 Two things worth knowing before you hit a wall:
@@ -401,7 +401,7 @@ the baseline launch, and are excluded from the six cycles.
 
 ## 3. Point the editor at it
 
-*Edit > Preferences > Real PS2 (network deploy) > **PS2 (ps2link) IP***. This is
+*Edit > Preferences > Running games > **ps2link IP***. This is
 a **machine-global** editor setting (`editor.ini`), shared by every project —
 not project data, so it never travels in a `.tyra` file. Leave it empty to
 disable the F6 path entirely.
@@ -449,7 +449,7 @@ the path is printed in the Output panel as `[editor] Console log: ...`.
 - **Crash-safe.** Each line is flushed as it arrives, so the file is current up
   to the last line the console sent, whoever dies first.
 - **Bounded, in lines, not time.** A file keeps the last *Console log lines*
-  lines (Edit > Preferences > Real PS2, default 20 000). It is rewritten down to
+  lines (Edit > Preferences > Running games, default 20 000). It is rewritten down to
   that many each time it reaches twice as many, so the END of a session, which
   is what a crash leaves, is always there. 0 turns the file off.
 - **Bounded, in files.** At most *Console logs kept* sessions (default 10) stay

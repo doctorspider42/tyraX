@@ -1306,7 +1306,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
                 appendLine("[editor] Native toolchain files are missing. Run the editor "
                            "from a complete TyraX checkout/package (tools/toolchain and "
                            "vendor/tyra are required), or select Docker fallback in "
-                           "Edit > Preferences > Build toolchain.");
+                           "Edit > Preferences > Build.");
                 ok = false;
             } else {
                 const fs::path cache = config / "native-build" /
