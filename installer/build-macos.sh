@@ -179,7 +179,19 @@ notarize() {  # notarize <file to submit> <file to staple>
         echo "Notarization failed." >&2
         exit 1
     fi
-    xcrun stapler staple "$2"
+    # Stapling fetches the ticket from Apple's CloudKit, a separate service
+    # whose connection drops now and then ("The network connection was lost",
+    # Error 68) - after the notarization above was already accepted. Retry the
+    # fetch; never resubmit.
+    local attempt
+    for attempt in 1 2 3 4; do
+        xcrun stapler staple "$2" && return 0
+        [ "$attempt" -lt 4 ] || break
+        echo "stapler failed (attempt $attempt of 4), retrying in $((attempt * 15))s" >&2
+        sleep $((attempt * 15))
+    done
+    echo "Stapling $(basename "$2") failed; it IS notarized, so a re-run only has to staple." >&2
+    exit 1
 }
 if [ ${#NOTARY[@]} -gt 0 ] && [ "$SIGN" != "-" ]; then
     ditto -c -k --keepParent "$APP" "$WORK/TyraX-notarize.zip"

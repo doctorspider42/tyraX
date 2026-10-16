@@ -246,7 +246,10 @@ a machine without it loses the update check and nothing else.
 5. **release** — publishes the tag with generated notes and every package
    attached. It waits for the macOS job but does not need it to succeed: a
    notarization outage costs that release its `.dmg`, not its Windows and
-   Linux packages.
+   Linux packages. Re-running only the failed jobs (`gh run rerun <run-id>
+   --failed`) re-runs this one too, and on a tag that is already released it
+   uploads the packages into the existing release (`--clobber`) instead of
+   creating it - so the missing `.dmg` lands where it belongs.
 
 **`src/version.hpp` is where the version is authored** — in CI and on a
 developer's machine alike (`installer/build-installer.ps1` and
@@ -296,6 +299,15 @@ have Apple notarize it**, which takes five repository secrets
 Without them the job still builds an ad-hoc image (so the path stays tested)
 and the release carries no `.dmg`. The certificate goes into a throwaway
 keychain that the job deletes at the end.
+
+Notarizing is two calls to Apple: `notarytool submit --wait` (the verdict),
+then `stapler staple`, which fetches the ticket from a separate CloudKit
+service and writes it into the app and the image so they verify offline.
+That second connection drops now and then ("The network connection was
+lost", Error 68) after the submission was already accepted, so
+`build-macos.sh` retries the staple four times with a growing pause and never
+resubmits. If all four fail, the image is notarized but unstapled: re-run the
+failed job (above).
 
 ### Building packages yourself
 
