@@ -1968,7 +1968,12 @@ void App::drawMainMenus() {
         ImGui::SeparatorText("Gameplay");
         if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
         if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
-        if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+        if (ImGui::MenuItem("World Facts...")) {
+            // Focused, not just opened: docked as a background tab it would
+            // look like nothing happened (drawWorldFactsWindow).
+            showWorldFacts_ = true;
+            factFocusFrames_ = 3;
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "The game's central memory: named, typed facts like\n"

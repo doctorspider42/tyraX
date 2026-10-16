@@ -7,7 +7,14 @@ piece of world state — `world.power.state`, `characters.marta.trust`,
 flow graphs, combined into reusable conditions, reacted to by rules, and
 watched live while the game runs.
 
-![The World Facts catalog: nested names on the left and the selected fact's definition on the right.](img/world-facts.png)
+![The World Facts catalog: the nested names with their persistence and start value on the left, the selected fact's definition and who uses it on the right.](img/world-facts.png)
+
+*Tools > World Facts* opens the window in front (also when its tab is docked
+behind the Viewport). Its top row is the five tabs with their counts —
+*Catalog 17, Queries 5, Rules 5, Scenarios 4, Blackboard* — the connection
+state once for the whole window ("No game attached · showing start values", or
+green *Live*), and the validation chip (*1 note*, red *N problems*) that opens
+the list described under [Validation](#validation).
 
 It is the declared half of what the **Variables** flow nodes already do
 undeclared. Those keep working and are a separate namespace: a variable is a
@@ -39,6 +46,26 @@ scrolling. There is no length limit — the field writes into the string itself,
 so a paragraph pasted in or written by an example's build script survives
 being opened for editing (a fixed-size field would have truncated it silently,
 the worst way for a catalog to lose a sentence).
+
+The catalog is a list and a detail side by side. The list is a table: the
+type as a coloured mark (`?` yes/no, `#` whole number, `.0` number, `≡`
+one-of-several, `xyz` position), the name, a **Keeps** pill (Save game,
+Checkpoint, Session, Profile, or Computed) and the **Starts** value — or the
+live value, under **Now**, while a game is attached. Chips above it filter by
+persistence ("what survives a save?"), the box filters by name or meaning,
+and **+ Fact** is the window's one primary button.
+
+The detail reads top-down the way the fact is understood: the name (a
+breadcrumb of its groups above it), *What it means* right under it, then
+label-left rows — **Type**, **Starts at**, **Keeps its value** with its
+consequence spelled out in one line underneath, **Owned by**, and the
+*Computed from a query* switch. A wide window shows the choices as segmented
+controls, a narrow docked one as dropdowns. **Used by** is always open: every
+query, rule, scenario, computed fact and graph node that names the fact,
+colour-coded by kind, with *how* it uses it — `reads · trust >= 5`,
+`writes · +5`, `sets 8` — and a click on a query, rule or scenario jumps to it.
+*Delete fact* sits apart at the bottom and asks first, saying how many places
+still reference the fact.
 
 Names are hierarchical by convention, and the catalog list **nests on the
 dots**: `characters.marta.trust` sits under `characters` > `marta`. That is
@@ -234,7 +261,8 @@ situation once and press it.
 
 ## Validation
 
-The window always shows what it can know without running the game: duplicate
+The window always knows what it can without running the game — the chip at
+the end of its tab row counts it and opens the list: duplicate
 or empty names, writes to computed facts, unknown references, enum defaults
 outside their option list, scene-scoped facts asking to be saved, query cycles
 and rule reaction cycles. Errors are worth fixing before a build; notes are

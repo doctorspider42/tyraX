@@ -24,6 +24,7 @@
 #include "app_internal.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -31,6 +32,8 @@
 #include <vector>
 
 #include "facts.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
 
 #include <imgui.h>
 
@@ -50,6 +53,40 @@ std::string uniqueName(std::string base, Fn taken) {
 // A fact name is hierarchical by convention ("world.power.state"); the
 // catalog list nests on the dots and this is the last segment - the part a
 // leaf row shows once its groups are already on screen.
+// A segmented control when its options fit the row, else a combo with the
+// same ID - a docked, narrow window must not squeeze five words into one pill.
+// The combo's own right-hand label is clipped (the row's caption says it).
+bool choice(const char* id, const char* const* labels, int n, int* cur, float maxW) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    float natural = 6.0f;
+    for (int i = 0; i < n; ++i) natural += ImGui::CalcTextSize(labels[i]).x + st.FramePadding.x * 2.0f;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float w = maxW > 0.0f ? std::min(maxW, avail) : avail;
+    if (natural <= w) return ui::Segmented(id, labels, n, cur, w);
+    bool changed = false;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::PushClipRect(p, ImVec2(p.x + w, p.y + ImGui::GetFrameHeight()), true);
+    ImGui::SetNextItemWidth(w);
+    if (ImGui::BeginCombo(id, labels[*cur])) {
+        for (int i = 0; i < n; ++i)
+            if (ImGui::Selectable(labels[i], i == *cur) && i != *cur) {
+                *cur = i;
+                changed = true;
+            }
+        ImGui::EndCombo();
+    }
+    ImGui::PopClipRect();
+    return changed;
+}
+
+void wrappedTip(const char* text) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
 std::string factLeaf(const std::string& name) {
     const size_t dot = name.rfind('.');
     return dot == std::string::npos ? name : name.substr(dot + 1);
@@ -497,8 +534,14 @@ bool App::drawFactCondition(facts::Condition& c, int depth, const char* id) {
 void App::drawWorldFactsWindow() {
     if (!showWorldFacts_ || !hasProject_) return;
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(820), scaled(560)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1200), scaled(800)), ImGuiCond_FirstUseEver);
+    // Tools > World Facts asks for focus over a few frames: closing the menu
+    // popup hands focus back to the window under it a frame later, which
+    // would otherwise leave this one a background tab.
+    if (factFocusFrames_ > 0) {
+        --factFocusFrames_;
+        ImGui::SetNextWindowFocus();
+    }
     if (!ImGui::Begin("World Facts", &showWorldFacts_)) {
         ImGui::End();
         return;
@@ -510,56 +553,99 @@ void App::drawWorldFactsWindow() {
     // "after the repair" subtlety to get wrong here.
     const std::string before =
         project::sectionJson(project_, project::Section::Facts);
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
-    if (ImGui::BeginTabBar("##factstabs")) {
-        if (ImGui::BeginTabItem("Catalog")) {
-            drawFactCatalogTab();
-            ImGui::EndTabItem();
+    // --- the title row: tabs with counts, the live state once, the notes ---
+    const ImVec2 barPos = ImGui::GetCursorScreenPos();
+    if (ui::BeginQuietTabBar("##factstabs")) {
+        char lbl[5][48];
+        std::snprintf(lbl[0], sizeof(lbl[0]), "Catalog %d###Catalog", (int)project_.facts.size());
+        std::snprintf(lbl[1], sizeof(lbl[1]), "Queries %d###Queries", (int)project_.factQueries.size());
+        std::snprintf(lbl[2], sizeof(lbl[2]), "Rules %d###Rules", (int)project_.factRules.size());
+        std::snprintf(lbl[3], sizeof(lbl[3]), "Scenarios %d###Scenarios",
+                      (int)project_.factScenarios.size());
+        std::snprintf(lbl[4], sizeof(lbl[4]), "Blackboard###Blackboard");
+        for (int i = 0; i < 5; ++i) {
+            const ImGuiTabItemFlags fl = factTabJump_ == i ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ui::QuietTab(lbl[i], factTab_ == i, fl)) factTab_ = i;
         }
-        if (ImGui::BeginTabItem("Queries")) {
-            drawFactQueriesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Rules")) {
-            drawFactRulesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Scenarios")) {
-            drawFactScenariosTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Blackboard")) {
-            drawFactBlackboardTab();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+        factTabJump_ = -1;
+        ui::EndQuietTabBar();
     }
+    const ImVec2 afterBar = ImGui::GetCursorScreenPos();
 
-    // Validation, always visible: a catalog is a contract several systems
-    // depend on, and the moment to hear that a rule writes a computed fact is
-    // while you are looking at the rule - not from a compiler forty minutes
-    // later inside Docker.
+    // Validation, always one click away: a catalog is a contract several
+    // systems depend on, and the moment to hear that a rule writes a computed
+    // fact is while you are looking at the rule.
     const std::vector<facts::Issue> issues =
         facts::validate(project_.facts, project_.factQueries, project_.factRules,
                         project_.factScenarios);
-    if (!issues.empty()) {
-        int errors = 0;
-        for (const facts::Issue& i : issues) errors += i.error ? 1 : 0;
-        ImGui::Separator();
-        const std::string label =
-            errors ? std::to_string(errors) + " problem(s), " +
-                         std::to_string((int)issues.size() - errors) + " note(s)"
-                   : std::to_string((int)issues.size()) + " note(s)";
-        if (ImGui::CollapsingHeader(label.c_str(),
-                                    errors ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-            for (const facts::Issue& i : issues) {
-                const ImVec4 col = i.error ? ImVec4(0.95f, 0.45f, 0.40f, 1.0f)
-                                           : ImVec4(0.90f, 0.78f, 0.35f, 1.0f);
-                ImGui::TextColored(col, "%s", i.error ? "error" : "note");
-                ImGui::SameLine();
-                ImGui::TextWrapped("%s - %s", i.where.c_str(), i.text.c_str());
-            }
+    int errors = 0;
+    for (const facts::Issue& i : issues) errors += i.error ? 1 : 0;
+    {
+        const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        float x = right;
+        const float y = barPos.y + (afterBar.y - barPos.y - ImGui::GetFrameHeight()) * 0.5f;
+        if (!issues.empty()) {
+            char chip[48];
+            if (errors)
+                std::snprintf(chip, sizeof(chip), "%d problem%s", errors, errors == 1 ? "" : "s");
+            else
+                std::snprintf(chip, sizeof(chip), "%d note%s", (int)issues.size(),
+                              issues.size() == 1 ? "" : "s");
+            const float cw = ImGui::CalcTextSize(chip).x * 0.82f + fs;
+            x -= cw;
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            ui::Badge(chip, errors ? 2 : 1);
+            ImGui::SetCursorScreenPos(ImVec2(x, y));
+            if (ImGui::InvisibleButton("Problems and notes", ImVec2(cw, ImGui::GetFrameHeight())))
+                ImGui::OpenPopup("##factissues");
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            x -= fs;
         }
+        const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+        const char* state = live ? "Live - showing the running game's values"
+                                 : "No game attached \xc2\xb7 showing start values";
+        const float sw = ImGui::CalcTextSize(state).x + fs * 0.9f;
+        x -= sw;
+        if (x > barPos.x + fs * 28.0f) {  // only when the tabs leave room
+            ImGui::SetCursorScreenPos(ImVec2(x, y + ImGui::GetStyle().FramePadding.y));
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (live)
+                dl->AddCircleFilled(ImVec2(p.x + fs * 0.3f, p.y + fs * 0.55f), fs * 0.22f,
+                                    ImGui::GetColorU32(sem.ok));
+            else
+                dl->AddCircle(ImVec2(p.x + fs * 0.3f, p.y + fs * 0.55f), fs * 0.22f,
+                              ImGui::GetColorU32(sem.textDim), 0, 1.2f);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.9f, p.y));
+            ImGui::PushStyleColor(ImGuiCol_Text, live ? sem.ok : sem.textDim);
+            ImGui::TextUnformatted(state);
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::BeginPopup("##factissues")) {
+            for (const facts::Issue& i : issues) {
+                ImGui::PushStyleColor(ImGuiCol_Text, i.error ? sem.danger : sem.warn);
+                ImGui::TextUnformatted(i.error ? "error" : "note");
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + fs * 30.0f);
+                ImGui::TextWrapped("%s - %s", i.where.c_str(), i.text.c_str());
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::SetCursorScreenPos(afterBar);
+    }
+    ImGui::Spacing();
+
+    switch (factTab_) {
+        case 0: drawFactCatalogTab(); break;
+        case 1: drawFactQueriesTab(); break;
+        case 2: drawFactRulesTab(); break;
+        case 3: drawFactScenariosTab(); break;
+        default: drawFactBlackboardTab(); break;
     }
 
     if (project::sectionJson(project_, project::Section::Facts) != before)
@@ -599,9 +685,16 @@ void App::drawFactNameField(facts::Fact& f) {
         factNameRefocus_ = false;
         ImGui::SetKeyboardFocusHere();
     }
-    ImGui::SetNextItemWidth(scaled(280));
+    // Full width, big and monospace: the name is the fact's identity. The
+    // field's own "Name" label falls outside the card and is clipped; it stays
+    // the ID scripts type into.
+    const ImVec2 nameP = ImGui::GetCursorScreenPos();
+    const float nameW = ImGui::GetContentRegionAvail().x;
+    ImGui::PushClipRect(nameP, ImVec2(nameP.x + nameW, nameP.y + ImGui::GetFontSize() * 3.0f), true);
+    ImGui::SetNextItemWidth(nameW);
     char buf[256];
     std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+    ImGui::PushFont(ui::monoFont(), ImGui::GetFontSize() * 1.25f);
     NameEdit edit{&project_.facts, factSel_, &factNameSuggest_,
                   &factNameSuggestSel_, &factNameCaretEnd_};
     ImGui::InputText("Name", buf, sizeof(buf),
@@ -609,6 +702,8 @@ void App::drawFactNameField(facts::Fact& f) {
                          ImGuiInputTextFlags_CallbackHistory |
                          ImGuiInputTextFlags_CallbackAlways,
                      factNameCallback, &edit);
+    ImGui::PopFont();
+    ImGui::PopClipRect();
     const std::string typed = buf;
     const bool active = ImGui::IsItemActive();
     const ImVec2 fieldMin = ImGui::GetItemRectMin();
@@ -631,7 +726,8 @@ void App::drawFactNameField(facts::Fact& f) {
         f.name = to;
         factRenameFrom_.clear();
     }
-    prefHelp(
+    if (ImGui::IsItemHovered() && !active)
+        wrappedTip(
         "Dots make the hierarchy: characters.marta.trust groups under "
         "characters.marta, and the list nests on them. Type a prefix and the "
         "dropdown offers what already exists at that level - arrows to pick, "
@@ -712,267 +808,555 @@ void App::drawFactNameField(facts::Fact& f) {
 // ---------------------------------------------------------------- catalog ---
 
 void App::drawFactCatalogTab() {
-    if (ImGui::Button("+ Fact")) {
-        facts::Fact f;
-        f.name = uniqueName("world.newFact", [&](const std::string& n) {
-            return facts::indexOf(project_.facts, n) >= 0;
-        });
-        f.id = project::newObjectId();
-        project_.facts.push_back(f);
-        factSel_ = (int)project_.facts.size() - 1;
-    }
-    prefHelp(
-        "A new fact starts as a yes/no that lives for the session. Give it "
-        "a dotted name (world.power.state) and the list groups it for "
-        "you.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(200));
-    inputText("##filter", factFilter_, nullptr, "Filter...");
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d fact(s)", (int)project_.facts.size());
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const float paneH = ImGui::GetContentRegionAvail().y;
+    const float totalW = ImGui::GetContentRegionAvail().x;
+    if (factListW_ <= 0.0f) factListW_ = totalW * 0.46f;
 
-    ImGui::Separator();
-    ImGui::BeginChild("##factlist", ImVec2(scaled(280), 0), true);
-    // The dotted name IS the hierarchy - characters.marta.trust nests under
-    // characters > marta - so the tree is built from the names every frame and
-    // there is no folder field to keep in sync. A project that never uses dots
-    // simply sees one flat list. Filtering builds the tree from the SURVIVING
-    // facts only, so a group whose every leaf was filtered out does not appear
-    // at all rather than sitting there empty.
-    struct Group {
-        std::string seg;                 // this level's name segment
-        std::vector<int> leaves;         // fact indices that end here
-        std::vector<Group> kids;         // first-appearance order, not sorted
-        Group* kid(const std::string& s) {
-            for (Group& g : kids)
-                if (g.seg == s) return &g;
-            kids.push_back(Group{s, {}, {}});
-            return &kids.back();
+    // ------------------------------------------------------------ the list
+    if (ui::BeginCard("##factlistcard", ImVec2(factListW_, paneH))) {
+        const float addW = ImGui::CalcTextSize("+ Fact").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - addW - ImGui::GetStyle().ItemSpacing.x);
+        inputText("##filter", factFilter_, nullptr, "Filter facts - name or meaning");
+        ImGui::SameLine();
+        if (ui::PrimaryButton("+ Fact", addW)) {
+            facts::Fact f;
+            f.name = uniqueName("world.newFact", [&](const std::string& n) {
+                return facts::indexOf(project_.facts, n) >= 0;
+            });
+            f.id = project::newObjectId();
+            project_.facts.push_back(f);
+            factSel_ = (int)project_.facts.size() - 1;
+            factKeepFilter_ = -1;
         }
-    };
-    Group root;
-    for (size_t i = 0; i < project_.facts.size(); ++i) {
-        if (!matchesFilter(project_.facts[i], factFilter_)) continue;
-        const std::string& name = project_.facts[i].name;
-        Group* at = &root;
-        size_t from = 0, dot;
-        while ((dot = name.find('.', from)) != std::string::npos) {
-            at = at->kid(name.substr(from, dot - from));
-            from = dot + 1;
-        }
-        at->leaves.push_back((int)i);
-    }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A new fact starts as a yes/no that lives for the session. Give it\n"
+                              "a dotted name (world.power.state) and the list groups it.");
 
-    // Groups first, then this level's own leaves - the file-manager order, and
-    // the one that keeps a fact named `world` from hiding above the `world.*`
-    // subtree it looks like it owns.
-    std::function<void(Group&, const std::string&)> drawGroup =
-        [&](Group& g, const std::string& path) {
-            for (Group& k : g.kids) {
-                const std::string kpath =
-                    path.empty() ? k.seg : path + "." + k.seg;
-                // The full path is the ImGui id: two groups named "marta"
-                // under different parents would otherwise be one node.
-                const std::string label = k.seg + "##g" + kpath;
-                if (ImGui::TreeNodeEx(label.c_str(),
-                                      ImGuiTreeNodeFlags_DefaultOpen |
-                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                    drawGroup(k, kpath);
-                    ImGui::TreePop();
-                }
+        // Persistence chips: "what survives a save?" is the scan a designer does.
+        {
+            static const char* kChips[6] = {"All", "Save game", "Checkpoint", "Session", "Profile",
+                                            "Computed"};
+            static const int kVal[6] = {-1, (int)facts::Persist::Save,
+                                        (int)facts::Persist::Checkpoint,
+                                        (int)facts::Persist::Session,
+                                        (int)facts::Persist::Profile, 100};
+            for (int i = 0; i < 6; ++i) {
+                const float w = ui::FilterChipWidth(kChips[i]);
+                ui::ChipFlow(w, i == 0);
+                if (ui::FilterChip(kChips[i], factKeepFilter_ == kVal[i])) factKeepFilter_ = kVal[i];
             }
-            for (int i : g.leaves) {
-                const facts::Fact& f = project_.facts[(size_t)i];
-                const std::string label =
-                    factLeaf(f.name) + "##fl" + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), factSel_ == i))
-                    factSel_ = i;
-                if (f.isComputed()) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("=");
-                }
+        }
+        auto keep = [&](const facts::Fact& f) {
+            if (factKeepFilter_ < 0) return true;
+            if (factKeepFilter_ == 100) return f.isComputed();
+            return !f.isComputed() && (int)f.persist == factKeepFilter_;
+        };
+
+        // The dotted name IS the hierarchy - characters.marta.trust nests under
+        // characters > marta - so the tree is built from the names every frame
+        // and there is no folder field to keep in sync. Filtering builds it
+        // from the SURVIVING facts only, so a group whose every leaf was
+        // filtered out does not appear at all rather than sitting there empty.
+        struct Group {
+            std::string seg;          // this level's name segment
+            std::vector<int> leaves;  // fact indices that end here
+            std::vector<Group> kids;  // first-appearance order, not sorted
+            Group* kid(const std::string& s) {
+                for (Group& g : kids)
+                    if (g.seg == s) return &g;
+                kids.push_back(Group{s, {}, {}});
+                return &kids.back();
             }
         };
-    drawGroup(root, "");
-    ImGui::EndChild();
+        Group root;
+        int shown = 0;
+        for (size_t i = 0; i < project_.facts.size(); ++i) {
+            if (!matchesFilter(project_.facts[i], factFilter_) || !keep(project_.facts[i])) continue;
+            ++shown;
+            const std::string& name = project_.facts[i].name;
+            Group* at = &root;
+            size_t from = 0, dot;
+            while ((dot = name.find('.', from)) != std::string::npos) {
+                at = at->kid(name.substr(from, dot - from));
+                from = dot + 1;
+            }
+            at->leaves.push_back((int)i);
+        }
 
-    ImGui::SameLine();
-    ImGui::BeginChild("##factdetail", ImVec2(0, 0), false);
+        if (project_.facts.empty()) {
+            if (ui::EmptyState(ui::Glyph::List, "No facts yet",
+                               "A fact is named, typed, documented world state that graphs, "
+                               "queries and rules read and write.",
+                               "Create the first fact")) {
+                facts::Fact f;
+                f.name = "world.newFact";
+                f.id = project::newObjectId();
+                project_.facts.push_back(f);
+                factSel_ = 0;
+            }
+        } else if (!shown) {
+            ui::EmptyState(ui::Glyph::List, "No fact matches", "Clear the filter or pick All.");
+        } else if (ImGui::BeginTable("##factlist", 3,
+                                     ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Fact", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+            ImGui::TableSetupColumn("Keeps", ImGuiTableColumnFlags_WidthFixed, fs * 5.6f);
+            ImGui::TableSetupColumn(live ? "Now" : "Starts", ImGuiTableColumnFlags_WidthFixed,
+                                    fs * 4.0f);
+            ImGui::TableHeadersRow();
+
+            // Groups first, then this level's own leaves - the file-manager
+            // order, and the one that keeps a fact named `world` from hiding
+            // above the `world.*` subtree it looks like it owns.
+            std::function<void(Group&, const std::string&)> drawGroup =
+                [&](Group& g, const std::string& path) {
+                    for (Group& k : g.kids) {
+                        const std::string kpath = path.empty() ? k.seg : path + "." + k.seg;
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        // The full path is the ImGui id: two groups named
+                        // "marta" under different parents would otherwise be
+                        // one node.
+                        const std::string label = k.seg + "##g" + kpath;
+                        ui::FontScope bold(ui::boldFont());
+                        const bool open = ImGui::TreeNodeEx(
+                            label.c_str(), ImGuiTreeNodeFlags_DefaultOpen |
+                                               ImGuiTreeNodeFlags_SpanAllColumns);
+                        if (open) {
+                            drawGroup(k, kpath);
+                            ImGui::TreePop();
+                        }
+                    }
+                    for (int i : g.leaves) {
+                        const facts::Fact& f = project_.facts[(size_t)i];
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        // The type as a small coloured mark before the name.
+                        const char* mark = "?";
+                        ImVec4 mc = sem.ok;
+                        switch (f.type) {
+                            case facts::Type::Bool: mark = "?"; mc = sem.ok; break;
+                            case facts::Type::Int: mark = "#"; mc = sem.accent; break;
+                            case facts::Type::Float: mark = ".0"; mc = sem.special; break;
+                            case facts::Type::Enum: mark = "\xe2\x89\xa1"; mc = sem.special; break;
+                            case facts::Type::Position: mark = "xyz"; mc = sem.warn; break;
+                        }
+                        const ImVec2 p = ImGui::GetCursorScreenPos();
+                        const float markW = fs * 1.6f;
+                        {
+                            ui::FontScope mono(ui::monoFont());
+                            ImGui::PushFont(nullptr, fs * 0.8f);
+                            const ImVec2 ms = ImGui::CalcTextSize(mark);
+                            ImGui::GetWindowDrawList()->AddText(
+                                ImVec2(p.x + markW - ms.x - fs * 0.4f, p.y + (fs - ms.y) * 0.5f + 1.0f),
+                                ImGui::GetColorU32(mc), mark);
+                            ImGui::PopFont();
+                        }
+                        ImGui::SetCursorScreenPos(ImVec2(p.x + markW, p.y));
+                        const std::string label = factLeaf(f.name) + "##fl" + std::to_string(i);
+                        if (ImGui::Selectable(label.c_str(), factSel_ == i,
+                                              ImGuiSelectableFlags_SpanAllColumns))
+                            factSel_ = i;
+                        if (ImGui::IsItemHovered() && !f.desc.empty())
+                            ImGui::SetTooltip("%s", f.desc.c_str());
+                        ImGui::TableNextColumn();
+                        if (f.isComputed())
+                            ui::Badge("Computed", 0);
+                        else
+                            ui::Badge(facts::persistLabel(f.persist),
+                                      f.persist == facts::Persist::Save         ? 3
+                                      : f.persist == facts::Persist::Checkpoint ? 1
+                                      : f.persist == facts::Persist::Profile    ? 3
+                                                                                : 4);
+                        ImGui::TableNextColumn();
+                        std::string v;
+                        if (f.isComputed() && !live) {
+                            v = "=";
+                        } else {
+                            float v3[3] = {0, 0, 0};
+                            if (live) factLiveValue(f.name, v3);
+                            else if (f.type == facts::Type::Position)
+                                for (int a = 0; a < 3; ++a) v3[a] = f.pos[a];
+                            else v3[0] = f.value;
+                            v = f.type == facts::Type::Bool ? (v3[0] != 0.0f ? "yes" : "no")
+                                                            : facts::formatValue(f, v3);
+                        }
+                        ui::FontScope mono(ui::monoFont());
+                        const float vw = ImGui::CalcTextSize(v.c_str()).x;
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                             std::max(0.0f, ImGui::GetContentRegionAvail().x - vw));
+                        ImGui::TextDisabled("%s", v.c_str());
+                    }
+                };
+            drawGroup(root, "");
+            ImGui::EndTable();
+        }
+    }
+    ui::EndCard();
+    ImGui::SameLine(0.0f, 0.0f);
+    ui::VSplitter("##factsplit", &factListW_, scaled(300), scaled(420), paneH);
+
+    // ---------------------------------------------------------- the detail
+    if (!ui::BeginCard("##factdetail", ImVec2(0.0f, paneH))) {
+        ui::EndCard();
+        return;
+    }
     if (factSel_ < 0 || factSel_ >= (int)project_.facts.size()) {
-        ImGui::TextDisabled("Select a fact.");
-        ImGui::EndChild();
+        ui::EmptyState(ui::Glyph::List, "No fact selected",
+                       "Pick a fact on the left to see what it means, how it persists and "
+                       "who reads or writes it.");
+        ui::EndCard();
         return;
     }
     facts::Fact& f = project_.facts[(size_t)factSel_];
 
+    // Breadcrumb, the name (big, monospace), and what it means - prose first.
+    {
+        const size_t dot = f.name.rfind('.');
+        std::string crumb;
+        if (dot != std::string::npos)
+            for (char c : f.name.substr(0, dot + 1)) {
+                if (c == '.') crumb += " \xc2\xb7 ";
+                else crumb += c;
+            }
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushFont(nullptr, fs * 0.86f);
+        ImGui::TextDisabled("%s", crumb.empty() ? "(top level)" : crumb.c_str());
+        ImGui::PopFont();
+    }
     drawFactNameField(f);
+    {
+        // Clip the field's right-hand label: the row is the field.
+        const ImVec2 dp = ImGui::GetCursorScreenPos();
+        const float dw = ImGui::GetContentRegionAvail().x;
+        ImGui::PushClipRect(dp, ImVec2(dp.x + dw, dp.y + ImGui::GetFontSize() * 20.0f), true);
+        ImGui::SetNextItemWidth(dw);
+        inputTextProse("What it means", f.desc, nullptr);
+        ImGui::PopClipRect();
+    }
+    if (ImGui::IsItemHovered() && !ImGui::IsItemActive() && f.desc.empty())
+        ImGui::SetTooltip("Shown wherever this fact is picked. Worth writing: a catalog is\n"
+                          "read far more often than it is edited.");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 
-    ImGui::SetNextItemWidth(scaled(280));
+    // Label-left rows. Widgets that draw their own right-hand label get it
+    // clipped (the row's caption already says it), so their label stays the ID.
+    const float capW = fs * 8.5f;
+    auto caption = [&](const char* text) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", text);
+        ImGui::SameLine(capW);
+    };
+    auto clipBegin = [&](float w) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::PushClipRect(p, ImVec2(p.x + w, p.y + ImGui::GetFrameHeight()), true);
+        ImGui::SetNextItemWidth(w);
+    };
+
+    caption("Type");
     {
         const auto& types = facts::typeInfos();
-        if (ImGui::BeginCombo("Type", facts::typeLabel(f.type))) {
-            for (size_t i = 0; i < types.size(); ++i) {
-                const std::string label =
-                    std::string(types[i].label) + "##ty" + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), types[i].type == f.type))
-                    f.type = types[i].type;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", types[i].desc);
-            }
-            ImGui::EndCombo();
+        const char* labels[8];
+        int cur = 0;
+        const int n = (int)std::min<size_t>(types.size(), 8);
+        for (int i = 0; i < n; ++i) {
+            labels[i] = types[(size_t)i].label;
+            if (types[(size_t)i].type == f.type) cur = i;
         }
+        if (choice("Type", labels, n, &cur, -1.0f)) f.type = types[(size_t)cur].type;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", facts::typeInfos()[(size_t)cur].desc);
     }
 
     if (f.type == facts::Type::Enum) {
-        ImGui::Indent(scaled(12));
-        ImGui::TextDisabled("Options - the value IS the position in this list");
+        caption("Options");
+        ImGui::BeginGroup();
         int removeOpt = -1;
         for (size_t i = 0; i < f.options.size(); ++i) {
             ImGui::PushID((int)i);
-            if (ImGui::SmallButton("x")) removeOpt = (int)i;
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(200));
-            inputText("##opt", f.options[i], nullptr);
-            ImGui::SameLine();
             ImGui::TextDisabled("%d", (int)i);
+            ImGui::SameLine(0.0f, fs * 0.6f);
+            clipBegin(std::max(fs * 4.0f, std::min(fs * 12.0f, ImGui::GetContentRegionAvail().x -
+                                                                   ImGui::GetFrameHeight() * 1.6f)));
+            inputText("##opt", f.options[i], nullptr);
+            ImGui::PopClipRect();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) removeOpt = (int)i;
             ImGui::PopID();
         }
         if (removeOpt >= 0) f.options.erase(f.options.begin() + removeOpt);
-        if (ImGui::SmallButton("+ option"))
-            f.options.push_back("option " +
-                                std::to_string(f.options.size() + 1));
-        ImGui::Unindent(scaled(12));
+        if (ui::GhostButton("+ option"))
+            f.options.push_back("option " + std::to_string(f.options.size() + 1));
+        ImGui::EndGroup();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The value IS the position in this list.");
     }
 
-    ImGui::SetNextItemWidth(scaled(280));
-    {
-        const auto& tiers = facts::persistInfos();
-        if (ImGui::BeginCombo("Keeps its value", facts::persistLabel(f.persist))) {
-            for (size_t i = 0; i < tiers.size(); ++i) {
-                const std::string label =
-                    std::string(tiers[i].label) + "##pe" + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), tiers[i].persist == f.persist))
-                    f.persist = tiers[i].persist;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", tiers[i].desc);
-            }
-            ImGui::EndCombo();
+    bool computed = f.isComputed();
+    if (!computed) {
+        caption("Starts at");
+        if (f.type == facts::Type::Bool) {
+            const char* yn[2] = {"no", "yes"};
+            int v = f.value != 0.0f ? 1 : 0;
+            if (choice("Starts at", yn, 2, &v, fs * 7.0f)) f.value = (float)v;
+        } else if (f.type == facts::Type::Position) {
+            clipBegin(fs * 16.0f);
+            ImGui::DragFloat3("Starts at", f.pos, 0.1f);
+            ImGui::PopClipRect();
+        } else {
+            clipBegin(fs * 8.0f);
+            float v3[3] = {f.value, 0, 0};
+            if (factValueWidget("Starts at", f, v3)) f.value = v3[0];
+            ImGui::PopClipRect();
         }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("What a NEW GAME starts this fact at, and what Clear Fact puts it\n"
+                              "back to. An existing save keeps whatever it stored.");
+
+        caption("Keeps its value");
+        ImGui::BeginGroup();
+        const auto& tiers = facts::persistInfos();
+        const char* labels[4];
+        int cur = 0;
+        for (int i = 0; i < 4 && i < (int)tiers.size(); ++i) {
+            labels[i] = tiers[(size_t)i].label;
+            if (tiers[(size_t)i].persist == f.persist) cur = i;
+        }
+        if (choice("Keeps its value", labels, 4, &cur, -1.0f))
+            f.persist = tiers[(size_t)cur].persist;
+        // The consequence, always visible: the docs' table in one line.
+        static const char* kWhat[4] = {
+            "Starts fresh every boot; scene switches keep it; never written anywhere.",
+            "Load Checkpoint brings it back; lost when the game closes.",
+            "Written into the save slot; loading an older slot brings its value back.",
+            "One file per card, shared by every slot - unlocks, best times."};
+        ImGui::PushFont(nullptr, fs * 0.9f);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", kWhat[(int)f.persist & 3]);
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+        ImGui::EndGroup();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tiers[(size_t)cur].desc);
     }
 
-    ImGui::SetNextItemWidth(scaled(280));
+    caption("Owned by");
     {
         const auto& scopes = facts::scopeInfos();
-        const char* cur = f.scope == facts::Scope::World ? "World" : "Scene";
-        if (ImGui::BeginCombo("Owned by", cur)) {
-            for (size_t i = 0; i < scopes.size(); ++i) {
-                const std::string label =
-                    std::string(scopes[i].label) + "##sc" + std::to_string(i);
-                if (ImGui::Selectable(label.c_str(), scopes[i].scope == f.scope))
-                    f.scope = scopes[i].scope;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", scopes[i].desc);
-            }
-            ImGui::EndCombo();
+        const char* labels[2] = {scopes[0].label, scopes.size() > 1 ? scopes[1].label : "Scene"};
+        int cur = f.scope == facts::Scope::World ? 0 : 1;
+        if (choice("Owned by", labels, 2, &cur, fs * 12.0f))
+            f.scope = cur == 0 ? facts::Scope::World : facts::Scope::Scene;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", scopes[(size_t)cur].desc);
+    }
+
+    // Computed: the fact stops being storage and becomes a query - "is this
+    // something the game remembers, or something it works out".
+    {
+        ui::InspectorRows rows(capW, capW);
+        if (ui::Switch("Computed from a query (Read-only: the value is whatever the query says, "
+                       "nothing can write it)",
+                       &computed)) {
+            if (!computed) f.computed.clear();
+            else if (!project_.factQueries.empty()) f.computed = project_.factQueries[0].name;
         }
     }
-
-    // Computed: the fact stops being storage and becomes a query. Presented as
-    // a checkbox because that is the decision - "is this something the game
-    // remembers, or something it works out".
-    bool computed = f.isComputed();
-    if (ImGui::Checkbox("Computed from a query", &computed)) {
-        if (!computed) f.computed.clear();
-        else if (!project_.factQueries.empty())
-            f.computed = project_.factQueries[0].name;
-    }
-    prefHelp(
-        "A computed fact has no storage at all - it IS the query, worked "
-        "out wherever it is read. Nothing can write to one, which is the "
-        "point: marta.isAlly should never be settable behind the back of "
-        "the things that decide it.");
     if (computed) {
-        ImGui::SetNextItemWidth(scaled(280));
+        caption("From query");
+        clipBegin(std::min(fs * 16.0f, ImGui::GetContentRegionAvail().x));
         factQueryCombo("From query", f.computed);
-    } else if (f.type == facts::Type::Position) {
-        ImGui::SetNextItemWidth(scaled(280));
-        ImGui::DragFloat3("Starts at", f.pos, 0.1f);
-    } else {
-        ImGui::SetNextItemWidth(scaled(280));
-        float v3[3] = {f.value, 0, 0};
-        if (factValueWidget("Starts at", f, v3)) f.value = v3[0];
-        prefHelp(
-            "What a NEW GAME starts this fact at, and what Clear Fact puts "
-            "it back to. An existing save keeps whatever it stored.");
+        ImGui::PopClipRect();
     }
-
-    ImGui::SetNextItemWidth(scaled(280));
-    inputTextProse("What it means", f.desc, nullptr);
-    prefHelp(
-        "Shown when picking this fact anywhere in the editor. Worth "
-        "writing: a catalog is read far more often than it is edited.");
-
-    // Where the value came from and where it goes - the live half of the
-    // catalog, so a fact can be read without switching tabs.
-    ImGui::Separator();
-    {
+    if (live) {
         float v3[3] = {0, 0, 0};
         factLiveValue(f.name, v3);
-        const bool live = dbgState_ == DbgState::Running ||
-                          dbgState_ == DbgState::Halted;
-        ImGui::Text("Value now: %s", facts::formatValue(f, v3).c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled(live ? "(from the running game)"
-                                 : "(no game attached - the default)");
+        caption("Value now");
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.ok);
+        ImGui::TextUnformatted(facts::formatValue(f, v3).c_str());
+        ImGui::PopStyleColor();
     }
 
-    // Find Usages. One flat walk over the model, the rebuildAssetUsage shape -
-    // and the answer to "what breaks if I change this", which for a catalog
-    // entry is the question that matters most.
-    const project::FactUsage use = project::factUsage(project_, f.name);
-    const std::string header =
-        "Used by " + std::to_string(use.count()) + " place(s)";
-    if (ImGui::CollapsingHeader(header.c_str())) {
-        auto list = [](const char* what, const std::vector<std::string>& v) {
-            if (v.empty()) return;
-            ImGui::TextDisabled("%s", what);
-            for (const std::string& s : v) ImGui::BulletText("%s", s.c_str());
-        };
-        list("Flow graphs", use.graphs);
-        list("Queries", use.queries);
-        list("Rules", use.rules);
-        list("Computed facts", use.computed);
-        list("Scenarios", use.scenarios);
-        if (!use.any()) ImGui::TextDisabled("Nothing references this fact yet.");
-    }
-
+    // Used by - always open: the query that reads it and the rule that writes
+    // it are the most useful cross-reference a catalog entry has.
+    ImGui::Spacing();
     ImGui::Separator();
-    if (ImGui::Button("Delete fact")) ImGui::OpenPopup("##delfact");
+    ImGui::Spacing();
+    const project::FactUsage use = project::factUsage(project_, f.name);
+    {
+        char cnt[16];
+        std::snprintf(cnt, sizeof(cnt), "%d", use.count());
+        ui::Caption("Used by", cnt);
+    }
+    drawFactUsedBy(f);
+
+    // Footer: the rename hint and the destructive action, apart.
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        const float bw = ImGui::CalcTextSize("Delete fact").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Renaming moves it in the tree - the tree is the names.");
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
+        if (ui::DangerButton("Delete fact", bw)) ImGui::OpenPopup("##delfact");
+    }
     // OpenPopup / BeginPopupModal must use the SAME string - the droneui.cpp
     // trap: a mismatch opens a modal that is never drawn, and an open-but-
     // undrawn modal swallows every click in the window.
-    if (ImGui::BeginPopupModal("##delfact", nullptr,
-                               ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("##delfact", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Delete \"%s\"?", f.name.c_str());
-        if (use.any())
-            ImGui::TextColored(ImVec4(0.90f, 0.78f, 0.35f, 1.0f),
-                               "%d place(s) still reference it - they will "
-                               "report an unknown fact.",
-                               use.count());
-        if (ImGui::Button("Delete")) {
+        if (use.any()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+            ImGui::Text("%d place(s) still reference it - they will report an unknown fact.",
+                        use.count());
+            ImGui::PopStyleColor();
+        }
+        if (ui::DangerButton("Delete")) {
             project_.facts.erase(project_.facts.begin() + factSel_);
             factSel_ = -1;
             ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
-            ImGui::EndChild();
+            ui::EndCard();
             return;
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
+    ui::EndCard();
+}
 
-    ImGui::EndChild();
+// The Used by rows: kind (colour-coded), name, HOW it uses the fact ("reads -
+// trust >= 5", "writes - +5", "sets 8"), click to jump there.
+void App::drawFactUsedBy(const facts::Fact& f) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    struct Row {
+        const char* kind;
+        ImVec4 col;
+        std::string name, how;
+        int tab = -1, index = -1;  // where a click goes
+    };
+    std::vector<Row> rows;
+    auto num = [](float v) {
+        char b[32];
+        std::snprintf(b, sizeof(b), "%g", v);
+        return std::string(b);
+    };
+    // The first comparison in a condition that names this fact, as text.
+    std::function<bool(const facts::Condition&, std::string&)> leaf =
+        [&](const facts::Condition& c, std::string& out) {
+            if (c.kind == facts::Condition::Kind::Compare &&
+                (c.fact == f.name || c.rhsFact == f.name)) {
+                out = factLeaf(c.fact) + " " + facts::cmpCpp(c.cmp) + " " +
+                      (c.rhsFact.empty() ? num(c.value) : factLeaf(c.rhsFact));
+                return true;
+            }
+            for (const facts::Condition& k : c.children)
+                if (leaf(k, out)) return true;
+            return false;
+        };
+    for (size_t i = 0; i < project_.factQueries.size(); ++i) {
+        std::string l;
+        if (leaf(project_.factQueries[i].root, l))
+            rows.push_back({"QUERY", sem.accent, project_.factQueries[i].name, "reads \xc2\xb7 " + l, 1,
+                            (int)i});
+    }
+    for (size_t i = 0; i < project_.factRules.size(); ++i) {
+        const facts::Rule& r = project_.factRules[i];
+        std::string l, how;
+        if (leaf(r.when, l)) how = "reads \xc2\xb7 " + l;
+        for (const facts::RuleAction& a : r.then) {
+            if (a.kind == facts::RuleAction::Kind::SendEvent || a.target != f.name) continue;
+            std::string w = a.kind == facts::RuleAction::Kind::AddFact
+                                ? (a.value >= 0 ? "+" : "") + num(a.value)
+                            : a.kind == facts::RuleAction::Kind::ToggleFact ? std::string("toggles")
+                                                                            : "sets " + num(a.value);
+            how += (how.empty() ? "writes \xc2\xb7 " : ", writes \xc2\xb7 ") + w;
+            break;
+        }
+        if (!how.empty()) rows.push_back({"RULE", sem.special, r.name, how, 2, (int)i});
+    }
+    for (size_t i = 0; i < project_.factScenarios.size(); ++i)
+        for (const facts::ScenarioValue& v : project_.factScenarios[i].values)
+            if (v.fact == f.name) {
+                const float v3[3] = {v.value, v.pos[1], v.pos[2]};
+                const float* src = f.type == facts::Type::Position ? v.pos : v3;
+                rows.push_back({"SCENARIO", sem.warn, project_.factScenarios[i].name,
+                                "sets " + facts::formatValue(f, src), 3, (int)i});
+                break;
+            }
+    const project::FactUsage use = project::factUsage(project_, f.name);
+    for (const std::string& c : use.computed)
+        rows.push_back({"COMPUTED", sem.ok, c, "computed from it", 0,
+                        facts::indexOf(project_.facts, c)});
+    for (const std::string& g : use.graphs)
+        rows.push_back({"GRAPH", sem.ok, g, "flow node", -1, -1});
+
+    if (rows.empty()) {
+        ImGui::TextDisabled("Nothing reads or writes this fact yet.");
+        return;
+    }
+    const float kindW = fs * 5.6f;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const Row& r = rows[i];
+        ImGui::PushID((int)i);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        // How it uses the fact, measured first: when name and "how" do not
+        // fit one line (a docked, narrow window), "how" goes under the name.
+        const std::string how = r.tab >= 0 ? r.how + "  \xe2\x80\xba" : r.how;
+        float hw = 0.0f;
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushFont(nullptr, fs * 0.86f);
+            hw = ImGui::CalcTextSize(how.c_str()).x;
+            ImGui::PopFont();
+        }
+        const float nw = ImGui::CalcTextSize(r.name.c_str()).x;
+        const bool twoLines = kindW + nw + fs * 1.5f + hw > w;
+        const float h = twoLines ? fs * 2.6f : ImGui::GetFrameHeight() + fs * 0.3f;
+        const std::string id = std::string(r.kind) + " " + r.name;
+        if (ImGui::InvisibleButton(id.c_str(), ImVec2(std::max(1.0f, w), h)) && r.tab >= 0) {
+            if (r.tab == 0 && r.index >= 0) factSel_ = r.index;
+            if (r.tab == 1) factQuerySel_ = r.index;
+            if (r.tab == 2) factRuleSel_ = r.index;
+            if (r.tab == 3) factScenarioSel_ = r.index;
+            if (r.tab != 0) {
+                factTab_ = r.tab;
+                factTabJump_ = r.tab;
+            }
+        }
+        const bool hov = ImGui::IsItemHovered();
+        if (hov && r.tab < 0) ImGui::SetTooltip("Open the object's flow graph to see the node.");
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (hov)
+            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field),
+                              ImGui::GetStyle().FrameRounding);
+        const float ty = twoLines ? p.y + fs * 0.25f : p.y + (h - fs) * 0.5f;
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 0.8f);
+            dl->AddText(ImVec2(p.x + fs * 0.5f, ty + fs * 0.12f), ImGui::GetColorU32(r.col), r.kind);
+            ImGui::PopFont();
+        }
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushFont(nullptr, fs * 0.86f);
+            const ImVec2 hp = twoLines ? ImVec2(p.x + kindW, ty + fs * 1.2f)
+                                       : ImVec2(p.x + w - hw - fs * 0.5f, ty + fs * 0.1f);
+            dl->AddText(hp, ImGui::GetColorU32(sem.textDim), how.c_str());
+            ImGui::PopFont();
+        }
+        dl->PushClipRect(p, ImVec2(twoLines ? p.x + w : std::max(p.x + kindW, p.x + w - hw - fs), p.y + h),
+                         true);
+        dl->AddText(ImVec2(p.x + kindW, ty), ImGui::GetColorU32(sem.text), r.name.c_str());
+        dl->PopClipRect();
+        ImGui::PopID();
+    }
 }
 
 // ---------------------------------------------------------------- queries ---
