@@ -26,6 +26,7 @@
 #include <imgui_internal.h>
 
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <string>
 
@@ -313,8 +314,21 @@ void App::drawToolbar() {
     }
 
     // --- right cluster widths (needed first: the workspaces fit around them) --
-    const char* runKey = runOnPs2_ ? "F6" : "F5";
-    const char* runLabel = busy ? "Building" : "Run";
+    // The game this project built is up on the selected target: Run reads
+    // "Running 00:42" and a click on it stops the game (F5 / the caret's Run
+    // still rebuild and restart it).
+    const Runner::GameStatus game = runner_.gameStatus();
+    const bool gameUp = !busy && game.running && game.onPs2 == runOnPs2_;
+    char elapsed[24];
+    {
+        const long t = (long)game.seconds;
+        if (t >= 3600)
+            std::snprintf(elapsed, sizeof(elapsed), "%ld:%02ld:%02ld", t / 3600, (t / 60) % 60, t % 60);
+        else
+            std::snprintf(elapsed, sizeof(elapsed), "%02ld:%02ld", t / 60, t % 60);
+    }
+    const char* runKey = gameUp ? elapsed : runOnPs2_ ? "F6" : "F5";
+    const char* runLabel = busy ? "Building" : gameUp ? "Running" : "Run";
     const float dotD = scaled(6.0f);
     const float caretW = h * 0.42f;
     const float profW = padX + dotD + gapS + ImGui::CalcTextSize("Release").x + gapS + caretW + padX * 0.5f;
@@ -602,11 +616,25 @@ void App::drawToolbar() {
         const ImVec2& p = runPos;
         const bool en = !busy && targetReady;
         const ImVec4 fill = runOnPs2_ ? sem.accent : sem.ok;
-        if (ImGui::InvisibleButton("##tb_run", ImVec2(runW, h)) && en) runSelectedTarget(true);
+        if (ImGui::InvisibleButton("Run###tb_run", ImVec2(runW, h)) && en) {
+            if (!gameUp) runSelectedTarget(true);
+            else if (runOnPs2_) runner_.stopPs2(project_);
+            else runner_.stopEmulator(project_);
+        }
+        // `expect-checked '##tb_run'` = the game is running (scripts, docs).
+        uiscript::markLastItemChecked(gameUp);
         const bool held = en && ImGui::IsItemActive();
-        const float t = theme::hoverAnim(ImGui::GetItemID(), en && ImGui::IsItemHovered(), 12.0f);
+        const bool hovered = en && ImGui::IsItemHovered();
+        const float t = theme::hoverAnim(ImGui::GetItemID(), hovered, 12.0f);
         const ImDrawFlags leftOnly = ImDrawFlags_RoundCornersLeft;
-        if (en) {
+        if (gameUp) {
+            // Quiet while the game runs: the target's colour moves to the dot
+            // and a hover turns the whole button into Stop.
+            dl->AddRectFilled(p, ImVec2(p.x + runW, p.y + h), col(sem.surface), round, leftOnly);
+            if (t > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + runW, p.y + h), col(sem.danger, 0.16f * t), round,
+                                  leftOnly);
+        } else if (en) {
             dl->AddRectFilled(p, ImVec2(p.x + runW, p.y + h), col(fill), round, leftOnly);
             if (held || t > 0.0f)
                 dl->AddRectFilled(p, ImVec2(p.x + runW, p.y + h),
@@ -615,10 +643,18 @@ void App::drawToolbar() {
         } else {
             dl->AddRectFilled(p, ImVec2(p.x + runW, p.y + h), col(sem.surface), round, leftOnly);
         }
-        const ImU32 ink = en ? col(sem.ground) : col(sem.textDim);
+        const ImU32 ink = gameUp ? (hovered ? col(sem.danger) : col(sem.text))
+                          : en   ? col(sem.ground) : col(sem.textDim);
         float x = p.x + padX * 1.3f;
         const float cy = p.y + h * 0.5f;
-        if (busy) {
+        if (gameUp && hovered) {
+            const float s = glyph * 0.8f;
+            dl->AddRectFilled(ImVec2(x + (glyph - s) * 0.5f, cy - s * 0.5f),
+                              ImVec2(x + (glyph + s) * 0.5f, cy + s * 0.5f), col(sem.danger), s * 0.18f);
+        } else if (gameUp) {
+            const float pulse = 0.55f + 0.45f * (0.5f + 0.5f * std::sin((float)ImGui::GetTime() * 3.0f));
+            dl->AddCircleFilled(ImVec2(x + glyph * 0.5f, cy), glyph * 0.32f, col(fill, pulse));
+        } else if (busy) {
             const float r = glyph * 0.45f;
             const float a0 = (float)ImGui::GetTime() * 5.0f;
             dl->PathArcTo(ImVec2(x + glyph * 0.5f, cy), r, a0, a0 + 4.2f, 20);
@@ -631,36 +667,42 @@ void App::drawToolbar() {
         x += glyph + gapS;
         {
             ui::FontScope bold(ui::boldFont());
-            text(x, p.y, ink, runLabel);
+            // Hovered while running: "Stop", in the room "Running" takes.
+            text(x, p.y, ink, gameUp && hovered ? "Stop" : runLabel);
             x += ImGui::CalcTextSize(runLabel).x + gapS;
         }
         if (!busy) {
             ui::FontScope mono(ui::monoFont());
-            const ImVec4 inkV = en ? sem.ground : sem.textDim;
+            const ImVec4 inkV = gameUp ? sem.text : en ? sem.ground : sem.textDim;
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.82f,
                         ImVec2(x, p.y + (h - ImGui::GetFontSize() * 0.82f) * 0.5f),
                         col(inkV, 0.6f), runKey);
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", busy ? "Building - Stop cancels it."
+                                    : gameUp ? (runOnPs2_ ? "The game is running on the PS2 - click to stop it.\n"
+                                                            "F6 rebuilds and restarts it."
+                                                          : "PCSX2 is running this project's game - click to "
+                                                            "close it.\nF5 rebuilds and restarts it.")
                                     : !targetReady ? noIpTip
                                     : runOnPs2_    ? "Build && Run on PS2 (F6)"
                                                    : "Build && Run in PCSX2 (F5)");
 
         // The caret half: run variants.
         const ImVec2 cp = place(0.0f);
-        if (ImGui::InvisibleButton("##tb_run_more", ImVec2(runCaretW, h)))
+        if (ImGui::InvisibleButton("Run options###tb_run_more", ImVec2(runCaretW, h)))
             ImGui::OpenPopup("run_menu");
         const ImDrawFlags rightOnly = ImDrawFlags_RoundCornersRight;
         const float ct = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
         dl->AddRectFilled(cp, ImVec2(cp.x + runCaretW, cp.y + h),
-                          en ? col(fill) : col(sem.surface), round, rightOnly);
+                          en && !gameUp ? col(fill) : col(sem.surface), round, rightOnly);
         if (ct > 0.0f)
             dl->AddRectFilled(cp, ImVec2(cp.x + runCaretW, cp.y + h),
                               IM_COL32(255, 255, 255, (int)(34 * ct)), round, rightOnly);
         dl->AddLine(ImVec2(cp.x, cp.y + h * 0.22f), ImVec2(cp.x, cp.y + h * 0.78f),
-                    en ? IM_COL32(0, 0, 0, 60) : col(sem.border), 1.0f);
-        caret(dl, cp.x + runCaretW * 0.5f, cp.y + h * 0.5f, runCaretW * 0.2f, ink);
+                    en && !gameUp ? IM_COL32(0, 0, 0, 60) : col(sem.border), 1.0f);
+        caret(dl, cp.x + runCaretW * 0.5f, cp.y + h * 0.5f, runCaretW * 0.2f,
+              gameUp ? col(sem.textDim) : ink);
         if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("run_menu"))
             ImGui::SetTooltip("Run options...");
     }
@@ -671,7 +713,7 @@ void App::drawToolbar() {
     {
         const ImVec2 p = place(gap);
         const bool en = busy || targetReady;
-        if (ImGui::InvisibleButton("##tb_stop", ImVec2(h, h)) && en) {
+        if (ImGui::InvisibleButton("Stop###tb_stop", ImVec2(h, h)) && en) {
             if (busy) runner_.cancel();
             else if (runOnPs2_) runner_.stopPs2(project_);
             else runner_.stopEmulator(project_);

@@ -6,9 +6,16 @@
 // Every entry is a label, a dim hint, a category and an action. The list is
 // rebuilt each frame the palette is open - it is a few hundred entries at most,
 // and building it fresh means it can never disagree with the project.
+//
+// Commands are the main menus themselves (menu_actions.hpp): one harvest pass
+// over drawMainMenus lists every enabled item with its menu path and shortcut,
+// and choosing one runs a second pass that executes exactly that item's code.
+// Only what has no menu item - the top bar's Run / Stop / profile, New scene,
+// centring on the selection - is written out here.
 #include "aichat.hpp"
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "menu_actions.hpp"
 #include "platform.hpp"
 #include "theme.hpp"
 #include "update.hpp"
@@ -29,10 +36,25 @@ struct Entry {
     std::string label;
     std::string hint;
     const char* category;  // "Commands", "Objects", ...
-    const char* key;       // shortcut shown on the right, may be ""
+    std::string key;       // shortcut shown on the right, may be ""
     ui::Glyph glyph;
     std::function<void()> run;
 };
+
+// A glyph per top-level menu, so a row says where it comes from at a glance.
+ui::Glyph menuGlyph(const std::string& path) {
+    const std::string top = path.substr(0, path.find(" > "));
+    if (top == "File") return ui::Glyph::Folder;
+    if (top == "Edit") return ui::Glyph::Sliders;
+    if (top == "View") return ui::Glyph::Eye;
+    if (top == "Layout") return ui::Glyph::Layers;
+    if (top == "Scene") return ui::Glyph::Plus;
+    if (top == "Project") return ui::Glyph::Gear;
+    if (top == "Build") return ui::Glyph::Box;
+    if (top == "Session") return ui::Glyph::Person;
+    if (top == "Tools") return ui::Glyph::List;
+    return ui::Glyph::Comment;  // Help
+}
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
@@ -90,6 +112,23 @@ static const char* windowTitle(const std::string& key) {
     return nullptr;
 }
 
+void App::harvestMainMenus(std::vector<menuact::Item>* out, int invoke) {
+    // An item-less child: every plain ImGui call in the menu code (headings,
+    // separators, tooltips) is skipped, and the menuact calls record instead
+    // of drawing. NoInputs keeps IsItemHovered false in there.
+    ImGui::BeginChild("##menu_harvest", ImVec2(1.0f, 1.0f), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground |
+                          ImGuiWindowFlags_NoScrollbar);
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    const bool skip = w->SkipItems;
+    w->SkipItems = true;
+    menuact::beginHarvest(out, invoke);
+    drawMainMenus();
+    menuact::endHarvest();
+    w->SkipItems = skip;
+    ImGui::EndChild();
+}
+
 void App::drawCommandPalette() {
     if (hasProject_ && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_K)) {
         paletteOpen_ = !paletteOpen_;
@@ -105,37 +144,19 @@ void App::drawCommandPalette() {
     // --- the entries ---------------------------------------------------------
     std::vector<Entry> all;
     const bool busy = runner_.busy();
-    const bool client = session_.role() == session::Session::Role::Client;
     auto cmd = [&](std::string label, std::string hint, const char* key, ui::Glyph g,
                    std::function<void()> run, bool enabled = true) {
         if (enabled) all.push_back({std::move(label), std::move(hint), "Commands", key, g, std::move(run)});
     };
-    cmd("Save", "Write the project to disk", "Ctrl+S", ui::Glyph::Snap, [this] { saveAll("Saved"); },
-        !client);
-    cmd(runOnPs2_ ? "Build && Run on PS2" : "Build && Run in PCSX2", "Build the game and start it",
+    // What has no menu item. The top bar's Run follows the PCSX2 | PS2 switch
+    // (the Build menu has both targets), and so does its Stop.
+    cmd(runOnPs2_ ? "Build && Run on PS2" : "Build && Run in PCSX2", "The top bar's Run",
         runOnPs2_ ? "F6" : "F5", ui::Glyph::Move, [this] { runSelectedTarget(true); }, !busy);
-    cmd("Run without build", "Start the last build", runOnPs2_ ? "Ctrl+F6" : "Ctrl+F5", ui::Glyph::Move,
-        [this] { runSelectedTarget(false); }, !busy);
-    cmd("Build", "Compile the game without running it", "Ctrl+Shift+B", ui::Glyph::Box,
-        [this] { runner_.buildAndRun(projectForBuild(), false); }, !busy);
     cmd(busy ? "Cancel build" : (runOnPs2_ ? "Stop the game on the PS2" : "Stop PCSX2"),
         "The top bar's Stop", "", ui::Glyph::Area, [this, busy] {
             if (busy) runner_.cancel();
             else if (runOnPs2_) runner_.stopPs2(project_);
             else runner_.stopEmulator(project_);
-        });
-    cmd("Project Preferences", "Display, world, rendering, player, build", "Ctrl+,", ui::Glyph::Sliders,
-        [this] { openProjectPreferences(); });
-    cmd("Scene preferences", "Terrain, sky, lighting of the active scene", "", ui::Glyph::Sliders,
-        [this] { openScenePreferences(); });
-    cmd("New scene", "Add a scene to the project", "", ui::Glyph::Layers, [this] {
-        openNewScenePopup_ = true;
-        newSceneError_.clear();
-    });
-    cmd(placementSnap_ ? "Turn surface snap off" : "Turn surface snap on",
-        "Inserted objects rest on the surface under them", "", ui::Glyph::Snap, [this] {
-            placementSnap_ = !placementSnap_;
-            saveGlobalConfig();
         });
     cmd(project_.settings.buildProfile == "debug" ? "Switch to the Release profile"
                                                   : "Switch to the Debug profile",
@@ -144,6 +165,10 @@ void App::drawCommandPalette() {
                 project_.settings.buildProfile == "debug" ? "release" : "debug";
             commitChange();
         });
+    cmd("New scene", "Add a scene to the project", "", ui::Glyph::Layers, [this] {
+        openNewScenePopup_ = true;
+        newSceneError_.clear();
+    });
     if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size())
         cmd("Center the camera on the selection", project_.objects()[selectedObject_].name, "",
             ui::Glyph::Camera, [this] {
@@ -151,22 +176,27 @@ void App::drawCommandPalette() {
                 navFocusedIndex_ = selectedObject_;
             });
 
-    // Workspaces = the project's window layouts.
-    for (int i = 0; i < (int)project_.windowLayouts.size(); ++i)
-        all.push_back({"Layout: " + project_.windowLayouts[i].name,
-                       i == project_.activeLayout ? "the current window arrangement"
-                                                  : "switch the window arrangement",
-                       "Workspaces", "", ui::Glyph::Layers, [this, i] { switchLayout(i); }});
-
-    // Windows.
-    for (const std::string& key : chatWindowKeys()) {
-        const char* title = windowTitle(key);
-        bool* flag = showFlagForKey(key);
-        if (!title || !flag) continue;
-        all.push_back({title, *flag ? "open - bring it forward" : "open the window", "Windows", "",
-                       ui::Glyph::List, [this, flag, title] {
-                           *flag = true;
-                           pendingFocusWindow_ = title;
+    // Every enabled menu item, under its menu path. Running one re-runs the
+    // menus with its ordinal (same frame, same state, so the same ordinal).
+    // A Tools item that opens a window also brings that window forward - a
+    // docked one may be open already behind another tab.
+    std::vector<menuact::Item> menuItems;
+    harvestMainMenus(&menuItems);
+    for (const menuact::Item& it : menuItems) {
+        if (!it.enabled || it.label.empty()) continue;
+        std::string hint = it.path;
+        if (it.selected) hint += hint.empty() ? "on" : " - on";
+        std::string bare = it.label;
+        if (bare.size() > 3 && bare.compare(bare.size() - 3, 3, "...") == 0) bare.resize(bare.size() - 3);
+        const char* focus = nullptr;
+        for (const std::string& key : chatWindowKeys())
+            if (const char* t = windowTitle(key); t && bare == t) focus = t;
+        const int ord = it.ordinal;
+        all.push_back({it.label, std::move(hint), "Commands", it.shortcut, menuGlyph(it.path),
+                       [this, ord, focus] {
+                           std::vector<menuact::Item> again;
+                           harvestMainMenus(&again, ord);
+                           if (focus) pendingFocusWindow_ = focus;
                        }});
     }
 
@@ -205,20 +235,20 @@ void App::drawCommandPalette() {
     };
     std::vector<Hit> hits;
     for (int i = 0; i < (int)all.size(); ++i) {
-        // An empty query shows the commands, workspaces and scenes - the
-        // hundreds of objects and pages only once you type.
+        // An empty query shows the commands and scenes - the hundreds of
+        // objects and pages only once you type.
         if (q.empty() && std::string(all[i].category) != "Commands" &&
-            std::string(all[i].category) != "Workspaces" && std::string(all[i].category) != "Scenes")
+            std::string(all[i].category) != "Scenes")
             continue;
         const int sc = score(all[i].label, all[i].hint, q);
         if (sc > 0) hits.push_back({sc, i, &all[i]});
     }
     // Group by category in a fixed order, best match first inside each.
     auto catRank = [](const char* c) {
-        static const char* const kOrder[] = {"Commands", "Objects", "Scenes", "Windows", "Workspaces", "Docs"};
-        for (int k = 0; k < 6; ++k)
+        static const char* const kOrder[] = {"Commands", "Objects", "Scenes", "Docs"};
+        for (int k = 0; k < 4; ++k)
             if (std::string(c) == kOrder[k]) return k;
-        return 6;
+        return 4;
     };
     std::stable_sort(hits.begin(), hits.end(), [&](const Hit& a, const Hit& b) {
         const int ca = catRank(a.e->category), cb = catRank(b.e->category);
@@ -382,11 +412,11 @@ void App::drawCommandPalette() {
         const float tx = t0.x + ic + scaled(10.0f);
         const float lh = ImGui::GetTextLineHeight();
         float keyW = 0.0f;
-        if (e.key && *e.key) {
+        if (!e.key.empty()) {
             ui::FontScope mono(ui::monoFont());
-            keyW = ImGui::CalcTextSize(e.key).x;
+            keyW = ImGui::CalcTextSize(e.key.c_str()).x;
             dl->AddText(ImVec2(p.x + rw - keyW - scaled(10.0f), p.y + (rowH - lh) * 0.5f),
-                        ImGui::GetColorU32(sem.textDim), e.key);
+                        ImGui::GetColorU32(sem.textDim), e.key.c_str());
         }
         dl->PushClipRect(p, ImVec2(p.x + rw - keyW - scaled(18.0f), p.y + rowH), true);
         // ImGui would render "&&" as two ampersands; the run labels mean one.
@@ -423,6 +453,13 @@ void App::drawCommandPalette() {
         ui::Keycap(fdl, ImVec2(p.x + askW - capW, p.y), lh, chord.c_str());
         if (hov)
             ImGui::SetTooltip("Open the AI Assistant with what you typed here as the draft message.");
+    }
+    // Run it while the palette is still the current window: a menu command
+    // re-runs the menus in a child of it (harvestMainMenus).
+    if (chosen && !askAi) {
+        chosen->run();
+        close = true;
+        chosen = nullptr;
     }
     ImGui::End();
 

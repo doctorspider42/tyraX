@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -89,6 +91,23 @@ public:
     // (i.e. the game on the console still has its host: filesystem).
     bool ps2ClientAlive() const;
 
+    // Is THIS project's game up right now, and since when - the top bar's
+    // "Running 00:42" and the Debugger's "stopped cleanly vs hung" verdict.
+    // PCSX2 = an emulator process whose command line names this project's ELF
+    // (by `-elf <path>`, never by process name alone); PS2 = the ps2client
+    // file server of this editor's last deploy is alive. The process scan
+    // runs on a helper thread about once a second, so this is cheap to call
+    // every frame and may lag a launch or an exit by up to ~1 s.
+    struct GameStatus {
+        bool running = false;
+        bool onPs2 = false;   // the game is on the console (ps2link), not PCSX2
+        double seconds = 0.0; // since the launch / deploy (or since first seen)
+    };
+    // Tell the watcher which project to look for; nullptr stops looking (no
+    // project open). Call once per frame from the UI thread.
+    void watchGame(const Project* p);
+    GameStatus gameStatus() const;
+
     // Copies the whole log (called every frame by the UI; log is small).
     std::string log() const;
     void clearLog();
@@ -138,6 +157,25 @@ private:
     void worker(Project p, bool build, bool run, bool ps2, bool rebuild,
                 int launchScene);
     void join();
+
+    // The game watcher (watchGame / gameStatus). The thread starts on the
+    // first watchGame() and is joined by the destructor.
+    using SteadyClock = std::chrono::steady_clock;
+    void watchLoop();
+    std::thread watchThread_;
+    mutable std::mutex watchMutex_;
+    std::condition_variable watchWake_;
+    bool watchStop_ = false;
+    std::string watchElf_;        // absolute native ELF path; "" = not watching
+    std::string watchEmuHint_;    // configured emulator path (process names)
+    std::string watchLastEmu_;    // what launchPCSX2 actually started
+    bool emuRunning_ = false;     // the last scan found our ELF's emulator
+    SteadyClock::time_point emuSince_{};
+    // When this Runner last launched PCSX2 / deployed to the PS2, and for
+    // which ELF - the start of the clock when the process shows up.
+    std::string launchElf_;
+    SteadyClock::time_point launchAt_{};
+    SteadyClock::time_point deployAt_{};
 
     std::thread thread_;
     std::atomic<State> state_{State::Idle};

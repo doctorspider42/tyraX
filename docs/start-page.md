@@ -96,8 +96,15 @@ a percentage inside a step. The time so far is in the corner.
 ![The Opening card: project name and folder, the four loading steps and
 Cancel.](img/opening-project.png)
 
-**Cancel** returns to the start page. Loading cannot be interrupted in the
-middle of a step, so it takes effect when the current one ends.
+**Cancel** (or Esc) stops the load and returns to the start page - or, when
+another project was open, to that project, untouched. Reading the files
+(*Project file*, *Objects*, *Terrain*) runs beside the card, so Cancel works in
+the middle of it: the reader stops before its next object file, the card says
+*Cancelling* for that moment, and the half-read project is thrown away along
+with the custom nodes, screen effects and menu styles it had registered. The
+last step, *Workspace*, builds the viewport's meshes and textures on the
+editor's own thread and cannot be stopped, so Cancel is greyed out once it
+starts.
 
 When opening fails (a damaged `.tyra`, a project from a newer editor, a
 migration you declined), the card turns into the error: what failed, and

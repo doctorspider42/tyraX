@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <array>
 #include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <set>
@@ -60,6 +61,9 @@
 #include "viewport.hpp"
 
 struct GLFWwindow;
+namespace menuact {
+struct Item;
+}
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
@@ -153,6 +157,10 @@ private:
     // items are the ten menus (drawMainMenus) as submenus. shell_ui.cpp.
     void drawLogoMenu();
     void drawMainMenus();
+    // drawMainMenus as data (menu_actions.hpp): every item it would draw is
+    // appended to `out`; invoke >= 0 runs the item with that ordinal. Must be
+    // called inside a window (the palette's): it opens an item-less child.
+    void harvestMainMenus(std::vector<menuact::Item>* out, int invoke = -1);
     // Set by --ui-script (a step naming a top-level menu while the logo menu is
     // closed - devkit_ui.cpp) to open it on the next frame.
     bool logoMenuOpenRequest_ = false;
@@ -1677,6 +1685,16 @@ private:
     bool projectLoadCancel_ = false;  // honoured at the next stage boundary
     std::string projectLoadError_;  // non-empty = the card shows the failure
     std::unique_ptr<Project> projectLoadPending_;  // stage 0's result
+    // Stage 0 runs project::load on this thread (projectLoadTick); the flag
+    // stops it between object files. projectLoadJoin waits for it and, after
+    // a cancel, restores the registries the abandoned read replaced.
+    std::thread projectLoadThread_;
+    std::atomic<bool> projectLoadAbort_{false};
+    std::atomic<bool> projectLoadReady_{false};
+    bool projectLoadResultTaken_ = true;
+    std::unique_ptr<Project> projectLoadResult_;  // written by the thread
+    std::string projectLoadResultErr_;            // written by the thread
+    void projectLoadJoin();
     int projectLoadObjects_ = 0, projectLoadScenes_ = 0, projectLoadTerrains_ = 0;
     double projectLoadStarted_ = 0.0;
     // The start page: drawn INSTEAD of the docked layout while nothing is open
@@ -1971,8 +1989,10 @@ private:
     bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
     char sessionName_[48] = "";
     char sessionAddr_[128] = "";
-    int sessionPort_ = 7797;
-    char sessionCode_[16] = "";
+    int sessionPort_ = 7797;      // the port this editor HOSTS on
+    int sessionJoinPort_ = 7797;  // the port of the host it joins (Join segment)
+    char sessionCode_[16] = "";      // the code this editor hosts with
+    char sessionJoinCode_[16] = "";  // the code typed / pasted to join
     std::string sessionError_;      // inline error in the join modal
     int sessionTab_ = 0;            // the Live session modal: 0 Host, 1 Join
     char sessionInvite_[256] = "";  // pasted invite / host:port (parsed live)
@@ -1987,10 +2007,23 @@ private:
     struct PeerPresence {
         int scene = 0;
         std::vector<std::string> sel;  // object ids
+        // Their editor camera (presence "cam", optional - an older editor
+        // sends none): yaw, pitch, distance, target xyz (Viewport::camState).
+        bool hasCam = false;
+        float cam[6] = {0, 0, 0, 0, 0, 0};
     };
     std::map<int, PeerPresence> peerPresence_;
     std::vector<std::string> presenceSentSel_;
     int presenceSentScene_ = -1;
+    float presenceSentCam_[6] = {0, 0, -1, 0, 0, 0};
+    double presenceRefreshAt_ = 0.0;  // next unchanged re-send (late joiners)
+    // Session panel "Follow": the peer whose camera ours rides (-1 = none),
+    // and the camera sessionFollowTick last set (to notice the user moving).
+    int followPeer_ = -1;
+    bool followApplied_ = false;
+    float followCam_[6] = {0, 0, 0, 0, 0, 0};
+    void sessionFollowTick();
+    static bool sameSessionCam(const float a[6], const float b[6]);
     double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
@@ -3865,6 +3898,14 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    // Edit > Preferences > ps2link "Test connection": a TCP connect to
+    // tcp/18193 on a worker (wire::probeTcp), never a deploy. The verdict is
+    // kept with the IP it was for, so editing the field drops it.
+    std::future<std::string> ps2TestJob_;
+    std::string ps2TestIp_;      // the address the running/last test asked
+    std::string ps2TestResult_;  // "" none yet; else the verdict line
+    int ps2TestKind_ = 3;        // StatusLine kind of the verdict
+    double ps2TestStarted_ = 0.0;
     char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
     int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
@@ -4160,6 +4201,9 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** PCSX2 is the target and is not running this ELF: a frozen snapshot is
+     *  a closed game's, not a stale transport (devkit_ui.cpp). */
+    bool dbgGameClosed() const;
     /** The paragraph dbgSilenceReason() no longer prints inline: which file is
      * silent and how a running console ends up with nowhere to write. For the
      * (?) hover next to it; only meaningful when the reason is non-empty. */

@@ -25,8 +25,10 @@ in-game** from a menu row.
   one mode (*On foot*, *Menus*, *Vehicle*; it follows the action you pick).
 - **The selected action** — label, name, role, then its pad button, keyboard
   key and mouse button in the edited preset. **Press to set** captures the
-  next button of a controller connected to this computer (pad) or the next
-  key you press (keyboard). Under it a plain clash check: *"Cross also: Fly
+  next button of a controller connected to this computer (pad), the next
+  key you press (keyboard), or - for the mouse - the next click on the button
+  itself, which now reads *Click here...*: a left, right or middle click sets
+  Left, Right or Middle (Esc, or a click anywhere else, cancels). Under it a plain clash check: *"Cross also: Fly
   up (noclip), Confirm (menus), Vehicle nitrous (vehicle). Different modes, no
   clash."* - or an amber line when two actions of one mode share the button.
 - **Footer** — **+ Custom action**, the sprint speed and *Restore built-ins*.

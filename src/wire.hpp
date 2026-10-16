@@ -138,4 +138,13 @@ std::unique_ptr<Transport> makeWebSocketTransport(std::string httpPage = {});
 // Local IPv4 addresses (for "hosting on <ip>:<port>" UI), loopback excluded.
 std::vector<std::string> localIPv4();
 
+// Is something accepting TCP connections at host:port? Connects (blocking the
+// caller up to timeoutMs) and closes again without sending a byte. "" = it
+// answered; otherwise "connection timed out", "connection refused", ... -
+// the TCP transport's connect() error. Edit > Preferences' ps2link "Test
+// connection" (ps2link listens on tcp/18193, which every ps2client command
+// connects to the same way, so this asks nothing of the console a command
+// would not).
+std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs);
+
 }  // namespace wire

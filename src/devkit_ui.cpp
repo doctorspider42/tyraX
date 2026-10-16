@@ -1054,8 +1054,21 @@ void App::livedbgTick() {
         }
     }
 
+    // The file went away: a launch cleared the channel (both Runner paths
+    // delete it), so whatever reported before is over - not a hang. Without
+    // this a relaunch read as "stopped reporting" while the new game booted.
+    if (dbgSnapFileAge_ < 0.0) dbgSnapTime_ = 0.0;
+    // A snapshot file that was already old when this editor first saw it is a
+    // leftover of an earlier session (opening a project whose game ran
+    // yesterday), not a game: never attach to it, or it reads as "reporting"
+    // for a moment and then as a game that stopped reporting.
+    const int reportEvery = project_.settings.liveDebugSnapshotFrames > 0
+                                ? project_.settings.liveDebugSnapshotFrames : 25;
+    const bool freshFile = dbgSnapFileAge_ >= 0.0 &&
+                           dbgSnapFileAge_ < std::max(5.0, 2.0 + 3.0 * reportEvery / 25.0);
     livedbg::Snapshot snap;
-    if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
+    if ((dbgSnapTime_ > 0.0 || freshFile) &&
+        livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
         (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
         // A restarted game rewinds its frame counter: drop the history and the
         // heat so the new run is not drawn on top of the old one's trail.
@@ -1151,8 +1164,11 @@ void App::livedbgTick() {
     // heartbeat is the only witness. Remember where it died - the fire history,
     // the watch curves and the timers from just before are still in memory, and
     // that is the post-mortem.
+    // Only while the game's process is still up (Runner::gameStatus: PCSX2 on
+    // this ELF, or our ps2client): a game that was closed, stopped or
+    // redeployed went quiet because it is gone, which is no crash and no hang.
     if (!reporting && dbgSnapTime_ > 0.0 && !dbgLostGame_ &&
-        !dbgCrash_.present && dbgSnap_.frame > 0) {
+        !dbgCrash_.present && dbgSnap_.frame > 0 && runner_.gameStatus().running) {
         dbgLostGame_ = true;
         dbgLostAtFrame_ = dbgSnap_.frame;
         statusMessage_ = "The game stopped reporting at frame " +
@@ -1439,12 +1455,21 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
 //
 // It used to say all of that inline, and the panel opened on a paragraph nobody
 // reads under stress. The rest lives in dbgSilenceDetail(), one hover away.
+// A frozen bin/livedbg.bin while PCSX2 is not running this ELF is simply the
+// last session's file: the game was closed. Over ps2link the same silence is
+// ambiguous (the console may still be running with its file server gone), so
+// that case keeps the "stale snapshot" reading and its explanation.
+bool App::dbgGameClosed() const {
+    return !runOnPs2_ && !runner_.gameStatus().running;
+}
+
 std::string App::dbgSilenceReason() const {
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
         return {};
     if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
     if (dbgSnapFileAge_ < 0.0)
         return "Nothing is reporting yet - Build & Run (F5 / F6).";
+    if (dbgGameClosed()) return "The game is not running - Build & Run (F5 / F6).";
     // Running/Waiting already accounts for the configured report interval and
     // observed frame rate in livedbgTick. File age adds transport context here.
     const double age = dbgSnapFileAge_;
@@ -1465,6 +1490,9 @@ const char* App::dbgSilenceDetail() const {
                "bin/livedbg.bin has not appeared yet. If the game IS running,\n"
                "it was built before the Live Debugger preference was switched\n"
                "on: rebuild it.";
+    if (dbgGameClosed())
+        return "No PCSX2 is running this project's ELF, so bin/livedbg.bin is\n"
+               "what the last session left behind. F5 builds and runs it again.";
     return "F5 for PCSX2, F6 for a console. That session is OVER:\n"
            "bin/livedbg.bin stopped changing, so what is on disk is a snapshot\n"
            "of a session that is over. The game may still be running: over\n"
@@ -1658,7 +1686,10 @@ void App::dbgDrawHeader() {
                 // A frozen file is a DIFFERENT thing from an absent one: one is
                 // "not started yet", the other "the transport died and the
                 // console is still running".
-                if (dbgSnapFileAge_ >= 0.0) {
+                if (dbgSnapFileAge_ >= 0.0 && dbgGameClosed()) {
+                    pill = "Not running";
+                    kind = 4;
+                } else if (dbgSnapFileAge_ >= 0.0) {
                     pill = "Stale snapshot";
                     kind = 1;
                 } else {
