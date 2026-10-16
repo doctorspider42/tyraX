@@ -2804,7 +2804,30 @@ private:
     void drawMenuPreviewWindow();
     void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
     void drawMenuStyleText(GameMenu& m, bool& projectChanged);
-    void drawMenuCost(const GameMenu& m);
+    void drawMenuCostCard(const GameMenu& m);
+    // The preview's building blocks (menustyle_ui.cpp): one clock tick per
+    // frame, this frame's transition/sheen, the panel at its texels, the
+    // panel on a mock TV of one display mode (with its fit verdict).
+    struct MenuMotion {
+        float ofsX = 0.0f, ofsY = 0.0f, tint = 1.0f;
+        const menustyle::Animation* sheen = nullptr;
+    };
+    struct MenuFit {
+        bool fits = true;
+        float panelW = 0.0f, panelH = 0.0f;  // framebuffer px in that mode
+        float screenH = 0.0f;                // drawn TV height
+    };
+    void menuPreviewTick();
+    MenuMotion menuPreviewMotion(const GameMenu& m);
+    void menuPreviewSheen(const MenuMotion& mo, ImDrawList* dl, ImVec2 m0, ImVec2 m1,
+                          float pxPerTexel);
+    void menuPreviewPanel(const GameMenu& m, ImVec2 p0, float scale, bool outline);
+    MenuFit menuPreviewTV(const GameMenu& m, const std::string& modeKey, bool wide, ImVec2 p0,
+                          float sw, bool outline);
+    void menuPreviewStepRow(const GameMenu& m, int dir);
+    int menuPreviewTickFrame_ = -1;
+    float menuPreviewCloseT_ = -1.0f;  // >= 0 = replaying the close transition
+    int menuPreviewView_ = 0;  // Menu Preview: every resolution / one, large / texels
     void drawMenuStyleDeleteModal();
     std::string menuStyleDeleteKey_;  // the sheet the confirm is about
     void menuStyleSync(const GameMenu& m);

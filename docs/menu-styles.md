@@ -105,8 +105,14 @@ the menu every frame.
 power-of-two and use palette quantization where possible.
 
 Styles use the project's logical 512x448 canvas. TyraX scales the result for PAL,
-NTSC, progressive and widescreen modes. Use the Menu Preview's display-mode
-picker instead of hand-tuning coordinates for one output mode.
+NTSC, progressive and widescreen modes. **Tools > Menu Preview** opens on
+*Every resolution*: one mock TV per mode the project supports, side by side,
+each captioned with its framebuffer size and a verdict (*boots in this*, *fits*
+with the panel's size in that mode, or *runs off the screen*), with a 4:3 / 16:9
+switch. *One, large* shows a single mode big, *Panel pixels* the baked texels.
+Check there instead of hand-tuning coordinates for one output mode. Its side
+card walks the simulated cursor (*Row up / Row down*), toggles *Motion*, replays
+the open or close transition, and lists what the menu costs.
 
 ## Cost
 
