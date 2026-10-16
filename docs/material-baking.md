@@ -58,7 +58,8 @@ itself.
 In the **Paint** tab, **+ Mask** (on the Layers caption) adds a
 **smart mask layer**: a fill color drawn through a procedural mask driven by
 the baked map set. Select the layer and tune the generator that appears
-under the list:
+under the list (*Smart mask - <layer>*, **Invert** as a chip on its caption;
+Source, Colour, Range, Breakup as label-left rows):
 
 - **Sources**: *Edge wear* / *Cavity grime* (baked curvature), *Occlusion
   dirt* (1−AO), *Thin rims* (thickness), *Height (Y)* and *Facing up*
@@ -67,12 +68,14 @@ under the list:
   island seams instead of restarting at them (a free triplanar effect) —
   and *Bricks* (UV-space running bond with a mortar width).
 - **Range** remaps the source through a smoothstep window (narrow = hard
-  edge, wide = soft ramp), **Invert** flips it, **Breakup** multiplies by
-  world-space Perlin for organic, uneven wear.
+  edge, wide = soft ramp) - one slider with two handles, the window's ends
+  shown beside it (`0.25 - 0.65`); **Invert** flips it; **Breakup**
+  multiplies by world-space Perlin for organic, uneven wear, with the noise
+  size (`x9.0`) beside its amount.
 - Masks **regenerate live as the bake refines** and whenever a parameter
   changes; hand strokes on a mask layer are overwritten by the next
   regeneration (paint on a normal layer above instead). Parameters persist
-  in the `.layers` sidecar; a layer marked `*` in the list is generated.
+  in the `.layers` sidecar; a layer with a `smart` chip in the list is generated.
 
 **Presets** saves the current mask stack's *parameters* (never pixels) as
 `material-presets/<name>.matpreset` in the project root (never ships) —

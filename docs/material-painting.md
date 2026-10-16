@@ -81,7 +81,9 @@ the source model; they live in `<model>.uvs` and follow the model when it moves.
 
 ## Layers and masks
 
-Layers are composited top to bottom. Each row has an eye, a swatch, the name
+Layers are composited top to bottom. Each row has an eye, a thumbnail of the
+layer's own pixels over a checker (a smart mask shows the mask it generates;
+it follows strokes as you paint), the name
 (a `smart` chip on a smart mask), the blend mode and the opacity; **+ Layer**,
 **+ Mask**, **Presets** and **Delete layer** sit on the Layers caption,
 **Move up / Move down** under the stack. The stack is saved next to the texture in `<texture>.layers/`; the normal

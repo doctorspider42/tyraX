@@ -3583,6 +3583,8 @@ private:
     void matEdRegenMasks();  // all genOn layers + composite (no disk write)
     bool matEdAnyGenLayer() const;
     void matEdGenControls();  // generator UI for the active layer
+    // a layer row's thumbnail: its pixels over a checker, `s` px square
+    void matEdLayerThumb(ImDrawList* dl, const MatEdLayer& L, ImVec2 at, float s) const;
     // Presets: the gen-enabled layers' parameters as a reusable JSON under
     // <project>/material-presets/ (project dir, never ships).
     void matEdSavePreset(const std::string& name);
