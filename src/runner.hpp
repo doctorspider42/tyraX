@@ -167,3 +167,9 @@ private:
     // IP), so the console's first log line is the only real liveness signal.
     std::atomic<int> ps2Lines_{0};
 };
+
+// The PCSX2 Run would launch with no path configured (the same auto-detect).
+// "" = none found. Probes the disk, so callers cache the answer (Welcome's
+// setup chips, Edit > Preferences' "auto" readout).
+std::string detectEmulatorPath();
+

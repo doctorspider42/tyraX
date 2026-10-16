@@ -412,4 +412,78 @@ bool Segmented(const char* id, const char* const* labels, int count, int* select
     return changed;
 }
 
+// --- runtime-b ---------------------------------------------------------------
+
+float StatusChipWidth(const char* text) {
+    const float fs = ImGui::GetFontSize();
+    return ImGui::CalcTextSize(text).x + fs * 1.6f;
+}
+
+bool StatusChip(const char* label, const char* text, int kind) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float w = StatusChipWidth(text), h = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const ImVec4 tint = kind == 1 ? sem.warn : kind == 2 ? sem.danger : sem.surface;
+    dl->AddRectFilled(p, q, c32(kind == 1 || kind == 2 ? mixv(sem.surface, tint, 0.18f) : sem.surface,
+                                0.85f + 0.15f * t),
+                      h * 0.5f);
+    dl->AddRect(p, q, c32(kind == 1 || kind == 2 ? tint : sem.border, kind == 1 || kind == 2 ? 0.35f : 1.0f),
+                h * 0.5f);
+    dl->AddCircleFilled(ImVec2(p.x + fs * 0.6f, p.y + h * 0.5f), fs * 0.18f, kindCol(kind));
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    dl->AddText(ImVec2(p.x + fs * 0.95f, p.y + (h - ts.y) * 0.5f),
+                c32(kind == 1 ? sem.warn : kind == 2 ? sem.danger : sem.text, kind == 4 ? 0.7f : 0.92f),
+                text);
+    return pressed;
+}
+
+void Spinner(ImDrawList* dl, ImVec2 c, float radius) {
+    const theme::Semantics& sem = theme::semantics();
+    const float a0 = (float)ImGui::GetTime() * 6.0f;
+    dl->PathArcTo(c, radius, a0, a0 + IM_PI * 1.4f, 24);
+    dl->PathStroke(c32(sem.accent), 0, ImMax(1.5f, radius * 0.28f));
+}
+
+void CheckMark(ImDrawList* dl, ImVec2 c, float size, ImU32 col) {
+    const float s = size * 0.5f;
+    const ImVec2 pts[3] = {ImVec2(c.x - s * 0.55f, c.y + s * 0.02f), ImVec2(c.x - s * 0.15f, c.y + s * 0.42f),
+                           ImVec2(c.x + s * 0.6f, c.y - s * 0.4f)};
+    dl->AddPolyline(pts, 3, col, 0, ImMax(1.4f, size * 0.13f));
+}
+
+void Monogram(ImDrawList* dl, ImVec2 c, float radius, const char* initials, ImU32 col) {
+    ImVec4 base = ImGui::ColorConvertU32ToFloat4(col);
+    dl->AddCircleFilled(c, radius, c32(base, 0.18f), 32);
+    dl->AddCircle(c, radius, col, 32, ImMax(1.0f, radius * 0.08f));
+    ImFont* f = boldFont() ? boldFont() : ImGui::GetFont();
+    const float fs = radius * 0.78f;
+    const ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, initials);
+    dl->AddText(f, fs, ImVec2(c.x - ts.x * 0.5f, c.y - ts.y * 0.5f), col, initials);
+}
+
+bool ChoiceCard(const char* label, bool selected, float height) {
+    const theme::Semantics& sem = theme::semantics();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(ImMax(1.0f, w), height));
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 4.0f;
+    const ImVec2 q(p.x + w, p.y + height);
+    if (selected) {
+        dl->AddRectFilled(p, q, c32(mixv(sem.surface, sem.accent, 0.10f)), r);
+        dl->AddRect(ImVec2(p.x - 2, p.y - 2), ImVec2(q.x + 2, q.y + 2), c32(sem.accent, 0.14f), r + 2.0f, 0, 3.0f);
+        dl->AddRect(p, q, c32(sem.accent, 0.6f), r);
+    } else {
+        dl->AddRectFilled(p, q, c32(mixv(sem.surface, sem.text, 0.03f * t)), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+    }
+    return pressed;
+}
+
 }  // namespace ui

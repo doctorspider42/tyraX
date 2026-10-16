@@ -1610,6 +1610,7 @@ private:
         std::string dir;     // project folder, what gets opened
         std::string name;    // display name (manifest stem, else the folder's)
         bool valid = false;  // the folder still holds a <name>.tyra manifest
+        long long savedAt = 0;  // the manifest's last write (unix s), 0 = unknown
     };
     std::vector<RecentProject> recentProjects_;
     void probeRecentProject(RecentProject& r);  // fill name + valid from disk
@@ -1634,7 +1635,30 @@ private:
     double projectLoadShowUntil_ = 0.0;
     std::string projectLoadDir_;
     std::string projectLoadName_;
-    void drawWelcomeScreen();  // the Viewport's content while nothing is open
+    // The start page: drawn INSTEAD of the docked layout while nothing is open
+    // (drawUI keeps the dockspace alive but hidden). Recent projects on the
+    // left, the bundled examples on the right, setup chips at the bottom.
+    void drawWelcomeScreen();
+    struct WelcomeExample {
+        std::string folder;   // examples/<folder>
+        std::string dir;      // absolute source folder
+        std::string title;    // README H1, shortened
+        std::string blurb;    // README's first sentence
+        std::string tag;      // category chip
+        std::string preview;  // README's first image inside the folder, or ""
+        unsigned int tex = 0;
+        int texW = 0, texH = 0;
+        bool texTried = false;
+    };
+    std::vector<WelcomeExample> welcomeExamples_;
+    bool welcomeExamplesScanned_ = false;
+    int welcomeExampleTab_ = 0;          // 0 = Featured, 1 = All, then tags
+    char welcomeRecentFilter_[96] = {};
+    double welcomeProbeAt_ = -1.0;       // setup chips, re-probed every few s
+    std::string welcomePcsx2_;           // auto-detected or configured, "" = none
+    bool welcomeToolchainReady_ = false;
+    void scanWelcomeExamples();
+    void openExampleCopy(const WelcomeExample& ex);
 
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another

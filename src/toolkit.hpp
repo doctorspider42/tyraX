@@ -94,4 +94,28 @@ int UsedBy(const char* caption, const std::vector<std::string>& items);
 bool Segmented(const char* id, const char* const* labels, int count, int* selected,
                float width = 0.0f);
 
+// --- runtime-b ---------------------------------------------------------------
+// Start page, New Project, Preferences, loading screen, update and session
+// pieces (docs/editor-theme.md, "Tool windows").
+
+/** A status chip: a pill with a coloured dot (kind as StatusLine; 4 = dim)
+ * and `text`. An InvisibleButton named `label` - returns clicked. */
+bool StatusChip(const char* label, const char* text, int kind);
+/** Width StatusChip(label, text, kind) takes. */
+float StatusChipWidth(const char* text);
+
+/** A busy spinner (a rotating arc in the accent), `radius` px, centred on `c`. */
+void Spinner(ImDrawList* dl, ImVec2 c, float radius);
+
+/** A check mark in `col` inside a `size` px box centred on `c`. */
+void CheckMark(ImDrawList* dl, ImVec2 c, float size, ImU32 col);
+
+/** A round monogram (initials) in `col`: tinted fill, ring and letters. */
+void Monogram(ImDrawList* dl, ImVec2 c, float radius, const char* initials, ImU32 col);
+
+/** A choice card (New Project's "Start as"): a raised rounded box `height`
+ * high filling the row, accent ring when selected. The caller draws the
+ * content into the rect it reports (GetItemRectMin/Max). Returns clicked. */
+bool ChoiceCard(const char* label, bool selected, float height);
+
 }  // namespace ui

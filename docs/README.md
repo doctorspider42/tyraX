@@ -263,6 +263,10 @@ a Mac) finds any command, object or window by name.
   installed into generated projects, and their ownership rule.
 - [The VS Code extension](vscode-extension.md) — highlighting, snippets and
   validation for `.flownode` / `.screenfx`.
+- [The start page, New Project and opening a project](start-page.md) — what
+  the editor shows with nothing open: recent projects, the bundled examples
+  opened as a copy, the setup checks, the New Project dialog and the loading
+  card.
 - [The editor's look: themes and the interface font](editor-theme.md) — the
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens

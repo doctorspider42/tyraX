@@ -39,6 +39,7 @@
 #include "version.hpp"
 #include "wavconvert.hpp"
 #include "widgets.hpp"
+#include "toolkit.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -920,9 +921,15 @@ void App::drawUI() {
         ui::PanelChromeNewFrame(kSelfTitled, IM_ARRAYSIZE(kSelfTitled));
     }
     theme::pushDockspaceColors();  // panels as cards on the ground colour
-    ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
-                                                     ImGuiDockNodeFlags_NoWindowMenuButton);
+    // With no project the dock layout has nothing to show: it is kept alive
+    // (KeepAliveOnly - docked windows stay docked, hidden) and the start page
+    // fills the work area instead.
+    ImGuiID dockspace = ImGui::DockSpaceOverViewport(
+        0, ImGui::GetMainViewport(),
+        ImGuiDockNodeFlags_NoWindowMenuButton |
+            (hasProject_ ? 0 : ImGuiDockNodeFlags_KeepAliveOnly));
     theme::popDockspaceColors();
+    if (!hasProject_) drawWelcomeScreen();
 
     // Terrain-layer edits (material/tint/Size/add/remove) rebuild the layer
     // passes once per frame, before the viewport renders below. Brush strokes
@@ -2380,92 +2387,770 @@ static std::string ellipsizePathLeft(const std::string& s, float maxW) {
     return "..." + s.substr(lo);
 }
 
-// The Viewport's content before anything is open: the two ways in, plus the
-// recent-projects list so the usual next step - carry on with the project from
-// last time - is one click instead of a file dialog. Entries whose folder is
-// gone stay listed (greyed) rather than being swept: a project on an unplugged
-// drive is not a mistake, and the x is right there when it really is.
-void App::drawWelcomeScreen() {
-    const ImGuiStyle& st = ImGui::GetStyle();
-    ImGui::Dummy(ImVec2(0, scaled(24)));
-    ImGui::Indent(scaled(30));
+// --- The start page (no project open) -------------------------------------
+// Drawn by drawUI INSTEAD of the docked layout: with nothing open every panel
+// would only say "No project open", so the dockspace is kept alive but hidden
+// and this one window fills the work area. Left: the two ways in plus the
+// recent projects; right: the bundled examples, opened as a copy so the
+// shipped one stays pristine; bottom: setup chips that say what the first
+// Run will need before it fails.
 
-    ImGui::TextDisabled("No project open.");
-    ImGui::Dummy(ImVec2(0, scaled(6)));
-    const ImVec2 bsz(scaled(160), 0);
-    if (ImGui::Button("New project...", bsz)) requestNewProject();
-    ImGui::SameLine();
-    if (ImGui::Button("Open project...", bsz)) requestOpenProject();
-    ImGui::SameLine();
-    ImGui::TextDisabled("Ctrl+N / Ctrl+O");
+namespace {
 
-    ImGui::Dummy(ImVec2(0, scaled(12)));
-    ImGui::SeparatorText("Recent projects");
-    if (recentProjects_.empty()) {
-        ImGui::TextDisabled("Empty - the projects you open show up here.");
-        ImGui::Unindent(scaled(30));
+// The category chips and the examples each one lists. A folder the table does
+// not know still shows under All (tag "Example").
+struct ExampleTag {
+    const char* folder;
+    const char* tag;
+};
+const ExampleTag kExampleTags[] = {
+    {"showcase", "Showcase"},
+    {"vehicle-playground", "Vehicles"},
+    {"world-facts", "Gameplay"},
+    {"particle-lab", "Rendering"},
+    {"cutscene-demo", "Cinema & UI"},
+    {"deep-forest", "Performance"},
+    {"ambient-occlusion", "Rendering"},
+    {"baked-shadows", "Rendering"},
+    {"day-night", "Rendering"},
+    {"gi-showcase", "Rendering"},
+    {"global-illumination", "Rendering"},
+    {"glow", "Rendering"},
+    {"impostor-grove", "Performance"},
+    {"lighting", "Rendering"},
+    {"material-lab", "Rendering"},
+    {"mirror-room", "Rendering"},
+    {"probe-aim", "Rendering"},
+    {"probe-lighting", "Rendering"},
+    {"raytraced-mirror", "Rendering"},
+    {"reflections", "Rendering"},
+    {"texture-atlas", "Rendering"},
+    {"texture-feeds", "Rendering"},
+    {"upscaler-lab", "Rendering"},
+    {"video-modes", "Rendering"},
+    {"vu-lab", "Rendering"},
+    {"blocks-terrain", "Gameplay"},
+    {"cube", "Gameplay"},
+    {"custom-nodes", "Gameplay"},
+    {"endless-runner", "Gameplay"},
+    {"endless-scroller", "Gameplay"},
+    {"nav-ai", "Gameplay"},
+    {"night-walk", "Gameplay"},
+    {"object-spawning", "Gameplay"},
+    {"physics-playground", "Gameplay"},
+    {"procedural", "Gameplay"},
+    {"reverb-rooms", "Gameplay"},
+    {"save-points", "Gameplay"},
+    {"script-demo", "Gameplay"},
+    {"two-players", "Gameplay"},
+    {"credits", "Cinema & UI"},
+    {"hud-animation", "Cinema & UI"},
+    {"large-terrain", "Performance"},
+    {"layer-streaming", "Performance"},
+    {"portals", "Performance"},
+};
+// The first six rows above, in that order.
+const int kFeaturedExamples = 6;
+const char* const kExampleTabs[] = {"Featured", "All", "Rendering", "Gameplay",
+                                    "Vehicles", "Cinema & UI", "Performance"};
+
+// Markdown to plain text for a one-line blurb: [text](link) -> text, emphasis
+// and code marks dropped.
+std::string plainMarkdown(const std::string& in) {
+    std::string out;
+    for (size_t i = 0; i < in.size(); ++i) {
+        const char c = in[i];
+        if (c == '*' || c == '`' || c == '_') continue;
+        if (c == '[') {
+            const size_t close = in.find(']', i);
+            if (close != std::string::npos && close + 1 < in.size() && in[close + 1] == '(') {
+                const size_t paren = in.find(')', close);
+                if (paren != std::string::npos) {
+                    out += in.substr(i + 1, close - i - 1);
+                    i = paren;
+                    continue;
+                }
+            }
+        }
+        out += c;
+    }
+    return out;
+}
+
+// "2 h ago" / "yesterday" / "Sep 28": how long since a project was last saved.
+std::string agoText(long long t) {
+    if (t <= 0) return {};
+    const long long now = (long long)std::time(nullptr);
+    const long long d = now - t;
+    char buf[32];
+    if (d < 60) return "just now";
+    if (d < 3600) {
+        std::snprintf(buf, sizeof(buf), "%lld min ago", d / 60);
+        return buf;
+    }
+    if (d < 86400) {
+        std::snprintf(buf, sizeof(buf), "%lld h ago", d / 3600);
+        return buf;
+    }
+    if (d < 2 * 86400) return "yesterday";
+    if (d < 7 * 86400) {
+        std::snprintf(buf, sizeof(buf), "%lld days ago", d / 86400);
+        return buf;
+    }
+    if (d < 14 * 86400) return "last week";
+    const std::time_t tt = (std::time_t)t;
+    std::tm tmv{};
+#ifdef _WIN32
+    localtime_s(&tmv, &tt);
+#else
+    localtime_r(&tt, &tmv);
+#endif
+    std::strftime(buf, sizeof(buf), d > 300 * 86400 ? "%b %Y" : "%b %d", &tmv);
+    return buf;
+}
+
+// A stable tile colour per project name.
+ImU32 initialColour(const std::string& name) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec4 pal[5] = {sem.accent, sem.ok, sem.special, sem.warn, sem.textDim};
+    unsigned h = 2166136261u;
+    for (char c : name) h = (h ^ (unsigned char)c) * 16777619u;
+    return ImGui::GetColorU32(pal[h % 5]);
+}
+
+// Where the bundled examples live: next to the executable in a package, at
+// the top of a checkout when running from build/.
+std::filesystem::path findExamplesDir() {
+    std::error_code ec;
+    std::filesystem::path dir = platform::resourceBinDir();
+    for (int up = 0; up < 4 && !dir.empty(); ++up) {
+        for (const std::filesystem::path& cand : {dir / "examples", dir / "Resources" / "examples"})
+            if (std::filesystem::is_directory(cand, ec)) return cand;
+        dir = dir.parent_path();
+    }
+    return {};
+}
+
+// A folder name that does not exist yet under `parent`: name, name-2, ...
+std::filesystem::path freeFolder(const std::filesystem::path& parent, const std::string& name) {
+    std::error_code ec;
+    std::filesystem::path p = parent / name;
+    for (int i = 2; std::filesystem::exists(p, ec) && i < 1000; ++i)
+        p = parent / (name + "-" + std::to_string(i));
+    return p;
+}
+
+}  // namespace
+
+void App::scanWelcomeExamples() {
+    welcomeExamplesScanned_ = true;
+    welcomeExamples_.clear();
+    namespace fs = std::filesystem;
+    const fs::path root = findExamplesDir();
+    if (root.empty()) return;
+    std::error_code ec;
+    std::vector<fs::path> dirs;
+    for (const auto& e : fs::directory_iterator(root, ec))
+        if (e.is_directory(ec)) dirs.push_back(e.path());
+    std::sort(dirs.begin(), dirs.end());
+    std::vector<WelcomeExample> found;
+    for (const fs::path& d : dirs) {
+        if (projectManifestName(d.string()).empty()) continue;  // not a project
+        WelcomeExample ex;
+        ex.folder = d.filename().string();
+        ex.dir = d.string();
+        ex.title = ex.folder;
+        ex.tag = "Example";
+        for (const ExampleTag& t : kExampleTags)
+            if (ex.folder == t.folder) ex.tag = t.tag;
+        std::ifstream in(d / "README.md");
+        std::string line, para;
+        bool inPara = false;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (ex.title == ex.folder && line.rfind("# ", 0) == 0) {
+                std::string t = line.substr(2);
+                // "Aster — The Tide Observatory" -> "Aster"; "x example" -> "x"
+                for (const char* sep : {" \xE2\x80\x94 ", " - ", ": "})
+                    if (size_t k = t.find(sep); k != std::string::npos) t = t.substr(0, k);
+                if (t.size() > 8 && t.compare(t.size() - 8, 8, " example") == 0)
+                    t.resize(t.size() - 8);
+                if (!t.empty()) ex.title = t;
+                continue;
+            }
+            if (ex.preview.empty()) {
+                const size_t a = line.find("](");
+                if (line.find("![") != std::string::npos && a != std::string::npos) {
+                    const size_t b = line.find(')', a);
+                    const std::string rel = line.substr(a + 2, b == std::string::npos ? std::string::npos : b - a - 2);
+                    if (rel.find("..") == std::string::npos && rel.find("://") == std::string::npos &&
+                        fs::exists(d / rel, ec))
+                        ex.preview = (d / rel).string();
+                }
+            }
+            if (!para.empty() && !inPara) continue;
+            const bool text = !line.empty() && line[0] != '#' && line[0] != '!' && line[0] != '|' &&
+                              line[0] != '>' && line[0] != '-' && line[0] != '`' && line[0] != '<';
+            if (text) {
+                para += (para.empty() ? "" : " ") + line;
+                inPara = true;
+            } else if (inPara) {
+                inPara = false;
+            }
+        }
+        para = plainMarkdown(para);
+        // Drop "(docs/x.md)"-style asides: links to pages the card cannot open.
+        for (size_t k = para.find('('); k != std::string::npos; k = para.find('(', k)) {
+            const size_t e = para.find(')', k);
+            if (e == std::string::npos) break;
+            const std::string in = para.substr(k, e - k);
+            if (in.find(".md") != std::string::npos || in.find(" > ") != std::string::npos) {
+                size_t b = k;
+                if (b > 0 && para[b - 1] == ' ') --b;
+                para.erase(b, e + 1 - b);
+                k = b;
+            } else {
+                k = e;
+            }
+        }
+        // The first sentence; a long one ends in an ellipsis.
+        for (size_t k = 0; k + 1 < para.size(); ++k)
+            if (para[k] == '.' && para[k + 1] == ' ' && k > 20) {
+                para.resize(k + 1);
+                break;
+            }
+        if (para.size() > 130) {
+            size_t cut = para.rfind(' ', 127);
+            para = para.substr(0, cut == std::string::npos ? 127 : cut) + "...";
+        }
+        ex.blurb = para;
+        found.push_back(std::move(ex));
+    }
+    // Featured first, in the table's order; the rest alphabetical.
+    for (int i = 0; i < kFeaturedExamples; ++i)
+        for (auto it = found.begin(); it != found.end(); ++it)
+            if (it->folder == kExampleTags[i].folder) {
+                welcomeExamples_.push_back(std::move(*it));
+                found.erase(it);
+                break;
+            }
+    for (WelcomeExample& e : found) welcomeExamples_.push_back(std::move(e));
+}
+
+// "Open a copy": the example folder is copied under the default projects
+// folder (a free name beside any earlier copy) and the copy is opened. The
+// shipped example is never edited - a package may not even be writable.
+void App::openExampleCopy(const WelcomeExample& ex) {
+    namespace fs = std::filesystem;
+    const std::string parent = defaultNewProjectLocation(globalDefaultProjectsDir_);
+    if (parent.empty()) {
+        statusMessage_ = "No projects folder - set one in Edit > Preferences > Projects";
         return;
     }
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    const fs::path dest = freeFolder(parent, ex.folder);
+    fs::copy(ex.dir, dest, fs::copy_options::recursive, ec);
+    if (ec) {
+        platform::errorBox("Open example",
+                           "Could not copy " + ex.dir + " to " + dest.string() + ":\n" + ec.message());
+        return;
+    }
+    statusMessage_ = "Copied the " + ex.title + " example to " + dest.string();
+    openProjectAt(dest.string());
+}
 
-    // Resolved after the loop: opening a project (or dropping an entry)
-    // rewrites recentProjects_, which we are iterating.
-    int openIndex = -1, forgetIndex = -1;
-    const float listW = ImMin(ImGui::GetContentRegionAvail().x, scaled(560));
-    const float lineH = ImGui::GetTextLineHeight();
-    const float rowH = lineH * 2.0f + st.FramePadding.y * 2.0f + scaled(4);
-    const float textX = st.FramePadding.x + scaled(4);
-    const ImU32 colName = ImGui::GetColorU32(ImGuiCol_Text);
-    const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
+void App::drawWelcomeScreen() {
+    namespace stdfs = std::filesystem;
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    if (!welcomeExamplesScanned_) scanWelcomeExamples();
 
-    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
-        const RecentProject& r = recentProjects_[i];
-        ImGui::PushID(i + 7100);
-        const ImVec2 row = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable("##recent", false, ImGuiSelectableFlags_AllowOverlap,
-                              ImVec2(listW, rowH)))
-            openIndex = i;
-        // The row shows a shortened path, so the tooltip carries the full one.
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s%s", r.dir.c_str(),
-                              r.valid ? "" : "\n(no .tyra project file here)");
-        const ImVec2 after = ImGui::GetCursorScreenPos();
-
-        // Name over path, both drawn straight into the draw list: as ImGui
-        // items they would register their own (long) width and give the panel
-        // a horizontal scrollbar. The clip rect keeps a deep path inside the
-        // row instead of running under the x button.
-        const float textW = listW - textX - scaled(34);  // up to the x button
-        const ImVec4 clip(row.x + textX, row.y, row.x + textX + textW, row.y + rowH);
-        const std::string title = r.valid ? r.name : r.name + "   (missing)";
-        const std::string path = ellipsizePathLeft(r.dir, textW);
-        dl->AddText(nullptr, 0.0f, ImVec2(row.x + textX, row.y + st.FramePadding.y),
-                    r.valid ? colName : colDim, title.c_str(), nullptr, 0.0f, &clip);
-        dl->AddText(nullptr, 0.0f,
-                    ImVec2(row.x + textX, row.y + st.FramePadding.y + lineH), colDim,
-                    path.c_str(), nullptr, 0.0f, &clip);
-
-        // Remove from the list. Nothing on disk is touched - the entry is a
-        // shortcut, not the project.
-        ImGui::SetCursorScreenPos(
-            ImVec2(row.x + listW - scaled(26), row.y + (rowH - lineH) * 0.5f));
-        if (ImGui::SmallButton("x")) forgetIndex = i;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Remove from this list (the project itself stays on disk)");
-        ImGui::SetCursorScreenPos(after);
-        ImGui::PopID();
+    // Setup facts, re-probed every few seconds (a PCSX2 install or a fresh
+    // toolchain shows up without a restart) - never every frame: both hit the
+    // disk.
+    if (welcomeProbeAt_ < 0.0 || ImGui::GetTime() > welcomeProbeAt_) {
+        welcomeProbeAt_ = ImGui::GetTime() + 5.0;
+        std::error_code ec;
+        welcomePcsx2_ = !globalEmulatorPath_.empty()
+                            ? (stdfs::exists(globalEmulatorPath_, ec) ? globalEmulatorPath_ : std::string())
+                            : detectEmulatorPath();
+        const stdfs::path cfg = platform::configDir();
+        welcomeToolchainReady_ = !cfg.empty() && stdfs::is_directory(cfg / "toolchain" / "ps2dev", ec);
     }
 
-    ImGui::Dummy(ImVec2(0, scaled(4)));
-    ImGui::TextDisabled("Click a project to open it. x only forgets the entry.");
-    ImGui::Dummy(ImVec2(0, scaled(18)));
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + scaled(560.0f));
-    ImGui::TextDisabled("%s", "\"PlayStation\" and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.");
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(8), scaled(8)));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, sem.ground);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+                                   ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::Begin("Welcome", nullptr, flags);
+    // Both this page and the (hidden) dockspace host are "never bring to
+    // front" windows; keep the page above the host, whose ground fill would
+    // otherwise cover it.
+    {
+        char host[40];
+        std::snprintf(host, sizeof(host), "WindowOverViewport_%08X", vp->ID);
+        if (ImGuiWindow* hw = ImGui::FindWindowByName(host)) ImGui::BringWindowToDisplayBack(hw);
+    }
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
+
+    const float fs = ImGui::GetFontSize();
+    // Chips row + the trademark line under it.
+    const float footerH = ImGui::GetFrameHeight() + fs * 0.8f * 2.0f + scaled(18);
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float gap = scaled(8);
+    const float bodyH = ImMax(scaled(200), avail.y - footerH);
+    const float leftW = ImClamp(avail.x * 0.36f, ImMin(scaled(380), avail.x * 0.5f), scaled(540));
+
+    auto beginPanel = [&](const char* id, ImVec2 size) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.surface);
+        ImGui::PushStyleColor(ImGuiCol_Border, sem.border);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, scaled(12));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(28), scaled(26)));
+        ImGui::BeginChild(id, size, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+    };
+
+    // ---- left: start + recent ----
+    // Resolved after the loop: opening (or dropping an entry) rewrites
+    // recentProjects_, which the loop iterates.
+    int openIndex = -1, forgetIndex = -1, locateIndex = -1;
+    beginPanel("##welcome_start", ImVec2(leftW, bodyH));
+    {
+        ImGui::PushFont(ui::boldFont(), fs * 1.85f);
+        ImGui::TextUnformatted("Make a PS2 game");
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(
+            "Scenes, logic and HUD in one editor. Every project builds a real ELF that runs in "
+            "PCSX2 or on a console.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(10)));
+
+        const std::string newKey = ui::ShortcutChord("N", nullptr, "+");
+        const std::string openKey = ui::ShortcutChord("O", nullptr, "+");
+        if (ui::PrimaryButton("New project")) requestNewProject();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", newKey.c_str());
+        ImGui::SameLine();
+        if (ImGui::Button("Open folder...")) requestOpenProject();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A folder holding a .tyra project (%s)", openKey.c_str());
+
+        ImGui::Dummy(ImVec2(0, scaled(16)));
+        // RECENT caption with the filter field on the same line, right-aligned.
+        const float filterW = ImMin(scaled(180), ImGui::GetContentRegionAvail().x * 0.45f);
+        const float rowY = ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(rowY + (ImGui::GetFrameHeight() - fs) * 0.5f);
+        ui::Caption("Recent", recentProjects_.empty() ? nullptr : std::to_string(recentProjects_.size()).c_str());
+        if (recentProjects_.size() > 4) {
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - filterW, rowY));
+            ImGui::SetNextItemWidth(filterW);
+            ImGui::InputTextWithHint("##recent_filter", "Filter", welcomeRecentFilter_,
+                                     sizeof(welcomeRecentFilter_));
+        } else {
+            welcomeRecentFilter_[0] = '\0';
+        }
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+
+        ImGui::BeginChild("##recent_list", ImVec2(0, 0), ImGuiChildFlags_None);
+        if (recentProjects_.empty()) {
+            ui::EmptyState(ui::Glyph::Folder, "No recent projects",
+                           "The projects you open show up here. Try an example on the right.");
+        }
+        std::string filter = welcomeRecentFilter_;
+        for (char& c : filter) c = (char)tolower((unsigned char)c);
+        const float rowH = fs * 2.0f + scaled(18);
+        const float tileS = fs * 2.0f + scaled(4);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+            const RecentProject& r = recentProjects_[i];
+            if (!filter.empty()) {
+                std::string hay = r.name + " " + r.dir;
+                for (char& c : hay) c = (char)tolower((unsigned char)c);
+                if (hay.find(filter) == std::string::npos) continue;
+            }
+            ImGui::PushID(i + 7100);
+            const float w = ImGui::GetContentRegionAvail().x;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            // The row's label is the project name - what a script clicks.
+            ImGui::SetNextItemAllowOverlap();
+            const std::string rowLabel = r.name + "##recent";
+            if (ImGui::InvisibleButton(rowLabel.c_str(), ImVec2(w, rowH))) {
+                if (r.valid) openIndex = i;
+                else locateIndex = i;
+            }
+            const bool hov = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenOverlappedByItem);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenOverlappedByItem))
+                ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                                  r.valid ? "" : "\nNo .tyra project here any more - click to locate it");
+            const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+            const ImVec2 q(p.x + w, p.y + rowH);
+            if (t > 0.0f)
+                dl->AddRectFilled(p, q, ImGui::GetColorU32(ImVec4(1, 1, 1, 0.045f * t)), scaled(9));
+            const ImU32 tileCol = initialColour(r.name);
+            ImVec4 tc = ImGui::ColorConvertU32ToFloat4(tileCol);
+            const ImVec2 t0(p.x + scaled(10), p.y + (rowH - tileS) * 0.5f);
+            dl->AddRectFilled(t0, ImVec2(t0.x + tileS, t0.y + tileS),
+                              ImGui::GetColorU32(ImVec4(tc.x, tc.y, tc.z, r.valid ? 0.18f : 0.08f)),
+                              scaled(9));
+            {
+                const char ini[2] = {(char)toupper((unsigned char)(r.name.empty() ? '?' : r.name[0])), 0};
+                ui::FontScope bold(ui::boldFont());
+                const ImVec2 is = ImGui::CalcTextSize(ini);
+                dl->AddText(ImVec2(t0.x + (tileS - is.x) * 0.5f, t0.y + (tileS - is.y) * 0.5f),
+                            r.valid ? tileCol : ImGui::GetColorU32(sem.textDim), ini);
+            }
+            // Right side: when + action, then the kebab.
+            const float kebabS = ImGui::GetFrameHeight();
+            const float rightX = q.x - kebabS - scaled(8);
+            const std::string when = agoText(r.savedAt);
+            const char* action = !r.valid ? "Locate..." : (hov ? "Open" : "");
+            const float actW = ImGui::CalcTextSize("Locate...").x;
+            float x2 = rightX;
+            if (*action) {
+                dl->AddText(ImVec2(x2 - actW, p.y + (rowH - fs) * 0.5f),
+                            ImGui::GetColorU32(r.valid ? sem.accent : sem.warn), action);
+            }
+            x2 -= actW + scaled(14);
+            if (!when.empty()) {
+                const float ww = ImGui::CalcTextSize(when.c_str()).x;
+                dl->AddText(ImVec2(x2 - ww, p.y + (rowH - fs) * 0.5f), ImGui::GetColorU32(sem.textDim),
+                            when.c_str());
+                x2 -= ww + scaled(10);
+            }
+            const float textX = t0.x + tileS + scaled(12);
+            const ImVec4 clip(textX, p.y, x2, q.y);
+            const float nameY = p.y + rowH * 0.5f - fs - scaled(1);
+            {
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(nullptr, 0.0f, ImVec2(textX, nameY),
+                            ImGui::GetColorU32(r.valid ? sem.text : sem.textDim), r.name.c_str(), nullptr,
+                            0.0f, &clip);
+            }
+            if (!r.valid) {
+                const float nw = ImGui::CalcTextSize(r.name.c_str()).x;
+                const char* miss = "moved or deleted";
+                const float mfs = fs * 0.82f;
+                const ImVec2 ms = ImGui::GetFont()->CalcTextSizeA(mfs, FLT_MAX, 0.0f, miss);
+                const ImVec2 b0(textX + nw + scaled(8), nameY + (fs - mfs - 4) * 0.5f);
+                if (b0.x + ms.x + mfs < x2) {
+                    dl->AddRectFilled(b0, ImVec2(b0.x + ms.x + mfs, b0.y + mfs + 4),
+                                      ImGui::GetColorU32(ImVec4(sem.warn.x, sem.warn.y, sem.warn.z, 0.16f)),
+                                      scaled(4));
+                    dl->AddText(ImGui::GetFont(), mfs, ImVec2(b0.x + mfs * 0.5f, b0.y + 2),
+                                ImGui::GetColorU32(sem.warn), miss);
+                }
+            }
+            {
+                ui::FontScope mono(ui::monoFont());
+                // "~/TyraProjects/x" rather than the home folder spelled out.
+                std::string shown = r.dir;
+                const std::string home = platform::homeDir().string();
+                if (!home.empty() && shown.size() > home.size() && shown.compare(0, home.size(), home) == 0 &&
+                    (shown[home.size()] == '/' || shown[home.size()] == '\\'))
+                    shown = "~" + shown.substr(home.size());
+                const std::string path = ellipsizePathLeft(shown, x2 - textX);
+                ImGui::PushFont(nullptr, fs * 0.86f);
+                dl->AddText(nullptr, 0.0f, ImVec2(textX, p.y + rowH * 0.5f + scaled(2)),
+                            ImGui::GetColorU32(sem.textDim), path.c_str(), nullptr, 0.0f, &clip);
+                ImGui::PopFont();
+            }
+            // Kebab: reveal / forget. Shown on hover (and while its menu is open).
+            const std::string menuId = "recent_menu";
+            const bool menuOpen = ImGui::IsPopupOpen(menuId.c_str());
+            ImGui::SetCursorScreenPos(ImVec2(q.x - kebabS - scaled(4), p.y + (rowH - kebabS) * 0.5f));
+            if (hov || menuOpen) {
+                if (ui::MoreButton("More##recent", kebabS)) ImGui::OpenPopup(menuId.c_str());
+            } else {
+                ImGui::Dummy(ImVec2(kebabS, kebabS));
+            }
+            if (ImGui::BeginPopup(menuId.c_str())) {
+                if (ImGui::MenuItem("Open", nullptr, false, r.valid)) openIndex = i;
+                if (ImGui::MenuItem("Locate...")) locateIndex = i;
+                if (ImGui::MenuItem("Reveal in folder", nullptr, false, r.valid))
+                    platform::revealInFileManager(r.dir);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Forget")) forgetIndex = i;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Removes the entry only - the project stays on disk");
+                ImGui::EndPopup();
+            }
+            ImGui::SetCursorScreenPos(ImVec2(p.x, q.y + scaled(2)));
+            ImGui::Dummy(ImVec2(0, 0));
+            ImGui::PopID();
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+
+    // ---- right: examples ----
+    ImGui::SameLine(0.0f, gap);
+    beginPanel("##welcome_examples", ImVec2(0, bodyH));
+    {
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.25f);
+            ImGui::TextUnformatted("Examples");
+            ImGui::PopFont();
+        }
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::AlignTextToFramePadding();
+        char sub[160];
+        std::snprintf(sub, sizeof(sub),
+                      "%d bundled projects. Opening one makes a copy, so the original stays as shipped.",
+                      (int)welcomeExamples_.size());
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.12f);
+        ImGui::TextUnformatted(sub);
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+
+        if (welcomeExamples_.empty()) {
+            ui::EmptyState(ui::Glyph::Box, "No examples found",
+                           "This installation has no examples folder next to the editor.");
+        } else {
+            for (int i = 0; i < IM_ARRAYSIZE(kExampleTabs); ++i) {
+                ui::ChipFlow(ui::FilterChipWidth(kExampleTabs[i]), i == 0);
+                if (ui::FilterChip(kExampleTabs[i], welcomeExampleTab_ == i)) welcomeExampleTab_ = i;
+            }
+            ImGui::Dummy(ImVec2(0, scaled(6)));
+            ImGui::BeginChild("##example_grid", ImVec2(0, 0), ImGuiChildFlags_None);
+            const float spacing = scaled(14);
+            const float gw = ImGui::GetContentRegionAvail().x;
+            const int cols = gw > scaled(760) ? 3 : gw > scaled(440) ? 2 : 1;
+            const float cardW = std::floor((gw - spacing * (cols - 1)) / cols);
+            const float imgH = std::floor(cardW * 0.42f);
+            const float cardH = imgH + fs * 5.2f + scaled(22);
+            int shown = 0;
+            int texLoadsLeft = 1;  // one decode per frame keeps the page responsive
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const WelcomeExample* pick = nullptr;
+            for (int i = 0; i < (int)welcomeExamples_.size(); ++i) {
+                WelcomeExample& ex = welcomeExamples_[i];
+                const bool featured = i < kFeaturedExamples;
+                if (welcomeExampleTab_ == 0 && !featured) continue;
+                if (welcomeExampleTab_ >= 2 && ex.tag != kExampleTabs[welcomeExampleTab_] &&
+                    !(welcomeExampleTab_ == 5 && ex.tag == "Cinema & UI"))
+                    continue;
+                if (shown % cols != 0) ImGui::SameLine(0.0f, spacing);
+                ++shown;
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const std::string label = ex.title + "##example_" + ex.folder;
+                if (ImGui::InvisibleButton(label.c_str(), ImVec2(cardW, cardH))) pick = &ex;
+                const bool hov = ImGui::IsItemHovered();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Open a copy of %s in %s", ex.folder.c_str(),
+                                      defaultNewProjectLocation(globalDefaultProjectsDir_).c_str());
+                if (!ImGui::IsItemVisible()) continue;
+                const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+                const ImVec2 q(p.x + cardW, p.y + cardH);
+                const float rr = scaled(10);
+                dl->AddRectFilled(p, q, ImGui::GetColorU32(sem.field), rr);
+                // Preview: the README's own picture when it has one in the
+                // folder, else the tag's glyph on a tinted band.
+                if (!ex.texTried && !ex.preview.empty() && texLoadsLeft > 0) {
+                    --texLoadsLeft;
+                    ex.texTried = true;
+                    int w = 0, h = 0, comp = 0;
+                    if (unsigned char* px = stbi_load(ex.preview.c_str(), &w, &h, &comp, 4)) {
+                        glGenTextures(1, &ex.tex);
+                        glBindTexture(GL_TEXTURE_2D, ex.tex);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                        glUploadTexRgba(w, h, px);
+                        stbi_image_free(px);
+                        ex.texW = w;
+                        ex.texH = h;
+                    }
+                }
+                const ImVec2 i1(q.x, p.y + imgH);
+                if (ex.tex && ex.texW > 0 && ex.texH > 0) {
+                    // Cover-fit: crop the longer axis.
+                    const float ar = (float)ex.texW / (float)ex.texH, want = cardW / imgH;
+                    ImVec2 uv0(0, 0), uv1(1, 1);
+                    if (ar > want) {
+                        const float k = want / ar;
+                        uv0.x = (1 - k) * 0.5f;
+                        uv1.x = 1 - uv0.x;
+                    } else {
+                        const float k = ar / want;
+                        uv0.y = (1 - k) * 0.5f;
+                        uv1.y = 1 - uv0.y;
+                    }
+                    dl->AddImageRounded((ImTextureID)(intptr_t)ex.tex, p, i1, uv0, uv1, IM_COL32_WHITE, rr,
+                                        ImDrawFlags_RoundCornersTop);
+                } else {
+                    const ImU32 tc = initialColour(ex.tag);
+                    ImVec4 tv = ImGui::ColorConvertU32ToFloat4(tc);
+                    dl->AddRectFilled(p, i1, ImGui::GetColorU32(ImVec4(tv.x, tv.y, tv.z, 0.10f)), rr,
+                                      ImDrawFlags_RoundCornersTop);
+                    const ui::Glyph g = ex.tag == "Vehicles"      ? ui::Glyph::Flag
+                                        : ex.tag == "Gameplay"    ? ui::Glyph::Nodes
+                                        : ex.tag == "Cinema & UI" ? ui::Glyph::Film
+                                        : ex.tag == "Performance" ? ui::Glyph::Layers
+                                        : ex.tag == "Rendering"   ? ui::Glyph::Bulb
+                                                                  : ui::Glyph::Box;
+                    ui::DrawGlyph(dl, g, ImVec2((p.x + q.x) * 0.5f, p.y + imgH * 0.5f), imgH * 0.34f, tc);
+                }
+                dl->AddRect(p, q, ImGui::GetColorU32(t > 0.0f ? ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 0.25f + 0.35f * t) : sem.border), rr);
+                // Title + tag, then the blurb (two lines at most).
+                const float tx = p.x + scaled(14);
+                float ty = i1.y + scaled(10);
+                const ImVec4 clip(tx, i1.y, q.x - scaled(10), q.y - scaled(6));
+                float titleW;
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    titleW = ImGui::CalcTextSize(ex.title.c_str()).x;
+                    dl->AddText(nullptr, 0.0f, ImVec2(tx, ty), ImGui::GetColorU32(sem.text), ex.title.c_str(),
+                                nullptr, 0.0f, &clip);
+                }
+                {
+                    const float bfs = fs * 0.8f;
+                    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0.0f, ex.tag.c_str());
+                    const ImVec2 b0(tx + titleW + scaled(8), ty + (fs - bfs - 6) * 0.5f);
+                    if (b0.x + ts.x + bfs < clip.z) {
+                        dl->AddRectFilled(b0, ImVec2(b0.x + ts.x + bfs, b0.y + bfs + 6),
+                                          ImGui::GetColorU32(sem.surface), (bfs + 6) * 0.5f);
+                        dl->AddRect(b0, ImVec2(b0.x + ts.x + bfs, b0.y + bfs + 6),
+                                    ImGui::GetColorU32(sem.border), (bfs + 6) * 0.5f);
+                        dl->AddText(ImGui::GetFont(), bfs, ImVec2(b0.x + bfs * 0.5f, b0.y + 3),
+                                    ImGui::GetColorU32(sem.textDim), ex.tag.c_str());
+                    }
+                }
+                ty += fs + scaled(8);
+                dl->AddText(ImGui::GetFont(), fs * 0.92f, ImVec2(tx, ty), ImGui::GetColorU32(sem.textDim),
+                            ex.blurb.c_str(), nullptr, cardW - scaled(28), &clip);
+                (void)t;
+            }
+            if (welcomeExampleTab_ == 0 && (int)welcomeExamples_.size() > kFeaturedExamples) {
+                ImGui::Dummy(ImVec2(0, scaled(6)));
+                char all[64];
+                std::snprintf(all, sizeof(all), "Browse all %d examples", (int)welcomeExamples_.size());
+                if (ImGui::Button(all)) welcomeExampleTab_ = 1;
+            }
+            ImGui::EndChild();
+            if (pick) {
+                const WelcomeExample ex = *pick;  // openExampleCopy may rescan nothing, but copy anyway
+                openExampleCopy(ex);
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    // ---- footer: setup chips ----
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + scaled(4));
+    {
+        char ver[96];
+        int verKind = 4;
+        const bool newer = update::isNewer(updateRelease_);
+        if (updateChecking_)
+            std::snprintf(ver, sizeof(ver), "TyraX %s - checking for updates", version::kEditorVersion);
+        else if (newer) {
+            std::snprintf(ver, sizeof(ver), "TyraX %s - %s available", version::kEditorVersion,
+                          updateRelease_.version.c_str());
+            verKind = 1;
+        } else if (!updateRelease_.version.empty() && updateError_.empty()) {
+            std::snprintf(ver, sizeof(ver), "TyraX %s - up to date", version::kEditorVersion);
+            verKind = 0;
+        } else
+            std::snprintf(ver, sizeof(ver), "TyraX %s", version::kEditorVersion);
+        if (ui::StatusChip("Version##welcome_chip", ver, verKind)) {
+            if (newer) openUpdatePopup_ = true;
+            else startUpdateCheck(true);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(newer ? "See what is new and install" : "Check for updates now");
+        ImGui::SameLine(0.0f, scaled(6));
+
+        const std::string pcsx = welcomePcsx2_.empty() ? std::string("PCSX2 not found")
+                                                        : std::string("PCSX2 found");
+        if (ui::StatusChip("PCSX2##welcome_chip", pcsx.c_str(), welcomePcsx2_.empty() ? 1 : 0))
+            openEditorPrefsPopup_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", welcomePcsx2_.empty()
+                                        ? "Run (F5) needs PCSX2 - install it, or point Edit > Preferences at it"
+                                        : welcomePcsx2_.c_str());
+        ImGui::SameLine(0.0f, scaled(6));
+
+        const bool docker = globalBuildBackend_ == "docker";
+        const char* tc = docker                   ? "Build: Docker fallback"
+                         : welcomeToolchainReady_ ? "Native toolchain ready"
+                                                  : "Native toolchain: set up on first build";
+        if (ui::StatusChip("Toolchain##welcome_chip", tc, docker || welcomeToolchainReady_ ? 0 : 1))
+            openEditorPrefsPopup_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(docker ? "Games compile in a Docker image (Edit > Preferences > Build)"
+                              : welcomeToolchainReady_
+                                  ? "The PS2DEV toolchain is in the editor cache"
+                                  : "The first build downloads and prepares the PS2DEV toolchain (a few minutes, once)");
+        ImGui::SameLine(0.0f, scaled(6));
+
+        const std::string ps2 = globalPs2Ip_.empty() ? std::string("Real PS2: no IP set")
+                                                     : "Real PS2: " + globalPs2Ip_;
+        if (ui::StatusChip("PS2##welcome_chip", ps2.c_str(), 4)) openEditorPrefsPopup_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Run on PS2 (F6) deploys over ps2link to this IP - Edit > Preferences");
+
+        // Links, right-aligned.
+        const char* l1 = "Preferences";
+        const char* l2 = "Docs";
+        const char* l3 = "Releases";
+        const float lw = ImGui::CalcTextSize(l1).x + ImGui::CalcTextSize(l2).x + ImGui::CalcTextSize(l3).x +
+                         scaled(40);
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - lw));
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+        if (ImGui::TextLink(l1)) openEditorPrefsPopup_ = true;
+        ImGui::SameLine(0.0f, scaled(16));
+        if (ImGui::TextLink(l2))
+            platform::openUrl(std::string("https://github.com/") + update::kRepo + "/tree/main/docs");
+        ImGui::SameLine(0.0f, scaled(16));
+        if (ImGui::TextLink(l3))
+            platform::openUrl(std::string("https://github.com/") + update::kRepo + "/releases");
+        ImGui::PopStyleColor();
+    }
+    // The trademark notice: "PS2" names the target, so the page says whose
+    // mark it is.
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.7f));
+    ImGui::PushFont(nullptr, fs * 0.8f);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(
+        "\"PlayStation\" and the PlayStation button symbols are trademarks of Sony Interactive "
+        "Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.");
     ImGui::PopTextWrapPos();
-    ImGui::Unindent(scaled(30));
+    ImGui::PopFont();
+    ImGui::PopStyleColor();
+    (void)st;
+    ImGui::End();
 
     // An open wins over a drop in the same frame (they can't both be clicked,
     // but the drop would shift the index the open reads).
+    if (locateIndex >= 0) {
+        const std::string dir = pickFolder();
+        if (!dir.empty()) {
+            if (projectManifestName(dir).empty()) {
+                platform::errorBox("Locate project", "No .tyra project file in " + dir);
+            } else {
+                forgetRecentProject(locateIndex);
+                openRecentProject(dir);
+            }
+        }
+        return;
+    }
     if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
     // Nothing is open here, so there is never anything to discard - straight to
     // the shared open path (which reports a folder that vanished since it was
@@ -2485,8 +3170,7 @@ void App::drawViewportWindow() {
         (hasProject_ ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : 0));
     ImGui::PopStyleVar();
 
-    if (!hasProject_) {
-        drawWelcomeScreen();
+    if (!hasProject_) {  // hidden: drawUI shows the start page instead
         ImGui::End();
         return;
     }
@@ -5664,6 +6348,20 @@ void App::requestExit() {
 void App::probeRecentProject(RecentProject& r) {
     r.name = projectManifestName(r.dir);
     r.valid = !r.name.empty();
+    // "2 h ago" on the start page: when the manifest was last written, i.e.
+    // last saved - editor.ini stores only the folders.
+    r.savedAt = 0;
+    if (r.valid) {
+        std::error_code ec;
+        const auto ft = std::filesystem::last_write_time(
+            std::filesystem::path(r.dir) / (r.name + ".tyra"), ec);
+        if (!ec)
+            r.savedAt = static_cast<long long>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    (ft - std::filesystem::file_time_type::clock::now()) +
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+    }
     // A vanished folder still shows its own name - an unreadable path alone
     // tells the user nothing about which project it was.
     if (!r.valid) r.name = std::filesystem::path(r.dir).filename().string();

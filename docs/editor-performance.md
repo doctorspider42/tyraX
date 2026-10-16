@@ -47,8 +47,9 @@ Road handles are overlay hit regions, not layout content. Since 1.151.1 their
 hit boxes intersect the scene canvas and their drawing is clipped to it.
 Registering a normal ImGui button outside the image grows the window's content
 extent even if the draw list clips it, producing an unwanted scrollbar. Scene
-viewports disable panel wheel scrolling and reset scroll offsets; the welcome
-screen keeps ordinary project-list scrolling.
+viewports disable panel wheel scrolling and reset scroll offsets. With no
+project open the Viewport is not shown at all - the [start page](start-page.md)
+replaces the docked layout.
 
 ![Road editing zoom with off-canvas controls clipped to the scene image](img/road-zoom-editor.png)
 

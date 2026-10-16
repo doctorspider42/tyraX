@@ -495,6 +495,8 @@ static std::string findPCSX2() {
     return "";
 }
 
+std::string detectEmulatorPath() { return findPCSX2(); }
+
 // The PCSX2 executable to launch: the project's configured path when set (and
 // it exists), otherwise the Program Files auto-detect. Empty when neither is
 // available (a configured-but-missing path resolves to empty, not the default).
