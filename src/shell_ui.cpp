@@ -41,28 +41,6 @@ void caret(ImDrawList* dl, float cx, float cy, float s, ImU32 c) {
                           ImVec2(cx, cy + s * 0.6f), c);
 }
 
-// One of the four face-button glyphs centred on c, half-extent r: 0 cross,
-// 1 circle, 2 triangle, 3 square - the workspace switcher's marks.
-void faceGlyph(ImDrawList* dl, int kind, ImVec2 c, float r, ImU32 col, float th) {
-    switch (kind) {
-        case 0:
-            dl->AddLine(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), col, th);
-            dl->AddLine(ImVec2(c.x + r, c.y - r), ImVec2(c.x - r, c.y + r), col, th);
-            break;
-        case 1: dl->AddCircle(c, r, col, 16, th); break;
-        case 2: {
-            const ImVec2 t[3] = {ImVec2(c.x, c.y - r * 1.05f), ImVec2(c.x + r * 1.1f, c.y + r * 0.85f),
-                                 ImVec2(c.x - r * 1.1f, c.y + r * 0.85f)};
-            dl->AddPolyline(t, 3, col, ImDrawFlags_Closed, th);
-            break;
-        }
-        default:
-            dl->AddRect(ImVec2(c.x - r * 0.9f, c.y - r * 0.9f), ImVec2(c.x + r * 0.9f, c.y + r * 0.9f), col,
-                        r * 0.15f, 0, th);
-            break;
-    }
-}
-
 }  // namespace
 
 void App::selectScene(int i) {
@@ -88,7 +66,7 @@ void App::drawLogoMenu() {
     const float barH = ImGui::GetWindowHeight();
     const float h = ImGui::GetFrameHeight();
     const float y0 = IM_TRUNC((barH - h) * 0.5f);
-    const float mark = scaled(22.0f);
+    const float mark = scaled(26.0f);
     const float padX = scaled(6.0f);
     ImFont* face = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
     const float fs = ImGui::GetFontSize();
@@ -138,7 +116,10 @@ void App::drawLogoMenu() {
     if (logoMenuOpen_ || t > 0.0f)
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h),
                           ImGui::GetColorU32(ImGuiCol_ButtonHovered, logoMenuOpen_ ? 1.0f : t), st.FrameRounding);
-    ui::LogoMark(dl, ImVec2(p.x + padX, p.y + (h - mark) * 0.5f), mark);
+    // The "Tx" mark - the app icon itself (resources/icon.png).
+    if (const unsigned int icon = appIconTexture())
+        dl->AddImage((ImTextureID)(intptr_t)icon, ImVec2(p.x + padX, p.y + (h - mark) * 0.5f),
+                     ImVec2(p.x + padX + mark, p.y + (h + mark) * 0.5f));
     float x = p.x + padX + mark + scaled(8.0f);
     const float ty = p.y + (h - fs) * 0.5f;
     dl->AddText(face, fs, ImVec2(x, ty), col(sem.text), "Tyra");
@@ -370,7 +351,7 @@ void App::drawToolbar() {
     // --- workspaces: Scene / Logic / Cinema / UI & HUD -------------------------
     // Each is one of the project's window layouts (the Layout menu), picked by
     // its built-in recipe, so a project's own arrangement of each survives.
-    // The four face-button marks tell them apart. Room is shared out in this
+    // Each has an icon saying what it is for (scene, graph, film, screen). Room is shared out in this
     // order: the workspace labels, then a wide search field. Short of that the
     // search drops to its magnifier, then the labels go and the marks stay,
     // and with less still the switcher goes (the Layout menu has the same).
@@ -379,17 +360,16 @@ void App::drawToolbar() {
             const char* id;
             const char* label;
             LayoutRecipe recipe;
-            int glyph;
-            ImVec4 col;
+            ui::Glyph glyph;
         };
-        const Ws ws[4] = {{"Scene##ws", "Scene", LayoutRecipe::Default, 0, sem.accent},
-                          {"Logic##ws", "Logic", LayoutRecipe::Debugger, 1, sem.danger},
-                          {"Cinema##ws", "Cinema", LayoutRecipe::Director, 2, sem.ok},
-                          {"UI & HUD##ws", "UI & HUD", LayoutRecipe::MenuDesigner, 3, sem.special}};
+        const Ws ws[4] = {{"Scene##ws", "Scene", LayoutRecipe::Default, ui::Glyph::Box},
+                          {"Logic##ws", "Logic", LayoutRecipe::Debugger, ui::Glyph::Nodes},
+                          {"Cinema##ws", "Cinema", LayoutRecipe::Director, ui::Glyph::Film},
+                          {"UI & HUD##ws", "UI & HUD", LayoutRecipe::MenuDesigner, ui::Glyph::Screen}};
         const int activeRecipe = project_.windowLayouts.empty()
                                      ? -1
                                      : project_.windowLayouts[project_.activeLayout].recipe;
-        const float gr = h * 0.17f;
+        const float gr = h * 0.19f;
         const float segPadW = scaled(3.0f);
         float fullW = segPadW * 2.0f, iconW = segPadW * 2.0f;
         for (const Ws& w : ws) {
@@ -434,8 +414,8 @@ void App::drawToolbar() {
                     dl->AddRectFilled(ImVec2(x, base.y + segPadW), ImVec2(x + sw, base.y + segPadW + ih),
                                       col(sem.surface, on ? 1.0f : 0.5f * t), round - segPadW * 0.5f);
                 const float gx = labels ? x + padX * 0.8f + gr : x + sw * 0.5f;
-                faceGlyph(dl, w.glyph, ImVec2(gx, base.y + h * 0.5f), gr, on ? col(w.col) : col(sem.textDim, 0.8f),
-                          ImMax(1.3f, h * 0.06f));
+                ui::DrawGlyph(dl, w.glyph, ImVec2(gx, base.y + h * 0.5f), gr * 2.0f,
+                              on ? col(sem.accent) : col(sem.textDim, 0.85f));
                 if (labels)
                     dl->AddText(ImVec2(gx + gr + gapS, base.y + textDy), on ? col(sem.text) : col(sem.textDim),
                                 w.label);

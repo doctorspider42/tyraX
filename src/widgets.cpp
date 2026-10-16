@@ -26,32 +26,6 @@ void setMonoFont(ImFont* f) { gMono = f; }
 ImFont* boldFont() { return gBold; }
 ImFont* monoFont() { return gMono; }
 
-void LogoMark(ImDrawList* dl, ImVec2 p, float size) {
-    const theme::Semantics& sem = theme::semantics();
-    const float r = size * 0.26f;
-    dl->AddRectFilled(p, ImVec2(p.x + size, p.y + size), ImGui::GetColorU32(sem.surface), r);
-    dl->AddRect(p, ImVec2(p.x + size, p.y + size), ImGui::GetColorU32(sem.border), r);
-    const float th = ImMax(1.2f, size * 0.065f);  // glyph stroke
-    const float q = size * 0.5f;                  // quadrant size
-    const float g = q * 0.27f;                    // glyph half-extent
-    auto centre = [&](int col, int row) {
-        return ImVec2(p.x + q * (col + 0.5f) + (col ? -size * 0.03f : size * 0.03f),
-                      p.y + q * (row + 0.5f) + (row ? -size * 0.03f : size * 0.03f));
-    };
-    // Same arrangement as on the pad: triangle top, circle right, cross
-    // bottom, square left - folded into a 2x2 grid.
-    const ImVec2 tri = centre(0, 0), cir = centre(1, 0), crs = centre(0, 1), sqr = centre(1, 1);
-    const ImVec2 t[3] = {ImVec2(tri.x, tri.y - g), ImVec2(tri.x + g * 1.05f, tri.y + g * 0.8f),
-                         ImVec2(tri.x - g * 1.05f, tri.y + g * 0.8f)};
-    dl->AddPolyline(t, 3, ImGui::GetColorU32(sem.ok), ImDrawFlags_Closed, th);
-    dl->AddCircle(cir, g, ImGui::GetColorU32(sem.danger), 0, th);
-    const ImU32 cx = ImGui::GetColorU32(sem.accent);
-    dl->AddLine(ImVec2(crs.x - g, crs.y - g), ImVec2(crs.x + g, crs.y + g), cx, th);
-    dl->AddLine(ImVec2(crs.x + g, crs.y - g), ImVec2(crs.x - g, crs.y + g), cx, th);
-    dl->AddRect(ImVec2(sqr.x - g * 0.9f, sqr.y - g * 0.9f), ImVec2(sqr.x + g * 0.9f, sqr.y + g * 0.9f),
-                ImGui::GetColorU32(sem.special), size * 0.03f, 0, th);
-}
-
 std::string ShortcutChord(const char* key, const char* macKey, const char* sep, bool keycap) {
 #ifdef __APPLE__
     (void)sep;
@@ -462,6 +436,27 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             dl->AddPolyline(f, 6, col, ImDrawFlags_Closed, th);
             break;
         }
+        case Glyph::Nodes:  // two nodes and a wire: a graph
+            dl->AddRect(P(-0.95f, -0.75f), P(-0.25f, -0.15f), col, s * 0.12f, 0, th);
+            dl->AddRect(P(0.25f, 0.15f), P(0.95f, 0.75f), col, s * 0.12f, 0, th);
+            dl->AddBezierCubic(P(-0.25f, -0.45f), P(0.15f, -0.45f), P(-0.15f, 0.45f), P(0.25f, 0.45f), col,
+                               th, 12);
+            break;
+        case Glyph::Film:  // a film frame with sprocket holes
+            dl->AddRect(P(-0.9f, -0.7f), P(0.9f, 0.7f), col, s * 0.1f, 0, th);
+            dl->AddLine(P(-0.5f, -0.7f), P(-0.5f, 0.7f), col, th);
+            dl->AddLine(P(0.5f, -0.7f), P(0.5f, 0.7f), col, th);
+            for (int i = -1; i <= 1; ++i) {
+                dl->AddCircleFilled(P(-0.7f, 0.42f * i), s * 0.07f, col);
+                dl->AddCircleFilled(P(0.7f, 0.42f * i), s * 0.07f, col);
+            }
+            break;
+        case Glyph::Screen:  // a TV screen with a HUD bar and a menu row
+            dl->AddRect(P(-0.95f, -0.75f), P(0.95f, 0.55f), col, s * 0.12f, 0, th);
+            dl->AddLine(P(-0.6f, -0.4f), P(-0.05f, -0.4f), col, th);
+            dl->AddLine(P(-0.6f, 0.15f), P(0.6f, 0.15f), col, th);
+            dl->AddLine(P(-0.35f, 0.9f), P(0.35f, 0.9f), col, th);
+            break;
         case Glyph::Gear: {
             const float r = s * 0.5f;
             dl->AddCircle(c, r, col, 16, th);

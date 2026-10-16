@@ -7,7 +7,7 @@
   <a href="https://github.com/doctorspider42/tyraX/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/doctorspider42/tyraX/release.yml?branch=main&style=for-the-badge&label=release%20build&labelColor=0b1220" alt="Release build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/doctorspider42/tyraX?style=for-the-badge&color=26d9ff&labelColor=0b1220" alt="Apache-2.0 license"></a>
   <br>
-  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&logo=playstation&logoColor=white&labelColor=0b1220" alt="Target: PlayStation 2">
+  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&labelColor=0b1220" alt="Target: PlayStation 2">
   <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux%20%7C%20macOS-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white&labelColor=0b1220" alt="C++20">
   <img src="https://img.shields.io/badge/runs%20on-PCSX2%20%2B%20real%20hardware-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Runs on PCSX2 and real hardware">
@@ -64,6 +64,9 @@ walls.
 
 The editor is C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3, one source tree
 for **Windows, Linux and macOS**.
+
+> [!NOTE]
+> *PlayStation* and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.
 
 > [!TIP]
 > This file is the map. Every feature has a guide in **[docs/](docs/README.md)** —

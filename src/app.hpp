@@ -183,6 +183,11 @@ private:
     // The icon rail along the window's left edge: picks which page the
     // Project panel shows (leftPage_), plus AI Assistant / Project Preferences.
     void drawRail();
+    // The app icon (resources/icon.png, the "Tx" mark) as a GL texture for the
+    // top bar's logo button; created on first use, 0 if it cannot be decoded.
+    unsigned int appIconTexture();
+    unsigned int appIconTex_ = 0;
+    bool appIconTried_ = false;
     // The Project panel's page: 0 Outliner, 1 Layers, 2 Assets, 3 Audio,
     // 4 Scripts (kLeftPageCount). View state, not saved.
     int leftPage_ = 0;

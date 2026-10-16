@@ -1314,6 +1314,23 @@ void App::loadUiFont() {
 // Colours + metrics + the DPI scale over them. One function because baseStyle_
 // IS the themed style: the scale path resets to it every time, so a theme that
 // only wrote ImGui::GetStyle() would be undone by the next zoom step.
+unsigned int App::appIconTexture() {
+    if (appIconTried_) return appIconTex_;
+    appIconTried_ = true;
+    int w = 0, h = 0, comp = 0;
+    stbi_uc* px = stbi_load_from_memory(appicon::kIconPng, (int)appicon::kIconPngSize, &w, &h, &comp, 4);
+    if (!px) return 0;
+    glGenTextures(1, &appIconTex_);
+    glBindTexture(GL_TEXTURE_2D, appIconTex_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glUploadTexRgba(w, h, px);  // the one-call upload crashes AMD (skill rule)
+    stbi_image_free(px);
+    return appIconTex_;
+}
+
 void App::applyTheme() {
     ImGuiStyle themed;  // fresh ImGui defaults for everything the theme leaves
     theme::apply(theme_, themed);
@@ -2004,6 +2021,12 @@ void App::drawMainMenus() {
     if (ImGui::BeginMenu("Help")) {
         ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
                         nullptr, false, false);
+        // Trademark notice: the editor names the console it builds for and
+        // draws its pad's buttons where they ARE buttons (Remote Pad, input
+        // prompts) - say whose marks those are.
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + scaled(300.0f));
+        ImGui::TextDisabled("%s", "\"PlayStation\" and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.");
+        ImGui::PopTextWrapPos();
         ImGui::Separator();
         const bool updateBusy = updateChecking_ || updateDownloading_;
         if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
@@ -2435,6 +2458,10 @@ void App::drawWelcomeScreen() {
 
     ImGui::Dummy(ImVec2(0, scaled(4)));
     ImGui::TextDisabled("Click a project to open it. x only forgets the entry.");
+    ImGui::Dummy(ImVec2(0, scaled(18)));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + scaled(560.0f));
+    ImGui::TextDisabled("%s", "\"PlayStation\" and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.");
+    ImGui::PopTextWrapPos();
     ImGui::Unindent(scaled(30));
 
     // An open wins over a drop in the same frame (they can't both be clicked,

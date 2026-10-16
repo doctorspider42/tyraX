@@ -5559,6 +5559,11 @@
 // Geist (v1.7.2, SIL OFL 1.1) is embedded from resources/fonts via
 // embed_binary.cmake (uifonts::kGeist*) and is the interface font; the system
 // chains are merged behind each face as glyph fallbacks.
+// No PlayStation marks in the editor's own chrome: the top-bar mark is the app
+// icon ("Tx", App::appIconTexture), workspaces use descriptive ui::Glyph icons
+// (Box/Nodes/Film/Screen), theme "Face buttons" is shown as "Graphite" (key
+// unchanged); a trademark notice sits in Help, on the welcome screen and in
+// the README. The pad's buttons stay where they ARE buttons (Remote Pad, prompts).
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

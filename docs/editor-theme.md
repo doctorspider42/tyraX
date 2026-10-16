@@ -2,15 +2,14 @@
 
 The editor is built on [Dear ImGui](https://github.com/ocornut/imgui), and for
 a long time it looked exactly like it: the stock `StyleColorsDark()` palette and
-ImGui's built-in bitmap font. Both are now replaced — the editor picks a real
-system UI font and draws itself in one of four themes, three of which are
-deliberate nods to the console it builds games for.
+ImGui's built-in bitmap font. Both are now replaced — the editor draws itself
+in its own typeface, Geist, and in one of four themes.
 
 Nothing here reaches the PS2. This is the editor's own chrome; a game's look is
 decided by its assets, its materials and its [ambience](ambient-occlusion.md).
 
-![The same editor panel in the four themes: Face buttons (graphite with a blue
-accent), Boot screen (navy with the PS2 logo blue), Memory card (violet) and
+![The same editor panel in the four themes: Graphite (graphite with a blue
+accent), Boot screen (navy with an electric blue), Memory card (violet) and
 ImGui dark (the stock palette). All four share the same rounding, hairline
 borders, spacing and interface font - only the palette
 changes.](img/editor-themes.png)
@@ -23,7 +22,7 @@ until you confirm it is a theme you cannot choose.
 
 | Theme | What it is |
 |---|---|
-| **Face buttons** (default) | Deep graphite panels; the PlayStation's four face-button colours do the semantic work — cross blue as the accent, triangle green for "running", circle red for "stopped", square pink for "live". The reference is in the colours you recognize rather than in a tint over every surface, which is what keeps a full-screen editor calm. |
+| **Graphite** (default) | Deep graphite panels; four colours do the semantic work — blue as the accent, green for "running", red for "stopped", pink for "live" — rather than a tint over every surface, which is what keeps a full-screen editor calm. (Stored as `faceButtons`, its key before 1.173.0.) |
 | **Boot screen** | The deep navy the console fades up from, with the logo's electric blue. Every surface carries the tint, so it reads as one piece of hardware — at the cost of being less neutral than the graphite. |
 | **Memory card** | The violet of the console's own browser. The most retro of the three, and the only one whose accent is not a blue. |
 | **ImGui dark** | Dear ImGui's stock colours, kept as an escape hatch and as a before/after reference. It still gets the shared style metrics and the interface font — only the palette is stock. |
@@ -134,8 +133,7 @@ A few things worth knowing because they are decisions rather than defaults:
   native title bar* brings the OS title bar back at the next start (editor.ini
   `nativeTitleBar`). Linux always keeps the desktop's own decorations.
 - **The window has a frame: a top bar and a status bar, both on the ground.**
-  The top bar starts with the mark (the four face-button glyphs, "TyraX" and
-  a caret): one button that opens the ten menus as submenus of one popup (F10
+  The top bar starts with the mark (the "Tx" app icon, "TyraX" and a caret): one button that opens the ten menus as submenus of one popup (F10
   and a lone Alt tap open it too). Then a breadcrumb — the project's name (its tooltip is the name, location, terrain
   and target the Project panel used to list; a click opens Project
   Preferences), `/`, and the **scene picker** with a *start* badge on the scene
@@ -150,11 +148,12 @@ A few things worth knowing because they are decisions rather than defaults:
   status message after them, and the scene's object and selection counts and
   the interface scale on the right. Both are drawn in `src/shell_ui.cpp`.
 - **Workspaces and the command palette.** Next to the breadcrumb, four
-  workspaces marked with the face-button glyphs: **Scene** (✕), **Logic** (○),
-  **Cinema** (△) and **UI & HUD** (□). Each is one of the project's window
+  workspaces, each with an icon of what it is for: **Scene** (a cube),
+  **Logic** (a node graph), **Cinema** (a film frame) and **UI & HUD** (a
+  screen). Each is one of the project's window
   layouts - Default, Debugger, Director and Menu Designer, found by their
   built-in recipe - so it is the Layout menu one click closer, and your own
-  arrangement of each is kept. With little room the labels go and the glyphs
+  arrangement of each is kept. With little room the labels go and the icons
   stay. **Ctrl+K** (Cmd+K on a Mac), or the magnifier before the build
   profile, opens the **command palette**: type to find a command (save, build,
   run, stop, preferences, new scene, the build profile...), an object of the

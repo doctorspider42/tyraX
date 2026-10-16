@@ -22,8 +22,8 @@ namespace theme {
 // The built-in themes. Values are NOT serialized (the .ini stores `key`), so
 // the order here is free - but `Count` bounds every "for each theme" loop.
 enum class Id {
-    FaceButtons = 0,  // graphite + the four DualShock face-button colours
-    BootScreen,       // navy-black + the PS2 logo blue
+    FaceButtons = 0,  // "Graphite": graphite + four semantic colours (key "faceButtons")
+    BootScreen,       // navy-black + an electric blue
     MemoryCard,       // the browser/OSD violet
     ImGuiDark,        // stock ImGui, kept as an escape hatch
     Count
@@ -61,7 +61,7 @@ struct Semantics {
     ImVec4 border;
     ImVec4 ground;       // the app background the panels float on (dock gaps)
     ImVec4 field;        // inset value fields, darker than the panel
-    ImVec4 special;      // the fourth face colour: "live", special state
+    ImVec4 special;      // the fourth semantic colour: "live", special state
     // The gizmo's axis colours, shared by every X/Y/Z readout so a field and
     // the handle it edits match. Not per theme - X is red in every editor.
     ImVec4 axisX;

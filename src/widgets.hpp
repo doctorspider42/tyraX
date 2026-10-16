@@ -34,13 +34,6 @@ struct FontScope {
     FontScope& operator=(const FontScope&) = delete;
 };
 
-// --- marks -------------------------------------------------------------------
-
-/** The editor's mark: the four face-button glyphs (triangle, circle, cross,
- * square) in a rounded tile `size` px square at `p`, in the theme's ok /
- * danger / accent / special colours. Draw-only, no item. */
-void LogoMark(ImDrawList* dl, ImVec2 p, float size);
-
 // --- shortcuts ---------------------------------------------------------------
 
 /** A Ctrl chord as this platform shows it: "Ctrl" + sep + key, or on macOS
@@ -92,6 +85,8 @@ enum class Glyph {
     // object types (the outliner) and the left rail's pages
     Person, Bulb, Camera, Speaker, Area, Comment, Sparkle, Flag,
     List, Layers, Music, Code, Sliders,
+    // workspaces
+    Nodes, Film, Screen,
     // panel headers and the outliner
     Plus, Eye, EyeOff, Folder
 };

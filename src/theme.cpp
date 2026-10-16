@@ -20,7 +20,7 @@ struct Palette {
     ImVec4 ok;
     ImVec4 warn;
     ImVec4 danger;
-    ImVec4 special;  // the fourth face colour - "live", special state
+    ImVec4 special;  // the fourth semantic colour - "live", special state
 };
 
 constexpr ImVec4 rgb(int r, int g, int b, float a = 1.0f) {
@@ -34,20 +34,19 @@ ImVec4 mix(const ImVec4& a, const ImVec4& b, float t) {
 
 ImVec4 fade(const ImVec4& c, float a) { return ImVec4(c.x, c.y, c.z, a); }
 
-// The face-button palette: a neutral graphite base, and the PlayStation
-// controller's own four colours doing semantic work - cross blue as the
-// accent, triangle green for "running", circle red for "stopped". The PS2
-// reference is in the colours a reader recognizes rather than in a blue tint
-// over every panel, which is what keeps a full-screen editor calm.
+// Graphite: a neutral graphite base and four semantic colours - blue as the
+// accent, green for "running", red for "stopped", pink for "live" - instead
+// of a tint over every panel, which is what keeps a full-screen editor calm.
+// (The id stays FaceButtons / key "faceButtons": editor.ini stores the key.)
 constexpr Palette kFaceButtons = {
     /*bg*/ rgb(18, 21, 27),      /*surface*/ rgb(30, 35, 44),
     /*raised*/ rgb(25, 29, 37),  /*border*/ rgb(36, 40, 49),
     /*text*/ rgb(232, 234, 240), /*textDim*/ rgb(140, 148, 164),
-    /*accent*/ rgb(122, 162, 255),  // cross
-    /*ok*/ rgb(61, 214, 140),       // triangle
+    /*accent*/ rgb(122, 162, 255),
+    /*ok*/ rgb(61, 214, 140),
     /*warn*/ rgb(245, 184, 74),
-    /*danger*/ rgb(255, 107, 107),  // circle
-    /*special*/ rgb(242, 143, 224), // square
+    /*danger*/ rgb(255, 107, 107),
+    /*special*/ rgb(242, 143, 224),
 };
 
 // The boot screen: the deep navy the console fades up from, with the logo's
@@ -289,11 +288,11 @@ void applyMetrics(ImGuiStyle& s) {
 
 const Info& info(Id id) {
     static const Info kInfos[(int)Id::Count] = {
-        {"faceButtons", "Face buttons",
-         "Neutral graphite with the DualShock button colours: blue accent, "
-         "green for running, red for stopped."},
+        {"faceButtons", "Graphite",
+         "Neutral graphite with four semantic colours: blue accent, green for "
+         "running, red for stopped."},
         {"bootScreen", "Boot screen",
-         "The navy the console fades up from, with the PS2 logo blue on every "
+         "The navy the console fades up from, with an electric blue on every "
          "surface."},
         {"memoryCard", "Memory card",
          "The violet of the console's own browser - the most retro of the "
