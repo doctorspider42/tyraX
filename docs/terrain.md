@@ -29,14 +29,14 @@ scene**, and removing it removes it completely — not just its picture.
 
 ## Removing (or creating) the terrain later
 
-*Tools > Terrain Editor* opens with a **Terrain in this scene** checkbox.
+*Tools > Terrain Editor* opens with a **Terrain in this scene** switch.
 Turning it off removes the ground; turning it on brings it back. Both are one
 undo step.
 
 Nothing is destroyed: the heightmap you sculpted, the painted layer weights
 and the layer list stay in the project, so the terrain you had comes back
 exactly as it was. While it's off, the rest of the Terrain Editor is hidden —
-there is nothing to sculpt, paint or bake.
+there is nothing to sculpt or paint.
 
 ## What "removed" means
 

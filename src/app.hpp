@@ -2026,6 +2026,22 @@ private:
     // when set, the next frame docks it under the Project panel.
     bool dockPropertiesPending_ = false;
 
+    // Default dock for the world tools (Terrain Editor, Ambience Editor, Color
+    // Grading, Disc Layout, Project Preferences): a tool window that has no
+    // place in the current layout yet is docked BESIDE the Viewport instead of
+    // floating over it - Terrain into the Properties column, the wide ones
+    // into one node split off the Viewport's right side. Runs in drawUI before
+    // any window is submitted (dockToolWindows); a window the user has placed
+    // keeps its place (ImGui settings exist). toolWasOpen_ remembers last
+    // frame's flags so a window that just opened is brought to the front of
+    // its node (takeToolFocus) - a shared node otherwise shows whichever
+    // window is submitted first.
+    void dockToolWindows(unsigned int dockspace);
+    bool takeToolFocus(const char* window);
+    bool toolDockReady(const char* window);
+    std::set<std::string> toolFocusPending_;
+    std::map<std::string, bool> toolWasOpen_;
+
     // Window layouts (project_.windowLayouts). A switch/rebuild is applied at a
     // frame boundary: recipeRebuildPending_ rebuilds the active layout from its
     // built-in DockBuilder recipe (empty ini) in drawUI; layoutLoadPending_
@@ -3254,6 +3270,14 @@ private:
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
     bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
+    // Terrain Editor layer coverage: the share of the ground each layer
+    // VISIBLY covers (top of the stack wins), from the splat weights.
+    // Recomputed at most twice a second - a 512x512 four-layer map is a
+    // million bytes to walk.
+    std::vector<float> terrainCoverage_;
+    double terrainCoverageAt_ = -1.0;
+    int terrainCoverageScene_ = -1;
+    bool terrainBaseOpen_ = false;  // the Base row's "Change" popup asked to open
     ImGuiTextFilter matEdFilter_;
     bool matEdFocusNext_ = false;
     std::string matEdInfoPath_;

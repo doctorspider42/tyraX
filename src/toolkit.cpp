@@ -1409,5 +1409,135 @@ bool RecordButton(const char* label, bool recording, float width, bool enabled) 
 
 // --- end screens-a -----------------------------------------------------------
 
+// --- world-a ---
+
+bool ToolTile(const char* label, Glyph glyph, bool active, const char* key, float width, float height,
+              IconDrawFn draw) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
+    const float h = height > 0.0f ? height : ImGui::GetFrameHeight() * 2.4f;
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    {
+        ImGuiContext& g = *GImGui;  // the hook macro reads `g`
+        IMGUI_TEST_ENGINE_ITEM_INFO(g.LastItemData.ID, label,
+                                    g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
+                                        (active ? ImGuiItemStatusFlags_Checked : 0));
+        (void)g;
+    }
+    const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+    if (active) {
+        dl->AddRectFilled(p, q, c32(sem.accent, 0.14f), r);
+        dl->AddRect(p, q, c32(sem.accent, 0.45f), r);
+    } else {
+        dl->AddRectFilled(p, q, c32(mixv(sem.field, sem.surface, 0.6f * t)), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+    }
+    const float fs = ImGui::GetFontSize();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 ts = ImGui::CalcTextSize(label, end);
+    const float iconS = fs * 1.15f;
+    const float blockH = iconS + fs * 0.35f + ts.y;
+    const float y0 = p.y + (h - blockH) * 0.5f;
+    const ImU32 ink = active ? c32(sem.text) : c32(sem.textDim);
+    const ImVec2 ic(p.x + w * 0.5f, y0 + iconS * 0.5f);
+    if (draw) draw(dl, ic, iconS, active ? c32(sem.accent) : ink);
+    else DrawGlyph(dl, glyph, ic, iconS, active ? c32(sem.accent) : ink);
+    dl->PushClipRect(p, q, true);
+    dl->AddText(ImVec2(p.x + (w - ts.x) * 0.5f, y0 + iconS + fs * 0.35f), ink, label, end);
+    dl->PopClipRect();
+    if (key && *key) {
+        const float kh = fs * 0.95f;
+        const float kw = Keycap(nullptr, ImVec2(0, 0), kh, key);
+        Keycap(dl, ImVec2(q.x - kw - 4.0f, p.y + 4.0f), kh, key);
+    }
+    return pressed;
+}
+
+void StatTile(const char* caption, const char* value, int kind, float width) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float w = width > 0.0f ? width : ImGui::GetContentRegionAvail().x;
+    const float h = fs * 2.0f + fs * 1.0f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(sem.field), r);
+    dl->PushClipRect(p, ImVec2(p.x + w, p.y + h), true);
+    dl->AddText(ImGui::GetFont(), fs * 0.82f, ImVec2(p.x + fs * 0.6f, p.y + fs * 0.45f), c32(sem.textDim),
+                caption);
+    {
+        FontScope mono(monoFont());
+        dl->AddText(ImVec2(p.x + fs * 0.6f, p.y + fs * 0.45f + fs * 0.95f),
+                    kind == 4 ? c32(sem.text) : kindCol(kind), value);
+    }
+    dl->PopClipRect();
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+bool Note(int kind, const char* text, const char* action) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float pad = fs * 0.7f;
+    const float textX = pad + fs * 1.1f;
+    const float wrapW = ImMax(fs * 4.0f, w - textX - pad);
+    const ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, wrapW);
+    const float linkH = action ? fs + 6.0f : 0.0f;
+    const float h = ts.y + linkH + pad * 2.0f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 col = kindCol(kind);
+    const ImVec4 colV = ImGui::ColorConvertU32ToFloat4(col);
+    const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(colV, 0.10f), r);
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), c32(colV, 0.35f), r);
+    dl->AddCircle(ImVec2(p.x + pad + fs * 0.4f, p.y + pad + fs * 0.5f), fs * 0.38f, col, 16, 1.5f);
+    dl->AddLine(ImVec2(p.x + pad + fs * 0.4f, p.y + pad + fs * 0.3f),
+                ImVec2(p.x + pad + fs * 0.4f, p.y + pad + fs * 0.58f), col, 1.5f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + textX, p.y + pad));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrapW);
+    ImGui::PushStyleColor(ImGuiCol_Text, mixv(sem.text, colV, 0.25f));
+    ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
+    ImGui::PopTextWrapPos();
+    bool clicked = false;
+    if (action) {
+        ImGui::SetCursorScreenPos(ImVec2(p.x + textX, p.y + pad + ts.y + 4.0f));
+        clicked = Link(action);
+    }
+    ImGui::SetCursorScreenPos(p);
+    ImGui::Dummy(ImVec2(w, h));
+    return clicked;
+}
+
+bool Link(const char* label) {
+    ImGui::PushStyleColor(ImGuiCol_TextLink, theme::semantics().accent);
+    const bool clicked = ImGui::TextLink(label);
+    ImGui::PopStyleColor();
+    return clicked;
+}
+
+void Heading(const char* title, const char* sub) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float x = p.x;
+    {
+        ImFont* f = boldFont() ? boldFont() : ImGui::GetFont();
+        const float hs = fs * 1.15f;
+        dl->AddText(f, hs, p, c32(sem.text), title);
+        x += f->CalcTextSizeA(hs, FLT_MAX, 0.0f, title).x;
+    }
+    if (sub && *sub)
+        dl->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(x + fs * 0.6f, p.y + fs * 0.2f), c32(sem.textDim), sub);
+    ImGui::Dummy(ImVec2(1.0f, fs * 1.15f + fs * 0.45f));
+}
+// --- end world-a ---
+
 }  // namespace ui
 // --- end screens-c ---

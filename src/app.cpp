@@ -38,6 +38,7 @@
 #include "templates.hpp"
 #include "version.hpp"
 #include "wavconvert.hpp"
+#include "toolkit.hpp"
 #include "widgets.hpp"
 #include "toolkit.hpp"  // the tool-window kit (Menu Editor, Save Editor...)
 
@@ -974,6 +975,9 @@ void App::drawUI() {
             dockPropertiesPending_ = false;  // Project floating -> Properties floats too
         }
     }
+
+    // World tools open docked beside the Viewport, not floating over it.
+    if (hasProject_) dockToolWindows(dockspace);
 
     // Watch the running game's log for a fresh assertion dump (throttled).
     pollGameError();
@@ -5902,6 +5906,75 @@ std::vector<std::string> App::captureOpenWindows() const {
     return keys;
 }
 
+// The tools that change what the Viewport shows open BESIDE it: a floating
+// window over the picture it previews hides the thing it changes. Only a
+// window with no place in the loaded layout is docked (no ImGui settings, not
+// alive) - once the user moves it, ImGui remembers that and this leaves it be.
+// Window names are the layout keys and never change; this only decides the
+// first dock node, with the same DockBuilder calls a recipe makes.
+void App::dockToolWindows(unsigned int dockspace) {
+    struct Tool {
+        const char* name;
+        bool* open;
+        bool side;  // the Properties column (a narrow tool) vs the wide node
+    };
+    const Tool tools[] = {{"Terrain Editor", &showTerrainEditor_, true},
+                          {"Ambience Editor", &showAmbienceEditor_, false},
+                          {"Color Grading", &showGradingEditor_, false},
+                          {"Disc Layout", &showDiscLayout_, false},
+                          {"Project Preferences", &showProjectPrefs_, false}};
+    bool docked = false;
+    for (const Tool& t : tools) {
+        bool& was = toolWasOpen_[t.name];
+        const bool justOpened = *t.open && !was;
+        was = *t.open;
+        if (!justOpened) continue;
+        toolFocusPending_.insert(t.name);
+        if (ImGui::FindWindowByName(t.name) || ImGui::FindWindowSettingsByID(ImHashStr(t.name)))
+            continue;  // it has a place already
+        ImGuiID target = 0;
+        if (t.side) {
+            if (ImGuiWindow* props = ImGui::FindWindowByName("Properties"))
+                if (props->DockNode) target = props->DockNode->ID;
+        } else {
+            // Join a wide tool that is already docked, else split one node off
+            // the Viewport's right side - one node for all of them, so opening
+            // a second tool does not keep halving the picture.
+            for (const Tool& o : tools)
+                if (!o.side && o.name != t.name)
+                    if (ImGuiWindow* w = ImGui::FindWindowByName(o.name))
+                        if (w->DockId && ImGui::DockBuilderGetNode(w->DockId)) {
+                            target = w->DockId;  // kept while its windows are closed
+                            break;
+                        }
+            if (!target)
+                if (ImGuiWindow* vp = ImGui::FindWindowByName("Viewport"))
+                    if (vp->DockNode) {
+                        ImGuiID rest = 0;
+                        target = ImGui::DockBuilderSplitNode(vp->DockNode->ID, ImGuiDir_Right,
+                                                             0.5f, nullptr, &rest);
+                    }
+        }
+        if (!target) continue;  // nothing docked to stand beside: it floats
+        ImGui::DockBuilderDockWindow(t.name, target);
+        docked = true;
+    }
+    if (docked) ImGui::DockBuilderFinish(dockspace);
+}
+
+// True once after a tool window was opened: call before its Begin and give it
+// focus, so it is the visible tab of the node it shares.
+bool App::takeToolFocus(const char* window) { return toolFocusPending_.erase(window) > 0; }
+
+// False on the frame a tool was opened mid-frame (a menu click), before
+// dockToolWindows has seen it: the window waits one frame so its first Begin
+// already lands in the dock node instead of creating a floating window.
+bool App::toolDockReady(const char* window) {
+    if (ImGui::FindWindowByName(window)) return true;
+    const auto it = toolWasOpen_.find(window);
+    return it != toolWasOpen_.end() && it->second;
+}
+
 void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
@@ -9093,7 +9166,7 @@ bool App::drawRoadSurfaceCombo(const char* label, const char* id,
 
     bool changed = false;
     ImGui::SetNextItemWidth(scaled(300));
-    if (ui::BeginCombo(label, current.c_str())) {
+    if (ImGui::BeginCombo(label, current.c_str())) {
         if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
             !surfacePath.empty()) {
             surfacePath.clear();
@@ -9472,7 +9545,7 @@ bool App::drawTerrainMaterialCombo(const char* label, std::string& matPath) {
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
 
     bool changed = false;
-    if (ImGui::BeginCombo(label, current.c_str())) {
+    if (ui::BeginCombo(label, current.c_str())) {
         if (ImGui::Selectable(noneLabel, matPath.empty()) && !matPath.empty()) {
             matPath.clear();
             changed = true;
@@ -16629,313 +16702,548 @@ void App::applyProjectToViewport() {
     viewport_.setSpotShadowVolumes(project_.settings.spotShadowVolumes);
 }
 
+// The Flatten tool tile's icon: a level line under a downward stroke.
+static void drawFlattenIcon(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
+    const float h = s * 0.5f, t = ImMax(1.0f, s * 0.09f);
+    dl->AddLine(ImVec2(c.x - h, c.y + h * 0.65f), ImVec2(c.x + h, c.y + h * 0.65f), col, t);
+    dl->AddLine(ImVec2(c.x - h * 0.7f, c.y + h * 0.1f), ImVec2(c.x + h * 0.7f, c.y + h * 0.1f), col, t);
+    dl->AddLine(ImVec2(c.x, c.y - h), ImVec2(c.x, c.y - h * 0.35f), col, t);
+}
+
+// Terrain Editor (Tools > Terrain Editor; docs/terrain.md, docs/terrain-painting.md).
+// A side panel: the scene's ground switch, three tool tiles (Raise / lower,
+// Flatten, Paint) with a line saying what the next drag does, then the brush,
+// the layer stack in PAINT order (top of the list wins, Base pinned under it),
+// ground variation and what the blend costs. Docked into the Properties column
+// on first open (dockToolWindows), never floating over the viewport it edits.
 void App::drawTerrainWindow() {
     if (!showTerrainEditor_) return;
     if (!hasProject_) {
         showTerrainEditor_ = false;
         return;
     }
-    ImGui::SetNextWindowSize(ImVec2(scaled(380), scaled(540)), ImGuiCond_FirstUseEver);
+    if (!toolDockReady("Terrain Editor")) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(760)), ImGuiCond_FirstUseEver);
+    if (takeToolFocus("Terrain Editor")) ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("Terrain Editor", &showTerrainEditor_)) {
         ImGui::End();
         return;
     }
 
     SceneData& sc = project_.active();
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    auto col32 = [](ImVec4 c, float a = 1.0f) {
+        c.w *= a;
+        return ImGui::GetColorU32(c);
+    };
 
-    // Does this scene HAVE a terrain (docs/terrain.md)? This is the one control
-    // that stays live with the terrain removed - everything below edits a
-    // ground that would not exist. Removing keeps the heightmap, the paint and
-    // the layers in the project, so creating it again brings the scene back
-    // exactly as it was (and it is one undo step either way).
+    // --- header: what this edits -------------------------------------------
     {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ui::DrawGlyph(dl, ui::Glyph::Sculpt, ImVec2(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f),
+                      fs * 0.95f, col32(sem.ok));
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.4f, p.y));
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::TextUnformatted("Terrain");
+        }
+        ImGui::SameLine(0.0f, fs * 0.6f);
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::Text("%s · %d × %d u", sc.name.c_str(), sc.terrain.width, sc.terrain.depth);
+        ImGui::PopStyleColor();
+    }
+    // Does this scene HAVE a terrain (docs/terrain.md)? The one control that
+    // stays live with the terrain removed. Removing keeps the heightmap, the
+    // paint and the layers, so turning it back on restores the ground exactly
+    // (one undo step either way).
+    {
+        ui::InspectorRows rows(scaled(80), scaled(120));
         bool on = sc.terrain.enabled;
-        if (ImGui::Checkbox("Terrain in this scene", &on)) {
+        if (ui::Switch("Terrain in this scene", &on)) {
             sc.terrain.enabled = on;
             if (!on) sculptMode_ = paintMode_ = false;
             applyProjectToViewport();
             commitChange();
             statusMessage_ = on ? "Created the terrain" : "Removed the terrain";
         }
-        prefHelp(
-            "Off removes the ground completely: nothing is drawn here and the\n"
-            "generated game has no floor either - the player, the physics and\n"
-            "the AI stand on the geometry you place and fall through the void\n"
-            "everywhere else. The scene's size stays the world bounds every\n"
-            "walker is clamped to. The heightmap and the paint are kept, so\n"
-            "turning it back on restores the terrain you had.");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Off removes the ground completely - no floor in the editor or in\n"
+                "the game. The heightmap, the paint and the layers are kept, so\n"
+                "turning it back on restores the terrain you had.");
     }
     if (!sc.terrain.enabled) {
-        ImGui::Separator();
-        ImGui::TextWrapped(
-            "This scene has no terrain. Sculpting, painting, the terrain "
-            "material and the ground bakes (AO, GI, navigation) are all off; "
-            "floors are whatever geometry you place.");
+        ui::EmptyState(ui::Glyph::Sculpt, "No terrain in this scene",
+                       "Floors are whatever geometry you place. Turn the terrain on to "
+                       "sculpt and paint - the heights and paint you had come back.");
         ImGui::End();
         return;
     }
-    const bool canPaint = !sc.terrainLayers.empty();
-    if (!canPaint) paintMode_ = false;
 
-    // --- Tool row: Sculpt / Paint, one brush in hand at a time. The same
-    // toggles as the viewport toolbar (4 / 6) - shared state, never disagree.
-    {
-        const float bw =
-            (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) *
-            0.5f;
-        auto toolButton = [&](const char* label, bool& mode, bool& other,
-                              bool enabled) {
-            ImGui::BeginDisabled(!enabled);
-            if (mode)
-                ImGui::PushStyleColor(
-                    ImGuiCol_Button,
-                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::Button(label, ImVec2(bw, scaled(28)))) {
-                mode = !mode;
-                if (mode) other = false;
-            }
-            if (mode) ImGui::PopStyleColor();
-            ImGui::EndDisabled();
-        };
-        toolButton("Sculpt (4)", sculptMode_, paintMode_, true);
-        ImGui::SameLine();
-        toolButton("Paint (6)", paintMode_, sculptMode_, canPaint);
-        if (!canPaint && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Add a terrain layer below first");
-
-        if (sculptMode_)
-            ImGui::TextDisabled(
-                "Drag on the terrain: LMB raise, Shift+LMB lower. [ ] resize.");
-        else if (paintMode_)
-            ImGui::TextDisabled(
-                "Drag on the terrain: LMB paint, Shift+LMB erase. [ ] resize.");
-        else
-            ImGui::TextDisabled(
-                "Pick a tool - or manage the layers and bake below.");
-    }
-
-    // --- Brush (the active tool's settings; radius is shared) ---
-    ImGui::SeparatorText("Brush");
-    if (sculptMode_ || paintMode_) {
-        ImGui::SetNextItemWidth(scaled(200));
-        ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
-                           brushMaxRadius(project_), "%.1f",
-                           ImGuiSliderFlags_Logarithmic);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Brush radius in world units, up to half the map."
-                              "\n[ and ] resize it over the viewport.");
-        if (sculptMode_) {
-            ImGui::SetNextItemWidth(scaled(200));
-            ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
-                               sculptMaxStrength(project_), "%.2f",
-                               ImGuiSliderFlags_Logarithmic);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Units raised per frame at the brush center - the range\n"
-                    "grows with the map, so large worlds sculpt fast too.\n"
-                    "Flatten mode: level rate (values above 1 act as 1).");
-            ImGui::Checkbox("Flatten to level", &sculptFlatten_);
-            if (sculptFlatten_) {
-                ImGui::SameLine();
-                const float lvl = terrainDimOf(project_);
-                ImGui::SetNextItemWidth(scaled(90));
-                ImGui::DragFloat("##level", &flattenHeight_, 0.1f, -lvl, lvl,
-                                 "%.1f");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Target height (world units)");
-            }
-        } else {
-            ImGui::SetNextItemWidth(scaled(200));
-            ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f, "%.2f");
-            ImGui::Checkbox("Erase (reveal layers below)", &paintErase_);
-        }
-    } else {
-        ImGui::TextDisabled("Grab Sculpt or Paint to brush the terrain.");
-    }
-
-    // --- Layers ---
-    // Shown as a Photoshop-style stack: the TOP row draws over everything
-    // below it, new layers land on top, and the base sits at the bottom.
-    // Storage order is unchanged (higher index = drawn later = higher in the
-    // stack); only the presentation is reversed.
-    ImGui::SeparatorText("Layers");
-
-    int removeIdx = -1, moveIdx = -1, moveDir = 0;
+    int removeIdx = -1, dragSrc = -1, dragDst = -1;
     bool layersChanged = false;
 
-    if (ImGui::SmallButton("+ Add layer")) {
-        project::addTerrainLayer(project_, "Layer", "");
-        paintLayer_ = (int)sc.terrainLayers.size() - 1;  // new = top of the stack
-        // Adding a layer means you're about to paint it - put the brush in
-        // hand (unless the sculpt tool is deliberately held).
-        if (!sculptMode_) paintMode_ = true;
-        layersChanged = true;
+    // --- tools: one brush in hand at a time --------------------------------
+    // The same state as the viewport palette (Sculpt 4 / Paint 6), so the two
+    // never disagree. Flatten is a peer tool here; underneath it is the
+    // sculpt brush levelling toward a height (sculptFlatten_).
+    {
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const float tw = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
+        const float th = scaled(54);
+        const bool raising = sculptMode_ && !sculptFlatten_;
+        const bool flattening = sculptMode_ && sculptFlatten_;
+        if (ui::ToolTile("Raise / lower", ui::Glyph::Sculpt, raising, "4", tw, th)) {
+            sculptMode_ = !raising;
+            sculptFlatten_ = false;
+            if (sculptMode_) paintMode_ = false;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag raises the ground, Shift+drag lowers it.");
+        ImGui::SameLine(0.0f, gap);
+        if (ui::ToolTile("Flatten", ui::Glyph::Sculpt, flattening, nullptr, tw, th, drawFlattenIcon)) {
+            sculptMode_ = !flattening;
+            sculptFlatten_ = true;
+            if (sculptMode_) paintMode_ = false;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag levels the ground toward the Level height.");
+        ImGui::SameLine(0.0f, gap);
+        if (ui::ToolTile("Paint", ui::Glyph::Paint, paintMode_, "6", tw, th)) {
+            paintMode_ = !paintMode_;
+            if (paintMode_) sculptMode_ = false;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Drag paints the selected layer, Shift+drag erases it.");
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("top layer paints over the ones below");
+    // Paint is never a dead button: with no layer to paint, picking it makes
+    // the first one (from the viewport palette's 6 too) and opens it below.
+    if (paintMode_ && sc.terrainLayers.empty()) {
+        project::addTerrainLayer(project_, "Layer 1", "");
+        paintLayer_ = 0;
+        layersChanged = true;
+        statusMessage_ = "Added a first layer to paint - pick its material";
+    }
+    if (paintLayer_ >= (int)sc.terrainLayers.size()) paintLayer_ = (int)sc.terrainLayers.size() - 1;
+    if (paintLayer_ < 0) paintLayer_ = 0;
 
-    for (int i = (int)sc.terrainLayers.size() - 1; i >= 0; --i) {
-        ImGui::PushID(i);
+    // What the next drag does, always - the layer being painted by name.
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float lh = ImGui::GetFrameHeight();
+        const float ty = p.y + (lh - fs) * 0.5f;
+        const bool tool = sculptMode_ || paintMode_;
+        dl->AddCircleFilled(ImVec2(p.x + fs * 0.25f, p.y + lh * 0.5f), fs * 0.2f,
+                            col32(tool ? sem.accent : sem.textDim));
+        float x = p.x + fs * 0.75f;
+        auto put = [&](const char* t, bool bold) {
+            ui::FontScope f(bold ? ui::boldFont() : nullptr);
+            dl->AddText(ImVec2(x, ty), col32(bold ? sem.text : sem.textDim), t);
+            x += ImGui::CalcTextSize(t).x;
+        };
+        char buf[96];
+        if (paintMode_ && !sc.terrainLayers.empty()) {
+            put(paintErase_ ? "Erasing " : "Painting ", false);
+            put(sc.terrainLayers[paintLayer_].name.c_str(), true);
+        } else if (sculptMode_ && sculptFlatten_) {
+            std::snprintf(buf, sizeof(buf), "Flattening to %.1f u", flattenHeight_);
+            put(buf, false);
+        } else if (sculptMode_) {
+            put("Raising the ground", false);
+        } else {
+            put("No brush in hand - pick a tool", false);
+        }
+        if (tool) {
+            // Right-aligned: "<Shift> erase  <[> <]> size".
+            const float kh = fs * 1.05f, sp = fs * 0.3f;
+            const char* shiftWhat = paintMode_ ? " erase" : (sculptFlatten_ ? nullptr : " lower");
+            const float wShift = shiftWhat ? ui::Keycap(nullptr, p, kh, "Shift") +
+                                                 ImGui::CalcTextSize(shiftWhat).x + fs * 0.8f
+                                           : 0.0f;
+            const float wSize = ui::Keycap(nullptr, p, kh, "[") * 2.0f + sp + ImGui::CalcTextSize(" size").x;
+            float rx = p.x + w - wShift - wSize;
+            if (rx > x + fs) {
+                const float ky = p.y + (lh - kh) * 0.5f;
+                if (shiftWhat) {
+                    rx += ui::Keycap(dl, ImVec2(rx, ky), kh, "Shift");
+                    dl->AddText(ImVec2(rx, ty), col32(sem.textDim), shiftWhat);
+                    rx += ImGui::CalcTextSize(shiftWhat).x + fs * 0.8f;
+                }
+                rx += ui::Keycap(dl, ImVec2(rx, ky), kh, "[") + sp;
+                rx += ui::Keycap(dl, ImVec2(rx, ky), kh, "]");
+                dl->AddText(ImVec2(rx, ty), col32(sem.textDim), " size");
+            }
+        }
+        ImGui::Dummy(ImVec2(w, lh));
+    }
+    ImGui::Separator();
+
+    ImGui::BeginChild("##terrain_body", ImVec2(0, 0));
+    // --- brush ---------------------------------------------------------------
+    ui::Caption("Brush");
+    {
+        ui::InspectorRows rows(scaled(84), scaled(110));
+        ui::SliderFloat("Radius", &brushRadius_, 1.0f, brushMaxRadius(project_), "%.1f u",
+                        ImGuiSliderFlags_Logarithmic);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Brush radius in world units, up to half the map.\n"
+                              "[ and ] resize it over the viewport.");
+        if (paintMode_) {
+            ui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f, "%.2f");
+            ui::Switch("Erase (reveals the layers below)", &paintErase_);
+        } else {
+            ui::SliderFloat("Strength", &brushStrength_, 0.01f, sculptMaxStrength(project_), "%.2f",
+                            ImGuiSliderFlags_Logarithmic);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Units raised per frame at the brush centre - the range grows\n"
+                                  "with the map. Flatten: the level rate (above 1 acts as 1).");
+            if (sculptMode_ && sculptFlatten_) {
+                const float lvl = terrainDimOf(project_);
+                ui::DragFloat("Level", &flattenHeight_, 0.1f, -lvl, lvl, "%.1f u");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Target height in world units.");
+            }
+        }
+    }
+    ImGui::Spacing();
+
+    // --- layers, in paint order ----------------------------------------------
+    // Storage order is unchanged (higher index = drawn later); the list shows
+    // it reversed so the TOP row is what wins, with the base under a rule.
+    {
+        char cnt[32];
+        std::snprintf(cnt, sizeof(cnt), "%d + base", (int)sc.terrainLayers.size());
+        ui::Caption("Layers", cnt);
+    }
+    {
+        const char* addLabel = "+ Add layer";
+        const float bw = ImGui::CalcTextSize(addLabel).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        const char* hint = "Top of the list paints over everything below it.";
+        const bool oneLine = ImGui::CalcTextSize(hint).x + bw + fs <= ImGui::GetContentRegionAvail().x;
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        if (oneLine) ImGui::TextUnformatted(hint);
+        else ImGui::TextWrapped("%s", hint);
+        ImGui::PopStyleColor();
+        if (oneLine) ImGui::SameLine();
+        ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - bw));
+        if (ui::GhostButton(addLabel)) {
+            std::string name;
+            for (int k = (int)sc.terrainLayers.size() + 1;; ++k) {
+                name = "Layer " + std::to_string(k);
+                bool taken = false;
+                for (const TerrainLayer& t : sc.terrainLayers) taken |= t.name == name;
+                if (!taken) break;
+            }
+            project::addTerrainLayer(project_, name, "");
+            paintLayer_ = (int)sc.terrainLayers.size() - 1;  // new = top of the stack
+            // Adding a layer means you are about to paint it.
+            if (!sculptMode_) paintMode_ = true;
+            layersChanged = true;
+        }
+    }
+
+    // Coverage: how much of the ground each layer visibly owns.
+    const int nLayers = (int)sc.terrainLayers.size();
+    {
+        const double now = ImGui::GetTime();
+        const size_t verts = (size_t)sc.splatW * sc.splatD;
+        if (nLayers > 0 && verts > 0 && sc.splat.size() == verts * nLayers &&
+            (now - terrainCoverageAt_ > 0.5 || terrainCoverageScene_ != project_.activeScene ||
+             (int)terrainCoverage_.size() != nLayers)) {
+            terrainCoverageAt_ = now;
+            terrainCoverageScene_ = project_.activeScene;
+            std::vector<double> acc(nLayers, 0.0);
+            for (size_t v = 0; v < verts; ++v) {
+                double rem = 1.0;
+                const uint8_t* w = &sc.splat[v * nLayers];
+                for (int l = nLayers - 1; l >= 0 && rem > 0.0; --l) {
+                    const double take = w[l] / 255.0 * rem;
+                    acc[l] += take;
+                    rem -= take;
+                }
+            }
+            terrainCoverage_.assign(nLayers, 0.0f);
+            for (int l = 0; l < nLayers; ++l) terrainCoverage_[l] = (float)(acc[l] / (double)verts);
+        } else if (nLayers == 0 || sc.splat.size() != verts * nLayers) {
+            terrainCoverage_.assign(nLayers, 0.0f);
+        }
+    }
+
+    const float rowH = scaled(44);
+    const float swatch = scaled(30);
+    // One row: drag handle, material swatch, name over a mono summary line,
+    // a right-hand badge. Drawn on the window list (the card under the
+    // selected row is laid down in the background channel).
+    auto drawRowBody = [&](ImVec2 p, float w, const project::TerrainMaterial& m, const char* name,
+                           const char* nameSuffix, const std::string& sub, const char* badge,
+                           bool selected, bool handle) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        float x = p.x + fs * 0.4f;
+        if (handle)
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 2; ++c)
+                    dl->AddCircleFilled(ImVec2(x + c * fs * 0.32f, p.y + rowH * 0.5f + (r - 1) * fs * 0.32f),
+                                        fs * 0.07f + 0.5f, col32(sem.textDim, 0.6f));
+        x += fs * 0.9f;
+        const ImVec2 s0(x, p.y + (rowH - swatch) * 0.5f), s1(x + swatch, s0.y + swatch);
+        const ImU32 tint = m.present ? IM_COL32((int)(m.kd[0] * 255), (int)(m.kd[1] * 255),
+                                                (int)(m.kd[2] * 255), 255)
+                                     : col32(sem.textDim, 0.5f);
+        const uint32_t tex = m.texture.empty() ? 0u : viewport_.sharedTexture(m.texture);
+        if (tex)
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, s0, s1, ImVec2(0, 0), ImVec2(1, 1), tint, 5.0f);
+        else
+            dl->AddRectFilled(s0, s1, tint, 5.0f);
+        if (selected) dl->AddRect(s0, s1, col32(sem.accent), 5.0f, 0, 2.0f);
+        x = s1.x + fs * 0.7f;
+        const float badgeW = badge ? ImGui::CalcTextSize(badge).x + fs * 1.2f : 0.0f;
+        dl->PushClipRect(ImVec2(x, p.y), ImVec2(p.x + w - badgeW - fs * 0.4f, p.y + rowH), true);
+        const float ny = p.y + rowH * 0.5f - fs * 1.0f;
+        {
+            ui::FontScope bold(selected ? ui::boldFont() : nullptr);
+            dl->AddText(ImVec2(x, ny), col32(sem.text), name);
+            if (nameSuffix)
+                dl->AddText(ImGui::GetFont(), fs * 0.9f, ImVec2(x + ImGui::CalcTextSize(name).x, ny + fs * 0.06f),
+                            col32(sem.textDim), nameSuffix);
+        }
+        {
+            ui::FontScope mono(ui::monoFont());
+            dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(x, ny + fs * 1.15f), col32(sem.textDim),
+                        sub.c_str());
+        }
+        dl->PopClipRect();
+        if (badge) {
+            const ImVec2 bs = ImGui::CalcTextSize(badge);
+            const ImVec2 b0(p.x + w - badgeW - fs * 0.2f, p.y + (rowH - fs - 4.0f) * 0.5f);
+            dl->AddRectFilled(b0, ImVec2(b0.x + badgeW - fs * 0.4f, b0.y + fs + 4.0f),
+                              selected ? col32(sem.accent, 0.18f) : col32(sem.surface), (fs + 4.0f) * 0.5f);
+            dl->AddText(ImVec2(b0.x + (badgeW - fs * 0.4f - bs.x) * 0.5f, b0.y + 2.0f),
+                        selected ? col32(sem.accent) : col32(sem.textDim), badge);
+        }
+    };
+    auto fileOf = [](const std::string& rel) {
+        if (rel.empty()) return std::string("flat colour");
+        const size_t s = rel.find_last_of('/');
+        return s == std::string::npos ? rel : rel.substr(s + 1);
+    };
+
+    for (int i = nLayers - 1; i >= 0; --i) {
         TerrainLayer& L = sc.terrainLayers[i];
-
-        if (ImGui::RadioButton("##active", paintLayer_ == i)) paintLayer_ = i;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paint this layer");
-        ImGui::SameLine();
-
-        char nameBuf[64];
-        std::snprintf(nameBuf, sizeof(nameBuf), "%s", L.name.c_str());
-        ImGui::SetNextItemWidth(scaled(90));
-        if (ImGui::InputText("##name", nameBuf, sizeof(nameBuf)))
-            L.name = nameBuf;
-        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
-
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(120));
-        if (drawTerrainMaterialCombo("##mat", L.material)) layersChanged = true;
-
-        // Up = raise in the stack = drawn later = HIGHER storage index.
-        ImGui::SameLine();
-        ImGui::BeginDisabled(i == (int)sc.terrainLayers.size() - 1);
-        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
-            moveIdx = i;
-            moveDir = 1;
+        ImGui::PushID(i);
+        const bool sel = paintLayer_ == i;
+        const project::TerrainMaterial m = project::resolveTerrainMaterial(project_, L.material);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (sel) {
+            dl->ChannelsSplit(2);
+            dl->ChannelsSetCurrent(1);
         }
-        ImGui::EndDisabled();
-        ImGui::SameLine(0.0f, scaled(2));
-        ImGui::BeginDisabled(i == 0);
-        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
-            moveIdx = i;
-            moveDir = -1;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const std::string rowId = L.name + "##layerrow";
+        if (ImGui::InvisibleButton(rowId.c_str(), ImVec2(w, rowH))) paintLayer_ = i;
+        const bool hov = ImGui::IsItemHovered();
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload("TERRAIN_LAYER", &i, sizeof(int));
+            ImGui::TextUnformatted(L.name.c_str());
+            ImGui::EndDragDropSource();
         }
-        ImGui::EndDisabled();
-        ImGui::SameLine(0.0f, scaled(6));
-        if (ImGui::SmallButton("X")) removeIdx = i;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove layer");
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("TERRAIN_LAYER")) {
+                dragSrc = *(const int*)pl->Data;
+                dragDst = i;
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (ImGui::BeginPopupContextItem("##layerctx")) {
+            if (ImGui::MenuItem("Move up", nullptr, false, i < nLayers - 1)) dragSrc = i, dragDst = i + 1;
+            if (ImGui::MenuItem("Move down", nullptr, false, i > 0)) dragSrc = i, dragDst = i - 1;
+            ImGui::Separator();
+            if (ImGui::MenuItem("Remove layer")) removeIdx = i;
+            ImGui::EndPopup();
+        }
+        if (hov && !ImGui::IsItemActive())
+            ImGui::SetTooltip("Click to paint this layer. Drag to reorder; right-click for more.");
+        if (sel) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), col32(sem.accent, 0.10f), 8.0f);
+        else if (hov) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), col32(sem.surface, 0.8f), 8.0f);
+        char sub[160], badge[16];
+        if (sel)
+            std::snprintf(sub, sizeof(sub), "%s · %s", fileOf(L.material).c_str(),
+                          paintMode_ ? "painting" : "selected");
+        else
+            std::snprintf(sub, sizeof(sub), "%s · %.2fx · grip %.2f", fileOf(L.material).c_str(), L.scale,
+                          L.grip);
+        const float cov = i < (int)terrainCoverage_.size() ? terrainCoverage_[i] : 0.0f;
+        std::snprintf(badge, sizeof(badge), "%d%%", (int)(cov * 100.0f + 0.5f));
+        drawRowBody(p, w, m, L.name.c_str(), nullptr, sub, badge, sel, true);
 
-        // Texture size: how large this layer's pattern appears on the ground
-        // (bigger = fewer repeats). Only meaningful for a textured layer.
-        ImGui::Indent(scaled(22));
-        ImGui::SetNextItemWidth(scaled(110));
-        if (ImGui::DragFloat("Size", &L.scale, 0.02f, 0.1f, 20.0f, "%.2fx"))
-            splatPreviewDirty_ = true;  // live preview follows the drag
-        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "How large this layer's texture looks on the ground\n"
-                "(bigger = larger pattern). No effect on a flat layer.");
-        ImGui::SameLine(0.0f, scaled(12));
-        const bool layerHasTex =
-            !project::resolveTerrainMaterial(project_, L.material).texture.empty();
-        ImGui::BeginDisabled(!layerHasTex);
-        if (ImGui::Checkbox("Stochastic", &L.stochastic)) layersChanged = true;
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                layerHasTex
-                    ? "Break the tiled-grid repetition by baking a larger\n"
-                      "non-repeating supertile at build (zero runtime cost).\n"
-                      "Best on organic textures; leave off for bricks/tiles."
-                    : "Pick a material with a texture first -\nstochastic tiling "
-                      "scrambles the texture, so a\nflat color has nothing to work "
-                      "on.");
-        ImGui::SameLine(0.0f, scaled(12));
-        ImGui::SetNextItemWidth(scaled(90));
-        ImGui::DragFloat("Grip", &L.grip, 0.01f, 0.1f, 1.5f, "%.2fx");
-        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Tyre grip where this layer is painted, multiplying each\n"
-                "vehicle's Off-road grip (blended by the painted weight).\n"
-                "1 = the bare terrain, ~0.5 mud, ~0.8 sand. Roads use their\n"
-                "own Surface grip.");
-        ImGui::Unindent(scaled(22));
-
+        if (sel) {
+            // The selected (= painted) layer opens up in place.
+            ImGui::Indent(fs * 0.8f);
+            ImGui::Dummy(ImVec2(1.0f, fs * 0.2f));
+            {
+                ui::InspectorRows rows(scaled(84), scaled(110));
+                char nameBuf[64];
+                std::snprintf(nameBuf, sizeof(nameBuf), "%s", L.name.c_str());
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                if (ui::InputText("Name", nameBuf, sizeof(nameBuf))) L.name = nameBuf;
+                if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                if (drawTerrainMaterialCombo("Material", L.material)) layersChanged = true;
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                if (ui::SliderFloat("Texture size", &L.scale, 0.1f, 20.0f, "%.2fx",
+                                    ImGuiSliderFlags_Logarithmic))
+                    splatPreviewDirty_ = true;  // the live preview follows the drag
+                if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How large this layer's texture looks on the ground\n"
+                                      "(bigger = larger pattern). No effect on a flat layer.");
+                ImGui::SetNextItemWidth(-fs * 0.8f);
+                ui::SliderFloat("Tyre grip", &L.grip, 0.1f, 1.5f, "%.2f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Multiplies each vehicle's Off-road grip where this layer is\n"
+                                      "painted. 1 = the bare terrain, ~0.5 mud, ~0.8 sand.");
+                const bool hasTex = !m.texture.empty();
+                ImGui::BeginDisabled(!hasTex);
+                if (ui::Switch("Stochastic tiling (bakes a non-repeating supertile, no runtime cost)",
+                               &L.stochastic))
+                    layersChanged = true;
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(hasTex ? "Best on organic textures; leave off for bricks and tiles."
+                                             : "Pick a material with a texture first - a flat colour\n"
+                                               "has nothing to scramble.");
+            }
+            if (ui::DangerButton("Remove layer")) removeIdx = i;
+            ImGui::Unindent(fs * 0.8f);
+            ImGui::Dummy(ImVec2(1.0f, fs * 0.2f));
+            const ImVec2 q(p.x + w, ImGui::GetCursorScreenPos().y);
+            dl->ChannelsSetCurrent(0);
+            dl->AddRectFilled(p, q, col32(sem.field), 9.0f);
+            dl->AddRect(p, q, col32(sem.accent, 0.35f), 9.0f);
+            dl->ChannelsMerge();
+            ImGui::Dummy(ImVec2(1.0f, 2.0f));
+        }
         ImGui::PopID();
     }
 
-    // The base is the bottom of the stack - everything above blends over it.
-    // Edit its material right here: the scene's own when it overrides the
-    // project default, otherwise the project default (so a single-scene
-    // project just sets its terrain material without leaving this window).
+    // The base: the bottom of the stack, under a dashed rule. Its material is
+    // the scene's own when it overrides the project default, else the project
+    // default - so a one-scene project sets it right here.
     {
-        std::string& baseMat = sc.overrides.terrainMat
-                                   ? sc.settings.terrainMaterial
-                                   : project_.settings.terrainMaterial;
-        ImGui::BulletText("Base");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(150));
-        if (drawTerrainMaterialCombo("##basemat", baseMat)) {
-            commitChange();
-            applyProjectToViewport();
+        std::string& baseMat =
+            sc.overrides.terrainMat ? sc.settings.terrainMaterial : project_.settings.terrainMaterial;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 r0 = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        for (float x = r0.x; x < r0.x + w; x += fs * 0.6f)
+            dl->AddLine(ImVec2(x, r0.y + 2.0f), ImVec2(ImMin(x + fs * 0.3f, r0.x + w), r0.y + 2.0f),
+                        col32(sem.border), 1.0f);
+        ImGui::Dummy(ImVec2(w, fs * 0.3f));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const project::TerrainMaterial m = project::resolveTerrainMaterial(project_, baseMat);
+        std::string sub = fileOf(baseMat) + (sc.overrides.terrainMat ? " · this scene" : " · project default");
+        if (baseMat.empty()) sub = "checker greens";
+        const char* changeLabel = "Change##base";
+        const float bw = ImGui::CalcTextSize("Change").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::Dummy(ImVec2(w, rowH));
+        drawRowBody(p, w - bw - fs * 0.4f, m, "Base", "  · covers everything", sub, nullptr, false, false);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + w - bw, p.y + (rowH - ImGui::GetFrameHeight()) * 0.5f));
+        if (ui::GhostButton(changeLabel)) ImGui::OpenPopup("##basepop");
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + ImGui::GetStyle().ItemSpacing.y));
+        ImGui::Dummy(ImVec2(1.0f, 1.0f));
+        if (ImGui::BeginPopup("##basepop")) {
+            ImGui::SetNextItemWidth(scaled(260));
+            if (drawTerrainMaterialCombo("Base material", baseMat)) {
+                commitChange();
+                applyProjectToViewport();
+            }
+            const bool baseHasTex = !m.texture.empty();
+            ImGui::BeginDisabled(!baseHasTex);
+            if (ui::Switch("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
+                commitChange();
+                applyProjectToViewport();  // the base texture path lives on setTerrainMaterial
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(baseHasTex ? "Bake a larger non-repeating supertile at build (zero runtime\n"
+                                               "cost). Best on organic textures."
+                                             : "Assign a base material with a texture first.");
+            ImGui::EndPopup();
         }
-        const bool baseHasTex =
-            !project::resolveTerrainMaterial(project_, baseMat).texture.empty();
-        ImGui::Indent(scaled(22));
-        ImGui::BeginDisabled(!baseHasTex);
-        if (ImGui::Checkbox("Stochastic tiling##base", &sc.terrainBaseStochastic)) {
-            commitChange();
-            applyProjectToViewport();  // base texture path lives on setTerrainMaterial
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                baseHasTex
-                    ? "Break the tiled-grid repetition of the base texture by "
-                      "baking\na larger non-repeating supertile at build (zero "
-                      "runtime cost).\nBest on organic textures; leave off for "
-                      "bricks/tiles."
-                    : "Assign a base material with a texture first -\nstochastic "
-                      "tiling scrambles the texture, so a flat\ncolor has nothing "
-                      "to work on.");
-        ImGui::Unindent(scaled(22));
     }
 
-    // Apply deferred structural edits (one at a time), then commit + refresh.
+    // Deferred structural edits (one at a time), then commit + refresh.
     if (removeIdx >= 0) {
         project::removeTerrainLayer(project_, removeIdx);
-        if (paintLayer_ >= (int)sc.terrainLayers.size())
-            paintLayer_ = (int)sc.terrainLayers.size() - 1;
+        if (paintLayer_ >= (int)sc.terrainLayers.size()) paintLayer_ = (int)sc.terrainLayers.size() - 1;
         if (paintLayer_ < 0) paintLayer_ = 0;
+        terrainCoverageAt_ = -1.0;
         layersChanged = true;
-    } else if (moveIdx >= 0) {
-        project::moveTerrainLayer(project_, moveIdx, moveDir);
-        if (paintLayer_ == moveIdx) paintLayer_ = moveIdx + moveDir;
-        else if (paintLayer_ == moveIdx + moveDir) paintLayer_ = moveIdx;
+    } else if (dragSrc >= 0 && dragDst >= 0 && dragSrc != dragDst) {
+        // A drag lands the layer where the target row was: walk it there one
+        // swap at a time (moveTerrainLayer swaps the splat columns too).
+        const int dir = dragDst > dragSrc ? 1 : -1;
+        for (int k = dragSrc; k != dragDst; k += dir) project::moveTerrainLayer(project_, k, dir);
+        if (paintLayer_ == dragSrc) paintLayer_ = dragDst;
+        else if (dir > 0 && paintLayer_ > dragSrc && paintLayer_ <= dragDst) --paintLayer_;
+        else if (dir < 0 && paintLayer_ < dragSrc && paintLayer_ >= dragDst) ++paintLayer_;
+        terrainCoverageAt_ = -1.0;
         layersChanged = true;
     }
+    ImGui::Spacing();
 
-    // --- Macro ground variation ---
-    ImGui::SeparatorText("Variation");
+    // --- macro ground variation ----------------------------------------------
+    ui::Caption("Ground variation", "free on the PS2");
     {
-        ImGui::SetNextItemWidth(scaled(200));
-        if (ImGui::SliderFloat("Amount", &sc.terrainTintVariation, 0.0f, 1.0f,
-                               "%.2f"))
+        ui::InspectorRows rows(scaled(84), scaled(110));
+        if (ui::SliderFloat("Amount", &sc.terrainTintVariation, 0.0f, 1.0f, "%.2f"))
             viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
         if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Large soft patches of lighter/darker ground - breaks the\n"
-                "uniform 'carpet' look at zero runtime cost. Tints the base\n"
-                "and the painted layers together, like real ground lighting.");
-        ImGui::SetNextItemWidth(scaled(200));
-        if (ImGui::SliderFloat("Patch size", &sc.terrainTintScale, 4.0f, 200.0f,
-                               "%.0f units", ImGuiSliderFlags_Logarithmic))
+            ImGui::SetTooltip("Large soft patches of lighter/darker ground over the base and the\n"
+                              "painted layers - breaks the 'carpet' look at zero runtime cost.");
+        if (ui::SliderFloat("Patch size", &sc.terrainTintScale, 4.0f, 200.0f, "%.0f u",
+                            ImGuiSliderFlags_Logarithmic))
             viewport_.setTerrainTint(sc.terrainTintVariation, sc.terrainTintScale);
         if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
     }
+    ImGui::Spacing();
 
-    // --- How it ships ---
-    ImGui::SeparatorText("Quality");
+    // --- what the blend costs ---------------------------------------------------
+    ui::Caption("Resolution & cost");
     {
         int vw = 0, vd = 0;
         project::terrainGridDims(project_, vw, vd);
-        ImGui::TextWrapped(
-            "Layer textures stay tiled at full resolution; the blend follows "
-            "the terrain grid (%dx%d vertices - raise Terrain detail in "
-            "Preferences for finer blend edges). Painted chunks draw one extra "
-            "pass per layer on the PS2.",
-            vw, vd);
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const float tw = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
+        char grid[32], edge[32], passes[32];
+        if (vw == vd) std::snprintf(grid, sizeof(grid), "%d²", vw);
+        else std::snprintf(grid, sizeof(grid), "%d × %d", vw, vd);
+        const float cell = vw > 1 ? (float)sc.terrain.width / (float)(vw - 1) : 0.0f;
+        std::snprintf(edge, sizeof(edge), "%.1f u", cell);
+        if (nLayers > 0) std::snprintf(passes, sizeof(passes), "+%d / chunk", nLayers);
+        else std::snprintf(passes, sizeof(passes), "none");
+        ui::StatTile("Blend grid", grid, 4, tw);
+        ImGui::SameLine(0.0f, gap);
+        ui::StatTile("Finest edge", edge, 4, tw);
+        ImGui::SameLine(0.0f, gap);
+        ui::StatTile("PS2 passes", passes, nLayers > 0 ? 1 : 4, tw);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Painted chunks draw one extra pass per layer on the PS2.");
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextWrapped("Blend edges follow the terrain grid. A brush smaller than one cell can't "
+                           "paint finer.");
+        ImGui::PopStyleColor();
+        if (ui::Link("Terrain detail in Project Preferences")) {
+            openProjectPreferences();
+            prefsFocusTab_ = "World";
+        }
     }
+    ImGui::EndChild();
 
     if (layersChanged) {
         commitChange();

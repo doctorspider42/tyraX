@@ -282,4 +282,33 @@ bool RecordButton(const char* label, bool recording, float width = -1.0f, bool e
 
 // --- end screens-a -----------------------------------------------------------
 
+// --- world-a ---
+// Pieces of the world tools (Terrain, Ambience/GI, Color Grading, Disc Layout,
+// Project Preferences) that are generic enough to share.
+
+/** A big tool tile (icon over label, shortcut keycap in the corner) for a row
+ * of mutually exclusive tools. `draw` (may be null) draws a custom icon
+ * instead of `g`. Reported to --ui-script as checkable with `active`.
+ * Returns clicked. */
+using IconDrawFn = void (*)(ImDrawList* dl, ImVec2 centre, float size, ImU32 col);
+bool ToolTile(const char* label, Glyph g, bool active, const char* key, float width, float height,
+              IconDrawFn draw = nullptr);
+
+/** A small stat tile: dim caption over a mono value. kind as StatusLine for
+ * the value's colour (4 = plain text). `width` 0 = fill. Not interactive. */
+void StatTile(const char* caption, const char* value, int kind = 4, float width = 0.0f);
+
+/** A tinted note box (kind as StatusLine: 1 warn, 2 danger, 3 info) with a
+ * wrapped text and, when `action` is non-null, a link after it. Returns true
+ * when the link was clicked. Full width of the content region. */
+bool Note(int kind, const char* text, const char* action = nullptr);
+
+/** An accent-coloured text link (label = ID). Returns clicked. */
+bool Link(const char* label);
+
+/** A heading for a settings page: `title` in the heading cut, `sub` dim after
+ * it on the same line. Not an item; draws and advances. */
+void Heading(const char* title, const char* sub = nullptr);
+// --- end world-a ---
+
 }  // namespace ui
