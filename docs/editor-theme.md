@@ -224,6 +224,48 @@ A few things worth knowing because they are decisions rather than defaults:
   Per-node and per-pin colours are left alone — those encode node category and
   pin type, which is data, not decoration.
 
+## Tool windows
+
+Every tool window follows the same few rules, and is built from the same kit
+(`src/toolkit.hpp`, on top of `src/widgets.hpp`):
+
+- **The thing being made is the hero.** A visual tool's preview sits in the
+  middle and never shrinks (Material, Particle, Tree, Vehicle, Credits, Menu,
+  UI Editor, Color Grading's before/after split, the Cutscene Director's own
+  shot via `Viewport::renderShot`); its controls float on it as glass or
+  overlay pills. A tool that edits a collection is **list | preview |
+  inspector**, with thumbnails where a picture says more than a name.
+- **The answer before the machinery.** A verdict banner or summary tiles come
+  first (Texture Atlas, Static Batches, Neural Upscaler, VU Programs), then
+  list | detail.
+- **One primary action**, filled, visible, with its progress where the work
+  happens (`ui::PrimaryButton`, `ui::ProgressInline`). Destructive actions are
+  quiet until hovered (`ui::DangerButton`), usually behind a "..." menu.
+- **Say what will happen.** Footers state exactly what a click writes
+  ("writes res/models/cat.glb + cat.mtl"); an option states its consequence on
+  a dim second line.
+- **Show the links.** "Used by", "started by", "handled by" lines connect data
+  to the graphs, menus and objects that use it, and click through to them
+  (`ui::UsedBy`, `App::openGraphOf`).
+- **Empty states say why and offer the action** (`ui::EmptyState`) instead of a
+  bare "No X."
+- **Sections over tabs when there are many** (the Debugger's grouped rail);
+  quiet underlined tabs when there are a few.
+- **Docked, not floating.** Tools that change the scene open beside the
+  viewport (`App::dockToolWindows`: Side tools join the Properties column,
+  Visual ones split off the viewport when it is wide enough, Pages become a
+  tab in its node); a saved floating position is re-docked once per session.
+- **Labels stay IDs.** Where the visible text names the object ("Import cat")
+  the stable script name stays the ID (`ui::PrimaryButtonText`,
+  `ui::OverlayMenuButton`).
+
+The kit's sections are per area (`// --- runtime-a ---` ...): transport bars
+and stroke icons that never depend on the font (`ui::TransportBar`,
+`ui::RtIcon`), pills and chips (`StatusPill`, `PillTab`, `ChipButton`,
+`ValueChip`), tiles (`ToolTile`, `StatTile`, `KpiTile`, `ChoiceCard`,
+`ThumbTileEx`), notes (`NoteCard`, `Callout`, `Note`), meters and the
+`RecordButton`.
+
 ## For developers: adding a colour, adding a theme
 
 `src/theme.hpp` is the whole interface. The rule that keeps the themes honest:

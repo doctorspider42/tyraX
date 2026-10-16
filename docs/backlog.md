@@ -31,8 +31,25 @@ driven on macOS only. Open:
   estimate first.
 - **Command palette registry**: commands are a hand-written list in
   palette_ui.cpp; a shared action registry would expose every menu item.
-- **Tool windows**: designs for every tool window are being prepared on the
-  design canvas; their implementation is the next round.
+- **Tool windows - what the redesign round left** (each tool's commit says why):
+  - previews that still draw editor markers or the last viewport frame (Cutscene
+    shot preview, Color Grading split, UI Editor scene background) - a
+    "game view" flag / gizmo-free offscreen pass in `Viewport::render`;
+  - clip playback in the import preview; a skeleton overlay in the Animation
+    Editor; Vehicle Editor near/far toggle; drag-to-orbit in the Asset Browser
+    inspector; a probe visualiser for GI;
+  - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
+    download/install, a second editor joining a session and the phone camera
+    with a real phone - built from code + docs, not seen end to end here;
+  - World Facts' Queries / Rules / Scenarios / Blackboard bodies and the Drone
+    Generator's inner tabs got only the shell; Material Editor smart-mask
+    block and per-layer thumbnails;
+  - "Follow" a session peer's camera (presence lacks the camera), ps2link
+    "Test connection", cancelling a project load mid-step, a mouse-button
+    capture in Input Map, drag-and-drop of PNGs onto the UI Editor;
+  - screenshots still on the old chrome: procedural-rules/preview/baked/frozen,
+    neural-upscaler-developer, static-batches-overlay, hardware-timeline;
+  - vehicle `.glb` asset thumbnails come out empty (`assetThumb`).
 
 ## Separate remaining runtime settings from compilation decisions
 

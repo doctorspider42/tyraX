@@ -5564,6 +5564,14 @@
 // (Box/Nodes/Film/Screen), theme "Face buttons" is shown as "Graphite" (key
 // unchanged); a trademark notice sits in Help, on the welcome screen and in
 // the README. The pad's buttons stay where they ARE buttons (Remote Pad, prompts).
+// Then every tool window redesigned from the tool canvas, built on the
+// tool-window kit (src/toolkit.*: per-agent sections). Notable mechanics:
+// App::dockToolWindows docks tool windows beside the viewport (Side/Visual/
+// Page); Viewport::renderShot (second render for the Cutscene/Phone preview),
+// Viewport::gradingFrames, Viewport::prefabThumb; the HUD selection-id bug
+// (motion blur now uiFxSel_ 10); hudanim::transition (twin of hudTransEval);
+// .tree sidecars for the Tree Generator; staged project loading; the start
+// page (Welcome window over a KeepAliveOnly dockspace); no format change.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

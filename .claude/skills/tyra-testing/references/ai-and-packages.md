@@ -21,7 +21,7 @@ esac
 ```bash
 STATE=/tmp/fake PATH=/tmp/fakebin:$PATH TYRAX --ui-script <proj> "
 frames 30; wait 1; click 'TyraX menu'; click Tools; click 'AI Assistant'
-click 'AI Assistant/Allow project edits'
+click 'AI Assistant/Edit project'
 click 'AI Assistant/##chatinput'; text 'add a lever'; frames 5; click 'AI Assistant/Send'
 wait 12; key ctrl+s; shot /tmp/chat.png"
 TYRAX --dump <proj>          # is the lever there?
