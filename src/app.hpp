@@ -3798,6 +3798,20 @@ private:
     size_t chatPadLogMark_ = 0;      // bin/log.txt size when the script started
     size_t chatCompactCount_ = 0;       // messages being folded
     std::string chatCompactNote_;       // what happened, for the window
+    // Per user turn (keyed by the User message's index; session-only, never
+    // saved): the mode it was asked in and the undo history's index before
+    // and after its tools ran, so the turn's change card can offer "Undo".
+    struct ChatTurnInfo {
+        int mode = 1;        // 0 ask only, 1 edit project, 2 edit + build & run
+        int undoBase = -1;   // history_.index() when the turn started
+        int undoEnd = -1;    // ... after its last tool round
+        bool undone = false;
+    };
+    std::map<size_t, ChatTurnInfo> chatTurns_;
+    size_t chatTurnUser_ = 0;           // the User message the running turn answers
+    bool chatWasOpen_ = false;          // to bring a just-opened, docked window forward
+    void aiChatRekeyTurns();            // after a compaction renumbers messages
+    void drawAiChatTurn(size_t userIdx, size_t from, size_t to, bool live);
     void aiChatPersist();                        // save the current conversation
     void aiChatOpen(const std::string& file);    // load a saved one
     void drawAiChatHistory();                    // the History popup body

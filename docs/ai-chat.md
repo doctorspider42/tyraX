@@ -1,11 +1,16 @@
 # AI Assistant
 
 The AI Assistant answers questions about TyraX and can edit the open project.
-Open **Tools > AI Assistant**.
+Open **Tools > AI Assistant** (or the sparkle button at the foot of the left
+rail). It opens as a tab of the Properties column - a conversation beside the
+scene.
 
-![The AI Assistant with project-edit controls, starter prompts and the chat input.](img/ai-assistant.png)
+![The AI Assistant after an edit turn: the change card with Undo, the mode control and the composer.](img/ai-assistant.png)
 
-Configure a backend in **Edit > Preferences > AI assistant**: Claude CLI,
+The chip next to the title (`Claude CLI · default`) names the backend and
+model and opens a small popover to switch them (backend, model preset,
+extended thinking); a custom model id is set in **Edit > Preferences > AI
+assistant**. The backends: Claude CLI,
 OpenAI Codex CLI, GitHub Copilot CLI or the OpenAI API. CLI backends use their
 normal sign-in; the API backend needs a key.
 
@@ -27,7 +32,9 @@ Read-only tools cover documentation, project summaries, objects, flow graphs,
 procedural graphs, project sections and a running debug game's state, log and
 graph activity.
 
-With **Allow project edits** enabled, it can:
+What it may do is the **mode** above the input - *Ask only* (read-only),
+*Edit project*, or *+ Build & run* - with a one-line consequence under it, and
+each reply is stamped with the mode it was asked in. In *Edit project* it can:
 
 - add, duplicate, change and delete objects;
 - write flow and procedural graphs;
@@ -38,9 +45,8 @@ With **Allow project edits** enabled, it can:
 - select objects and open tool windows;
 - regenerate sources and save when asked.
 
-Enable **build & run** separately to let it invoke Docker builds, launch the
-game and drive the Remote Pad. This switch is separate because builds are slow
-and not undone by `Ctrl+Z`.
+*+ Build & run* also lets it build the game, launch it and drive the Remote
+Pad. It is a separate step because builds are slow and not undone by `Ctrl+Z`.
 
 It cannot import files, sculpt or paint terrain, edit arbitrary source files or
 touch anything outside the project model.
@@ -61,22 +67,38 @@ Build, press Cross and tell me which graph nodes fired.
 
 ## Safe edits
 
-- Every tool call is one undo step.
+- Every tool call that changes a scene is one undo step. Project-wide
+  sections (menus, HUD, input...) are not in `Ctrl+Z`, and the card says so.
 - Changes stay in memory until you save.
-- Tool rows show the exact input, result or error.
+- A turn that changed something ends in a **change card**: one line per
+  change in words (`Added lever - box · 4.00, 0.00, -6.00`, `Changed lever -
+  color, usable`, `Graph lever - 6 node(s)`, `Checked refresh_generated`),
+  *Select* / *Open* links to the object or its graph, and **Undo** - which
+  steps the undo history back to before the turn (offered only while nothing
+  else has changed since). *N tool calls* shows the raw calls with their exact
+  input and result; the read tools collapse into one quiet line (`Read
+  object-scripts.md, generator`).
 - Wrong object and asset names are rejected with valid alternatives.
 - Replacing a project section or procedural graph is a total replacement, not a
   patch. Shrinking a list requires explicit confirmation.
 - Writing a procedural graph marks its bake stale; ask the assistant to bake it
   if you want generated geometry now.
 
-Turn **Allow project edits** off when you only want advice.
+Pick **Ask only** when you only want advice.
+
+The composer is a card: the draft (**Enter** sends, **Ctrl+Enter** starts a
+new line), a chip naming what "this" refers to (the selection and the active
+scene), and the send button, which becomes **Stop** while a request runs.
+Under it, **Context** is a meter of the next request's conversation against
+the size at which it is compacted, then the session's reported token use and
+cost, and **Compact** (fold the oldest messages into a summary now). Click any
+message to copy it.
 
 ## Checking its work
 
 The assistant can call **refresh generated** after graph edits. This catches
-missing object, scene and asset references without Docker. With **build & run**
-enabled it can also wait for the build, read compiler errors, launch a debug
+missing object, scene and asset references without Docker. In the **+ Build & run** mode
+it can also wait for the build, read compiler errors, launch a debug
 game, press buttons and inspect the game's log and graph counters.
 
 Running-game tools need the matching [devkit](devkit.md) channels in a debug
