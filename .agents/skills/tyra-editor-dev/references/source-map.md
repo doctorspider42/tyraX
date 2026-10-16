@@ -50,6 +50,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `hudanim.hpp` | 130 | Host twin of HUD animation math | game-screens-menus-text |
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
+| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
 | `gl_loader.h/.cpp` | 215 | Hand-rolled GL loader, `glUploadTexRgba` | viewport |

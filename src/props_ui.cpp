@@ -10,6 +10,7 @@
 #include "app_internal.hpp"
 #include "roadgen.hpp"
 #include "theme.hpp"
+#include "widgets.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -373,6 +374,9 @@ void App::drawPropertiesWindow() {
     // which the suffix does not change.
     auto section = [&](const char* label, bool defaultOpen) {
         if (!isSolid) return true;
+        // Section titles in the heading cut: the inspector is scanned by its
+        // section names, and a heading in the body weight does not stop the eye.
+        ui::FontScope bold(ui::boldFont());
         return ImGui::CollapsingHeader(
             (std::string(label) + "##section").c_str(),
             defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None);
@@ -948,18 +952,18 @@ void App::drawPropertiesWindow() {
     }
 
     if (section("Transform", true)) {
-        ImGui::DragFloat3("Position", o.position, 0.1f);
+        ui::AxisDrag3("Position", o.position, 0.1f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // custom emitters rotate too - the rotation aims the emission direction
         if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
             isScatter || isScroller ||
             (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
-            ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+            ui::AxisDrag3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
         }
         if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
             isScatter || o.type == PrimitiveType::Emitter) {
-            ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
+            ui::AxisDrag3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             // How big that actually is. A primitive is a UNIT shape, so its scale
             // is its size in world units - and the world scale turns that into
@@ -1162,10 +1166,10 @@ void App::drawPropertiesWindow() {
                     const float speed = span * 0.002f;
                     // A corner dragged past the other one stops there rather
                     // than swapping them under the mouse.
-                    if (ImGui::DragFloat3("Box min", b.mn, speed, 0.0f, 0.0f, "%.3f"))
+                    if (ui::AxisDrag3("Box min", b.mn, speed, 0.0f, 0.0f, "%.3f"))
                         for (int k = 0; k < 3; ++k) b.mn[k] = std::min(b.mn[k], b.mx[k]);
                     if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-                    if (ImGui::DragFloat3("Box max", b.mx, speed, 0.0f, 0.0f, "%.3f"))
+                    if (ui::AxisDrag3("Box max", b.mx, speed, 0.0f, 0.0f, "%.3f"))
                         for (int k = 0; k < 3; ++k) b.mx[k] = std::max(b.mx[k], b.mn[k]);
                     if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
                     if (ImGui::Button("Fit to post")) {
@@ -3074,7 +3078,7 @@ void App::drawMultiProperties() {
                         float lo, float hi, const char* fmt) {
         float* pv = get(primary);
         float v[3] = {pv[0], pv[1], pv[2]};
-        ImGui::DragFloat3(label, v, speed, lo, hi, fmt);
+        ui::AxisDrag3(label, v, speed, lo, hi, fmt);
         for (int k = 0; k < 3; ++k) {
             const float d = v[k] - pv[k];
             if (d != 0.0f)
@@ -3131,7 +3135,7 @@ void App::drawMultiProperties() {
         // Use the primary orientation as the numerical handle, but rotate every
         // position and orientation rigidly around the same centroid as the gizmo.
         float angle[3] = {primary.rotation[0], primary.rotation[1], primary.rotation[2]};
-        if (ImGui::DragFloat3("Rotation", angle, 1.0f, -360.0f, 360.0f, "%.0f deg")) {
+        if (ui::AxisDrag3("Rotation", angle, 1.0f, -360.0f, 360.0f, "%.0f deg")) {
             float pivot[3] = {}, zero[3] = {}, unit[3] = {1, 1, 1};
             for (auto* o : objs) for (int k = 0; k < 3; ++k) pivot[k] += o->position[k] / (float)objs.size();
             float before[16], after[16], delta[16] = {};

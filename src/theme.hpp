@@ -59,6 +59,14 @@ struct Semantics {
     ImVec4 textDim;      // disabled / secondary
     ImVec4 surface;      // panel fill, for chrome that draws its own background
     ImVec4 border;
+    ImVec4 ground;       // the app background the panels float on (dock gaps)
+    ImVec4 field;        // inset value fields, darker than the panel
+    ImVec4 special;      // the fourth face colour: "live", special state
+    // The gizmo's axis colours, shared by every X/Y/Z readout so a field and
+    // the handle it edits match. Not per theme - X is red in every editor.
+    ImVec4 axisX;
+    ImVec4 axisY;
+    ImVec4 axisZ;
 };
 const Semantics& semantics();
 
@@ -81,5 +89,14 @@ void applyImNodes();
  * State lives in the current window's storage, so a widget that stops being
  * submitted simply stops being animated. */
 float hoverAnim(ImGuiID id, bool hovered, float rate = 8.0f);
+
+/** Pushes the colours the main dockspace's HOST window is drawn with: its
+ * background and the splitters between docked panels take the ground colour,
+ * so the panels read as cards separated by gaps rather than one slab. Call
+ * immediately around DockSpaceOverViewport (the splitters are drawn inside
+ * it, with the host's WindowBg); every docked panel keeps the normal
+ * WindowBg. Pair with popDockspaceColors(). */
+void pushDockspaceColors();
+void popDockspaceColors();
 
 }  // namespace theme

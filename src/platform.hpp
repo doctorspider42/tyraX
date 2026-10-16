@@ -311,7 +311,24 @@ const char* defaultFontLabel();
 // with none of them keeps the built-in font. Proportional UI faces only - a
 // bold display face would be wrong here for the same reason the bake list is
 // all bold: small text at regular weight is what an interface wants.
-const std::vector<SystemFont>& uiFontFiles();
+//
+// Each family carries its own heavier cut for panel titles and section
+// headings (Medium/Semibold where the OS ships one): the bold face is only
+// used when it comes from the SAME family as the regular one that loaded, so a
+// heading never switches typeface mid-panel. `face` is the index inside a
+// .ttc collection (0 for a plain .ttf).
+struct UiFontFamily {
+    const char* label;     // "Segoe UI"
+    const char* file;      // regular weight
+    const char* boldFile;  // heavier cut of the same family; may not exist
+    int boldFace = 0;
+};
+const std::vector<UiFontFamily>& uiFontFiles();
+
+// Monospace face for numbers, logs and code (fields that must not jitter
+// as digits change). Best first; none resolving = the proportional UI font.
+// Same rule as above: fixed-weight files only, never a variable font.
+const std::vector<SystemFont>& monoFontFiles();
 
 // --- native file dialogs ---------------------------------------------------
 

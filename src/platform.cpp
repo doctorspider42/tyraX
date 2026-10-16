@@ -1331,27 +1331,29 @@ const char* defaultFontLabel() {
 #endif
 }
 
-const std::vector<SystemFont>& uiFontFiles() {
+const std::vector<UiFontFamily>& uiFontFiles() {
 #ifdef _WIN32
     // Segoe UI is what the rest of the desktop is drawn in and has shipped
     // since Vista, so the first entry practically always resolves. The
     // variable-weight Segoe UI Variable is deliberately absent: stb_truetype
     // cannot select a weight axis and would rasterize it at the wrong one.
-    static const std::vector<SystemFont> fonts = {
-        {"Segoe UI", "segoeui.ttf"},
-        {"Tahoma", "tahoma.ttf"},
-        {"Verdana", "verdana.ttf"},
-        {"Arial", "arial.ttf"},
+    // Semibold (segoeuisb) rather than Bold for headings - it is what the
+    // desktop itself uses for them.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Segoe UI", "segoeui.ttf", "segoeuisb.ttf"},
+        {"Tahoma", "tahoma.ttf", "tahomabd.ttf"},
+        {"Verdana", "verdana.ttf", "verdanab.ttf"},
+        {"Arial", "arial.ttf", "arialbd.ttf"},
     };
 #elif defined(__APPLE__)
-    // Helvetica Neue is a collection; face 0 is the regular weight. SF Pro
-    // (SFNS.ttf) is deliberately absent - variable weight, like Segoe UI
-    // Variable on Windows.
-    static const std::vector<SystemFont> fonts = {
-        {"Helvetica Neue", "HelveticaNeue.ttc"},
-        {"Verdana", "Verdana.ttf"},
-        {"Arial", "Arial.ttf"},
-        {"Geneva", "Geneva.ttf"},
+    // Helvetica Neue is a collection; face 0 is the regular weight and face
+    // 10 the Medium the headings use. SF Pro (SFNS.ttf) is deliberately
+    // absent - variable weight, like Segoe UI Variable on Windows.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Helvetica Neue", "HelveticaNeue.ttc", "HelveticaNeue.ttc", 10},
+        {"Verdana", "Verdana.ttf", "Verdana Bold.ttf"},
+        {"Arial", "Arial.ttf", "Arial Bold.ttf"},
+        {"Geneva", "Geneva.ttf", ""},
     };
 #else
     // Inter first where the user installed it, then the families the desktops
@@ -1359,13 +1361,40 @@ const std::vector<SystemFont>& uiFontFiles() {
     // sets that are on practically every distribution. Cantarell is an .otf -
     // stb_truetype reads its CFF outlines, which is why it is allowed here at
     // all - and it sits low in the chain for that reason.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Inter", "Inter-Regular.ttf", "Inter-SemiBold.ttf"},
+        {"Noto Sans", "NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf"},
+        {"Ubuntu", "Ubuntu-R.ttf", "Ubuntu-M.ttf"},
+        {"Cantarell", "Cantarell-Regular.otf", "Cantarell-Bold.otf"},
+        {"DejaVu Sans", "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"},
+        {"Liberation Sans", "LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"},
+    };
+#endif
+    return fonts;
+}
+
+const std::vector<SystemFont>& monoFontFiles() {
+#ifdef _WIN32
+    // Cascadia Mono ships with Windows 11 (and Terminal); Consolas since Vista.
     static const std::vector<SystemFont> fonts = {
-        {"Inter", "Inter-Regular.ttf"},
-        {"Noto Sans", "NotoSans-Regular.ttf"},
-        {"Ubuntu", "Ubuntu-R.ttf"},
-        {"Cantarell", "Cantarell-Regular.otf"},
-        {"DejaVu Sans", "DejaVuSans.ttf"},
-        {"Liberation Sans", "LiberationSans-Regular.ttf"},
+        {"Cascadia Mono", "CascadiaMono.ttf"},
+        {"Consolas", "consola.ttf"},
+        {"Courier New", "cour.ttf"},
+    };
+#elif defined(__APPLE__)
+    // Menlo is a collection whose face 0 is Regular. SF Mono (SFNSMono.ttf)
+    // is a variable font - absent for the same reason SF Pro is.
+    static const std::vector<SystemFont> fonts = {
+        {"Menlo", "Menlo.ttc"},
+        {"Courier New", "Courier New.ttf"},
+    };
+#else
+    static const std::vector<SystemFont> fonts = {
+        {"JetBrains Mono", "JetBrainsMono-Regular.ttf"},
+        {"Noto Sans Mono", "NotoSansMono-Regular.ttf"},
+        {"Ubuntu Mono", "UbuntuMono-R.ttf"},
+        {"DejaVu Sans Mono", "DejaVuSansMono.ttf"},
+        {"Liberation Mono", "LiberationMono-Regular.ttf"},
     };
 #endif
     return fonts;

@@ -5,9 +5,10 @@
 namespace theme {
 namespace {
 
-// A theme is nine colours. Every one of the ~60 ImGuiCol_ entries is DERIVED
-// from them (below), which is what stops three themes from being three
-// sixty-line tables that drift apart the day a new ImGui colour appears.
+// A theme is eleven colours. Every one of the ~60 ImGuiCol_ entries - and the
+// ground and field tones - is DERIVED from them (below), which is what stops
+// three themes from being three sixty-line tables that drift apart the day a
+// new ImGui colour appears.
 struct Palette {
     ImVec4 bg;       // window background - the darkest surface
     ImVec4 surface;  // frames, buttons, inputs: one step up from the page
@@ -19,6 +20,7 @@ struct Palette {
     ImVec4 ok;
     ImVec4 warn;
     ImVec4 danger;
+    ImVec4 special;  // the fourth face colour - "live", special state
 };
 
 constexpr ImVec4 rgb(int r, int g, int b, float a = 1.0f) {
@@ -38,13 +40,14 @@ ImVec4 fade(const ImVec4& c, float a) { return ImVec4(c.x, c.y, c.z, a); }
 // reference is in the colours a reader recognizes rather than in a blue tint
 // over every panel, which is what keeps a full-screen editor calm.
 constexpr Palette kFaceButtons = {
-    /*bg*/ rgb(17, 17, 20),      /*surface*/ rgb(30, 30, 36),
-    /*raised*/ rgb(23, 23, 27),  /*border*/ rgb(45, 45, 53),
-    /*text*/ rgb(236, 236, 237), /*textDim*/ rgb(129, 129, 140),
-    /*accent*/ rgb(79, 195, 247),  // cross
-    /*ok*/ rgb(90, 214, 125),      // triangle
-    /*warn*/ rgb(240, 175, 70),
-    /*danger*/ rgb(242, 85, 122),  // circle
+    /*bg*/ rgb(18, 21, 27),      /*surface*/ rgb(30, 35, 44),
+    /*raised*/ rgb(25, 29, 37),  /*border*/ rgb(36, 40, 49),
+    /*text*/ rgb(232, 234, 240), /*textDim*/ rgb(140, 148, 164),
+    /*accent*/ rgb(122, 162, 255),  // cross
+    /*ok*/ rgb(61, 214, 140),       // triangle
+    /*warn*/ rgb(245, 184, 74),
+    /*danger*/ rgb(255, 107, 107),  // circle
+    /*special*/ rgb(242, 143, 224), // square
 };
 
 // The boot screen: the deep navy the console fades up from, with the logo's
@@ -56,6 +59,7 @@ constexpr Palette kBootScreen = {
     /*text*/ rgb(227, 235, 245), /*textDim*/ rgb(122, 140, 166),
     /*accent*/ rgb(58, 167, 255), /*ok*/ rgb(90, 214, 125),
     /*warn*/ rgb(240, 176, 64),   /*danger*/ rgb(239, 95, 95),
+    /*special*/ rgb(242, 143, 224),
 };
 
 // The memory-card browser: the violet of the OSD, the most "retro" of the
@@ -66,6 +70,7 @@ constexpr Palette kMemoryCard = {
     /*text*/ rgb(232, 230, 245), /*textDim*/ rgb(134, 126, 166),
     /*accent*/ rgb(139, 124, 255), /*ok*/ rgb(79, 214, 174),
     /*warn*/ rgb(232, 178, 60),    /*danger*/ rgb(239, 95, 138),
+    /*special*/ rgb(255, 160, 200),
 };
 
 const Palette& paletteOf(Id id) {
@@ -76,18 +81,34 @@ const Palette& paletteOf(Id id) {
     }
 }
 
-Semantics gSemantics = {
-    kFaceButtons.accent, fade(kFaceButtons.accent, 0.35f),
-    kFaceButtons.ok,     kFaceButtons.warn,
-    kFaceButtons.danger, kFaceButtons.text,
-    kFaceButtons.textDim, kFaceButtons.surface,
-    kFaceButtons.border,
-};
+// The gizmo's axis colours: the same in every theme (a red X is a convention,
+// not a palette choice), and kept as one triple so every X/Y/Z readout and the
+// handle it edits agree.
+constexpr ImVec4 kAxisX = rgb(255, 107, 107);
+constexpr ImVec4 kAxisY = rgb(61, 214, 140);
+constexpr ImVec4 kAxisZ = rgb(122, 162, 255);
+
+// The two derived tones. Ground is what the panels float on (the dockspace
+// host, the gaps between docked panels, the main menu bar); field is the inset
+// fill of value inputs. Both are the page pushed towards black, so a theme
+// never has to pick them - and never picks them out of step with its page.
+ImVec4 groundOf(const Palette& p) { return mix(p.bg, ImVec4(0, 0, 0, 1), 0.55f); }
+ImVec4 fieldOf(const Palette& p) { return mix(p.bg, ImVec4(0, 0, 0, 1), 0.32f); }
+
+Semantics semanticsOf(const Palette& p) {
+    return {p.accent,  fade(p.accent, 0.35f), p.ok,      p.warn,
+            p.danger,  p.text,                p.textDim, p.surface,
+            p.border,  groundOf(p),           fieldOf(p), p.special,
+            kAxisX,    kAxisY,                kAxisZ};
+}
+
+Semantics gSemantics = semanticsOf(kFaceButtons);
 
 // Stock ImGui's own dark colours, read back after StyleColorsDark() - so the
 // escape-hatch theme's chips are still driven by semantics() rather than
 // falling back to whatever the last theme left behind.
 Semantics stockSemantics(const ImGuiStyle& s) {
+    const ImVec4 bg = s.Colors[ImGuiCol_WindowBg];
     return {s.Colors[ImGuiCol_HeaderActive],
             fade(s.Colors[ImGuiCol_HeaderActive], 0.35f),
             rgb(95, 200, 115),
@@ -96,11 +117,19 @@ Semantics stockSemantics(const ImGuiStyle& s) {
             s.Colors[ImGuiCol_Text],
             s.Colors[ImGuiCol_TextDisabled],
             s.Colors[ImGuiCol_FrameBg],
-            s.Colors[ImGuiCol_Border]};
+            s.Colors[ImGuiCol_Border],
+            mix(bg, ImVec4(0, 0, 0, 1), 0.55f),
+            s.Colors[ImGuiCol_FrameBg],
+            rgb(242, 143, 224),
+            kAxisX,
+            kAxisY,
+            kAxisZ};
 }
 
 void applyColors(const Palette& p, ImGuiStyle& s) {
     ImVec4* c = s.Colors;
+    const ImVec4 ground = groundOf(p);
+    const ImVec4 field = fieldOf(p);
     c[ImGuiCol_Text] = p.text;
     c[ImGuiCol_TextDisabled] = p.textDim;
     c[ImGuiCol_WindowBg] = p.bg;
@@ -111,14 +140,22 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_Border] = p.border;
     c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
 
-    c[ImGuiCol_FrameBg] = p.surface;
-    c[ImGuiCol_FrameBgHovered] = mix(p.surface, p.accent, 0.18f);
-    c[ImGuiCol_FrameBgActive] = mix(p.surface, p.accent, 0.28f);
+    // Value fields are INSET: darker than the panel they sit in, with the
+    // hairline frame border giving the edge. Hover lifts the fill towards the
+    // panel rather than tinting it, so a row of fields stays calm under the
+    // cursor; only an active edit takes the accent.
+    c[ImGuiCol_FrameBg] = field;
+    c[ImGuiCol_FrameBgHovered] = mix(field, p.surface, 0.55f);
+    c[ImGuiCol_FrameBgActive] = mix(field, p.accent, 0.16f);
 
-    c[ImGuiCol_TitleBg] = p.raised;
-    c[ImGuiCol_TitleBgActive] = mix(p.raised, p.accent, 0.12f);
-    c[ImGuiCol_TitleBgCollapsed] = p.raised;
-    c[ImGuiCol_MenuBarBg] = p.raised;
+    // A docked panel's title/tab strip is part of the card, not a band over
+    // it: the same fill as the page, with the active one barely lifted.
+    c[ImGuiCol_TitleBg] = p.bg;
+    c[ImGuiCol_TitleBgActive] = mix(p.bg, p.raised, 0.6f);
+    c[ImGuiCol_TitleBgCollapsed] = p.bg;
+    // The menu bar sits on the ground with the panels, not on a band of its
+    // own - the top of the window is the app's frame, the panels its content.
+    c[ImGuiCol_MenuBarBg] = ground;
 
     // A scrollbar is chrome, not content: no track, a grab that only asserts
     // itself once the cursor is on it.
@@ -134,9 +171,12 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_SliderGrab] = p.accent;
     c[ImGuiCol_SliderGrabActive] = mix(p.accent, p.text, 0.25f);
 
+    // Buttons hover NEUTRAL (lighter, not bluer): a toolbar swept with the
+    // cursor should not flash the accent at every button it passes. The press
+    // is where the accent belongs.
     c[ImGuiCol_Button] = p.surface;
-    c[ImGuiCol_ButtonHovered] = mix(p.surface, p.accent, 0.22f);
-    c[ImGuiCol_ButtonActive] = mix(p.surface, p.accent, 0.40f);
+    c[ImGuiCol_ButtonHovered] = mix(p.surface, p.text, 0.10f);
+    c[ImGuiCol_ButtonActive] = mix(p.surface, p.accent, 0.35f);
 
     // Header* is every list row: Selectable, TreeNode, MenuItem. A translucent
     // accent wash keeps a selected row readable at any background.
@@ -164,9 +204,9 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
     c[ImGuiCol_TabDimmedSelected] = p.bg;
     c[ImGuiCol_TabDimmedSelectedOverline] = fade(p.accent, 0.40f);
     c[ImGuiCol_DockingPreview] = fade(p.accent, 0.35f);
-    // The void behind an empty dock node: below the page, so an unfilled
-    // layout looks deliberate rather than broken.
-    c[ImGuiCol_DockingEmptyBg] = mix(p.bg, ImVec4(0, 0, 0, 1), 0.45f);
+    // The void behind an empty dock node is the ground the panels float on,
+    // so an unfilled layout looks deliberate rather than broken.
+    c[ImGuiCol_DockingEmptyBg] = ground;
 
     c[ImGuiCol_PlotLines] = p.accent;
     c[ImGuiCol_PlotLinesHovered] = p.warn;
@@ -196,32 +236,38 @@ void applyColors(const Palette& p, ImGuiStyle& s) {
 // a second layout. Everything here is authored at 100% - App::applyUiScale
 // runs ScaleAllSizes() over it afterwards.
 void applyMetrics(ImGuiStyle& s) {
-    s.WindowPadding = ImVec2(10, 8);
-    s.WindowRounding = 6.0f;
+    s.WindowPadding = ImVec2(12, 10);
+    s.WindowRounding = 10.0f;
     s.WindowBorderSize = 1.0f;
     s.WindowTitleAlign = ImVec2(0.0f, 0.5f);
-    s.ChildRounding = 6.0f;
+    s.ChildRounding = 8.0f;
     s.ChildBorderSize = 1.0f;
-    s.PopupRounding = 6.0f;
+    s.PopupRounding = 8.0f;
     s.PopupBorderSize = 1.0f;
-    s.FramePadding = ImVec2(7, 4);
-    s.FrameRounding = 5.0f;
+    // 8x6 around the 15 px face = a ~27 px field: tall enough to hit and to
+    // read a number in, the size every modern inspector settled on.
+    s.FramePadding = ImVec2(8, 6);
+    s.FrameRounding = 6.0f;
     // A hairline around every frame is most of what separates "themed ImGui"
     // from "an application": it gives inputs an edge the fill alone does not.
     s.FrameBorderSize = 1.0f;
-    s.ItemSpacing = ImVec2(8, 5);
+    s.ItemSpacing = ImVec2(8, 6);
     s.ItemInnerSpacing = ImVec2(6, 4);
     s.CellPadding = ImVec2(6, 3);
-    s.ScrollbarSize = 12.0f;
-    s.ScrollbarRounding = 6.0f;
-    s.GrabMinSize = 10.0f;
+    s.ScrollbarSize = 10.0f;
+    s.ScrollbarRounding = 5.0f;
+    s.GrabMinSize = 12.0f;
     s.GrabRounding = 4.0f;
     s.ImageRounding = 4.0f;
     s.TabRounding = 6.0f;
     s.TabBorderSize = 0.0f;
     s.TabBarBorderSize = 1.0f;
     s.TabBarOverlineSize = 2.0f;
-    s.MenuItemRounding = 4.0f;
+    s.MenuItemRounding = 5.0f;
+    // The gap between docked panels. Wide enough to read as a gap (the panels
+    // become separate cards on the ground colour - pushDockspaceColors) and to
+    // grab for resizing; ImGui draws it with the dockspace host's WindowBg.
+    s.DockingSeparatorSize = 6.0f;
     s.SeparatorTextBorderSize = 1.0f;
     s.SeparatorTextPadding = ImVec2(16, 4);
     s.DisabledAlpha = 0.50f;
@@ -275,9 +321,7 @@ void apply(Id id, ImGuiStyle& style) {
     const Palette& p = paletteOf(id);
     applyColors(p, style);
     applyMetrics(style);
-    gSemantics = {p.accent, fade(p.accent, 0.35f), p.ok,      p.warn,
-                  p.danger, p.text,                p.textDim, p.surface,
-                  p.border};
+    gSemantics = semanticsOf(p);
 }
 
 void applyImNodes() {
@@ -340,5 +384,16 @@ float hoverAnim(ImGuiID id, bool hovered, float rate) {
     store->SetFloat(id, t);
     return t;
 }
+
+void pushDockspaceColors() {
+    // Only the host window and its splitters: DockSpaceOverViewport Begins and
+    // Ends the host inside this push, and the panels docked into it are
+    // submitted afterwards, with the normal page colour.
+    const ImVec4 ground = gSemantics.ground;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ground);
+    ImGui::PushStyleColor(ImGuiCol_Border, ground);
+}
+
+void popDockspaceColors() { ImGui::PopStyleColor(2); }
 
 }  // namespace theme

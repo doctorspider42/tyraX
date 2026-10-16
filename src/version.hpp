@@ -5515,7 +5515,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 172
+#define TYRAX_VERSION_MINOR 173
+// 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
+// Face buttons gets a new palette; Palette/Semantics gain ground, field,
+// special and the axis triple; the dockspace host and its splitters draw in the
+// ground colour (theme::pushDockspaceColors) so docked panels read as cards
+// with 6 px gaps; value fields are inset. App::loadUiFont also loads the
+// family's heading cut and a fixed-width face (platform::uiFontFiles/
+// monoFontFiles), exposed through src/widgets.hpp, whose ui::AxisDrag3 replaces
+// DragFloat3 for transforms and collision boxes; the log panels use the mono face.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

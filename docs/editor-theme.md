@@ -23,7 +23,7 @@ until you confirm it is a theme you cannot choose.
 
 | Theme | What it is |
 |---|---|
-| **Face buttons** (default) | Neutral graphite panels; the PlayStation's four face-button colours do the semantic work — cross blue as the accent, triangle green for "running", circle red for "stopped". The reference is in the colours you recognize rather than in a tint over every surface, which is what keeps a full-screen editor calm. |
+| **Face buttons** (default) | Deep graphite panels; the PlayStation's four face-button colours do the semantic work — cross blue as the accent, triangle green for "running", circle red for "stopped", square pink for "live". The reference is in the colours you recognize rather than in a tint over every surface, which is what keeps a full-screen editor calm. |
 | **Boot screen** | The deep navy the console fades up from, with the logo's electric blue. Every surface carries the tint, so it reads as one piece of hardware — at the cost of being less neutral than the graphite. |
 | **Memory card** | The violet of the console's own browser. The most retro of the three, and the only one whose accent is not a blue. |
 | **ImGui dark** | Dear ImGui's stock colours, kept as an escape hatch and as a before/after reference. It still gets the shared style metrics and the interface font — only the palette is stock. |
@@ -43,10 +43,25 @@ theme you don't have falls back to the default instead of failing.
 The editor loads the first UI face it finds on this machine:
 
 - **Windows** — Segoe UI, then Tahoma, Verdana, Arial.
+- **macOS** — Helvetica Neue, then Verdana, Arial, Geneva.
 - **Linux** — Inter, then Noto Sans, Ubuntu, Cantarell, DejaVu Sans, Liberation
   Sans.
 
-Preferences shows which one was picked. A machine with none of them keeps
+Alongside it come two more faces:
+
+- **The same family's heavier cut** (Segoe UI Semibold, Helvetica Neue Medium,
+  Inter SemiBold...) for section titles. It is only used when it comes from the
+  family that loaded — a heading in a different typeface reads as a bug, one in
+  the regular weight merely as plain.
+- **A fixed-width face** for numbers and logs: Cascadia Mono or Consolas on
+  Windows, Menlo on macOS, JetBrains Mono, Noto Sans Mono, Ubuntu Mono, DejaVu
+  Sans Mono or Liberation Mono on Linux. Digits that change width while a value
+  is dragged make a field jitter; a log is read in columns.
+
+Variable-weight fonts (Segoe UI Variable, SF Pro, SF Mono) are never picked:
+the rasterizer cannot select a weight axis and would draw them at the wrong one.
+
+Preferences shows which faces were picked. A machine with none of them keeps
 ImGui's built-in bitmap font and everything still works — the font is the one
 part of the look that degrades rather than being configured.
 
@@ -62,14 +77,30 @@ a bitmap).
 
 ## What a theme actually changes
 
-A theme is a **palette of nine colours**; every one of ImGui's ~60 colour slots
-is derived from them (`src/theme.cpp`). The style *metrics* — rounding, padding,
+A theme is a **palette of eleven colours**; every one of ImGui's ~60 colour
+slots is derived from them (`src/theme.cpp`), and so are the two tones every
+theme needs but none picks — the *ground* (the page pushed towards black) and
+the *field* (between the two). The style *metrics* — rounding, padding,
 border widths, scrollbar size, tree lines — are **shared by all four themes**,
 including the stock one: they are what makes the editor read as one product, and
 a theme is a palette, not a second layout.
 
 A few things worth knowing because they are decisions rather than defaults:
 
+- **Panels are cards on a ground.** The window behind the docked panels, and
+  the 6 px gaps between them, are the ground colour; each panel is the page
+  colour. ImGui draws the splitters between docked panels with the dockspace
+  host's background, so the gaps come from pushing the ground colour around
+  `DockSpaceOverViewport` alone (`theme::pushDockspaceColors`) — the panels
+  submitted after it keep the page colour.
+- **Value fields are inset**: darker than the panel, with the hairline frame
+  border as their edge. Hovering lifts the fill instead of tinting it, and
+  buttons hover lighter rather than bluer — sweeping the cursor over a row of
+  controls should not flash the accent at each one. The accent is for a press,
+  a selection and an active edit.
+- **X, Y and Z are named inside the field** (`ui::AxisDrag3`) in the move
+  gizmo's colours, which are the same in every theme: a red X is a
+  convention, not a palette choice.
 - **The selected dock tab is the page colour** and is marked by an accent
   overline. A tab the same colour as the panel below it reads as the panel's
   front edge; the line says which one is active.
@@ -101,7 +132,8 @@ A few things worth knowing because they are decisions rather than defaults:
 Anything that cannot go through an `ImGuiCol_` — the toolbar's vector icons, the
 BUILDING / LIVE / DBG / LOGIC / SESSION chips, viewport overlays — reads
 `theme::semantics()`, which offers `accent`, `accentMuted`, `ok`, `warn`,
-`danger`, `text`, `textDim`, `surface` and `border`. A chip that wants "the
+`danger`, `special`, `text`, `textDim`, `surface`, `border`, `ground`, `field`
+and the gizmo's `axisX`/`axisY`/`axisZ`. A chip that wants "the
 running-game green" asks for `ok` and moves with the theme; a chip that writes
 `IM_COL32(95, 200, 115, 255)` stays green in a violet editor.
 
@@ -122,9 +154,17 @@ Two integration points to respect if you touch this:
   no system face resolved, which is exactly what makes ImGui keep the built-in
   font's own size.
 
+Recurring controls live next door in `src/widgets.hpp` (`ui::`): the heading
+and fixed-width faces (`ui::boldFont()`, `ui::monoFont()`, `ui::FontScope`) and
+widgets such as `ui::AxisDrag3`. Each keeps ImGui's contract — the label is the
+ID and the `--ui-script` name, the return value is "changed this frame", and
+`IsItemDeactivatedAfterEdit()` right after it works — so it is a drop-in
+replacement for the stock widget it restyles.
+
 The theme module depends on nothing but ImGui — no `Project`, no GL, no `App` —
 so the palette is a pure function of a theme id and can be read in one place
 instead of being spread across the call sites that used to hardcode colours.
-`platform::uiFontFiles()` is where the per-OS font chain lives, next to the
+`platform::uiFontFiles()` and `platform::monoFontFiles()` are where the per-OS
+font chains live, next to the
 other two font lists ([the bake fonts](../src/platform.hpp)), because that file
 is the one place OS differences are allowed to exist.

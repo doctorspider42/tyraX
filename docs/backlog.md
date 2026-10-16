@@ -4,6 +4,46 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Main-window redesign: the remaining steps (2026-10-16)
+
+1.173.0 landed the foundation: the new Face buttons palette, panels as cards on
+a ground colour, inset fields, the heading and fixed-width faces and
+`src/widgets.hpp` (`ui::AxisDrag3`) - see docs/editor-theme.md. What is left,
+one PR each, in this order:
+
+1. **Top bar + shell.** Keep `BeginMainMenuBar` (scripts click `Tools`), but on
+   the ground colour with a drawn four-glyph logo; project / scene breadcrumb
+   with the unsaved dot (scene list leaves the Project panel); ⌘K search
+   button; build profile, PCSX2 | PS2 segmented target, Build, a filled Run
+   that becomes "Running · Stop". `BeginViewportSideBar` for a status bar
+   (build state, the LIVE/DBG/LOGIC/SESSION chips with their `##tb_*` ids,
+   PS2 budget meters - VRAM has no estimate yet: add one or hide the meter)
+   and a 48 px icon rail on the left.
+2. **Viewport overlays.** The `SmallButton` rows (app.cpp `Move (1)` ...
+   `World`) become floating panels: a vertical tool palette, a view-options
+   pill, a selection readout, an Editor | As PS2 switch. Labels stay the IDs.
+3. **Inspector.** Header (type tile, borderless name, type · layer, ⋯ menu),
+   labels on the LEFT via a two-column table, `ui::Switch` with a one-line hint
+   instead of the 53 checkboxes in props_ui.cpp (it must report
+   `ImGuiItemStatusFlags_Checkable` so `expect-checked` keeps working),
+   sections as quiet titles instead of the accent-tinted CollapsingHeader band
+   (Header colours are shared with selected rows - needs its own widget).
+4. **Left panel.** The rail picks ONE page (Outliner, Assets, Prefabs, Audio,
+   Lighting, Save data) instead of the stack of CollapsingHeaders; Outliner as
+   a tree grouped by layer with type icons and filter chips. Scripts that click
+   `Scene objects` break - update docs/ui-scripting.md.
+5. **Bottom drawer.** Pill tabs, log rows as time / coloured tag / message;
+   Run in a debug build focuses the Debugger tab instead of a separate window.
+6. **Command palette (Ctrl/⌘+K).** Objects, assets, windows
+   (`chatWindowKeys()`), the embedded docs and a hand-registered command list;
+   a shared action registry for menus is a later refactor.
+7. **Workspaces.** Scene / Logic / Cinema / UI & HUD switch layout recipes
+   (Logic = a new recipe with Flow Graph centred); saved layouts are kept.
+
+Docked panels are drawn with square corners by ImGui; rounded cards need a
+transparent `WindowBg` plus a hand-drawn background, or stay square.
+`docs/img/editor-themes.png` still shows the 1.172 Face buttons palette.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.

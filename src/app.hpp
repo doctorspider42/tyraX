@@ -1692,6 +1692,9 @@ private:
     // Which face loadUiFont() found, for the Preferences readout. Empty = the
     // built-in font (no system face resolved).
     std::string uiFontLabel_;
+    // The fixed-width face for numbers and logs (ui::monoFont); empty = none
+    // resolved, and those fall back to the interface font.
+    std::string monoFontLabel_;
 
     // Viewport navigation (global editor config, see editor.ini persistence).
     NavConfig nav_;

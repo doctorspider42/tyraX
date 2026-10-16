@@ -38,6 +38,7 @@
 #include "templates.hpp"
 #include "version.hpp"
 #include "wavconvert.hpp"
+#include "widgets.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -893,7 +894,9 @@ void App::drawUI() {
     }
 
     ImGuizmo::BeginFrame();
+    theme::pushDockspaceColors();  // panels as cards on the ground colour
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+    theme::popDockspaceColors();
 
     // Terrain-layer edits (material/tint/Size/add/remove) rebuild the layer
     // passes once per frame, before the viewport renders below. Brush strokes
@@ -1221,15 +1224,37 @@ void App::loadUiFont() {
     // to read as well at the same nominal size, and the whole UI is authored in
     // scaled() multiples of it rather than in absolute rows.
     constexpr float kUiFontSize = 15.0f;
-    for (const platform::SystemFont& f : platform::uiFontFiles()) {
+    ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+    for (const platform::UiFontFamily& f : platform::uiFontFiles()) {
         const std::string path = platform::systemFontPath(f.file);
         if (path.empty()) continue;
-        if (!ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), kUiFontSize))
+        if (!atlas->AddFontFromFileTTF(path.c_str(), kUiFontSize))
             continue;  // present but unreadable - try the next face
         uiFontSize_ = kUiFontSize;
         uiFontLabel_ = f.label;
-        return;
+        // The heading cut comes from the SAME family or not at all (ui::fonts
+        // then hands back the regular face): a title in another typeface reads
+        // as a bug, a title in the regular one merely as plain.
+        const std::string bold = platform::systemFontPath(f.boldFile);
+        if (!bold.empty()) {
+            ImFontConfig cfg;
+            cfg.FontNo = f.boldFace;
+            ui::setBoldFont(atlas->AddFontFromFileTTF(bold.c_str(), kUiFontSize, &cfg));
+        }
+        break;
     }
+    // Numbers, logs and code. Independent of the family above: any fixed-width
+    // face beats digits that change width while a value is dragged.
+    for (const platform::SystemFont& f : platform::monoFontFiles()) {
+        const std::string path = platform::systemFontPath(f.file);
+        if (path.empty()) continue;
+        if (ImFont* mono = atlas->AddFontFromFileTTF(path.c_str(), kUiFontSize)) {
+            ui::setMonoFont(mono);
+            monoFontLabel_ = f.label;
+            break;
+        }
+    }
+    if (uiFontSize_ > 0.0f) return;
     // Nothing resolved: the built-in font stays, and uiFontSize_ 0 leaves
     // FontSizeBase alone so ImGui keeps that font's own size.
     std::printf("[ui] no system UI font found - using the built-in font\n");
@@ -13805,8 +13830,13 @@ void App::logRefresh(LogView& v) {
 void App::drawLogPanel(const char* id, LogView& v) {
     // Here rather than in the callers: a Clear / source switch above this point
     // has just replaced v.text and cleared v.lines, and `visible` still indexes
-    // the text that is gone. A no-op when nothing changed.
-    logRefresh(v);
+    // the text that is gone. A no-op when nothing changed. Measured in the
+    // fixed-width face the lines below are drawn in (logRefresh re-measures
+    // when the face changes).
+    {
+        ui::FontScope mono(ui::monoFont());
+        logRefresh(v);
+    }
 
     // Most severe first - that is the order a reader scans a log console in.
     for (int i = logview::kLevelCount - 1; i >= 0; --i) {
@@ -13839,6 +13869,8 @@ void App::drawLogPanel(const char* id, LogView& v) {
             ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f, 0.0f));
     ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
+    // A log is read in columns (timestamps, paths, counts): fixed-width.
+    ImGui::PushFont(ui::monoFont(), 0.0f);
 
     if (v.selectText) {
         // Sizing the input to its own content means this child (not the input)
@@ -13883,6 +13915,7 @@ void App::drawLogPanel(const char* id, LogView& v) {
     v.scrollBottom = false;
     v.shown = v.visible.size();
 
+    ImGui::PopFont();
     ImGui::EndChild();
 }
 
@@ -16466,9 +16499,10 @@ void App::drawEditorPreferencesModal() {
         // prefHelp takes a plain string, and this one reports live state.
         char tip[256];
         snprintf(tip, sizeof(tip),
-                 "Interface font: %s (the first UI face found on this machine).\n"
-                 "Scale lives in View > Interface scale - currently %d%%%s.",
+                 "Interface font: %s, numbers in %s (the first faces found on\n"
+                 "this machine). Scale lives in View > Interface scale - currently %d%%%s.",
                  uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
+                 monoFontLabel_.empty() ? "the interface font" : monoFontLabel_.c_str(),
                  (int)std::lround(uiScaleApplied_ * 100.0f),
                  uiScaleUser_ == 0.0f ? " (auto)" : "");
         prefHelp(tip);

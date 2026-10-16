@@ -5,6 +5,15 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 1.173.0 - 2026-10-16
+
+### A calmer, more modern editor
+
+- **A refreshed look**, the first step of a main-window redesign: the default *Face buttons* theme has a new, deeper palette, docked panels now sit on a darker background with a small gap between them instead of meeting edge to edge, and value fields are inset. [The editor's look](https://github.com/doctorspider42/tyraX/blob/main/docs/editor-theme.md)
+- **Position, rotation and scale name their axis inside each field**: a red X, green Y and blue Z, the same colours as the move gizmo, and the numbers are in a fixed-width face so they no longer jitter while you drag. Collision box min/max read the same way.
+- **The Output and Debug logs use a fixed-width font**, so timestamps, paths and counts line up.
+- Inspector section titles use the interface font's heavier cut.
+
 ## 1.172.0 - 2026-10-12
 
 ### The macOS app
