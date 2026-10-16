@@ -16,6 +16,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <tlhelp32.h>
+#include <dwmapi.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -1411,6 +1412,202 @@ void setDialogOwner(GLFWwindow* window) {
     (void)window;  // the pickers below are separate processes
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// Merged title bar (platform.hpp). The macOS half is Objective-C and lives in
+// platform_mac.mm; Windows is below; Linux keeps the desktop's decorations.
+// ---------------------------------------------------------------------------
+
+#ifdef _WIN32
+// UNVERIFIED ON WINDOWS: written and compile-checked on macOS, never run. The
+// approach is the one Windows Terminal and Chromium use - verify drag, Aero
+// Snap, double-click, the resize edges (the top one included), a maximized
+// window's top row and a DPI change between monitors before trusting it.
+namespace {
+
+struct WinTitleBar {
+    HWND hwnd = nullptr;
+    WNDPROC orig = nullptr;
+    float height = 0.0f;     // our bar's height, client pixels (App, per frame)
+    bool overEmpty = false;  // App: the pointer is over a bare part of the bar
+    DWORD lastDownTime = 0;  // our own double-click detection: GLFW's window
+    POINT lastDownPt{};      // class has no CS_DBLCLKS, so no WM_LBUTTONDBLCLK
+};
+WinTitleBar g_titleBar;
+
+// The sizing frame's thickness at this window's DPI. GetDpiForWindow and
+// GetSystemMetricsForDpi are Windows 10 1607+; resolved at runtime so the
+// editor still starts (with system-DPI metrics) on anything older.
+int frameThickness(HWND hwnd, bool vertical) {
+    using DpiForWindowFn = UINT(WINAPI*)(HWND);
+    using MetricsForDpiFn = int(WINAPI*)(int, UINT);
+    static const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    static const auto dpiForWindow =
+        user32 ? (DpiForWindowFn)(void*)GetProcAddress(user32, "GetDpiForWindow") : nullptr;
+    static const auto metricsForDpi =
+        user32 ? (MetricsForDpiFn)(void*)GetProcAddress(user32, "GetSystemMetricsForDpi")
+               : nullptr;
+    const int frame = vertical ? SM_CYFRAME : SM_CXFRAME;
+    const int padded = 92;  // SM_CXPADDEDBORDER (MinGW hides it below 0x0600)
+    if (dpiForWindow && metricsForDpi) {
+        const UINT dpi = dpiForWindow(hwnd);
+        return metricsForDpi(frame, dpi) + metricsForDpi(padded, dpi);
+    }
+    return GetSystemMetrics(frame) + GetSystemMetrics(padded);
+}
+
+POINT lparamPoint(LPARAM lp) {
+    return POINT{(LONG)(short)LOWORD(lp), (LONG)(short)HIWORD(lp)};
+}
+
+bool onEmptyBar(const WinTitleBar& t, POINT client) {
+    return t.overEmpty && client.y >= 0 && (float)client.y < t.height;
+}
+
+LRESULT CALLBACK titleBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    WinTitleBar& t = g_titleBar;
+    switch (msg) {
+        case WM_NCCALCSIZE: {
+            // Let the default proposal shrink the rect by the whole frame, then
+            // give the caption row back to the client: left / right / bottom
+            // keep their (invisible, DWM-drawn) sizing border, so resizing and
+            // the shadow work as before, and the top edge is ours.
+            if (!wp) break;
+            auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+            const LONG top = p->rgrc[0].top;
+            const LRESULT r = CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+            if (r != 0) return r;
+            p->rgrc[0].top = top;
+            // A maximized window hangs its frame off every monitor edge; without
+            // this its top frame-width of client would be off-screen.
+            if (IsZoomed(hwnd)) p->rgrc[0].top += frameThickness(hwnd, true);
+            return 0;
+        }
+        case WM_NCHITTEST: {
+            // The default answers the three edges that still have a frame. The
+            // top one is client now, so its resize strip is answered here.
+            const LRESULT hit = CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+            if (hit != HTCLIENT || IsZoomed(hwnd)) return hit;
+            POINT pt = lparamPoint(lp);
+            ScreenToClient(hwnd, &pt);
+            if (pt.y < frameThickness(hwnd, true) / 2) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                const int corner = frameThickness(hwnd, false) * 2;
+                if (pt.x < corner) return HTTOPLEFT;
+                if (pt.x >= rc.right - corner) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            return HTCLIENT;
+        }
+        case WM_LBUTTONDOWN: {
+            // A press on a bare part of the bar moves the window: hand it to
+            // the default caption handling (move loop, Aero Snap, shake), and
+            // never pass it on to GLFW - the move loop eats the release, so
+            // ImGui would be left holding a pressed button.
+            const POINT pt = lparamPoint(lp);
+            if (!onEmptyBar(t, pt)) break;
+            const DWORD now = (DWORD)GetMessageTime();
+            const bool dbl =
+                t.lastDownTime != 0 && now - t.lastDownTime <= GetDoubleClickTime() &&
+                std::abs(pt.x - t.lastDownPt.x) <= GetSystemMetrics(SM_CXDOUBLECLK) / 2 &&
+                std::abs(pt.y - t.lastDownPt.y) <= GetSystemMetrics(SM_CYDOUBLECLK) / 2;
+            if (dbl) {
+                t.lastDownTime = 0;
+                ShowWindow(hwnd, IsZoomed(hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+                return 0;
+            }
+            t.lastDownTime = now;
+            t.lastDownPt = pt;
+            POINT screen = pt;
+            ClientToScreen(hwnd, &screen);
+            ReleaseCapture();
+            SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(screen.x, screen.y));
+            return 0;
+        }
+        case WM_RBUTTONUP: {
+            // The caption's right-click menu (Restore / Move / Size / ... / Close).
+            const POINT pt = lparamPoint(lp);
+            if (!onEmptyBar(t, pt)) break;
+            POINT screen = pt;
+            ClientToScreen(hwnd, &screen);
+            const HMENU menu = GetSystemMenu(hwnd, FALSE);
+            if (!menu) break;
+            const UINT cmd = (UINT)TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                                  screen.x, screen.y, 0, hwnd, nullptr);
+            if (cmd) PostMessageW(hwnd, WM_SYSCOMMAND, cmd, 0);
+            return 0;
+        }
+        default:
+            break;
+    }
+    return CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+}
+
+}  // namespace
+#endif
+
+bool titleBarMergeSupported() {
+#if defined(_WIN32) || defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool titleBarHasCaptionButtons() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;  // macOS keeps AppKit's traffic lights; Linux is not merged
+#endif
+}
+
+#ifndef __APPLE__  // the macOS half of these three is in platform_mac.mm
+bool mergeTitleBar(GLFWwindow* window) {
+#ifdef _WIN32
+    const HWND hwnd = window ? glfwGetWin32Window(window) : nullptr;
+    if (!hwnd) return false;
+    if (g_titleBar.hwnd) return g_titleBar.hwnd == hwnd;  // one main window
+    g_titleBar.hwnd = hwnd;
+    g_titleBar.orig =
+        (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)&titleBarProc);
+    if (!g_titleBar.orig) {
+        g_titleBar.hwnd = nullptr;
+        return false;
+    }
+    // One pixel of DWM frame into the client keeps the thin top border and
+    // the shadow Windows 10 draws only around a frame it owns.
+    const MARGINS margins{0, 0, 1, 0};
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+    // Re-run WM_NCCALCSIZE now rather than at the next resize.
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return true;
+#else
+    // Linux: the native decorations stay. Merging would mean client-side
+    // decorations (libdecor on Wayland, _MOTIF_WM_HINTS + _NET_WM_MOVERESIZE
+    // on X11) - a separate project with its own compositor matrix.
+    (void)window;
+    return false;
+#endif
+}
+
+void updateTitleBar(GLFWwindow* window, const TitleBarFrame& frame) {
+    (void)window;
+#ifdef _WIN32
+    g_titleBar.height = frame.height;
+    g_titleBar.overEmpty = frame.overEmpty;
+#else
+    (void)frame;  // Linux: never merged
+#endif
+}
+
+float titleBarInsetLeft(GLFWwindow* window) {
+    (void)window;  // Windows: the caption buttons are App's, on the RIGHT end
+    return 0.0f;
+}
+#endif  // !__APPLE__
 
 std::string pickFile(const std::string& title, const std::vector<FileFilter>& filters) {
 #ifdef _WIN32

@@ -50,7 +50,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `hudanim.hpp` | 130 | Host twin of HUD animation math | game-screens-menus-text |
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
-| `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
+| `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), merged-title-bar controls (`drawTitleBarControls`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
@@ -150,4 +150,5 @@ Read when you need to find which file owns something, or before adding a file. L
 | `session.cpp/.hpp` | 1.55k | Live collaboration session | devkit-runner-and-network |
 | `wire.cpp/.hpp` | 970 | Sockets, frame codec, TCP + WebSocket transports, file hashing | devkit-runner-and-network |
 | `platform.cpp/.hpp` | 1.66k | All OS differences | build-platform-release |
+| `platform_mac.mm` | 170 | macOS half of the merged title bar (NSWindow, the only Objective-C++) | build-platform-release |
 | `update.cpp/.hpp` | 520 | Update check | build-platform-release |

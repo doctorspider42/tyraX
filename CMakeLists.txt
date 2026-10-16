@@ -53,6 +53,15 @@ if(WIN32)
     set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR}/resources")
 endif()
 
+# macOS: the merged title bar (platform.hpp) talks to NSWindow, which has no C
+# API - src/platform_mac.mm is the editor's one Objective-C++ file.
+if(APPLE)
+    # OBJC as well: with only OBJCXX enabled, CMake compiles GLFW's own .m
+    # files as Objective-C++ (and they do not build as C++).
+    enable_language(OBJC OBJCXX)
+    set(TYRAX_EDITOR_MAC_SOURCES src/platform_mac.mm)
+endif()
+
 # --- GLFW ---
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -347,6 +356,7 @@ add_executable(tyrax-editor
     vendor/ufbx/ufbx.c
 
     ${TYRAX_EDITOR_RC}
+    ${TYRAX_EDITOR_MAC_SOURCES}
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx vendor/miniaudio ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
@@ -358,12 +368,17 @@ target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
 if(WIN32)
     # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
     # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).
-    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32)
+    # dwmapi: the merged title bar's DwmExtendFrameIntoClientArea (platform.cpp).
+    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32 dwmapi)
 else()
     # Threads: std::thread needs an explicit -pthread with libstdc++, and
     # ${CMAKE_DL_LIBS} is what GLFW's runtime GL/Vulkan loading wants.
     find_package(Threads REQUIRED)
     target_link_libraries(tyrax-editor PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    if(APPLE)
+        # Cocoa: NSWindow / NSEvent in src/platform_mac.mm (the merged title bar).
+        target_link_libraries(tyrax-editor PRIVATE "-framework Cocoa")
+    endif()
 endif()
 
 if(MINGW)

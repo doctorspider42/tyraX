@@ -167,6 +167,14 @@ private:
     // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
     // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // Merged title bar (platform.hpp, docs/editor-theme.md "Title bar"): the
+    // room the top bar leaves for the OS at its left end (macOS traffic
+    // lights) and for our own caption buttons at its right end (Windows), and
+    // the per-frame part - drawing those buttons and telling the platform
+    // layer where the bar's bare, draggable area is. All shell_ui.cpp.
+    float titleBarInsetLeft() const;
+    float titleBarInsetRight() const;
+    void drawTitleBarControls();
     // The bar along the bottom: build state, live channels, scene counts.
     void drawStatusBar();
     // Make scene i the active one (clears the selection, reapplies terrain and
@@ -1777,6 +1785,13 @@ private:
     // Both are machine-global: which build is installed on this PC is not a
     // property of any project.
     bool globalUpdateCheck_ = true;
+    // "Use the native title bar" (editor.ini nativeTitleBar, Edit >
+    // Preferences > Appearance): off = the OS title bar is merged into our top
+    // bar where platform::titleBarMergeSupported(). Read once at startup -
+    // titleBarMerged_ is what THIS session actually did, so flipping the
+    // preference changes nothing until the next start.
+    bool nativeTitleBar_ = false;
+    bool titleBarMerged_ = false;
     // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
     // consoleLogFiles, and their Preferences working copies.
     int globalConsoleLogLines_ = 20000;

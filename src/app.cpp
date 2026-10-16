@@ -212,6 +212,11 @@ struct EditorConfig {
     // the machine.
     int consoleLogLines = 20000;
     int consoleLogFiles = 10;
+    // Keep the OS title bar instead of merging it into the top bar
+    // (platform.hpp, docs/editor-theme.md "Title bar"). Off = merged, where the
+    // platform can (macOS, Windows). How a window looks on this desktop is a
+    // property of the machine, so it lives here; read at startup only.
+    bool nativeTitleBar = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -324,6 +329,7 @@ static EditorConfig loadEditorConfig() {
             cfg.consoleLogLines = std::max(0, toI(v, cfg.consoleLogLines));
         else if (match("consoleLogFiles", v))
             cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
+        else if (match("nativeTitleBar", v)) cfg.nativeTitleBar = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -404,7 +410,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
       << "consoleLogLines=" << cfg.consoleLogLines << "\n"
       << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
-      << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
+      << "updateSkipVersion=" << cfg.updateSkipVersion << "\n"
+      << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -672,6 +679,11 @@ int App::run(const std::string& initialProjectDir) {
         globalConsoleLogLines_ = cfg.consoleLogLines;
         globalConsoleLogFiles_ = cfg.consoleLogFiles;
         globalUpdateSkip_ = cfg.updateSkipVersion;
+        // The title bar is merged once, here, and stays as it is for the
+        // session: un-merging a live NSWindow / HWND is not worth the edge
+        // cases, so the preference says "takes effect at the next start".
+        nativeTitleBar_ = cfg.nativeTitleBar;
+        titleBarMerged_ = !nativeTitleBar_ && platform::mergeTitleBar(window_);
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -1208,7 +1220,7 @@ void App::saveGlobalConfig() {
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
-                      std::move(recent)});
+                      nativeTitleBar_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1291,8 +1303,19 @@ void App::drawMenuBar() {
     const bool barOpen = ImGui::BeginMainMenuBar();
     ImGui::PopStyleVar();
     if (barOpen) {
+        // Merged title bar: the OS's strip at the left end (macOS traffic
+        // lights) stays free - everything below starts after it.
+        if (const float inset = titleBarInsetLeft(); inset > 0.0f) {
+            ImGui::Dummy(ImVec2(ImMax(0.0f, ImGui::GetWindowPos().x + inset -
+                                                 ImGui::GetCursorScreenPos().x),
+                                1.0f));
+            ImGui::SameLine(0.0f, 0.0f);
+        }
         drawLogoMenu();  // the mark + wordmark: the button the ten menus live behind
         drawToolbar();   // shell_ui.cpp; the status message is in the status bar
+        // Merged title bar: Windows caption buttons + where the bar may drag
+        // the window (shell_ui.cpp). Last, so every widget above is known.
+        drawTitleBarControls();
         ImGui::EndMainMenuBar();
     }
 }
@@ -16473,6 +16496,19 @@ void App::drawEditorPreferencesModal() {
     // The theme's own one-liner stays inline: it changes with the selection, so
     // it is a readout rather than documentation.
     ImGui::TextDisabled("%s", theme::info(theme_).desc);
+
+    // Saves itself like the theme, but only takes effect at the next start
+    // (App::run merges the title bar once - docs/editor-theme.md "Title bar").
+    ImGui::BeginDisabled(!platform::titleBarMergeSupported());
+    if (ImGui::Checkbox("Use the native title bar", &nativeTitleBar_)) saveGlobalConfig();
+    ImGui::EndDisabled();
+    prefHelp(platform::titleBarMergeSupported()
+                 ? "Off: the system title bar is merged into the editor's top bar\n"
+                   "(drag its empty parts, double-click to zoom). On: the OS draws\n"
+                   "its own title bar above it. Takes effect when TyraX restarts."
+                 : "Linux always uses the desktop's own title bar.");
+    if (nativeTitleBar_ == titleBarMerged_ && platform::titleBarMergeSupported())
+        ImGui::TextDisabled("Restart TyraX to apply.");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,

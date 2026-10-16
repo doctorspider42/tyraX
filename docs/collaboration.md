@@ -32,7 +32,7 @@ While in a session:
   per-peer colors, the scene each one is editing, Kick buttons for the host).
 - Other participants' selections appear as **colored outlines** in the
   viewport and colored dots in the Project panel's object list.
-- A client's **Save is disabled** (title bar shows `[joined]`) — the host owns
+- A client's **Save is disabled** (window title shows `[joined]`; with the title bar merged into the top bar - the macOS and Windows default - the JOINED chip says it) — the host owns
   persistence. Everything else works, including local Docker builds, PCSX2
   runs and Live Link: the synced copy is a complete, real project.
 - Undo works on every side; undoing rewinds remote edits batch-by-batch (it

@@ -349,4 +349,50 @@ std::string pickFolder(const std::string& title);
 // platform's dialogs are separate processes.
 void setDialogOwner(GLFWwindow* window);
 
+// --- the window's title bar, merged into the editor's top bar ---------------
+// VS Code / Figma style: the OS caption row goes and the editor's own top bar
+// (App::drawMenuBar) becomes the window's top edge (docs/editor-theme.md,
+// "Title bar"). Opt-out: Edit > Preferences > "Use the native title bar"
+// (editor.ini nativeTitleBar), read at startup only.
+//
+//   macOS   (platform_mac.mm) the NSWindow gets a transparent, hidden title
+//           over a full-size content view; the traffic lights stay where they
+//           are drawn by AppKit, re-centred vertically on our bar, and the bar
+//           keeps titleBarInsetLeft() free for them.
+//   Windows the GLFW HWND is subclassed: WM_NCCALCSIZE drops the caption but
+//           keeps the sizing frame (and with it the DWM shadow), and App draws
+//           minimize / maximize / close at the bar's right end
+//           (titleBarHasCaptionButtons). UNVERIFIED on a real Windows box.
+//   Linux   not merged: the desktop's own decorations stay (client-side
+//           decorations on Wayland / X11 are a separate project).
+//
+// Dragging: both merged halves intercept the REAL mouse-down synchronously
+// (an NSEvent local monitor / the subclassed WndProc) when the last frame said
+// the pointer is over a bare part of the bar, start the system's own window
+// move from it, and swallow it - so ImGui never sees half a click. A double
+// click there zooms / maximizes (macOS honours AppleActionOnDoubleClick).
+
+// What App reports every frame while the title bar is merged. Window
+// coordinates (= ImGui's coordinates: points on macOS, pixels on Windows).
+struct TitleBarFrame {
+    float height = 0.0f;     // the top bar's height
+    bool overEmpty = false;  // pointer over the bar with no widget under it
+};
+
+// Merge the title bar into the client area. Call once, after the window
+// exists. true = merged (macOS, Windows); false = unsupported here (Linux) or
+// the native handle was unavailable - the window keeps its OS title bar.
+bool mergeTitleBar(GLFWwindow* window);
+// Whether mergeTitleBar can do anything on this platform (the Preferences
+// switch is greyed out where it cannot).
+bool titleBarMergeSupported();
+// Per frame, while merged. Cheap; no-op when not merged.
+void updateTitleBar(GLFWwindow* window, const TitleBarFrame& frame);
+// Width at the bar's LEFT end that belongs to the OS (the macOS traffic
+// lights, plus a gap). 0 when not merged, in full screen, and on Windows/Linux.
+float titleBarInsetLeft(GLFWwindow* window);
+// true where a merged title bar leaves no system caption buttons, so App must
+// draw minimize / maximize / close itself (Windows).
+bool titleBarHasCaptionButtons();
+
 }  // namespace platform

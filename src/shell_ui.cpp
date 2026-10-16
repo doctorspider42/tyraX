@@ -19,6 +19,9 @@
 #include "uiscript.hpp"
 #include "widgets.hpp"
 
+#include "platform.hpp"
+
+#include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -343,7 +346,9 @@ void App::drawToolbar() {
                        (busy ? 0.0f : gapS + ImGui::CalcTextSize(runKey).x) + padX * 1.3f;
     const float runCaretW = h * 0.62f;
     const float clusterW = profW + gap + segW + gap + h + gap + runW + runCaretW + gap + h;
-    const float clusterX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f) - clusterW;
+    // titleBarInsetRight: the Windows caption buttons own the bar's right end.
+    const float barRight = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - titleBarInsetRight();
+    const float clusterX = barRight - scaled(10.0f) - clusterW;
 
     // --- search widths: a field-looking button that opens the command palette
     // (palette_ui.cpp) - magnifier, hint, keycap - or just the magnifier.
@@ -726,6 +731,92 @@ void App::drawToolbar() {
         ImGui::EndPopup();
     }
 }
+
+// --- merged title bar (platform.hpp, docs/editor-theme.md "Title bar") -------
+
+namespace {
+// Windows 11's caption button width at 100 %. Height = the whole bar.
+constexpr float kCaptionButtonW = 46.0f;
+}  // namespace
+
+float App::titleBarInsetLeft() const {
+    return titleBarMerged_ ? platform::titleBarInsetLeft(window_) : 0.0f;
+}
+
+float App::titleBarInsetRight() const {
+    return titleBarMerged_ && platform::titleBarHasCaptionButtons()
+               ? 3.0f * scaled(kCaptionButtonW)
+               : 0.0f;
+}
+
+// Called inside the main menu bar after everything else on it. Draws the
+// minimize / maximize / close buttons where the platform leaves none
+// (Windows), then reports the bar to the platform layer: its height and
+// whether the pointer is over a bare part of it, which the OS-side mouse-down
+// hook (NSEvent monitor / WndProc) turns into a window drag or a double-click
+// zoom. "Bare" = this window hovered, no widget hovered or held, no popup open
+// (a click there must close the open menu, not move the window).
+void App::drawTitleBarControls() {
+    if (!titleBarMerged_) return;
+    const ImVec2 wp = ImGui::GetWindowPos();
+    const float barW = ImGui::GetWindowWidth();
+    const float barH = ImGui::GetWindowHeight();
+
+    if (platform::titleBarHasCaptionButtons()) {
+        // UNVERIFIED ON WINDOWS, the only platform that draws these.
+        const theme::Semantics& sem = theme::semantics();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float w = scaled(kCaptionButtonW);
+        const float g = scaled(5.0f);  // glyph half-extent
+        const float th = ImMax(1.0f, scaled(1.0f));
+        const bool maximized = glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
+        static const char* const ids[3] = {"Minimize##caption", "Maximize##caption",
+                                           "Close##caption"};
+        dl->PushClipRect(wp, ImVec2(wp.x + barW, wp.y + barH), false);
+        float x = wp.x + barW - 3.0f * w;
+        for (int i = 0; i < 3; ++i, x += w) {
+            ImGui::SetCursorScreenPos(ImVec2(x, wp.y));
+            const bool clicked = ImGui::InvisibleButton(ids[i], ImVec2(w, barH));
+            const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+            const bool held = ImGui::IsItemActive();
+            const ImVec2 a(x, wp.y), b(x + w, wp.y + barH);
+            if (i == 2 && hot)  // close: the system red with a white glyph
+                dl->AddRectFilled(a, b, held ? IM_COL32(148, 20, 30, 255) : IM_COL32(196, 43, 28, 255));
+            else if (hot)
+                dl->AddRectFilled(a, b, ImGui::GetColorU32(held ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered));
+            const ImU32 c = i == 2 && hot ? IM_COL32_WHITE : col(sem.text);
+            const ImVec2 m(IM_TRUNC(x + w * 0.5f) + 0.5f, IM_TRUNC(wp.y + barH * 0.5f) + 0.5f);
+            if (i == 0) {
+                dl->AddLine(ImVec2(m.x - g, m.y), ImVec2(m.x + g, m.y), c, th);
+            } else if (i == 1 && !maximized) {
+                dl->AddRect(ImVec2(m.x - g, m.y - g), ImVec2(m.x + g, m.y + g), c, 0.0f, 0, th);
+            } else if (i == 1) {  // restore: a square with a second one behind it
+                const float o = g * 0.4f;
+                dl->AddRect(ImVec2(m.x - g, m.y - g + o), ImVec2(m.x + g - o, m.y + g), c, 0.0f, 0, th);
+                const ImVec2 back[4] = {ImVec2(m.x - g + o, m.y - g + o), ImVec2(m.x - g + o, m.y - g),
+                                        ImVec2(m.x + g, m.y - g), ImVec2(m.x + g, m.y + g - o)};
+                dl->AddPolyline(back, 4, c, 0, th);
+                dl->AddLine(back[3], ImVec2(m.x + g - o, m.y + g - o), c, th);
+            } else {
+                dl->AddLine(ImVec2(m.x - g, m.y - g), ImVec2(m.x + g, m.y + g), c, th);
+                dl->AddLine(ImVec2(m.x + g, m.y - g), ImVec2(m.x - g, m.y + g), c, th);
+            }
+            if (!clicked) continue;
+            if (i == 0) glfwIconifyWindow(window_);
+            else if (i == 1 && maximized) glfwRestoreWindow(window_);
+            else if (i == 1) glfwMaximizeWindow(window_);
+            else requestExit();  // the same unsaved-changes prompt as File > Exit
+        }
+        dl->PopClipRect();
+    }
+
+    platform::TitleBarFrame frame;
+    frame.height = barH;
+    frame.overEmpty = ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
+                      !ImGui::IsAnyItemActive() &&
+                      !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId |
+                                                  ImGuiPopupFlags_AnyPopupLevel);
+    platform::updateTitleBar(window_, frame);}
 
 // The bar along the bottom of the window: what the editor and the running game
 // are doing (left) and what the scene holds (right). A viewport side bar, so

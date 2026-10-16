@@ -146,3 +146,6 @@ __pycache__/
 
 # installer/macos/*.py import dmg_layout.py
 installer/macos/__pycache__/
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/
