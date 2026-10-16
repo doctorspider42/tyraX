@@ -57,6 +57,9 @@
 #include <imnodes.h>
 
 #include "icon_gen.hpp"  // kIconPng (built from resources/icon.png)
+#include "geist_mono_regular_gen.hpp"  // uifonts:: - resources/fonts (Geist, SIL OFL 1.1)
+#include "geist_regular_gen.hpp"
+#include "geist_semibold_gen.hpp"
 
 #include "platform.hpp"
 
@@ -1251,39 +1254,61 @@ void App::loadUiFont() {
     // scaled() multiples of it rather than in absolute rows.
     constexpr float kUiFontSize = 15.0f;
     ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+
+    // The editor's own typeface, embedded (resources/fonts, SIL OFL 1.1):
+    // Geist, Geist SemiBold for headings, Geist Mono for numbers and logs. The
+    // same letters on every platform, whatever the machine has installed.
+    // The atlas only borrows the bytes (they live in the executable).
+    auto embedded = [&](const unsigned char* data, std::size_t size) {
+        ImFontConfig cfg;
+        cfg.FontDataOwnedByAtlas = false;
+        return atlas->AddFontFromMemoryTTF(const_cast<unsigned char*>(data), (int)size,
+                                           kUiFontSize, &cfg);
+    };
+    // Each embedded face gets a system face MERGED behind it: ImGui looks a
+    // glyph up in the merged sources in order, so anything Geist does not draw
+    // (the macOS Command sign, arrows, CJK in a project name...) still comes
+    // out in a face that has it, instead of a missing-glyph box.
+    auto fallback = [&](const std::string& path, int faceNo) {
+        if (path.empty()) return;
+        ImFontConfig cfg;
+        cfg.MergeMode = true;
+        cfg.FontNo = faceNo;
+        atlas->AddFontFromFileTTF(path.c_str(), kUiFontSize, &cfg);
+    };
+    std::string sysRegular, sysBold, sysMono;
+    int sysBoldFace = 0;
     for (const platform::UiFontFamily& f : platform::uiFontFiles()) {
-        const std::string path = platform::systemFontPath(f.file);
-        if (path.empty()) continue;
-        if (!atlas->AddFontFromFileTTF(path.c_str(), kUiFontSize))
-            continue;  // present but unreadable - try the next face
-        uiFontSize_ = kUiFontSize;
-        uiFontLabel_ = f.label;
-        // The heading cut comes from the SAME family or not at all (ui::fonts
-        // then hands back the regular face): a title in another typeface reads
-        // as a bug, a title in the regular one merely as plain.
-        const std::string bold = platform::systemFontPath(f.boldFile);
-        if (!bold.empty()) {
-            ImFontConfig cfg;
-            cfg.FontNo = f.boldFace;
-            ui::setBoldFont(atlas->AddFontFromFileTTF(bold.c_str(), kUiFontSize, &cfg));
-        }
+        sysRegular = platform::systemFontPath(f.file);
+        if (sysRegular.empty()) continue;
+        sysBold = platform::systemFontPath(f.boldFile);
+        sysBoldFace = f.boldFace;
         break;
     }
-    // Numbers, logs and code. Independent of the family above: any fixed-width
-    // face beats digits that change width while a value is dragged.
     for (const platform::SystemFont& f : platform::monoFontFiles()) {
-        const std::string path = platform::systemFontPath(f.file);
-        if (path.empty()) continue;
-        if (ImFont* mono = atlas->AddFontFromFileTTF(path.c_str(), kUiFontSize)) {
-            ui::setMonoFont(mono);
-            monoFontLabel_ = f.label;
-            break;
-        }
+        sysMono = platform::systemFontPath(f.file);
+        if (!sysMono.empty()) break;
+    }
+
+    if (embedded(uifonts::kGeistRegular, uifonts::kGeistRegularSize)) {
+        fallback(sysRegular, 0);
+        uiFontSize_ = kUiFontSize;
+        uiFontLabel_ = "Geist";
+    }
+    if (ImFont* bold = embedded(uifonts::kGeistSemiBold, uifonts::kGeistSemiBoldSize)) {
+        fallback(sysBold.empty() ? sysRegular : sysBold, sysBold.empty() ? 0 : sysBoldFace);
+        ui::setBoldFont(bold);
+    }
+    if (ImFont* mono = embedded(uifonts::kGeistMonoRegular, uifonts::kGeistMonoRegularSize)) {
+        fallback(sysMono, 0);
+        ui::setMonoFont(mono);
+        monoFontLabel_ = "Geist Mono";
     }
     if (uiFontSize_ > 0.0f) return;
-    // Nothing resolved: the built-in font stays, and uiFontSize_ 0 leaves
-    // FontSizeBase alone so ImGui keeps that font's own size.
-    std::printf("[ui] no system UI font found - using the built-in font\n");
+    // The embedded face failed to load (it should not): the built-in font
+    // stays, and uiFontSize_ 0 leaves FontSizeBase alone so ImGui keeps that
+    // font's own size.
+    std::printf("[ui] embedded interface font failed to load - using the built-in font\n");
 }
 
 // Colours + metrics + the DPI scale over them. One function because baseStyle_
@@ -16617,8 +16642,8 @@ void App::drawEditorPreferencesModal() {
         // prefHelp takes a plain string, and this one reports live state.
         char tip[256];
         snprintf(tip, sizeof(tip),
-                 "Interface font: %s, numbers in %s (the first faces found on\n"
-                 "this machine). Scale lives in View > Interface scale - currently %d%%%s.",
+                 "Interface font: %s, numbers in %s (built in; the system fonts\n"
+                 "fill in missing symbols). Scale: View > Interface scale - currently %d%%%s.",
                  uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
                  monoFontLabel_.empty() ? "the interface font" : monoFontLabel_.c_str(),
                  (int)std::lround(uiScaleApplied_ * 100.0f),

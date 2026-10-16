@@ -40,36 +40,34 @@ theme you don't have falls back to the default instead of failing.
 
 ## The interface font
 
-The editor loads the first UI face it finds on this machine:
+The editor draws itself in **Geist**, its own typeface, built into the
+executable (`resources/fonts`, SIL Open Font License 1.1 - see
+THIRD-PARTY-LICENSES.md):
 
-- **Windows** — Segoe UI, then Tahoma, Verdana, Arial.
-- **macOS** — Helvetica Neue, then Verdana, Arial, Geneva.
+- **Geist** for the interface,
+- **Geist SemiBold** for panel and section titles,
+- **Geist Mono** for numbers, fields that are dragged, logs and code - digits
+  that change width while a value is dragged make a field jitter, and a log is
+  read in columns.
+
+The same letters on Windows, Linux and macOS, whatever the machine has
+installed. Behind each Geist face the editor merges a **system face as a
+fallback** for the glyphs Geist does not have (the macOS Command sign, some
+arrows, the scripts of a project name in another alphabet): the first one this
+machine has of
+
+- **Windows** — Segoe UI (Semibold for titles), then Tahoma, Verdana, Arial;
+  Cascadia Mono or Consolas behind Geist Mono.
+- **macOS** — Helvetica Neue (Medium for titles), then Verdana, Arial, Geneva;
+  Menlo behind Geist Mono.
 - **Linux** — Inter, then Noto Sans, Ubuntu, Cantarell, DejaVu Sans, Liberation
-  Sans.
-
-Alongside it come two more faces:
-
-- **The same family's heavier cut** (Segoe UI Semibold, Helvetica Neue Medium,
-  Inter SemiBold...) for section titles. It is only used when it comes from the
-  family that loaded — a heading in a different typeface reads as a bug, one in
-  the regular weight merely as plain.
-- **A fixed-width face** for numbers and logs: Cascadia Mono or Consolas on
-  Windows, Menlo on macOS, JetBrains Mono, Noto Sans Mono, Ubuntu Mono, DejaVu
-  Sans Mono or Liberation Mono on Linux. Digits that change width while a value
-  is dragged make a field jitter; a log is read in columns.
+  Sans; JetBrains Mono, Noto Sans Mono, Ubuntu Mono, DejaVu Sans Mono or
+  Liberation Mono behind Geist Mono.
 
 Variable-weight fonts (Segoe UI Variable, SF Pro, SF Mono) are never picked:
-the rasterizer cannot select a weight axis and would draw them at the wrong one.
-
-Preferences shows which faces were picked. A machine with none of them keeps
-ImGui's built-in bitmap font and everything still works — the font is the one
-part of the look that degrades rather than being configured.
-
-Two deliberate omissions. There is **no font picker**: the editor's job is to
-look like the desktop it runs on, and a UI font is not a per-user decision worth
-a setting. And **no font is bundled**, so the repository grows no dependency and
-no font licence — the trade is that the same editor is a couple of pixels
-different on two machines.
+the rasterizer cannot select a weight axis and would draw them at the wrong
+one. There is **no font picker** - the typeface is part of the design, not a
+per-user decision worth a setting. Preferences says which faces are in use.
 
 Text size follows **View > Interface scale** exactly as it did before (fonts are
 rasterized dynamically, so a 250% editor re-bakes the glyphs instead of scaling

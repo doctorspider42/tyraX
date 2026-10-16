@@ -5556,6 +5556,9 @@
 // tabs (ui::InspectorRows), panel headers instead of dock chrome
 // (ui::PanelChromeNewFrame, ImGui patch TabPillInset) and outliner chips/
 // folders/eyes.
+// Geist (v1.7.2, SIL OFL 1.1) is embedded from resources/fonts via
+// embed_binary.cmake (uifonts::kGeist*) and is the interface font; the system
+// chains are merged behind each face as glyph fallbacks.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

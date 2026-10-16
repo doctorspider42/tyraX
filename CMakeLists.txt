@@ -204,6 +204,34 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding resources/blss-default.net.meta")
 
+# --- Embedded interface fonts (resources/fonts, Geist - SIL OFL 1.1) ---
+# The editor's own typeface (docs/editor-theme.md, "The interface font"): Geist
+# for the interface, Geist SemiBold for headings, Geist Mono for numbers and
+# logs. Baked in like the icon, so every platform draws the same letters
+# whatever the machine has installed; the system font chains stay as the
+# fallback for glyphs Geist does not have.
+set(UI_FONT_GENS)
+foreach(pair "Geist-Regular.ttf|kGeistRegular|geist_regular"
+             "Geist-SemiBold.ttf|kGeistSemiBold|geist_semibold"
+             "GeistMono-Regular.ttf|kGeistMonoRegular|geist_mono_regular")
+    string(REPLACE "|" ";" parts "${pair}")
+    list(GET parts 0 font_file)
+    list(GET parts 1 font_symbol)
+    list(GET parts 2 font_stem)
+    set(font_gen ${CMAKE_BINARY_DIR}/generated/${font_stem}_gen.hpp)
+    add_custom_command(
+        OUTPUT ${font_gen}
+        COMMAND ${CMAKE_COMMAND}
+                -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/fonts/${font_file}
+                -DOUT_FILE=${font_gen}
+                -DNAMESPACE=uifonts -DSYMBOL=${font_symbol}
+                -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+        DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/${font_file}
+                ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+        COMMENT "Embedding resources/fonts/${font_file}")
+    list(APPEND UI_FONT_GENS ${font_gen})
+endforeach()
+
 # Own target for the generators. If the headers were listed straight in
 # tyrax-editor's sources, CMake would attach their custom commands to that
 # target and give them order-only deps on everything it LINKS - so the
@@ -211,7 +239,7 @@ add_custom_command(
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN})
+            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${UI_FONT_GENS})
 
 # --- Editor ---
 add_executable(tyrax-editor
