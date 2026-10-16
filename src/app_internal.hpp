@@ -144,7 +144,7 @@ inline std::string readTextFileTail(const std::string& path, size_t maxBytes) {
     return data;
 }
 
-// ImGui's own std::string bridge (vendor/imgui/misc/cpp/imgui_stdlib.cpp is
+// ImGui's own std::string bridge (imgui_stdlib.cpp from upstream misc/ is
 // not in the build): the widget writes into the string's own buffer and asks
 // for a bigger one through this callback, so the field has no length limit.
 inline int growString(ImGuiInputTextCallbackData* d) {

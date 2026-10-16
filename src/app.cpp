@@ -2699,8 +2699,14 @@ void App::drawViewportWindow() {
         // phone is a viewfinder onto the editor's own image rather than a
         // second, subtly different render.
         phoneCamPushPreview();
-        // Flip vertically: GL texture origin is bottom-left
-        ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
+        // Flip vertically: GL texture origin is bottom-left. Drawn by hand
+        // over a Dummy (the same id-less item ImGui::Image submits, so hover,
+        // the drop target and the test-engine rect below are unchanged) to
+        // round its bottom corners with the panel card's (DockNodeRounding).
+        ImGui::Dummy(avail);
+        ImGui::GetWindowDrawList()->AddImageRounded(
+            (ImTextureID)(intptr_t)tex, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0, 1),
+            ImVec2(1, 0), IM_COL32_WHITE, ImGui::GetStyle().DockNodeRounding, ImDrawFlags_RoundCornersBottom);
 #ifdef IMGUI_ENABLE_TEST_ENGINE
         // Image has no item ID: expose its rectangle to unattended picking tests.
         if (GImGui->TestEngineHookItems) {

@@ -268,6 +268,9 @@ void applyMetrics(ImGuiStyle& s) {
     // become separate cards on the ground colour - pushDockspaceColors) and to
     // grab for resizing; ImGui draws it with the dockspace host's WindowBg.
     s.DockingSeparatorSize = 6.0f;
+    // ...and each docked panel a rounded card of its own (an in-tree ImGui
+    // patch: vendor/imgui-tyrax/TYRAX-PATCHES.md).
+    s.DockNodeRounding = 8.0f;
     s.SeparatorTextBorderSize = 1.0f;
     s.SeparatorTextPadding = ImVec2(16, 4);
     s.DisabledAlpha = 0.50f;

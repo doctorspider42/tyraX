@@ -5543,6 +5543,9 @@
 // Project on the left. --ui-script `key ctrl+X` now sends Super on macOS
 // (ImGui swaps Ctrl/Cmd under ConfigMacOSXBehaviors), so it reaches Ctrl
 // shortcuts there.
+// Dear ImGui moves in-tree (vendor/imgui-tyrax, dropped from deps.sh/deps.ps1)
+// for its first patch, ImGuiStyle::DockNodeRounding: dock nodes as rounded
+// cards. The viewport image is AddImageRounded over a Dummy.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto

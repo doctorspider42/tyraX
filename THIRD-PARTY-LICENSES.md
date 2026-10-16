@@ -23,7 +23,7 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | Component | Version pinned | License | Redistributed in this repo? |
 | --- | --- | --- | --- |
 | [Tyra engine](https://github.com/h4570/tyra) | fork of `9273416` | Apache-2.0 | **Yes** — `vendor/tyra/engine`, sources tracked |
-| [Dear ImGui](https://github.com/ocornut/imgui) | `b334d19b` (docking) | MIT | No — fetched by `setup.sh` / `setup.ps1` |
+| [Dear ImGui](https://github.com/ocornut/imgui) | `b334d19b` (docking), patched | MIT | **Yes** — `vendor/imgui-tyrax`, the compiled subset, modified (see its `TYRAX-PATCHES.md`) |
 | [GLFW](https://www.glfw.org/) | `7b6aead9` (3.4) | zlib/libpng | No — fetched |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | `dc25afb9` | MIT | No — fetched |
 | [imnodes](https://github.com/Nelarius/imnodes) | `eb36902c` | MIT | No — fetched |

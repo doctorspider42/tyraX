@@ -1599,6 +1599,7 @@ ImGuiStyle::ImGuiStyle()
     DisplaySafeAreaPadding      = ImVec2(3,3);      // If you cannot see the edge of your screen (e.g. on a TV) increase the safe area padding. Covers popups/tooltips as well regular windows.
     DockingNodeHasCloseButton   = true;             // Docking nodes have their own CloseButton() to close all docked windows.
     DockingSeparatorSize        = 2.0f;             // Thickness of resizing border between docked windows
+    DockNodeRounding            = 0.0f;             // TYRAX: 0 = upstream (round only where a node touches its host)
     MouseCursorScale            = 1.0f;             // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
     AntiAliasedLines            = true;             // Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU.
     AntiAliasedLinesUseTex      = true;             // Enable anti-aliased lines/borders using textures where possible. Require backend to render with bilinear filtering (NOT point/nearest filtering).
@@ -1675,6 +1676,7 @@ void ImGuiStyle::ScaleAllSizes(float scale_factor)
     SeparatorTextBorderSize = ImTrunc(SeparatorTextBorderSize * scale_factor);
     SeparatorTextPadding = ImTrunc(SeparatorTextPadding * scale_factor);
     DockingSeparatorSize = ImTrunc(DockingSeparatorSize * scale_factor);
+    DockNodeRounding = ImTrunc(DockNodeRounding * scale_factor); // TYRAX
     DisplayWindowPadding = ImTrunc(DisplayWindowPadding * scale_factor);
     DisplaySafeAreaPadding = ImTrunc(DisplaySafeAreaPadding * scale_factor);
     MouseCursorScale = ImTrunc(MouseCursorScale * scale_factor);
@@ -7661,14 +7663,20 @@ void ImGui::RenderWindowDecorations(ImGuiWindow* window, const ImRect& title_bar
             {
                 ImRect bg_rect(window->Pos + ImVec2(0, window->TitleBarHeight), window->Pos + window->Size);
                 ImDrawFlags bg_rounding_flags;
-                if (window->DockIsActive)
+                float bg_rounding = window_rounding; // TYRAX
+                if (window->DockIsActive && g.Style.DockNodeRounding > 0.0f) // TYRAX: docked panels as rounded cards
+                {
+                    bg_rounding = g.Style.DockNodeRounding;
+                    bg_rounding_flags = window->DockNode->IsHiddenTabBar() || window->DockNode->IsNoTabBar() ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersBottom;
+                }
+                else if (window->DockIsActive)
                     bg_rounding_flags = CalcRoundingFlagsForRectInRect(bg_rect, window->DockNode->HostWindow->Rect(), 0.0f);
                 else
                     bg_rounding_flags = (flags & ImGuiWindowFlags_NoTitleBar) ? ImDrawFlags_RoundCornersAll : ImDrawFlags_RoundCornersBottom;
                 ImDrawList* bg_draw_list = window->DockIsActive ? window->DockNode->HostWindow->DrawList : window->DrawList;
                 if (window->DockIsActive)
                     bg_draw_list->ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG);
-                bg_draw_list->AddRectFilled(bg_rect.Min, bg_rect.Max, bg_col, window_rounding, bg_rounding_flags);
+                bg_draw_list->AddRectFilled(bg_rect.Min, bg_rect.Max, bg_col, bg_rounding, bg_rounding_flags); // TYRAX: bg_rounding
                 if (window->DockIsActive)
                     bg_draw_list->ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_FG);
             }
@@ -18279,8 +18287,10 @@ void ImGui::DockContextEndFrame(ImGuiContext* ctx)
             {
                 ImRect bg_rect(node->Pos + ImVec2(0.0f, GetFrameHeight()), node->Pos + node->Size);
                 ImDrawFlags bg_rounding_flags = CalcRoundingFlagsForRectInRect(bg_rect, node->HostWindow->Rect(), g.Style.DockingSeparatorSize);
+                float bg_rounding = node->HostWindow->WindowRounding; // TYRAX
+                if (g.Style.DockNodeRounding > 0.0f) { bg_rounding = g.Style.DockNodeRounding; bg_rounding_flags = ImDrawFlags_RoundCornersBottom; } // TYRAX
                 node->HostWindow->DrawList->ChannelsSetCurrent(DOCKING_HOST_DRAW_CHANNEL_BG);
-                node->HostWindow->DrawList->AddRectFilled(bg_rect.Min, bg_rect.Max, node->LastBgColor, node->HostWindow->WindowRounding, bg_rounding_flags);
+                node->HostWindow->DrawList->AddRectFilled(bg_rect.Min, bg_rect.Max, node->LastBgColor, bg_rounding, bg_rounding_flags);
             }
 }
 
@@ -19786,7 +19796,9 @@ static void ImGui::DockNodeUpdateTabBar(ImGuiDockNode* node, ImGuiWindow* host_w
         node->LastFrameFocused = g.FrameCount;
     ImU32 title_bar_col = GetColorU32(host_window->Collapsed ? ImGuiCol_TitleBgCollapsed : is_focused ? ImGuiCol_TitleBgActive : ImGuiCol_TitleBg);
     ImDrawFlags rounding_flags = CalcRoundingFlagsForRectInRect(title_bar_rect, host_window->Rect(), g.Style.DockingSeparatorSize);
-    host_window->DrawList->AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, host_window->WindowRounding, rounding_flags);
+    float title_rounding = host_window->WindowRounding; // TYRAX
+    if (g.Style.DockNodeRounding > 0.0f) { title_rounding = g.Style.DockNodeRounding; rounding_flags = ImDrawFlags_RoundCornersTop; } // TYRAX: tab bar = the card's top
+    host_window->DrawList->AddRectFilled(title_bar_rect.Min, title_bar_rect.Max, title_bar_col, title_rounding, rounding_flags);
 
     // Docking/Collapse button
     if (has_window_menu_button)

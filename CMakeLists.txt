@@ -61,7 +61,9 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/glfw)
 
 # --- Dear ImGui (docking branch) ---
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
+# Dear ImGui is tracked in the repo (patched - see vendor/imgui-tyrax/TYRAX-PATCHES.md),
+# not fetched like the other vendor/ dependencies.
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui-tyrax)
 add_library(imgui STATIC
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_demo.cpp

@@ -20,6 +20,7 @@ history.
 - **The Output and Debug logs** mark error and warning lines in a gutter, their level filters are coloured pills, and their on/off options are switches.
 - **Workspaces**: Scene, Logic, Cinema and UI & HUD in the top bar switch the window layout in one click (they are the Default, Debugger, Director and Menu Designer layouts). The Debugger layout now docks the Project panel on the left instead of leaving it floating.
 - **Command palette** - Ctrl+K (Cmd+K on a Mac) or the magnifier in the top bar: find and run commands, jump to an object, a scene, a window, a workspace or a documentation page by typing.
+- **Every panel is a rounded card** on the darker background, the viewport included.
 - **A status bar** along the bottom: the BUILDING / BUILD FAILED, LIVE, DBG, LOGIC and SESSION chips moved there from the top, with the scene's object and selection counts on the right. The Project panel no longer repeats the project's details and scene list - they are in the top bar.
 
 ## 1.172.0 - 2026-10-12

@@ -93,6 +93,12 @@ A few things worth knowing because they are decisions rather than defaults:
   host's background, so the gaps come from pushing the ground colour around
   `DockSpaceOverViewport` alone (`theme::pushDockspaceColors`) — the panels
   submitted after it keep the page colour.
+- **Each panel is a rounded card**: its tab strip rounded on top, its body at
+  the bottom. Stock ImGui rounds only the corners that touch the window's edge,
+  so this is a small patch to Dear ImGui (`ImGuiStyle::DockNodeRounding`),
+  which is why the editor carries its own copy of ImGui in
+  `vendor/imgui-tyrax` rather than fetching it - every change there is marked
+  `// TYRAX:` and listed in its `TYRAX-PATCHES.md`.
 - **Value fields are inset**: darker than the panel, with the hairline frame
   border as their edge. Hovering lifts the fill instead of tinting it, and
   buttons hover lighter rather than bluer — sweeping the cursor over a row of
