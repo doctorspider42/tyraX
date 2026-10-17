@@ -2796,10 +2796,13 @@ void App::drawWelcomeScreen() {
 
         const std::string newKey = ui::ShortcutChord("N", nullptr, "+");
         const std::string openKey = ui::ShortcutChord("O", nullptr, "+");
-        if (ui::PrimaryButton("New project")) requestNewProject();
+        // The shortcut rides inside each button, as designed (Welcome.dc.html).
+        const std::string newCap = ui::ShortcutChord("N", nullptr, "+", true);
+        const std::string openCap = ui::ShortcutChord("O", nullptr, "+", true);
+        if (ui::KeyButton("New project", newCap.c_str(), true)) requestNewProject();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", newKey.c_str());
         ImGui::SameLine();
-        if (ImGui::Button("Open folder...")) requestOpenProject();
+        if (ui::KeyButton("Open folder...", openCap.c_str(), false)) requestOpenProject();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("A folder holding a .tyra project (%s)", openKey.c_str());
 
@@ -2809,7 +2812,9 @@ void App::drawWelcomeScreen() {
         const float rowY = ImGui::GetCursorPosY();
         ImGui::SetCursorPosY(rowY + (ImGui::GetFrameHeight() - fs) * 0.5f);
         ui::Caption("Recent", recentProjects_.empty() ? nullptr : std::to_string(recentProjects_.size()).c_str());
-        if (recentProjects_.size() > 4) {
+        // The filter is always there once there is a list to filter (it
+        // waited for five projects, so most people never saw it).
+        if (recentProjects_.size() > 1) {
             ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - filterW, rowY));
             ImGui::SetNextItemWidth(filterW);
             ImGui::InputTextWithHint("##recent_filter", "Filter", welcomeRecentFilter_,

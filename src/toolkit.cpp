@@ -1785,5 +1785,59 @@ bool GoButton(const char* label, float width, bool enabled) {
     return pressed && enabled;
 }
 
+
+bool KeyButton(const char* label, const char* key, bool primary, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    ImFont* face = primary && boldFont() ? boldFont() : ImGui::GetFont();
+    const float fsz = ImGui::GetFontSize();
+    const ImVec2 ts = face->CalcTextSizeA(fsz, FLT_MAX, 0.0f, label, end);
+    const float h = ImGui::GetFrameHeight();
+    // the key hint: mono, small, on a tile a little shorter than the text line
+    ImFont* mono = monoFont() ? monoFont() : ImGui::GetFont();
+    const float kfs = fsz * 0.72f;
+    const ImVec2 ks = key && *key ? mono->CalcTextSizeA(kfs, FLT_MAX, 0.0f, key) : ImVec2(0, 0);
+    const float kpad = kfs * 0.35f, kh = kfs + kpad * 1.2f;
+    const float kw = ks.x > 0.0f ? ks.x + kpad * 2.0f : 0.0f;
+    const float gap = kw > 0.0f ? fsz * 0.55f : 0.0f;
+    const float w = ts.x + gap + kw + st.FramePadding.x * 2.6f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 q(p.x + w, p.y + h);
+    const float r = st.FrameRounding;
+    ImU32 ink, kink, kbg;
+    if (primary) {
+        ImVec4 f = enabled ? sem.accent : sem.surface;
+        if (enabled) f = mixv(f, ImVec4(1, 1, 1, 1), 0.10f * t);
+        if (held) f = mixv(f, ImVec4(0, 0, 0, 1), 0.15f);
+        dl->AddRectFilled(p, q, c32(f), r);
+        ink = enabled ? c32(sem.ground) : c32(sem.textDim, 0.6f);
+        kink = enabled ? c32(sem.ground, 0.7f) : c32(sem.textDim, 0.5f);
+        kbg = c32(sem.ground, 0.14f);
+    } else {
+        const ImVec4 f = mixv(sem.surface, sem.text, held ? 0.12f : 0.06f * t);
+        dl->AddRectFilled(p, q, c32(f, enabled ? 1.0f : 0.5f), r);
+        dl->AddRect(p, q, c32(sem.border), r);
+        ink = enabled ? c32(sem.text) : c32(sem.textDim, 0.6f);
+        kink = c32(sem.textDim);
+        kbg = c32(sem.ground, 0.5f);
+    }
+    const float x0 = p.x + st.FramePadding.x * 1.3f;
+    dl->AddText(face, fsz, ImVec2(x0, p.y + (h - ts.y) * 0.5f), ink, label, end);
+    if (kw > 0.0f) {
+        const ImVec2 k0(x0 + ts.x + gap, p.y + (h - kh) * 0.5f);
+        dl->AddRectFilled(k0, ImVec2(k0.x + kw, k0.y + kh), kbg, kh * 0.25f);
+        dl->AddText(mono, kfs, ImVec2(k0.x + kpad, k0.y + (kh - ks.y) * 0.5f), kink, key);
+    }
+    return pressed && enabled;
+}
+
 }  // namespace ui
 // --- end verify-polish-2 -----------------------------------------------------

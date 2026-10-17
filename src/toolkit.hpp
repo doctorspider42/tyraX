@@ -443,6 +443,11 @@ bool PadPortSegmented(const char* id, int* port, float width, bool enabled = tru
  * something live (Vehicle Editor's Drive it). Same contract as PrimaryButton;
  * `width` 0 = fit. */
 bool GoButton(const char* label, float width = 0.0f, bool enabled = true);
+/** A button with its keyboard shortcut drawn inside, after the label, on a
+ * small mono tile (the Welcome screen's New project / Open folder...).
+ * `primary` = the accent fill (PrimaryButton), else the SecondaryButton look.
+ * `label` is the ID and the --ui-script name. Returns clicked. */
+bool KeyButton(const char* label, const char* key, bool primary, bool enabled = true);
 // --- end verify-polish-2 -----------------------------------------------------
 
 }  // namespace ui
