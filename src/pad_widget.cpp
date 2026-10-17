@@ -1043,6 +1043,9 @@ bool PadButtonCombo(const char* label, std::string* name, bool allowNone, const 
     if (!noneLabel) noneLabel = "<none>";
     const int cur = padButtonIndex(*name);
     bool changed = false;
+    // BeginCombo reports no label to --ui-script; name it here so the combo
+    // is clickable by its label even inside a row scope or a PushID.
+    const ImGuiID comboId = ImGui::GetID(label);
     const bool open = ui::BeginCombo(label, "", (ImGuiComboFlags)ImGuiComboFlags_CustomPreview | ImGuiComboFlags_HeightLargest);
     if (open) {
         if (popupFontSize > 0.0f) ImGui::PushFont(nullptr, popupFontSize);
@@ -1097,6 +1100,7 @@ bool PadButtonCombo(const char* label, std::string* name, bool allowNone, const 
         if (popupFontSize > 0.0f) ImGui::PopFont();
         ImGui::EndCombo();
     }
+    uiscript::nameItem(comboId, label);
     if (ImGui::BeginComboPreview()) {
         const float gh = ImGui::GetTextLineHeight();
         const ImVec2 p = ImGui::GetCursorScreenPos();

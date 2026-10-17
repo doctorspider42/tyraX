@@ -10,6 +10,7 @@
 #include "app_internal.hpp"
 #include "roadgen.hpp"
 #include "theme.hpp"
+#include "toolkit.hpp"
 #include "widgets.hpp"
 
 #include <algorithm>
@@ -2893,25 +2894,7 @@ void App::drawPropertiesWindow() {
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the
         // flow graph can flip Enabled with the Set Flashlight node.
-        const char* toggleBtns[] = {"<none>",   "Cross",    "Circle",    "Square",
-                                    "Triangle", "DpadUp",   "DpadDown",  "DpadLeft",
-                                    "DpadRight", "L1",      "L2",        "L3",
-                                    "R1",       "R2",       "R3",        "Start",
-                                    "Select"};
-        const std::string cur =
-            o.flashlightToggleButton.empty() ? "<none>" : o.flashlightToggleButton;
-        if (ui::BeginCombo("Toggle button", cur.c_str())) {
-            for (const char* b : toggleBtns) {
-                const bool isNone = std::strcmp(b, "<none>") == 0;
-                const bool selected =
-                    isNone ? o.flashlightToggleButton.empty() : o.flashlightToggleButton == b;
-                if (ImGui::Selectable(b, selected)) {
-                    o.flashlightToggleButton = isNone ? std::string() : std::string(b);
-                    committed = true;
-                }
-            }
-            ImGui::EndCombo();
-        }
+        if (ui::PadButtonCombo("Toggle button", &o.flashlightToggleButton, true)) committed = true;
         ImGui::TextDisabled("Enabled is the master switch (Set Flashlight flow node\n"
                             "can change it). The toggle button gates the beam on/off\n"
                             "at runtime, but only while Enabled.");
