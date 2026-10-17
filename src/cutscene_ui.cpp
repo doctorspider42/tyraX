@@ -720,9 +720,19 @@ void App::drawPhoneCamWindow() {
         ImGui::TextDisabled("Port");
         ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(140.0f)));
         ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0)) {
-            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
-            saveGlobalConfig();
+        {
+            // The field fills the row, so its own "Port" label would land past
+            // the window's edge (a stray "P" over the panel next to it): clip
+            // it to the row. The label stays the widget's ID.
+            const ImVec2 c = ImGui::GetCursorScreenPos();
+            ImGui::PushClipRect(ImVec2(c.x, c.y - 2.0f),
+                                ImVec2(c.x + ImGui::GetContentRegionAvail().x, c.y + ImGui::GetFrameHeight() + 2.0f),
+                                true);
+            if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0)) {
+                phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+                saveGlobalConfig();
+            }
+            ImGui::PopClipRect();
         }
         ImGui::Spacing();
         ImGui::TextDisabled("Stream quality and smoothing appear once a phone is connected.");

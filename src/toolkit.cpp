@@ -844,7 +844,10 @@ void Meter(float fraction, float width, float warnAt, float dangerAt) {
     const float lineH = ImGui::GetTextLineHeight();
     const float h = ImMax(3.0f, ImGui::GetFontSize() * 0.28f);
     const ImVec2 p = ImGui::GetCursorScreenPos();
-    const float y = p.y + (lineH - h) * 0.5f;
+    // Centred on the line's TEXT, as Text() places it: after SameLine on a
+    // frame-padded line (AlignTextToFramePadding) the text sits lower than
+    // the cursor, and the bar floated above it (Save Editor header).
+    const float y = p.y + ImGui::GetCurrentWindowRead()->DC.CurrLineTextBaseOffset + (lineH - h) * 0.5f;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + w, y + h), c32(sem.field), h);
     const float f = ImClamp(fraction, 0.0f, 1.0f);
