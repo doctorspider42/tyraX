@@ -472,11 +472,20 @@ void App::drawModelImportModal() {
         d.radius = 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
         d.angleDeg = modelImportAngle_;
         d.pitchDeg = modelImportPitch_;
-        d.zoom = modelImportZoom_;
         d.panX = modelImportPanX_;
         d.panY = modelImportPanY_;
         d.wireframe = modelImportWire_;
         const int pw = std::max(1, (int)avail.x), ph = std::max(1, (int)avail.y);
+        // Zoom 1 = the bounds FIT: both renderers put the camera a fixed
+        // number of radii out (2.4 here, 2.6 posed), which at their 45 degree
+        // lens leaves a 2 m figure touching the top toolbar and the clip bar.
+        // The sphere around the bounds is fitted to the narrower half-angle
+        // with 20% room instead, so every model opens framed.
+        const float tanV = std::tan(45.0f * 3.14159265f / 360.0f);
+        const float tanN = std::min(tanV, tanV * (float)pw / (float)ph);
+        const float fitRadii = 1.2f * std::sqrt(1.0f + tanN * tanN) / tanN;  // = 1.2 / sin(half)
+        const float zoomEff = modelImportZoom_ * 2.4f / fitRadii;
+        d.zoom = zoomEff;
         // Clip playback: the SOURCE file posed by the Animation Editor's
         // preview (bake keyed by the absolute path, so nothing is written and
         // the project's caches are not touched). The bake runs in the
@@ -507,7 +516,7 @@ void App::drawModelImportModal() {
             ad.time = modelImportClipTime_;
             ad.angleDeg = modelImportAngle_;
             ad.pitchDeg = modelImportPitch_;
-            ad.zoom = modelImportZoom_;
+            ad.zoom = modelImportZoom_ * 2.6f / fitRadii;
             ad.panX = modelImportPanX_;
             ad.panY = modelImportPanY_;
             ad.wireframe = modelImportWire_;
@@ -548,7 +557,7 @@ void App::drawModelImportModal() {
             } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
                 // one preview height of drag moves the target ~2.4 radii /
                 // zoom - the visible span - so the model follows the cursor
-                const float k = 2.0f / ((float)ph * modelImportZoom_);
+                const float k = 2.0f / ((float)ph * zoomEff);
                 modelImportPanX_ -= md.x * k;
                 modelImportPanY_ += md.y * k;
             }
@@ -960,8 +969,14 @@ void App::drawModelImportModal() {
         } else {
             ImGui::SetCursorPosX(capW);
             ui::FontScope mono(ui::monoFont());
-            ImGui::TextDisabled("%d VU1 vertices - %.1f per tri%s", strip, perTri,
-                                strip < list ? " (strips)" : "");
+            // Wraps: in mono at the options column's width the "(strips)"
+            // tail ran past the right edge.
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextWrapped("%d VU1 vertices - %.1f per tri%s", strip, perTri,
+                               strip < list ? " (strips)" : "");
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 ImGui::SetTooltip("What the build ships: the same triangle-strip pass every\n"
                                   "static model goes through, run here so the number is the\n"
