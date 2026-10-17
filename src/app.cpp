@@ -13051,18 +13051,10 @@ void App::drawGradingWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         prefHelp("An approximation: the GS has no per-pixel luma, so desaturating mixes\n"
                  "toward mid-grey (it flattens a little too).");
+        // The track is the colour cue: blue -> orange.
+        ui::SetNextSliderGradient(IM_COL32(90, 140, 255, 255), IM_COL32(255, 150, 60, 255));
         ui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%+.2f");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
-        {
-            // The temperature track's colour cue: blue -> neutral -> orange.
-            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-            const float y = b.y - 2.0f, mx = (a.x + b.x) * 0.5f;
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilledMultiColor(ImVec2(a.x + 2, y), ImVec2(mx, b.y), IM_COL32(90, 140, 255, 255),
-                                        IM_COL32(200, 200, 200, 255), IM_COL32(200, 200, 200, 255), IM_COL32(90, 140, 255, 255));
-            dl->AddRectFilledMultiColor(ImVec2(mx, y), ImVec2(b.x - 2, b.y), IM_COL32(200, 200, 200, 255),
-                                        IM_COL32(255, 150, 60, 255), IM_COL32(255, 150, 60, 255), IM_COL32(200, 200, 200, 255));
-        }
         ui::ColorHex("Tint", g.tint);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ui::SliderFloat("Tint amount", &g.tintAmount, 0.0f, 1.0f, "%.2f");
@@ -13093,12 +13085,19 @@ void App::drawGradingWindow() {
             }
             float master = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
             ImGui::SetNextItemWidth(width);
-            if (ImGui::SliderFloat("##master", &master, lo, hi, "%.2f")) {
+            // The exact numbers are the drag row below; a value centred on
+            // the grab only collided with the knob, so the bar shows none
+            // (it is in the tooltip; typing into it still shows it).
+            const bool masterTyping = ImGui::TempInputIsActive(ImGui::GetID("##master"));
+            if (!masterTyping) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
+            const bool masterChanged = ImGui::SliderFloat("##master", &master, lo, hi, "%.2f");
+            if (!masterTyping) ImGui::PopStyleColor();
+            if (masterChanged) {
                 const float old = (rgb[0] + rgb[1] + rgb[2]) / 3.0f;
                 for (int i = 0; i < 3; ++i) rgb[i] = ImClamp(rgb[i] + master - old, lo, hi);
             }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master: all three channels together");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master %.2f: all three channels together", master);
             ImGui::SetNextItemWidth(width);
             {
                 ui::FontScope mono(ui::monoFont());

@@ -852,6 +852,12 @@ bool DragFloat2(const char* label, float v[2], float speed, float vmin, float vm
 bool DragInt(const char* label, int* v, float speed, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
     return rowWidget(label, [&] { return ImGui::DragInt(label, v, speed, vmin, vmax, fmt, flags); });
 }
+static ImU32 gNextSliderFrom = 0, gNextSliderTo = 0;
+void SetNextSliderGradient(ImU32 from, ImU32 to) {
+    gNextSliderFrom = from;
+    gNextSliderTo = to;
+}
+
 namespace {
 
 // (verify-world) An inspector-row slider drawn the way every redesigned panel
@@ -866,6 +872,8 @@ namespace {
 template <class W, class S>
 bool rowSlider(const char* label, ImGuiSliderFlags flags, W&& widget, S&& show, const char* lo,
                const char* hi) {
+    const ImU32 gradFrom = gNextSliderFrom, gradTo = gNextSliderTo;
+    gNextSliderFrom = gNextSliderTo = 0;
     Row r;
     const bool row = beginRow(label, r);
     if (!row) {
@@ -910,8 +918,13 @@ bool rowSlider(const char* label, ImGuiSliderFlags flags, W&& widget, S&& show, 
         const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
         dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, sem.textDim.w * 0.28f)),
                           th);
-        dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(kx, cy + th * 0.5f), ImGui::GetColorU32(sem.accent),
-                          th);
+        if (gradFrom || gradTo)
+            dl->AddRectFilledMultiColor(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f),
+                                        ImGui::GetColorU32(gradFrom), ImGui::GetColorU32(gradTo),
+                                        ImGui::GetColorU32(gradTo), ImGui::GetColorU32(gradFrom));
+        else
+            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(kx, cy + th * 0.5f),
+                              ImGui::GetColorU32(sem.accent), th);
         dl->AddCircleFilled(ImVec2(kx, cy), bb.GetHeight() * (hot ? 0.30f : 0.26f), ImGui::GetColorU32(sem.text),
                             20);
         FontScope mono(gMono);
