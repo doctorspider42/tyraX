@@ -1179,7 +1179,7 @@ private:
     // `informational` styles the block as a note rather than a warning, for the
     // case that matters most: someone EVALUATING whether to turn the feature on
     // has to be able to see what would stop them before they turn it on.
-    void drawBlssClashWarning(const BlssClash&, bool informational);
+    void drawBlssClashWarning(const BlssClash&, bool informational, bool compact = false);
     // Switch to that scene, select that object and put the camera pivot on it.
     void blssSelectClash(const BlssClashRef&);
     // HOW MUCH OF THE UPSCALER GOES ON SCREEN, and it is the whole shape of

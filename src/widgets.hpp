@@ -254,4 +254,11 @@ void ChipFlow(float w, bool first);
  * there). Returns clicked. */
 bool EyeToggle(const char* label, bool visible, float size, bool show);
 
+// --- verify-world ---
+/** The next ui::SliderFloat/SliderInt drawn in an inspector row paints its
+ * track as a `from` -> `to` gradient (e.g. Temperature: blue -> orange)
+ * instead of the accent fill. Consumed by that one slider. */
+void SetNextSliderGradient(ImU32 from, ImU32 to);
+// --- end verify-world ---
+
 }  // namespace ui

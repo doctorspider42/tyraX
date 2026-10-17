@@ -187,9 +187,12 @@ The build refuses BLSS in a scene that also needs:
 - frame extrapolation.
 
 These features need full-resolution depth or reuse frame history in an
-incompatible way. The editor names the scene and conflict before build; the
-generated interlock prevents hand-edited projects from silently producing a
-wrong frame.
+incompatible way. The editor names the scene and conflict before build - in
+Project Preferences as a red note directly under *Use the upscaler* ("Can't be
+turned on in this project yet", or "The build will refuse this project" once it
+is on) with a *Go to the scene* / *Select it* per cause, and in Tools > Neural
+Upscaler with the full reasons; the generated interlock prevents hand-edited
+projects from silently producing a wrong frame.
 
 Reflections, camera feeds and projected shadows are supported.
 

@@ -867,7 +867,12 @@ void App::drawFactCatalogTab() {
     const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
     const float paneH = ImGui::GetContentRegionAvail().y;
     const float totalW = ImGui::GetContentRegionAvail().x;
-    if (factListW_ <= 0.0f) factListW_ = totalW * 0.46f;
+    // Docked beside the Viewport at a 1600 pt window the page is ~700 pt; a
+    // 0.46 share with a 420 pt detail minimum left the tree ~280 pt and cut
+    // the fact names ("generato", "bootCoun"). Give the list at least 360 pt
+    // while the detail keeps half.
+    const float minDetail = std::min(scaled(420), totalW * 0.48f);
+    if (factListW_ <= 0.0f) factListW_ = std::max(totalW * 0.46f, std::min(scaled(360), totalW * 0.52f));
 
     // ------------------------------------------------------------ the list
     if (ui::BeginCard("##factlistcard", ImVec2(factListW_, paneH))) {
@@ -1051,7 +1056,7 @@ void App::drawFactCatalogTab() {
     }
     ui::EndCard();
     ImGui::SameLine(0.0f, 0.0f);
-    ui::VSplitter("##factsplit", &factListW_, scaled(300), scaled(420), paneH);
+    ui::VSplitter("##factsplit", &factListW_, scaled(300), minDetail, paneH);
 
     // ---------------------------------------------------------- the detail
     if (!ui::BeginCard("##factdetail", ImVec2(0.0f, paneH))) {
