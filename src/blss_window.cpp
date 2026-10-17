@@ -415,8 +415,58 @@ void App::blssSelectClash(const BlssClashRef& r) {
     navFocusedIndex_ = r.object;  // keep orbit-around-selection in sync
 }
 
-void App::drawBlssClashWarning(const BlssClash& c, bool informational) {
+void App::drawBlssClashWarning(const BlssClash& c, bool informational, bool compact) {
     if (!c.any()) return;
+    if (compact) {
+        // Project Preferences (ProjectPreferences board): the block-in-place
+        // note under the switch - one sentence naming the causes, the long
+        // reasons on hover, then one row per cause with its jump. The full
+        // wording below stays for Tools > Neural Upscaler.
+        std::string causes;
+        auto add = [&](bool on, const char* what) {
+            if (!on) return;
+            if (!causes.empty()) causes += ", ";
+            causes += what;
+        };
+        add(!c.dof.empty(), "depth of field");
+        add(!c.dofNode.empty(), "a Set Depth Of Field node");
+        add(!c.portals.empty(), "portals");
+        add(!c.split.empty(), "split-screen");
+        add(!c.extrapolation.empty(), "frame extrapolation");
+        const std::string text =
+            informational ? "Can't be turned on in this project yet - the build would refuse it: " +
+                                causes + " need display-resolution rendering."
+                          : "The build will refuse this project: the upscaler is on together with " +
+                                causes + ". Turn one of the two off.";
+        ImGui::PushID("##blss_clash_note");
+        ui::Note(2, text.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Depth of field composites its blur through the GS depth test at\n"
+                "display resolution; with the upscaler the depth buffer is only as\n"
+                "big as the reduced render. Portals want the same display-resolution\n"
+                "depth. Split-screen frames are never reduced. Frame extrapolation\n"
+                "reprojects the previous frame too and tears the picture with it.\n"
+                "Tools > Neural Upscaler (BLSS) has the whole story.");
+        int row = 0;
+        auto rows = [&](const std::vector<BlssClashRef>& refs) {
+            for (const BlssClashRef& r : refs) {
+                ImGui::PushID(row++);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", r.label.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton(r.object >= 0 ? "Select it" : "Go to the scene")) blssSelectClash(r);
+                ImGui::PopID();
+            }
+        };
+        rows(c.dof);
+        rows(c.dofNode);
+        rows(c.portals);
+        rows(c.split);
+        rows(c.extrapolation);
+        ImGui::PopID();
+        return;
+    }
     // WARNING when the feature is on (the build will refuse this project),
     // INFORMATIONAL when it is off - because the reader most in need of this
     // block is the one deciding whether to switch the feature on, and until now
@@ -733,7 +783,12 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     const bool blockExtrapolation = upscalerOn && !s.frameExtrapolation;
 
     ImGui::BeginDisabled(blockUpscaler);
-    if (ImGui::Checkbox("Use the upscaler", &s.blssEnabled)) changed = true;
+    // Preferences: a switch row with its one-line meaning (the board's shape);
+    // the window keeps its checkbox. Same "Use the upscaler" ID prefix either way.
+    if (full ? ImGui::Checkbox("Use the upscaler", &s.blssEnabled)
+             : ui::Switch("Use the upscaler (render the 3D scene smaller and reconstruct it - pays off on fill-heavy scenes)",
+                          &s.blssEnabled))
+        changed = true;
     ImGui::EndDisabled();
     help(
         "Renders the 3D SCENE smaller and blows it back up to fill the display\n"
@@ -803,6 +858,13 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "    combined - both rebuild a frame by reprojecting the previous one,\n"
             "    and in motion the pair tears the picture into cells that\n"
             "    disagree. Untick frame extrapolation and this frees up.");
+    // Preferences: the clash note sits directly under the switch it is about
+    // (blocked in place); the window draws the long form further down.
+    if (!full) {
+        BlssClash clash = blssClashesFor(s, /*assumeProjectDefaultOn=*/!upscalerOn);
+        if (blockUpscaler) clash.extrapolation.clear();
+        drawBlssClashWarning(clash, !upscalerOn, true);
+    }
 
     ImGui::BeginDisabled(!s.blssEnabled);
     {
@@ -814,8 +876,10 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* modeNames[] = {
             "Plain - one bilinear pass, no network (far cheaper)",
             "Neural - a network picks a reconstruction per 32x32 tile"};
-        ImGui::SetNextItemWidth(scaled(520));
-        if (ImGui::Combo("Mode", &mode, modeNames, 2)) {
+        // Preferences: a label-left row (the InspectorRows scope draws the
+        // caption); the window keeps its sized, right-labelled combo.
+        if (full) ImGui::SetNextItemWidth(scaled(520));
+        if (full ? ImGui::Combo("Mode", &mode, modeNames, 2) : ui::Combo("Mode", &mode, modeNames, 2)) {
             s.blssNetwork = mode == 1;
             if (s.blssNetwork) s.blssAdaptive = false;
             changed = true;
@@ -858,7 +922,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "else.");
 
         ImGui::BeginDisabled(s.blssNetwork);
-        if (ImGui::Checkbox("Adapt resolution to frame budget", &s.blssAdaptive))
+        if (full ? ImGui::Checkbox("Adapt resolution to frame budget", &s.blssAdaptive)
+                 : ui::Switch("Adapt resolution to frame budget", &s.blssAdaptive))
             changed = true;
         ImGui::EndDisabled();
         help(
@@ -882,8 +947,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* names[] = {
             "2x2 - quarter the pixels",
             "1x2 - half height only (keeps horizontal detail; cheaper to reconstruct)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Render scale", &scale, names, 2)) {
+        if (full) ImGui::SetNextItemWidth(scaled(420));
+        if (full ? ImGui::Combo("Render scale", &scale, names, 2) : ui::Combo("Render scale", &scale, names, 2)) {
             s.blssScale = scale;
             changed = true;
         }
@@ -980,7 +1045,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         // The other four stay - a portal is not something this dialog can
         // prevent.
         if (blockUpscaler) clash.extrapolation.clear();
-        drawBlssClashWarning(clash, !upscalerOn);
+        if (full) drawBlssClashWarning(clash, !upscalerOn);
     }
 
     // FRAME EXTRAPOLATION LIVES HERE, next to the upscaler, because it is the
@@ -993,8 +1058,9 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // why the exclusion at the top of this function has to ask every scene.
     ImGui::SeparatorText("Frame extrapolation");
     ImGui::BeginDisabled(blockExtrapolation);
-    if (ImGui::Checkbox("Present a synthesised frame between rendered ones",
-                        &s.frameExtrapolation))
+    if ((full ? ImGui::Checkbox("Present a synthesised frame between rendered ones",
+                        &s.frameExtrapolation) : ui::Switch("Present a synthesised frame between rendered ones",
+                        &s.frameExtrapolation)))
         changed = true;
     ImGui::EndDisabled();
     // The exclusion, ON the greyed checkbox, so hovering the thing that will not
@@ -1057,7 +1123,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // distance) is a knob for guessing at a number the ground plane derives
     // properly. The drag is gone and the distance is pinned to zero: ticked =
     // the ground plane, unticked = rotation only.
-    if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround)) {
+    if ((full ? ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround) : ui::Switch("Ground plane (recommended)", &s.frameExtrapolationGround))) {
         // Normalised on the first touch of this box, NOT on load: a project
         // saved with a positive distance keeps rendering exactly as it did
         // until someone changes this setting, because silently re-rendering
@@ -1080,8 +1146,9 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         "previous frame EXACTLY - the synthesised frame is a duplicate, which\n"
         "reads as judder. Which is why this is the recommended state.",
         "");
-    if (ImGui::Checkbox("Always synthesise (ignore the gate)",
-                        &s.frameExtrapolationForce))
+    if ((full ? ImGui::Checkbox("Always synthesise (ignore the gate)",
+                        &s.frameExtrapolationForce) : ui::Switch("Always synthesise (ignore the gate)",
+                        &s.frameExtrapolationForce)))
         changed = true;
     help(
         "Skip the per-frame decision and always present a synthesised frame.\n"
