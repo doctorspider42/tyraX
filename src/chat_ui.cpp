@@ -1548,7 +1548,68 @@ ImU32 chatCol(const ImVec4& c, float a = 1.0f) {
 struct ChangeRow {
     std::string verb, title, detail, link, object;
     int kind = 1;
+    std::string padScript;  // press_pad: drawn as the pads it holds
 };
+
+// What a press_pad script holds, moment by moment: one Compact controller per
+// distinct non-neutral state (pressed buttons + parked sticks), with the
+// buttons and how long it is held under it - what the AI is pressing, in the
+// same drawing as Remote Pad.
+void chatPadSteps(const std::string& script, float fs) {
+    std::vector<livepad::Step> steps;
+    std::string err;
+    if (!livepad::parseScript(script, steps, err)) return;
+    struct Moment {
+        livepad::State st;
+        double seconds;
+    };
+    std::vector<Moment> ms;
+    for (const livepad::Step& st : steps) {
+        if (st.state.neutral()) continue;
+        if (!ms.empty() && ms.back().st == st.state) {
+            ms.back().seconds += st.seconds;
+            continue;
+        }
+        ms.push_back({st.state, st.seconds});
+    }
+    // A moment held for no time is a transition, not something pressed.
+    ms.erase(std::remove_if(ms.begin(), ms.end(), [](const Moment& m) { return m.seconds <= 0.0; }), ms.end());
+    if (ms.empty()) return;
+    const theme::Semantics& sem = theme::semantics();
+    const float w = fs * 8.0f;  // 120 px at 100%
+    const float gap = fs * 0.6f;
+    const int kMax = 8;
+    for (int i = 0; i < (int)ms.size() && i < kMax; ++i) {
+        const livepad::State& st = ms[i].st;
+        const int pi = (st.buttons[0] || st.axes[0][0] || st.axes[0][1] || st.axes[0][2] || st.axes[0][3]) ? 0 : 1;
+        ui::PadState ps;
+        ps.pressed = st.buttons[pi] & 0xFFFFu;
+        ps.stick[0] = ImVec2(st.axes[pi][0] / 127.0f, st.axes[pi][1] / 127.0f);
+        ps.stick[1] = ImVec2(st.axes[pi][2] / 127.0f, st.axes[pi][3] / 127.0f);
+        if (st.buttons[1] || pi == 1) ps.port = pi + 1;
+        std::string cap;
+        for (int b = 0; b < 16; ++b)
+            if (ps.pressed & (1u << b)) cap += (cap.empty() ? "" : " + ") + std::string(ui::PadItemName(b));
+        for (int sd = 0; sd < 2; ++sd)
+            if (st.axes[pi][sd * 2] || st.axes[pi][sd * 2 + 1]) cap += (cap.empty() ? "" : " + ") + std::string(sd ? "R stick" : "L stick");
+        char sec[32];
+        std::snprintf(sec, sizeof(sec), " \xc2\xb7 %.1f s", ms[i].seconds);
+        cap += sec;
+        if (i > 0) {
+            const float next = ImGui::GetItemRectMax().x + gap + w;
+            if (next < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine(0.0f, gap);
+        }
+        ImGui::BeginGroup();
+        ImGui::PushID(i);
+        ui::PadDiagram("##aipad", ui::PadMode::Compact, w, ps);
+        ImGui::PopID();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+        ImGui::TextColored(sem.textDim, "%s", cap.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+    }
+    if ((int)ms.size() > kMax) ImGui::TextColored(sem.textDim, "and %d more", (int)ms.size() - kMax);
+}
 
 std::string firstLine(const std::string& s, size_t max = 90) {
     std::string l = s.substr(0, s.find('\n'));
@@ -1643,6 +1704,7 @@ bool chatChangeRow(const aichat::ToolCall& c, ChangeRow& r) {
         r.kind = 4;
         r.title = n == "press_pad" ? aichat::argStr(c, "script") : n;
         r.detail = firstLine(c.result);
+        if (n == "press_pad") r.padScript = aichat::argStr(c, "script");
     }
     return true;
 }
@@ -1846,6 +1908,11 @@ void App::drawAiChatTurn(size_t userIdx, size_t from, size_t to, bool live) {
                     }
                 }
                 ImGui::PopStyleColor();
+            }
+            if (!r.padScript.empty()) {
+                ImGui::Indent(fs * 5.0f);
+                chatPadSteps(r.padScript, fs);
+                ImGui::Unindent(fs * 5.0f);
             }
             ImGui::Dummy(ImVec2(0, fs * 0.2f));
             ImGui::PopID();
