@@ -453,15 +453,31 @@ void App::drawDroneSimple(bool& dirty, bool& openNewAsk) {
             ImGui::PopStyleColor();
             ImGui::SameLine();
         }
-        // Swatch = the colour of the mood the title names.
+        // Swatch = the track's own sky: the hero card's gradient in small (the
+        // mood it came from, lit by its Brightness), lit from the top left.
+        // A track that came from no mood still has the hero's night blue, so
+        // the swatch is never an empty square.
         {
             const ImVec2 sp = ImGui::GetCursorScreenPos();
-            const float d = ImGui::GetFrameHeight() * 0.55f;
+            const float d = ImGui::GetFrameHeight() * 0.62f;
             const float y = sp.y + (ImGui::GetFrameHeight() - d) * 0.5f;
-            const int mi = moodByTitle(dronePatchTitle_);
+            uint32_t top = 0x3B4A6B, bottom = 0x07090F;  // the design's night sky
+            if (fromMood) top = moods()[(size_t)moodSel].top, bottom = moods()[(size_t)moodSel].bottom;
+            top = lerpHex(top, 0xFFE1A8, 0.25f * simple::read(p, simple::SlBright));
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            if (mi >= 0) moodPicture(dl, moods()[(size_t)mi], -1, ImVec2(sp.x, y), ImVec2(sp.x + d, y + d), 3.0f);
-            else dl->AddRectFilled(ImVec2(sp.x, y), ImVec2(sp.x + d, y + d), semCol(sem.surface), 3.0f);
+            const ImVec2 a(sp.x, y), b(sp.x + d, y + d);
+            // A radial glow from the top-left third: rings from the dark edge
+            // in to the lit centre, clipped to the rounded square.
+            dl->AddRectFilled(a, b, hexCol(bottom), 4.0f);
+            dl->PushClipRect(a, b, true);
+            const ImVec2 c(a.x + d * 0.3f, a.y + d * 0.3f);
+            const int rings = 8;
+            for (int i = 0; i < rings; ++i) {
+                const float t = (float)i / (float)(rings - 1);  // 0 = outer, 1 = centre
+                dl->AddCircleFilled(c, d * 1.05f * (1.0f - t * 0.9f), hexCol(lerpHex(bottom, top, t)), 20);
+            }
+            dl->PopClipRect();
+            dl->AddRect(a, b, semCol(sem.text, 0.12f), 4.0f);
             ImGui::Dummy(ImVec2(d, ImGui::GetFrameHeight()));
             ImGui::SameLine(0.0f, scaled(6.0f));
         }
