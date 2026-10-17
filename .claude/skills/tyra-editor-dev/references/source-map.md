@@ -56,6 +56,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `menu_actions.cpp/.hpp` | 126 | `menuact::BeginMenu/EndMenu/MenuItem` - plain ImGui when drawing, a harvest pass for the command palette (every main-menu item must use them) | editor-ui-and-conventions |
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
+| `pad_widget.cpp` | 1.2k | The toolkit's `pad` section: `ui::PadDiagram` (the one DualShock 2 - geometry table, Interactive/Annotated/Compact, callout slots), `PadButtonGlyph`, `PadButtonCombo`, `PadPortSegmented` | editor-ui-and-conventions |
 | `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |

@@ -64,6 +64,11 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - Opening a project can be cancelled while it loads (Cancel or Esc).
 - **Input Map**: *Press to set* for the mouse button.
 - The **command palette** (Ctrl/Cmd+K) finds every menu command, with its menu path and shortcut.
+- **One controller drawing everywhere**: Remote Pad, the Input Map and every pad-button picker now show the same DualShock 2 - two round lobes, the four-key d-pad, the face buttons in their real colours, L2/L1 and R1/R2 as stacked tabs, Select/Start/Analog with its LED and big ridged sticks.
+- **Remote Pad**: a pressed button fills and glows whatever pressed it (mouse, keys, a `--pad` script or the AI); the P1/P2 badge and the Pad 1/Pad 2 dots show the port; the stick gauges show the deadzone and the numbers sit under the pad; key caps sit beside the buttons they drive; the card lists what is held. With no game running the pad dims and its LED goes out.
+- **Input Map**: the controller labels every bound button in tidy columns (leaders never cross), rings the selected action's button and marks two actions on one button in amber; click a button to select its action. *Press to set* makes the pad pulse - click the button on the drawing when no controller is connected. The Pad column shows each button's symbol.
+- **Pad-button pickers** (Input Map, the Flow Graph's On Button, the flashlight's Toggle button) show the button's symbol and open over a small pad you can click.
+- **AI Assistant**: a `press_pad` step shows small controllers with what the assistant pressed and for how long.
 ## 1.172.2 - 2026-10-16
 
 ### Releases

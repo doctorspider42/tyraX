@@ -6,7 +6,7 @@ that had no recourse. Now every button read goes through a named **action**,
 actions are bound in per-project **presets**, and the player can **rebind them
 in-game** from a menu row.
 
-![The Input Map on examples/two-players: preset tabs and the find field in the header, the binding matrix grouped On foot / Noclip / Menus / Vehicle with pad, keyboard and mouse keycaps, the DualShock 2 diagram with the on-foot callouts, and the selected Jump action's bindings.](img/input-map.png)
+![The Input Map on examples/two-players: preset tabs and the find field in the header, the binding matrix grouped On foot / Noclip / Menus / Vehicle with pad glyphs, keyboard and mouse keycaps, the controller drawing with the on-foot callouts, and the selected Jump action's bindings.](img/input-map.png)
 
 **The window.** *Tools > Input Map* shows the whole map at once:
 
