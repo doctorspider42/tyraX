@@ -185,7 +185,8 @@ offline, nothing is shown at all; an editor that opens a dialog about your
 Wi-Fi is an editor whose update check people switch off.
 
 The dialog shows the version jump (yours -> the new one), the release date
-and the package it would install, then **the release notes, rendered**
+and the package it would install in words, with its size (*Oct 16 · macOS
+app, Apple silicon · 188 MB*), then **the release notes, rendered**
 (headings, bullets, bold - not raw markdown) in a scroller, with *Full release
 notes on GitHub* under them. A card says what installing does to this session
 before you click: TyraX closes, installs and reopens, and if the open project
