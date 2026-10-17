@@ -2873,11 +2873,13 @@ void App::drawMaterialEditorWindow() {
             int verts = 0;
             for (int pi : mm.posIdx) verts = std::max(verts, pi + 1);
             char sb[128];
-            if (verts > 0)
-                std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry) - %d verts",
-                              mm.triCount(), painted, verts);
-            else
-                std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)", mm.triCount(), painted);
+            // "(N on this entry)" only when the entry covers part of the mesh:
+            // the readout pill has room for one line next to Editor | As PS2.
+            int n = painted == mm.triCount()
+                        ? std::snprintf(sb, sizeof(sb), "%d tris", mm.triCount())
+                        : std::snprintf(sb, sizeof(sb), "%d tris (%d on this entry)", mm.triCount(), painted);
+            if (verts > 0 && n > 0 && n < (int)sizeof(sb))
+                std::snprintf(sb + n, sizeof(sb) - n, " \xC2\xB7 %d verts", verts);
             matEdStatsLine_ = sb;
             matEdStatsWarn_ = !hasUv || painted == 0;
             if (!hasUv)
@@ -3245,7 +3247,7 @@ void App::drawMaterialEditorWindow() {
             if (!matEdStatsLine_.empty()) {
                 std::string line = matEdStatsLine_;
                 if (matEdInfoOk_ && !texRel.empty())
-                    line += " - " + std::to_string(matEdInfoW_) + "x" + std::to_string(matEdInfoH_);
+                    line += " \xC2\xB7 " + std::to_string(matEdInfoW_) + "x" + std::to_string(matEdInfoH_);
                 ui::FontScope mono(ui::monoFont());
                 const ImVec2 ts = ImGui::CalcTextSize(line.c_str());
                 const ImVec2 pb(std::min(imgPos.x + m + ts.x + fs * 1.2f, imgEnd.x - m - scaled(190)), imgEnd.y - m);
@@ -3364,9 +3366,17 @@ void App::drawMaterialEditorWindow() {
         }
         if (matEdSel_ >= (int)matEdMats_.size()) matEdSel_ = (int)matEdMats_.size() - 1;
         // path - entry n of N - used by
+        // an assigned override, or (no override) a model whose own library is
+        // this file - the sibling .mtl with the same stem (altar.obj -> altar.mtl)
         int users = 0;
+        const std::string ownStem = std::filesystem::path(matEdPath_).replace_extension().generic_string();
         for (const SceneData& sc : project_.scenes)
-            for (const SceneObject& o : sc.objects) users += o.materialPath == matEdPath_ ? 1 : 0;
+            for (const SceneObject& o : sc.objects) {
+                if (o.materialPath == matEdPath_) ++users;
+                else if (o.materialPath.empty() && o.type == PrimitiveType::Model && !o.modelPath.empty() &&
+                         std::filesystem::path(o.modelPath).replace_extension().generic_string() == ownStem)
+                    ++users;
+            }
         char idLine[256];
         std::snprintf(idLine, sizeof idLine, "%s - entry %d of %d - used by %d object%s",
                       matEdPath_.c_str(), matEdSel_ + 1, (int)matEdMats_.size(), users,

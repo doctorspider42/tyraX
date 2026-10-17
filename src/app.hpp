@@ -439,7 +439,11 @@ private:
     // Who is waiting on the import: nothing, a new Model / Animated model
     // entity (placed when the import lands), or an existing object whose
     // model is being replaced (modelPickObjectId_).
-    enum class ModelImportFor { Nothing, NewStatic, NewAnimated, Retarget };
+    // Borrow: the Animation Editor's "Borrow clips from a file > Import a
+    // file..." - the imported .glb/.fbx becomes a clip-import row on
+    // modelImportBorrowFor_ once the (asynchronous) import finishes.
+    enum class ModelImportFor { Nothing, NewStatic, NewAnimated, Retarget, Borrow };
+    std::string modelImportBorrowFor_;
     std::thread modelImportThread_;
     std::atomic<bool> modelImportDone_{false};
     ImportPhase modelImportPhase_ = ImportPhase::Idle;
@@ -1402,6 +1406,7 @@ private:
     // Staged entirely on the App: the two skeletons are parsed ONCE when the
     // window opens and the pair list is a working copy, committed on Apply.
     int animMapRow_ = -1;  // index into project_.animImports; -1 = closed
+    bool animMapFocusNext_ = false;  // bring Map bones to the front on its next Begin
     bool animMapParsed_ = false;
     glbparser::Skel animMapTarget_, animMapDonor_;
     std::vector<float> animMapTPos_, animMapDPos_;  // bind-pose globals

@@ -19,7 +19,9 @@ pays nothing at runtime.
 
 1. **Borrow clips from a file.** The button (under the clip list) lists the
    project's other rigged files with their bone match and clip count, and
-   *Import a file...* copies a new `.glb`/`.fbx` into `res/models/` first. A
+   *Import a file...* copies a new `.glb`/`.fbx` into the project first,
+   through the *Import model* window; pressing Import there adds it as a
+   borrowed row straight away (no second trip to the list). A
    clip-only download has no useful mesh, but it still has to be a project asset
    — the build opens it.
 2. **Read the skeleton match.** Picking a file adds it as a row under

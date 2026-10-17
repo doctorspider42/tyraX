@@ -1628,7 +1628,10 @@ void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
         if (droneTab_ == 0) {
             groupTitle("Tonality");
             int rootIdx = p.rootNote;
-            if (knobInt("Root", &rootIdx, 12, 72, 33, "%.0f", s,
+            // the value as a note (B1), as the header chip and the chord
+            // cards name it - not the bare MIDI number (35)
+            const std::string rootName = dronegen::noteName(p.rootNote);
+            if (knobInt("Root", &rootIdx, 12, 72, 33, rootName.c_str(), s,
                         "The drone's root note. Everything else is an offset "
                         "from it.")) {
                 p.rootNote = rootIdx;

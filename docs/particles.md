@@ -28,7 +28,9 @@ The window is three columns: the **library**, the **preview** in the middle
   layers / <layer> only** (solo the selected layer), **Pause** and
   **Restart**, and a card with the selected layer's generated texture (its
   flipbook frames) and its cost - resolution, frames @ fps, GS VRAM. It is an
-  approximation on purpose, and says so: the exact per-kind formulas run in
+  approximation on purpose, and says so (a pill in the top-right corner -
+  shortened to *2D approximation*, the full sentence on hover, when the
+  preview is narrow): the exact per-kind formulas run in
   the viewport on a placed emitter, and a third copy of them here would be a
   third thing to keep in sync.
 - **Inspector**: the name, "Used by N emitters - M vehicles", the **layer

@@ -6327,7 +6327,10 @@ void App::openAnimBoneMap(int importRow) {
         upsertPair(animMapPairs_, from, to);
     animMapSelDonor_ = -1;
     animMapRow_ = importRow;
-    ImGui::SetWindowFocus("Map bones");
+    // SetWindowFocus by name does nothing for a window that has not been
+    // created yet (the first open), so it opened BEHIND the Animation Editor
+    // that asked for it: focus it on its own next Begin instead.
+    animMapFocusNext_ = true;
 }
 
 // Horizontal extent of a rig's bones along world axis `ax` (0 x, 2 z): which
@@ -6367,6 +6370,10 @@ bool App::drawAnimBoneMapWindow() {
 
     bool openFlag = true;
     ImGui::SetNextWindowSize(ImVec2(scaled(1100), scaled(720)), ImGuiCond_FirstUseEver);
+    if (animMapFocusNext_) {
+        ImGui::SetNextWindowFocus();
+        animMapFocusNext_ = false;
+    }
     if (!ImGui::Begin("Map bones", &openFlag)) {
         ImGui::End();
         if (!openFlag) animMapRow_ = -1;
@@ -7581,26 +7588,14 @@ void App::drawAnimEditorWindow() {
         if (candidates.empty()) ImGui::TextDisabled("  none yet");
         ImGui::Separator();
         if (ImGui::Selectable("Import a file...")) {
-            const size_t before = listAnimatedModelFiles().size();
-            importModelAsset();
-            const std::vector<std::string> after = listAnimatedModelFiles();
-            if (after.size() > before)
-                for (const std::string& m : after) {
-                    const std::string rel = "res/models/" + m;
-                    if (rel == animEdModel_ ||
-                        std::find(candidates.begin(), candidates.end(), rel) != candidates.end())
-                        continue;
-                    AnimImport a;
-                    a.model = animEdModel_;
-                    a.source = rel;
-                    project_.animImports.push_back(std::move(a));
-                    animEdImport_ = (int)project_.animImports.size() - 1;
-                    const AnimImportProbe& probe = animImportProbe(animEdModel_, rel, {});
-                    if (probe.ok && probe.bonesMapped < probe.bonesTotal) openAnimBoneMap(animEdImport_);
-                    invalidateAnimCaches(animEdModel_);
-                    changed = true;
-                    break;
-                }
+            // The import is a dialog that finishes later (modelImportPlace adds
+            // the row then); nothing is in res/ yet when this returns.
+            const std::string file = modelImporting_ ? std::string() : pickModelFile();
+            if (!file.empty()) {
+                modelImportFor_ = ModelImportFor::Borrow;
+                modelImportBorrowFor_ = animEdModel_;
+                importModelFile(file, {});
+            }
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Copy a .glb/.fbx into res/models/ and borrow its clips.");

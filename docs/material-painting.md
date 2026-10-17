@@ -27,7 +27,8 @@ imports, moves and deletes refresh the list immediately. **+ New material**
 (top right) makes a new `.mtl` in `res/materials`.
 
 The inspector's header names the entry (click to rename it), says where it
-lives - `res/models/altar.mtl - entry 1 of 1 - used by 2 objects` - and holds
+lives - `res/models/altar.mtl - entry 1 of 1 - used by 2 objects` (objects
+assigned this file, plus models that use their own same-name `.mtl`) - and holds
 **Duplicate** and a `...` menu (Undo, add / remove / reorder entries, Delete
 material...). A file with several entries shows them as chips under the
 header; the first is what primitives and emitters use.
@@ -44,7 +45,9 @@ The preview's controls float on it:
   any other project model), **Solid / Wireframe / UV checker / PS2 CLUT**,
   the **light** (scene ambience or a neutral studio light), **Spin** and
   **UV** (the UV layout panel under the preview);
-- bottom left: triangles, vertices and the texture size;
+- bottom left: triangles, vertices and the texture size (`36 tris · 24 verts ·
+  128x128`; "(N on this entry)" is added when the entry covers only part of
+  the mesh);
 - bottom right: **Editor | As PS2** - the texture quantized exactly as the
   build ships it. Its palette and dithering choices appear in the Look tab
   while it is on.
