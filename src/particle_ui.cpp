@@ -403,17 +403,24 @@ void App::drawParticleEditorWindow() {
         // Overlay: All layers | <layer> only, pause, restart.
         const float pad = scaled(10);
         const float oh = ui::OverlayRowHeight();
-        const std::string soloText = layerName(particleLayerSel_) + " only";
-        const char* segLabels[2] = {"All layers", soloText.c_str()};
-        float segW = ui::OverlayPad() * 2.0f;
-        for (const char* l : segLabels) segW += ui::OverlayTextWidth(l);
-        const char* pauseText = particlePaused_ ? "Play" : "Pause";
+        std::string soloText = layerName(particleLayerSel_) + " only";
+        const char* allText = "All layers";
         const float btnW = ui::OverlayTextWidth("Pause") + ui::OverlayTextWidth("Restart");
+        auto segWidth = [&] {
+            return ui::OverlayPad() * 2.0f + ui::OverlayTextWidth(allText) + ui::OverlayTextWidth(soloText.c_str());
+        };
+        // A narrow preview gets the short labels (the toolbar ran off its edge).
+        if (q0.x + pad + segWidth() + btnW + scaled(8) > q1.x - pad) {
+            allText = "All";
+            soloText = "Solo";
+        }
+        const float segW = segWidth();
+        const char* pauseText = particlePaused_ ? "Play" : "Pause";
         const ImVec2 c0(q0.x + pad, q0.y + pad);
         const ImVec2 c1(c0.x + segW + btnW + scaled(8), c0.y + oh + ui::OverlayPad() * 2.0f);
         ui::OverlayPanel(dl, c0, c1);
         ImGui::SetCursorScreenPos(ImVec2(c0.x + ui::OverlayPad(), c0.y + ui::OverlayPad()));
-        if (ui::OverlayTextButton("All layers", "All layers", !particleSolo_)) particleSolo_ = false;
+        if (ui::OverlayTextButton("All layers", allText, !particleSolo_)) particleSolo_ = false;
         uiscript::markLastItemChecked(!particleSolo_);
         ImGui::SameLine(0.0f, 0.0f);
         if (ui::OverlayTextButton("Solo layer", soloText.c_str(), particleSolo_)) particleSolo_ = true;
@@ -619,8 +626,7 @@ void App::drawParticleEditorWindow() {
                                 20);
             x += fs * 1.5f;
             const bool hidden = particleHidden_[(size_t)li] != 0;
-            dl->AddText(ImVec2(x, cy - fs * 0.5f), ImGui::GetColorU32(hidden ? sem.textDim : sem.text),
-                        layerName(li).c_str());
+            const std::string name = layerName(li);
             // Right side: motion, count, blend badge.
             const char* blend = P.additive ? "add" : "alpha";
             const float bfs = fs * 0.82f;
@@ -642,7 +648,18 @@ void App::drawParticleEditorWindow() {
             }
             const char* kind = kKinds[std::clamp(P.kind, 0, 5)];
             const float kw = ImGui::CalcTextSize(kind).x;
-            dl->AddText(ImVec2(bx - scaled(22) - cw - kw, cy - fs * 0.5f), ImGui::GetColorU32(sem.textDim), kind);
+            const float kx = bx - scaled(22) - cw - kw;
+            // The name gets what is left before the motion word, ellipsized;
+            // in a narrow window the motion word goes before the name does
+            // (they were drawn over each other).
+            const float nameW = ImGui::CalcTextSize(name.c_str()).x;
+            const bool showKind = kx - scaled(10) - x >= std::min(nameW, fs * 4.0f);
+            if (showKind) dl->AddText(ImVec2(kx, cy - fs * 0.5f), ImGui::GetColorU32(sem.textDim), kind);
+            const float nameMax = (showKind ? kx : bx - scaled(10) - cw) - scaled(10);
+            ImGui::PushStyleColor(ImGuiCol_Text, hidden ? sem.textDim : sem.text);
+            ImGui::RenderTextEllipsis(dl, ImVec2(x, cy - fs * 0.5f), ImVec2(nameMax, cy + fs * 0.5f), nameMax,
+                                      name.c_str(), nullptr, nullptr);
+            ImGui::PopStyleColor();
             ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + scaled(2)));
         }
         ImGui::Dummy(ImVec2(0, scaled(4)));
@@ -761,9 +778,20 @@ void App::drawParticleEditorWindow() {
     // --- footer: Duplicate, Place in scene -------------------------------------
     ImGui::Separator();
     {
-        const float pw = ImGui::CalcTextSize("Place in scene").x + ImGui::GetStyle().FramePadding.x * 4.0f;
-        if (ui::GhostButton("Duplicate")) duplicate(particleSel_);
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - pw);
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float pw = ImGui::CalcTextSize("Place in scene").x + st.FramePadding.x * 4.0f;
+        const float dupW = ImGui::CalcTextSize("Duplicate").x + st.FramePadding.x * 2.0f;
+        const float avail = ImGui::GetContentRegionAvail().x;
+        // Too narrow for both (they were drawn over each other): Place in
+        // scene alone, full width - Duplicate is also on the library row's
+        // right-click menu.
+        if (dupW + st.ItemSpacing.x + ImGui::CalcTextSize("Place in scene").x + st.FramePadding.x * 2.0f > avail) {
+            pw = avail;
+        } else {
+            if (ui::GhostButton("Duplicate")) duplicate(particleSel_);
+            pw = std::min(pw, avail - dupW - st.ItemSpacing.x);
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - pw);
+        }
         if (ui::PrimaryButton("Place in scene", pw)) {
             const std::string name = lib[(size_t)particleSel_].name;
             addObject(PrimitiveType::Emitter, false);
