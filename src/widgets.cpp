@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cctype>
 #include <string>
 
 namespace ui {
@@ -158,7 +159,7 @@ static bool axisDrag3Body(const char* label, float v[3], float speed, float vmin
 
 // Row-layout hooks for Switch, defined with the inspector rows below.
 static bool switchRowWidth(float* avail);
-static void noteSwitchRow(const ImRect& caption, float textW);
+static void noteSwitchRow(const ImRect& caption, float textW, bool hasDesc);
 
 bool Switch(const char* label, bool* v) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -266,7 +267,7 @@ bool Switch(const char* label, bool* v) {
 
     IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable |
                                                (*v ? ImGuiItemStatusFlags_Checked : 0));
-    if (row) noteSwitchRow(ImRect(pos, ImVec2(a.x, pos.y + rowH)), nameSize.x);
+    if (row) noteSwitchRow(ImRect(pos, ImVec2(a.x, pos.y + rowH)), nameSize.x, desc != nullptr);
     return pressed;
 }
 
@@ -668,6 +669,9 @@ struct RowScope {
     ImRect lastRect, lastCaption;
     float lastCaptionTextW = 0.0f;
     int lastFrame = -1;
+    bool lastSwitch = false;   // the last row was a Switch (text spans the row)
+    bool lastHasDesc = false;  // ...whose label already carries a "(what it does)" line
+    bool meanings = false;     // RowMeanings: RowHelp also writes the tip's first sentence
 };
 RowScope gRows[4];
 int gRowDepth = 0;
@@ -757,6 +761,8 @@ void endRow(Row& r) {
     r.scope->lastCaption = r.caption;
     r.scope->lastCaptionTextW = r.textW;
     r.scope->lastFrame = g.FrameCount;
+    r.scope->lastSwitch = false;
+    r.scope->lastHasDesc = false;
 }
 
 }  // namespace
@@ -768,7 +774,7 @@ static bool switchRowWidth(float* avail) {
     return true;
 }
 
-static void noteSwitchRow(const ImRect& caption, float textW) {
+static void noteSwitchRow(const ImRect& caption, float textW, bool hasDesc) {
     ImGuiContext& g = *GImGui;
     RowScope& s = gRows[gRowDepth - 1];
     s.lastId = g.LastItemData.ID;
@@ -776,7 +782,11 @@ static void noteSwitchRow(const ImRect& caption, float textW) {
     s.lastCaption = caption;
     s.lastCaptionTextW = textW;
     s.lastFrame = g.FrameCount;
+    s.lastSwitch = true;
+    s.lastHasDesc = hasDesc;
 }
+
+static void drawRowMeaning(RowScope& s, const char* tip);
 
 namespace {
 
@@ -825,6 +835,7 @@ bool RowHelp(const char* tip) {
     if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
         ImGui::IsMouseHoveringRect(c.Min, c.Max))
         ImGui::SetTooltip("%s", tip);
+    if (s.meanings && !s.lastHasDesc) drawRowMeaning(s, tip);
     return true;
 }
 
@@ -1359,5 +1370,111 @@ bool EyeToggle(const char* label, bool visible, float size, bool show) {
         ImGui::SetTooltip(visible ? "Hide in the editor" : "Show in the editor");
     return pressed;
 }
+
+// --- verify-world (polish-3) ---
+// RowMeanings: the one-line meaning under a row's caption, written from the
+// first sentence of the help that row already has (RowHelp's tip), so the
+// explanation that decides whether to touch a setting is on screen and the
+// rest stays a hover. Hard line breaks are joined, a "(docs/...)" pointer is
+// dropped, and the line is cut with an ellipsis at the caption column (a
+// switch row's text spans the row, so there it may run to the switch).
+RowMeanings::RowMeanings() {
+    if (gRowDepth > 0) {
+        prev_ = gRows[gRowDepth - 1].meanings;
+        gRows[gRowDepth - 1].meanings = true;
+    }
+}
+
+RowMeanings::~RowMeanings() {
+    if (gRowDepth > 0) gRows[gRowDepth - 1].meanings = prev_;
+}
+
+// One sentence of the tip's first paragraph: line breaks joined, a "(docs/...)"
+// pointer dropped. A sentence that opens in capitals is a headline for the
+// long read ("WHAT BLOWS THE REDUCED RENDER BACK UP, ...") - the next one says
+// what the setting does.
+static std::string firstSentence(const char* tip) {
+    const char* c = tip;
+    for (int tries = 0; tries < 3 && *c; ++tries) {
+        std::string out;
+        for (; *c; ++c) {
+            if (c[0] == '\n' && c[1] == '\n') break;  // a paragraph ends it too
+            const char ch = *c == '\n' ? ' ' : *c;
+            if (ch == ' ' && (out.empty() || out.back() == ' ')) continue;
+            out += ch;
+            if (ch == '.' && (c[1] == ' ' || c[1] == '\n' || c[1] == 0)) {
+                ++c;
+                break;
+            }
+        }
+        for (size_t at = out.find(" (docs/"); at != std::string::npos; at = out.find(" (docs/")) {
+            const size_t close = out.find(')', at);
+            if (close == std::string::npos) break;
+            out.erase(at, close - at + 1);
+        }
+        while (!out.empty() && (out.back() == ' ' || out.back() == '.' || out.back() == ':')) out.pop_back();
+        int letters = 0, upper = 0;
+        for (char ch : out) {
+            if (letters >= 14) break;
+            if (std::isalpha((unsigned char)ch)) {
+                ++letters;
+                upper += std::isupper((unsigned char)ch) ? 1 : 0;
+            }
+        }
+        if (letters > 0 && upper * 4 < letters * 3) return out;
+        if (c[0] == '\n' && c[1] == '\n') break;
+    }
+    return std::string();
+}
+
+static void drawRowMeaning(RowScope& s, const char* tip) {
+    const std::string line = firstSentence(tip);
+    if (line.empty()) return;
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* w = s.window;
+    const float fsz = IM_TRUNC(g.FontSize * 0.86f);
+    const float x0 = s.lastCaption.Min.x;
+    const float x1 = s.lastSwitch ? s.lastRect.Max.x - g.FontSize * 3.0f
+                                  : s.lastCaption.Max.x - g.Style.ItemInnerSpacing.x * 2.0f;
+    // Tucked under the caption: the row's frame padding is the gap.
+    const float y = ImMax(s.lastCaption.Max.y, s.lastRect.Max.y) - g.Style.FramePadding.y * 0.6f;
+    ImFont* font = ImGui::GetFont();
+    const char* text = line.c_str();
+    const char* end = text + line.size();
+    const float maxW = ImMax(1.0f, x1 - x0);
+    std::string shown = line;
+    if (font->CalcTextSizeA(fsz, FLT_MAX, 0.0f, text, end).x > maxW) {
+        const float dotsW = font->CalcTextSizeA(fsz, FLT_MAX, 0.0f, "...").x;
+        size_t n = line.size();
+        while (n > 0 && font->CalcTextSizeA(fsz, FLT_MAX, 0.0f, text, text + n).x + dotsW > maxW) --n;
+        while (n > 0 && line[n - 1] == ' ') --n;
+        shown = line.substr(0, n) + "...";
+    }
+    ImVec4 col = theme::semantics().textDim;
+    col.w *= 0.85f;
+    w->DrawList->AddText(font, fsz, ImVec2(x0, y), ImGui::GetColorU32(col), shown.c_str());
+    // Room for it: the cursor is already below the row, so only the part of
+    // the line that reaches past it is added.
+    const float bottom = y + fsz + g.Style.ItemSpacing.y;
+    if (bottom > w->DC.CursorPos.y) {
+        w->DC.CursorPos.y = bottom;
+        w->DC.CursorMaxPos.y = ImMax(w->DC.CursorMaxPos.y, bottom);
+    }
+}
+void NoteRow(ImVec2 captionMin, ImVec2 captionMax, float captionTextW) {
+    const ImRect caption(captionMin, captionMax);
+    if (gRowDepth <= 0) return;
+    RowScope& s = gRows[gRowDepth - 1];
+    ImGuiContext& g = *GImGui;
+    if (g.CurrentWindow != s.window) return;
+    s.lastId = g.LastItemData.ID;
+    s.lastRect = g.LastItemData.Rect;
+    s.lastCaption = caption;
+    s.lastCaptionTextW = captionTextW;
+    s.lastFrame = g.FrameCount;
+    s.lastSwitch = false;
+    s.lastHasDesc = false;
+}
+// --- end verify-world (polish-3) ---
 
 }  // namespace ui

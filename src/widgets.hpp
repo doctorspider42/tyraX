@@ -261,4 +261,24 @@ bool EyeToggle(const char* label, bool visible, float size, bool show);
 void SetNextSliderGradient(ImU32 from, ImU32 to);
 // --- end verify-world ---
 
+// --- verify-world (polish-3) ---
+/** RAII, inside an InspectorRows scope: RowHelp also writes the first sentence
+ * of its tip as a dim one-line meaning under the row's caption (the whole tip
+ * stays the hover). A Switch whose label already has "(what it does)" keeps
+ * that line instead. Project Preferences uses it. */
+struct RowMeanings {
+    RowMeanings();
+    ~RowMeanings();
+    RowMeanings(const RowMeanings&) = delete;
+    RowMeanings& operator=(const RowMeanings&) = delete;
+
+private:
+    bool prev_ = false;
+};
+/** A hand-built label-left row (caption drawn by the caller in `caption`, the
+ * widget just submitted) registers as an inspector row, so RowHelp/prefHelp
+ * treat it like one: dotted caption, hover tip, meaning line. */
+void NoteRow(ImVec2 captionMin, ImVec2 captionMax, float captionTextW);
+// --- end verify-world (polish-3) ---
+
 }  // namespace ui

@@ -34,3 +34,16 @@ every page by name and description (try `ip`, `docker`, `model`).
 | **Collaboration** | *Display name* in [live sessions](collaboration.md) (empty = your system user name) and the *Joined-project cache* folder. |
 | **AI assistant** | *Backend*, *Model* (or Custom with a free *Model id*) and *Extended thinking*, used by the [AI Assistant](ai-chat.md) and [Generate with AI](ai-flow-graph.md). |
 | **Updates** | *Check for updates at startup*, *Check now*, and *Stop skipping* for a skipped version ([updates](updates.md)). |
+
+## Project Preferences looks the same
+
+*Project > Preferences* (Ctrl+,) holds the project's own settings with the same
+model - a sidebar of categories (Display, World, Rendering, Player, Build) with
+each one's sections and **Search settings**, changes applied at once and saved
+with the `.tyra`. Each section is a card of label-left rows, and under every
+row's label sits a dim one-line meaning (the first sentence of its help; the
+whole help is on the label's hover). The Build page's **Devkit channels** card
+joins each channel's switch with its polling interval in an *Every* column
+([devkit](devkit.md)).
+
+![Project Preferences on the Build page: the cards, the one-line meanings and the devkit channels table with its Every column.](img/project-preferences-build.png)
