@@ -2752,7 +2752,7 @@ struct ImGuiContext
     short                   ScrollbarSeekMode;                  // 0: scroll to clicked location, -1/+1: prev/next page.
     float                   ScrollbarClickDeltaToGrabCenter;    // When scrolling to mouse location: distance between mouse and center of grab box, normalized in parent space.
     float                   SliderGrabClickOffset;
-    ImRect                  SliderThinTrackRect;                // TYRAX: the track of the last thin-track SliderScalar (style.SliderThinTrack), for callers that paint a cue under it
+    ImU32                   SliderNextTrackFrom, SliderNextTrackTo; // TYRAX: != 0 = the next thin-track SliderScalar paints its track as this gradient instead of the accent fill (consumed by it)
     float                   SliderCurrentAccum;                 // Accumulated slider delta when using navigation controls.
     bool                    SliderCurrentAccumDirty;            // Has the accumulated slider delta changed since last time we tried to apply it?
     bool                    DragCurrentAccumDirty;

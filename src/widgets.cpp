@@ -7,6 +7,8 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 namespace ui {
 namespace {
@@ -89,14 +91,20 @@ static bool axisDrag3Body(const char* label, float v[3], float speed, float vmin
     for (int i = 0; i < 3; ++i) {
         ImGui::PushID(i);
         if (i > 0) ImGui::SameLine(0.0f, style.ItemInnerSpacing.x);
+        // ImGui centres a drag's value, so in an inspector-width field (three
+        // per row) the number ran into the axis letter ("x17.400"). Unless the
+        // field is being typed into, its own text is hidden and the value is
+        // drawn left-aligned AFTER the letter instead.
+        const ImGuiID dragId = window->GetID("");
+        const bool typing = ImGui::TempInputIsActive(dragId);
         {
             FontScope mono(gMono);
+            if (!typing) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
             changed |= ImGui::DragFloat("", &v[i], speed, vmin, vmax, fmt);
+            if (!typing) ImGui::PopStyleColor();
         }
         // The axis letter sits in the left padding of the field ImGui just
-        // drew. The value is centred, so the letter only meets it in a field
-        // too narrow to read a number in anyway - and it is clipped to the
-        // frame so it can never spill into the neighbour.
+        // drew, clipped to the frame so it can never spill into the neighbour.
         const ImRect r(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
         ImFont* face = gBold ? gBold : ImGui::GetFont();
         const float fs = ImGui::GetFontSize() * 0.8f;
@@ -105,6 +113,37 @@ static bool axisDrag3Body(const char* label, float v[3], float speed, float vmin
                         r.Min.y + (r.GetHeight() - ts.y) * 0.5f);
         window->DrawList->PushClipRect(r.Min, r.Max, true);
         window->DrawList->AddText(face, fs, at, ImGui::GetColorU32(axisCol[i]), kAxis[i]);
+        if (!typing) {
+            char buf[64];
+            ImGui::DataTypeFormatString(buf, IM_ARRAYSIZE(buf), ImGuiDataType_Float, &v[i], fmt);
+            FontScope mono(gMono);
+            const float th = ImGui::GetTextLineHeight();
+            const ImVec2 vt(at.x + ts.x + style.ItemInnerSpacing.x,
+                            r.Min.y + (r.GetHeight() - th) * 0.5f);
+            // Too wide for the field: show fewer decimals ("%.3f" -> "%.0f")
+            // rather than a clipped number. Display only - the value and the
+            // typed-in text keep full precision.
+            const float room = r.Max.x - style.FramePadding.x * 0.5f - vt.x;
+            const char* dot = std::strstr(fmt, "%.");
+            if (dot && dot[2] >= '0' && dot[2] <= '9' && dot[3] == 'f') {
+                for (int prec = dot[2] - '0' - 1;
+                     prec >= 0 && ImGui::CalcTextSize(buf).x > room; --prec) {
+                    std::string f(fmt);
+                    f[dot - fmt + 2] = (char)('0' + prec);
+                    ImGui::DataTypeFormatString(buf, IM_ARRAYSIZE(buf), ImGuiDataType_Float, &v[i],
+                                                f.c_str());
+                }
+                // Still too wide: drop the unit suffix (" deg") - the row's
+                // caption says what the numbers are.
+                if (ImGui::CalcTextSize(buf).x > room) {
+                    std::string f(fmt, (size_t)(dot - fmt) + 4);
+                    f[dot - fmt + 2] = '0';
+                    ImGui::DataTypeFormatString(buf, IM_ARRAYSIZE(buf), ImGuiDataType_Float, &v[i],
+                                                f.c_str());
+                }
+            }
+            window->DrawList->AddText(vt, ImGui::GetColorU32(ImGuiCol_Text), buf);
+        }
         window->DrawList->PopClipRect();
         ImGui::PopID();
         ImGui::PopItemWidth();
@@ -824,6 +863,15 @@ bool DragFloat2(const char* label, float v[2], float speed, float vmin, float vm
 bool DragInt(const char* label, int* v, float speed, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
     return rowWidget(label, [&] { return ImGui::DragInt(label, v, speed, vmin, vmax, fmt, flags); });
 }
+// The next slider paints its track as a gradient: the in-tree ImGui patch
+// (style.SliderThinTrack, vendor/imgui-tyrax/TYRAX-PATCHES.md) draws every
+// slider - inspector row or not - so the cue rides along on the context.
+void SetNextSliderGradient(ImU32 from, ImU32 to) {
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    g.SliderNextTrackFrom = from;
+    g.SliderNextTrackTo = to;
+}
+
 bool SliderFloat(const char* label, float* v, float vmin, float vmax, const char* fmt, ImGuiSliderFlags flags) {
     return rowWidget(label, [&] { return ImGui::SliderFloat(label, v, vmin, vmax, fmt, flags); });
 }

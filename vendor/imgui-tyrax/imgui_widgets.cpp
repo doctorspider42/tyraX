@@ -3324,11 +3324,13 @@ bool ImGui::SliderBehavior(const ImRect& bb, ImGuiID id, ImGuiDataType data_type
 // Read code of e.g. SliderFloat(), SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags)
 {
+    ImGuiContext& g = *GImGui;
+    const ImU32 track_from = g.SliderNextTrackFrom, track_to = g.SliderNextTrackTo; // TYRAX: consumed even when clipped
+    g.SliderNextTrackFrom = g.SliderNextTrackTo = 0;
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
         return false;
 
-    ImGuiContext& g = *GImGui;
     const ImGuiStyle& style = g.Style;
     const ImGuiID id = window->GetID(label);
     const float w = CalcItemWidth();
@@ -3426,11 +3428,16 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
         const float x0 = track_bb.Min.x + 2.0f, x1 = ImMax(x0, track_bb.Max.x - 2.0f);
         const bool has_grab = grab_bb.Max.x > grab_bb.Min.x;
         const float kx = has_grab ? grab_bb.GetCenter().x : x0;
-        g.SliderThinTrackRect = ImRect(x0, cy - th * 0.5f, x1, cy + th * 0.5f);
-        dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), GetColorU32(ImGuiCol_Border), th * 0.5f); // Border, not FrameBg: a field colour can sit too close to a panel's to read
+        if (track_from != 0 || track_to != 0)
+        {
+            // A colour cue (Color Grading's temperature): the whole track is the gradient, no fill.
+            dl->AddRectFilledMultiColor(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), GetColorU32(track_from), GetColorU32(track_to), GetColorU32(track_to), GetColorU32(track_from));
+        }
+        else
+            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), GetColorU32(ImGuiCol_Border), th * 0.5f); // Border, not FrameBg: a field colour can sit too close to a panel's to read
         if (color_marker != 0)
             dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x0 + th, cy + th * 0.5f), GetColorU32(color_marker), th * 0.5f);
-        if (kx > x0)
+        if (kx > x0 && track_from == 0 && track_to == 0)
             dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(kx, cy + th * 0.5f), GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), th * 0.5f);
         if (has_grab)
         {

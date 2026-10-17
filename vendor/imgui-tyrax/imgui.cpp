@@ -4476,7 +4476,7 @@ ImGuiContext::ImGuiContext(ImFontAtlas* shared_font_atlas)
     ScrollbarSeekMode = 0;
     ScrollbarClickDeltaToGrabCenter = 0.0f;
     SliderGrabClickOffset = 0.0f;
-    SliderThinTrackRect = ImRect(); // TYRAX
+    SliderNextTrackFrom = SliderNextTrackTo = 0; // TYRAX
     SliderCurrentAccum = 0.0f;
     SliderCurrentAccumDirty = false;
     DragCurrentAccumDirty = false;
