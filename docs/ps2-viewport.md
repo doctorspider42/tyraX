@@ -13,8 +13,9 @@ Two ways of looking at the same scene:
   television shows it: fitted into a 4:3 or 16:9 picture, point sampled, with
   everything outside that picture black.
 
-Switch in the **gear in the viewport's bottom-left corner** or *View >
-Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
+Switch with the **Editor | As PS2** switch in the viewport's bottom-right
+corner (it also shows the GS framebuffer size), the **gear in the
+bottom-left corner** or *View > Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
 safe areas — a way of looking, not project data, so it never dirties the
 `.tyra` and never travels to a collaboration peer.
 

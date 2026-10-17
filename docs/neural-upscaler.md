@@ -4,7 +4,7 @@ BLSS (Bieda-Level-Super-Sampling or Bullshit-Level-Super-Sampling) renders the 3
 display. It is designed for fill-heavy scenes with haze, smoke and layered
 transparency—not as a universal performance switch.
 
-![The BLSS window showing its three decision buttons, training shots and advanced tabs.](img/neural-upscaler.png)
+![The BLSS window on examples/upscaler-lab: the verdict banner, the three checks as cards (+0.50 dB, -23.1 ms, corpus not measured), the training shots with each camera move's coverage, and the Compare card.](img/neural-upscaler.png)
 
 The feature is off by default. `examples/upscaler-lab` is the reference project.
 
@@ -14,6 +14,31 @@ Open **Project > Preferences > Display > Frame delivery** and click **Will the
 frame get faster?**. The check takes about a second and measures the project's
 coverage. Then use **Tools > Neural Upscaler (BLSS)** for the two other questions:
 **Will the picture improve?** and **Is the corpus good enough?**
+
+The window answers first and explains after. A **verdict banner** on top says
+what to do ("TURN IT ON. The picture has room and the frame gets shorter."),
+the two facts behind it and how many of the three checks are answered, with
+the action beside it: the **Plain / Neural** switch and **Use in this
+project** (the same settings as Preferences; blocked with the reason while frame
+extrapolation is on). *The long story* opens every caveat behind the verdict.
+Under it the three checks are **cards**: an answered one shows the number as
+the hero (`+0.50 dB over plain bilinear`, with how much of the ceiling the net
+captures; `-23.1 ms a frame · 1.59-2.62x`, with the coverage against the
+break-even), one caveat, when it was answered and *Run again*; an unanswered
+one says *Not measured* and carries its run button and duration. The network
+and the corpus are two chips in the title row (*Net: ...*, *Corpus: ...*)
+whose menus hold the old header rows.
+
+Below, the authoring path is a row of tabs (*Training shots*, *Train*,
+*Evaluate*, *Cross-validate*, *Inputs*, *Console probe*) beside a permanent
+**Compare** card - the picture is the hero of a picture tool. The project's
+settings are not a tab here: *Settings in Project Preferences* at the end of
+the tab row opens **Project > Preferences > Display > Frame delivery**, which
+holds *Use the upscaler*, Mode, Render scale, frame extrapolation and, under
+*Tuning the network*, the network's sharpen / temporal / jitter / debug view. *Training shots* lists each automatic camera move's measured coverage
+as a bar (red under the break-even) once *Will the frame get faster?* has run,
+so you can see which moves pay. The tool's raw output is a one-line job strip
+at the bottom (last run, its time, its state) with *Show output*.
 
 Two reconstruction modes are available:
 
@@ -165,9 +190,12 @@ The build refuses BLSS in a scene that also needs:
 - frame extrapolation.
 
 These features need full-resolution depth or reuse frame history in an
-incompatible way. The editor names the scene and conflict before build; the
-generated interlock prevents hand-edited projects from silently producing a
-wrong frame.
+incompatible way. The editor names the scene and conflict before build - in
+Project Preferences as a red note directly under *Use the upscaler* ("Can't be
+turned on in this project yet", or "The build will refuse this project" once it
+is on) with a *Go to the scene* / *Select it* per cause, and in Tools > Neural
+Upscaler with the full reasons; the generated interlock prevents hand-edited
+projects from silently producing a wrong frame.
 
 Reflections, camera feeds and projected shadows are supported.
 

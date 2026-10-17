@@ -184,8 +184,8 @@ path it resolved:
 ## Installing it
 
 You normally don't have to do anything: the first time you use **Open in
-VS Code** (from the Flow Graph *Custom nodes…* menu, the UI Editor *Custom
-effects…* menu, or the Scripts panel) the editor installs the extension and
+VS Code** (from the Flow Graph *Custom nodes…* menu, the UI Editor *Add > Custom
+effects* menu, or the Scripts panel) the editor installs the extension and
 launches VS Code. If VS Code was already open, **reload the window once**
 (Command Palette ▸ *Developer: Reload Window*) to activate it. To (re)install
 without opening a project, use **Custom nodes… ▸ Install VS Code extension** —

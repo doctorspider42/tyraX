@@ -37,6 +37,7 @@ struct Release {
     std::string assetUrl;   // this platform's package, "" when there is none
     std::string assetName;
     long long assetBytes = 0;
+    std::string published;  // "2026-10-16" (published_at's date), "" if absent
 };
 
 // Which asset of a release THIS build installs, matched by file-name suffix

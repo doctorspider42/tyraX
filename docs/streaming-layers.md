@@ -20,8 +20,8 @@ you walk through.
 
 ## Creating layers
 
-Open the **Layers** section in the Project panel (collapsed until the scene
-has layers):
+Open the **Layers** page of the Project panel (the stacked-diamonds icon on the
+left rail):
 
 - **+ Layer** adds a layer. Names are per scene and must be unique.
 - The **eye checkbox** (leftmost) shows/hides the layer's objects in the
@@ -35,8 +35,18 @@ has layers):
 - Rename by typing in the name field — object assignments and flow-graph
   references follow the rename automatically.
 
+The **Outliner** page shows the same thing from the objects' side: in a scene
+with layers the list is grouped into one folder per layer (plus
+*Unassigned*), each with its swatch colour and object count, and a
+**Layers** strip of chips under the list - a click on a chip flips that
+layer's eye, exactly like the checkbox here (the chip's swatch goes hollow and
+its name dim while the layer is hidden). A single object can be hidden on its
+own with the eye at the right end of its row (shown on hover, and always while
+it is off). Like a layer's eye it is saved with the project and undoable, and
+it is editor-only: a hidden object is still in the game.
+
 Assign an object to a layer with the **Layer** combo in the Properties
-window (`<none>` = no layer). Objects without a layer are always resident:
+window (`<none>` = no layer), or drag its Outliner row onto a layer folder. Objects without a layer are always resident:
 terrain, sky, HUD, music and sounds are never streamed either.
 
 Layers are per scene — every scene has its own layer list.

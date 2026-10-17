@@ -115,7 +115,7 @@ up. They keep the per-vertex AO path, where the floor wins.
 The bloom pass downsamples the frame, blurs it and adds it back. Without a
 threshold *everything* glows — the soft-focus look, not a glowing object.
 
-*UI Editor* → the screen stack → **[ Bloom + color grading ]**:
+*UI Editor* → the screen stack → **Bloom + color grading**:
 
 - **Bloom** — how much of the blur is added back, **0 to 2**. The GS blend
   factor is a whole byte, so above 1 the blur is *over*-added: a blown-out,

@@ -37,7 +37,7 @@ the measured frame time).
 ## Things to try
 
 - Select a body and play with **Mass / Bounciness / Friction / Tumble**
-  (Properties, visible while *Physics (rigid body)* is checked).
+  (Properties > Physics tab, visible while *Physics (rigid body)* is checked).
 - Drop the bounciness to 0 on a few bodies and watch them thud dead while
   the rest keep bouncing.
 - Open `kicked-ball`'s Flow Graph and retarget the *Apply Impulse* node.

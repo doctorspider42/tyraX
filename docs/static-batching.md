@@ -41,10 +41,26 @@ in reflections*, 6 physics bodies).
 
 ## Reading the panel
 
-**Batches** lists one row per batch: its texture, how many members, its
-grouping cell, its merged box, and its VU1 packages against what those members
-would cost solo. Selecting a row focuses the overlay on that batch alone,
-which is the only practical way to read a dense scene.
+Four tiles across the top answer "is batching doing its job": **Objects
+batched** (of the eligible ones, with a meter), **Batches**, **Drawn solo**
+(amber when any) and **VU1 packages saved** — the total of every batch's
+saving against its members drawn alone. The fifth tile holds the two view
+switches, *Colour batches in viewport* (the overlay below) and *Show the
+grouping cell*. The window's top line says where the numbers come from and
+how old they are ("from baked .tmdl · updated 12 s ago") beside *Recompute*.
+
+Below them the window is a list and a detail side by side. The list switches
+between **Batches** and **Drawn solo** and filters by texture or object name.
+**Batches** has one row per batch: its overlay colour (the same colour the
+viewport uses), a texture swatch and file name, members, grouping cell, VU1
+packages with the saving as a green delta, and draw distance. Selecting a row
+(scripts: `click 'Static Batches/Batch 7'`) fills the detail and focuses the
+overlay on that batch alone, which is the only practical way to read a dense
+scene.
+
+A project that was never built has no baked `.tmdl`s and therefore nothing to
+group: the window says so and offers **Build** instead of an empty table.
+With batching switched off it offers *Open Project Preferences*.
 
 Packages are the unit to think in, because packages are what the EE pays for:
 about **19.5 µs each** in the Motor District's garage pose, measured on
@@ -61,13 +77,23 @@ costs roughly a millisecond of fixed EE time whatever it holds. Packages fall
 too when members pack together, but a list-mode bag whose members each already
 filled whole packages will show the same count either way.
 
-**Members** lists the selected batch's objects, with the part index for a
-multi-part model (one model can legitimately span several batches — each
-material part joins the batch for its own texture).
+**The detail** of the selected batch shows its packages against the solo
+figure, its cell, merged box and draw distance, strip or list and the lamp that
+lights it, then its **members** — with the part index for a multi-part model
+(one model can legitimately span several batches — each material part joins
+the batch for its own texture) and an *in batch* switch per member, the
+author's opt-out. *Frame* selects the members and moves the camera pivot onto
+the merged box. Last comes **Same cell, drawn solo**: the shapes in this
+batch's cell that did not join any batch, each with its reason, and a one-click
+fix where the reason is a flag you set (*Turn off reflections*, *Include in
+batches*); gameplay reasons (physics body, pickable, a flow graph...) read
+*expected*.
 
-**Not batched** is the tab that earns the feature its keep. Every shape that
-is not in a batch gets a row with the stage that decided it and the reason,
-with the full explanation on hover.
+**Drawn solo** is the list that earns the feature its keep. Every shape that
+is not in a batch is listed under its reason and stage, with what the reason
+means; a reason that is an author's flag gets a fix for the whole group
+(*Turn off reflections for all 19* — one undo step), "alone in its group" a
+shortcut to the grouping cell. Clicking a row selects the object.
 
 ## The reasons, and what they mean
 
@@ -110,7 +136,7 @@ Runtime (`buildStaticBatchList`, among the objects that passed the above):
 | a part is alone | one part of a multi-part model has no batch partner; a model is batched all-or-nothing (the solo path skips it as one object), so the whole model draws solo |
 
 **"Alone in its group" is the common one, and it is usually a near miss.**
-Turn on *Show cell* with a batch selected: two objects that look like they
+Turn on *Show the grouping cell* with a batch selected: two objects that look like they
 should have merged are normally in different cells, or disagree about one key
 — a draw distance, which lamp reaches them, or whether their model baked a
 triangle strip.

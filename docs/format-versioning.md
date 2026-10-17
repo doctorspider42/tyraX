@@ -4,7 +4,7 @@ TyraX tracks two independent versions (both defined in `src/version.hpp`):
 
 | | What | Where | Who reads it |
 |---|---|---|---|
-| **Editor version** | semver `MAJOR.MINOR.PATCH` | title bar, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
+| **Editor version** | semver `MAJOR.MINOR.PATCH` | window title (Mission Control / taskbar when the title bar is merged), *Help* menu, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
 | **Format version** | monotonic int `version::kFormatVersion` | `"formatVersion"` in the `.tyra` manifest | the editor (open gate + migrations) |
 
 They are deliberately separate: the editor version moves with every release

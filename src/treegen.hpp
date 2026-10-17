@@ -121,6 +121,11 @@ const std::vector<Preset>& presets();
 // Select ONE part (2 tris) and face it to the camera with impostorBillboard.
 // Shares the near model's origin and dimensions; intended for distant foliage.
 // Output is an ordinary OBJ/MTL/PNG, not a new console texture format.
+// The impostor's cards captured in memory (CPU), the layout writeImpostor
+// writes as PNG - what the editor previews before a bake.
+bool captureImpostor(const Mesh& mesh, const Image& bark, const Image& leaf, int size, int views,
+                     std::vector<unsigned char>& pixels, std::string* outError);
+
 bool writeImpostor(const std::string& projectDir, const std::string& name,
                    const Mesh& mesh, const Image& bark, const Image& leaf,
                    std::string* outObjRel, std::string* outError,

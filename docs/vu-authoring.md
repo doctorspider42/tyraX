@@ -404,7 +404,7 @@ whatever look was active afterwards.
 
 Check the panel first. This is the easiest way to overflow by accident — a
 custom program replaces the cull half in BOTH modes while the twin beside it
-doubles — so the Micro memory tab prices the mode you are *not* in and says
+doubles — so the budget strip prices the mode you are *not* in and says
 whether it fits. A console run that flipped vu-lab to VU1 clipping mid-game hit
 the engine's own `VU1 pipeline programs overflow into the draw-finish program`
 assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
@@ -414,7 +414,8 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
   in VS Code. *New script...* creates one from a working stub - three kinds,
   *Game script* (the EE), *VU program* (VU1) and *VU0 kernel* (`src/vu0/`).
-- **Tools > VU Programs > Micro memory** reads as a LIST of what runs on the VU,
+- **Tools > VU Programs > Micro memory** (the list's last entry, under the
+  always-visible budget strip) reads as a LIST of what runs on the VU,
   in three groups: what is resident (the clipping mode, the material classes,
   your looks, your scripts — this is the budget), what the other clipping mode
   would cost, and what runs on a VU but is not in this budget at all (animated
@@ -429,29 +430,59 @@ same reason.
 
 ## The panel
 
-*Tools > VU Programs*, four tabs.
+*Tools > VU Programs* is one page: the budget across the top, a list on the
+left, the selected thing in the middle and, for a look, its host check on the
+right.
 
-- **Micro memory** — the resident set as a bar against the real 2042-slot
-  ceiling, one row per material class with what that class costs, and the mask
-  **auto-detected from the scenes and prefabs**. A class the project draws but
-  the mask drops is flagged: dropping it does not crash (the engine walks down
-  to a resident relative) but those meshes lose the feature, which reads as a
-  material bug rather than a settings one.
-- **Programs** — the looks. Each carries a name, the classes it applies to
-  (with the object count per class, so an abstract class name becomes *these
-  things*) and its stage list. A new look starts covering **everything the
-  project draws**: narrowing it should be a decision, not something the default
-  makes for you by omission. A stage that would emit nothing is drawn dimmed
-  with the reason on hover, so "I added it and nothing happened" has an answer
-  on screen. Each parameter is a plain value — meaning every mesh — or a
-  mesh-slot binding.
-- **Generated** — the `.vclpp` this exact stage list produces, and **Run it on
-  the host**: the program executed in the VU simulator over a small synthetic
-  mesh, printed as GS vertices, *twice* — once with the panel's mesh parameters
-  and once with them at zero. The second column is the identity the whole design
-  rests on, and having it next to the first is what makes it a fact rather than
-  a promise. It also reports Q clobbers, which is the one mistake the assembler
-  will not catch.
+- **The budget strip** is always on top, so editing a look and watching what it
+  costs happen in one place: `738-1476 of 2042 slots` (a range — VCL pairs an
+  upper and a lower op when it can, so the exact size is only known after it
+  runs), a bar stacked by what occupies VU1 (the clipper twins, each resident
+  material class in its own colour, then your looks and scripts over the
+  engine's own), hatched from the low to the high estimate, with the six-slot
+  Path1 reserve as a red tick. The legend gives each class's range and which
+  classes are left out (and whether that was detected or set by hand); the
+  verdict at its end — *fits either way*, *fits - the other clipping mode does
+  not*, *DOES NOT FIT* — prices the clipping mode you are *not* in too. The
+  clipping choice itself is the segmented *Clip on EE / Clip on VU1* with each
+  mode's crossing cost. It recomputes every frame from the same `vugen::build`
+  calls the build makes, so adding a stage moves it immediately.
+- **The list**: the **looks** (stage count, how many classes, and a *not built*
+  / *built* / *active* badge), *+ Add a look*, the **VU0 kernel**, the
+  project's **scripts** (`src/vu/*.cpp`) with their on-at-boot switch and slot
+  delta, and **Micro memory**.
+- **A look** — its name, *Build into the game* (off = the game draws without
+  it, and a note under the header says exactly that and how to turn it on),
+  *Active at boot* (which look `install()` activates; the game swaps with
+  `vuprog::activate(i)`), and a menu with *Duplicate* and *Remove look*. **Applies
+  to** is a chip per material class with its object count, so an abstract class
+  name becomes *these things*; a class no scene draws is dimmed. A new look
+  starts covering **everything the project draws**: narrowing it should be a
+  decision, not something the default makes for you by omission. The **stages**
+  are ordered cards — index, name, the slot badge (*Colour*, *Texture (ST)*...),
+  "only Textured and Reflective meshes run it" where that applies, the
+  instruction estimate, an enable switch and a menu (move up/down, remove) —
+  with each parameter as a labelled slider and its binding: **every mesh** (a
+  plain value, the normal case), **mesh slot X..W** (from the object's own VU
+  numbers), or *baked* for a literal-only one. A stage that would emit nothing
+  is drawn dimmed with the reason on hover, so "I added it and nothing
+  happened" has an answer on screen. The dashed *Add stage* row names what can
+  be added.
+- **Check on the host**, beside the look: **Run it** executes the generated
+  program in the VU simulator over a small synthetic mesh *twice* — with the
+  panel's mesh values and with them at zero — and shows a verdict (Q clobbers,
+  the one mistake the assembler will not catch, turn it red), the three
+  vertices with values and at zero, and the generated `.vclpp` (*Copy*). The
+  at-zero column is the identity the whole design rests on, and having it next
+  to the first is what makes it a fact rather than a promise. A look that
+  generates for several classes picks the class from a dropdown.
+- **Micro memory** — the resident set: *Detect from the scenes* (the mask
+  **auto-detected from the scenes and prefabs**) or one switch per material
+  class with what it costs and how many objects use it. A class the project
+  draws but the mask drops is flagged: dropping it does not crash (the engine
+  walks down to a resident relative) but those meshes lose the feature, which
+  reads as a material bug rather than a settings one. Below: the looks and the
+  scripts as resident programs, and what runs on a VU outside this budget.
 - **VU0 kernel** — the same stages on the other unit, with the instruction count
   against VU0's 512 slots, and below it the project's C++ kernels
   (`src/vu0/*.cpp`) with theirs. Those rows come from the last BUILD's manifest,

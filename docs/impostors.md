@@ -5,13 +5,13 @@ original object's collision and gameplay identity.
 
 ![Properties > Distance and LOD > Distant version: a baked 8-view billboard and its switch distance](img/impostor-model.png)
 
-In **Tools > Tree Generator**, enable **Bake distant impostor** before **Add to
-scene**. The generator writes the ordinary tree plus an `-impostor.obj`, matching
+In **Tools > Tree Generator**, turn on **Distant impostor** before **Add to
+scene** (or **Save to project**); its **Impostor** preview shows the card first. The generator writes the ordinary tree plus an `-impostor.obj`, matching
 material and a PNG atlas: 4, 8 or 16 orthographic 128x128 views in four columns.
 For a placed model, open **Properties > Distance and LOD > Distant version**:
 pick **Far away: Billboard (captured views)**, choose **Views**, and click
-**Bake**; in the Tree Generator pick **Tree capture views** before adding a
-tree. The choice takes effect only when baking succeeds; existing assets retain
+**Bake**; in the Tree Generator pick 4, 8 or 16 **views** beside the switch before
+saving a tree. The choice takes effect only when baking succeeds; existing assets retain
 their old count until rebaked (the status next to the button says so). Capture
 runs on the GPU and falls back to the CPU on its own.
 Only one OBJ part is drawn at a time, on a vertical camera-facing card: **two

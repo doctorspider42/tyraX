@@ -5,7 +5,8 @@
 ![Procedural preview](img/procedural-preview.png)
 
 The other half of [procedural generation](procedural-generation.md): a
-Procedural volume has a **mode**, at the top of the *Tools > Procedural* window:
+Procedural volume has a **mode**, the *Baked at build / Runtime on PS2* switch at
+the top of the *Tools > Procedural* inspector:
 
 | Mode | Where the graph runs | What ships |
 |---|---|---|
@@ -78,7 +79,8 @@ same Halton sequence, same per-point channels. Given the same seed, the preview
 in the viewport and the world on the console are the same world — which is what
 makes a runtime volume authorable at all.
 
-**Seed** in the window is that seed, and the mode next to it decides what
+**Seed** in the inspector is that seed, and the choice in the *Runs on the PS2*
+card decides what
 happens at runtime:
 
 - *Same world every run* — reproducible, and what you want while authoring.
@@ -94,8 +96,8 @@ exactly that (TRIANGLE).
 
 Once a volume rolls its own seed, the number in the *Seed* box stops describing
 what a player will get — the viewport is showing one draw out of many. The
-**Seed simulator** (the collapsed section under the tool row, runtime volumes
-only) answers that: press *Simulate* and the editor evaluates the graph on N
+**Seed simulator** (the collapsed section at the end of the inspector, runtime
+volumes only) answers that: press *Simulate* and the editor evaluates the graph on N
 seeds — the authored one first, then the sequence *Reseed* itself hands out —
 and tabulates what each world costs.
 

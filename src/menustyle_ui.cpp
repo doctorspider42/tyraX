@@ -23,6 +23,9 @@
 #include "menubake.hpp"
 #include "menulayout.hpp"
 #include "menustyle.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
 
 namespace {
 
@@ -869,7 +872,9 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
     ImGui::EndDisabled();
 
     // --- what it costs -------------------------------------------------------
-    drawMenuCost(m);
+    ImGui::Spacing();
+    ui::Caption("What it costs");
+    drawMenuCostCard(m);
 }
 
 // The confirm. Deleting a sheet is not undoable through Ctrl+Z (a stylesheet is
@@ -997,37 +1002,6 @@ void App::drawMenuStyleText(GameMenu& m, bool& projectChanged) {
              "writes the canonical form of the same rules.");
 }
 
-// --- the cost readout ---------------------------------------------------------
-
-void App::drawMenuCost(const GameMenu& m) {
-    const menulayout::Layout L = menulayout::compute(m, project_);
-    ImGui::SeparatorText("What it costs");
-    const float pct = L.vramFraction() * 100.0f;
-    ImGui::Text("%d texture(s), %d KB, %.1f%% of GS texture VRAM",
-                (int)L.textures.size(), L.words() * 4 / 1024, pct);
-    if (pct > 35.0f)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "That is a lot for one menu - drop `quant` to 4bit.");
-    for (const menulayout::Texture& t : L.textures)
-        ImGui::BulletText("%s  %dx%d  %d-bit", t.file.c_str(), t.w, t.h, t.bits);
-    ImGui::Text("%d sprite(s) per frame, %d row(s) of %d visible",
-                L.spritesPerFrame, L.rowsVisible, (int)L.rows.size());
-    if (L.stateCells > 0)
-        ImGui::Text("%d state cell(s) baked", L.stateCells);
-    // Honest failure states rather than a silent cut (docs/menu-styles.md).
-    if (L.clipped)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "Panel taller than 512 px - the bottom is clipped.");
-    if (L.stateClipped)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "Too many state cells for one 512 px atlas - the rows\n"
-                           "that missed out draw in their normal style.");
-    if (L.listClipped)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "More rows than a 512 px strip holds - the tail is\n"
-                           "clipped. Fewer rows, or a smaller row height.");
-}
-
 // --- the preview --------------------------------------------------------------
 
 // --- the preview ---------------------------------------------------------------
@@ -1104,6 +1078,7 @@ void App::menuPreviewRefresh(const GameMenu& m) {
         menuPreviewH_ = h;
         menuPreviewContentH_ = L.contentH;
         menuPreviewClipped_ = L.clipped;
+        menuPreviewBakedAt_ = ImGui::GetTime();
     }
     if (stage) menustyle::unstage();
     menuPreviewKey_ = key;
@@ -1151,289 +1126,262 @@ void App::menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int di
     }
 }
 
-void App::menuPreviewControls(const GameMenu& m, int& mode) {
-    // Mode 0 is the panel at its baked pixels; the rest are the project's
-    // SUPPORTED resolutions (Preferences > Display), each showing the panel the
-    // size the game will actually draw it - the framebuffer is 512x448
-    // interlaced but 448x540 in 1080i, so "does my menu still fit" is a
-    // per-resolution question (docs/menu-styles.md "Resolutions").
-    const std::vector<std::string> modes =
-        project::previewDisplayModes(project_.settings);
-    // ImGui's combo takes a NUL-separated list, and a std::string built from a
-    // "\0" literal is EMPTY (the char* constructor stops at the NUL) - so the
-    // separators go in one character at a time.
-    std::string modeItems = "Panel (baked pixels)";
-    const std::string boot = project::bootDisplayMode(project_.settings);
-    for (const std::string& k : modes) {
-        modeItems.push_back('\0');
-        modeItems += project::displayModeInfo(k).label;
-        // Which one the project boots in is a guess whenever the region is Auto,
-        // so say so rather than let the default look authoritative.
-        if (k == boot) modeItems += "  (boots in this)";
-    }
-    modeItems.push_back('\0');
-    if (mode > (int)modes.size()) mode = 0;
-    ImGui::SetNextItemWidth(scaled(210.0f));
-    // A visible label, not "##previewmode": a bare ## id cannot be targeted by
-    // --ui-script (it has no name), which is exactly how a combo like this goes
-    // unchecked (see docs/ui-scripting.md).
-    ImGui::Combo("Preview in", &mode, modeItems.c_str());
-    ImGui::SameLine();
-    // Widescreen is ANAMORPHIC: the same framebuffer, stretched to 16:9 by the
-    // TV. It changes what a baked panel looks like without changing one pixel
-    // of it, so the preview has to be able to show the other case - and the
-    // player can pick it at runtime anyway (the DISPLAY menu's widescreen row).
-    // Disabled in the 1:1 mode, which draws the panel's own texels.
-    static const char* kMenuAspects[] = {"Follow project", "4:3", "16:9"};
-    ImGui::BeginDisabled(mode == 0);
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    ImGui::Combo("Aspect", &menuPreviewAspect_, kMenuAspects, 3);
-    ImGui::EndDisabled();
-    prefHelp("Follow project reads Preferences > Widescreen.\n"
-             "The panel keeps its authored proportions either way (the game\n"
-             "squeezes it to cancel the stretch) - what changes is how much of\n"
-             "the screen it covers, and how the shot around it frames.");
-    // Two rows, and it has to stay two: the Menu Editor is a docked COLUMN and
-    // one row of all of this ran off its right edge, where a widget is drawn,
-    // dumped with a rect and simply cannot be clicked (docs/ui-scripting.md).
-    // What the panel IS goes above, what the preview is DOING goes below.
-    // The simulated cursor: a styled menu's whole point is what the SELECTED
-    // row looks like, so the preview has to be able to move it.
-    const int rows = (int)m.entries.size();
-    const menulayout::Layout stepL = menulayout::compute(m, project_);
-    // Land on something usable to begin with - a menu whose first row is a
-    // section header opens with the cursor on the row below it, on the console
-    // and here.
-    if (!menuPreviewRowUsable(m, stepL, menuPreviewRow_))
-        menuPreviewStep(m, stepL, 1);
-    ImGui::BeginDisabled(rows <= 0);
-    if (ImGui::ArrowButton("Row up", ImGuiDir_Up)) menuPreviewStep(m, stepL, -1);
-    ImGui::SameLine(0.0f, 2.0f);
-    if (ImGui::ArrowButton("Row down", ImGuiDir_Down)) menuPreviewStep(m, stepL, 1);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("row %d", rows > 0 ? menuPreviewRow_ + 1 : 0);
-    prefHelp("Moves the simulated cursor. The preview then draws the same cells\n"
-             "the game picks - selected row, disabled rows, the description.");
-    ImGui::SameLine();
-    ImGui::Checkbox("Play", &menuPreviewPlay_);
-    prefHelp("Runs the sheet's motion here, with the same formulas the console\n"
-             "uses: the loops (@animate), the caret easing and the open\n"
-             "transition. Off freezes it so a still frame can be judged.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Replay")) {
-        menuPreviewOpenT_ = 0.0f;
-        menuPreviewClock_ = 0.0f;
-    }
-    prefHelp("Plays the open transition again from the top.");
-    if (menuPreviewPlay_) {
-        const float dt = ImGui::GetIO().DeltaTime;
-        menuPreviewClock_ += dt;
-        menuPreviewOpenT_ += dt;
-    }
+
+
+// The preview clock, advanced once per frame however many surfaces draw the
+// preview (the Menu Editor and Menu Preview can both be open).
+void App::menuPreviewTick() {
+    const int frame = ImGui::GetFrameCount();
+    if (menuPreviewTickFrame_ == frame) return;
+    menuPreviewTickFrame_ = frame;
+    if (!menuPreviewPlay_) return;
+    const float dt = ImGui::GetIO().DeltaTime;
+    menuPreviewClock_ += dt;
+    menuPreviewOpenT_ += dt;
+    if (menuPreviewCloseT_ >= 0.0f) menuPreviewCloseT_ += dt;
 }
 
-void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
-    if (!menuPreviewTex_) return;
-    // What the motion does to the panel THIS frame, computed exactly the way
-    // renderGameMenu computes it: the open transition's offset and alpha, the
-    // sheen's position, the pulse's alpha. The preview then applies them to the
-    // image it is about to draw, so the timing you tune here is the timing that
-    // ships.
+// What the motion does to the panel THIS frame, computed exactly the way
+// renderGameMenu computes it: the open (or close) transition's offset and
+// alpha, and the sheen. The preview applies it to the image it is about to
+// draw, so the timing you tune here is the timing that ships.
+App::MenuMotion App::menuPreviewMotion(const GameMenu& m) {
+    MenuMotion mo;
     const menustyle::Sheet& sheet = menulayout::sheetFor(m);
-    const menulayout::Layout L = menulayout::compute(m, project_);
-    float openProg = 1.0f, ofsX = 0.0f, ofsY = 0.0f, tint = 1.0f;
-    if (const menustyle::Transition* op =
-            menustyle::transition(sheet, menustyle::Transition::Open)) {
+    if (menuPreviewCloseT_ >= 0.0f) {
+        const menustyle::Transition* cl =
+            menustyle::transition(sheet, menustyle::Transition::Close);
+        const float secs = cl ? cl->seconds : 0.0f;
+        if (cl && secs > 0.0f) {
+            const float p = previewEase(menuPreviewCloseT_ / secs, cl->ease);
+            mo.ofsX = cl->translateX * p;
+            mo.ofsY = cl->translateY * p;
+            mo.tint = cl->fade ? 1.0f - p : (p >= 1.0f ? 0.0f : 1.0f);
+        } else {
+            mo.tint = 0.0f;  // no close transition: the panel just goes
+        }
+        // Gone for a beat, then it opens again - a replayed close is only
+        // readable next to the open it reverses.
+        if (menuPreviewCloseT_ > secs + 0.5f) {
+            menuPreviewCloseT_ = -1.0f;
+            menuPreviewOpenT_ = 0.0f;
+        }
+    } else if (const menustyle::Transition* op =
+                   menustyle::transition(sheet, menustyle::Transition::Open)) {
         if (op->seconds > 0.0f) {
-            openProg = previewEase(menuPreviewOpenT_ / op->seconds, op->ease);
-            ofsX = op->translateX * (1.0f - openProg);
-            ofsY = op->translateY * (1.0f - openProg);
-            if (op->fade) tint = openProg;
+            const float p = previewEase(menuPreviewOpenT_ / op->seconds, op->ease);
+            mo.ofsX = op->translateX * (1.0f - p);
+            mo.ofsY = op->translateY * (1.0f - p);
+            if (op->fade) mo.tint = p;
         }
     }
-    const menustyle::Animation* pulse =
-        menustyle::animation(sheet, menustyle::Animation::Selected);
-    const menustyle::Animation* sheen =
-        menustyle::animation(sheet, menustyle::Animation::Panel);
-    const ImU32 panelTint =
-        IM_COL32(255, 255, 255, (int)(255.0f * (tint < 0 ? 0 : tint)));
-    (void)pulse;  // the pulse rides the cell, drawn into the composite below
-
-    if (mode == 0) {
-        // Baked at native PS2 pixels; upscale the on-screen copy so it isn't a
-        // postage stamp next to the DPI-scaled controls.
-        const ImVec2 at = ImGui::GetCursorPos();
-        ImGui::SetCursorPos(ImVec2(at.x + scaled(ofsX * zoom),
-                                   at.y + scaled(ofsY * zoom)));
-        // ImGui's Image() lost its tint parameter, so the open transition's
-        // fade rides the style alpha instead - same result for a whole image.
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, tint < 0.0f ? 0.0f : tint);
-        ImGui::Image((ImTextureID)(intptr_t)menuPreviewTex_,
-                     ImVec2(scaled((float)menuPreviewW_ * zoom),
-                            scaled((float)menuPreviewContentH_ * zoom)),
-                     ImVec2(0.0f, 0.0f),
-                     ImVec2(1.0f, (float)menuPreviewContentH_ /
-                                      (float)menuPreviewH_));
-        ImGui::PopStyleVar();
-        // The sheen sweeps here too, drawn over the image the same additive way.
-        if (sheen && sheen->seconds > 0.0f && menuPreviewPlay_) {
-            const ImVec2 p0 = ImGui::GetItemRectMin(), p1 = ImGui::GetItemRectMax();
-            // Same travel as the runtime: from one band-width before the panel
-            // to one after, cropped to it (here by a clip rect, on the console
-            // by the sprite's own window - the geometry has to match).
-            const float bandW = sheen->amount > 0 ? sheen->amount : 48.0f;
-            const float phase =
-                std::fmod(menuPreviewClock_, sheen->seconds) / sheen->seconds;
-            const float x0 = phase * ((float)menuPreviewW_ + bandW * 2.0f) - bandW;
-            {
-                const float bw = scaled(bandW * zoom);
-                const float cx = p0.x + scaled((x0 + bandW * 0.5f) * zoom);
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->PushClipRect(p0, p1, true);
-                dl->AddRectFilledMultiColor(
-                    ImVec2(cx - bw * 0.5f, p0.y), ImVec2(cx + bw * 0.5f, p1.y),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
-                             sheen->color.a),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
-                             sheen->color.a),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0));
-                dl->PopClipRect();
-            }
-        }
-    } else {
-        // A mock TV for one display mode: its framebuffer stretched to the
-        // physical shape of its display window, with the panel scaled exactly
-        // the way renderGameMenu scales it (the same two factors).
-        const std::vector<std::string> modes =
-            project::previewDisplayModes(project_.settings);
-        if (mode - 1 >= (int)modes.size()) return;
-        const std::string modeKey = modes[(size_t)mode - 1];
-        const DisplayModeInfo& dm = project::displayModeInfo(modeKey);
-        const float bufW = (float)dm.bufW;
-        const float bufH = (float)dm.logicalH;
-        const bool wide = menuPreviewAspect_ == 0 ? project_.settings.widescreen
-                                                  : (menuPreviewAspect_ == 2);
-        float windowAspect = wide ? (16.0f / 9.0f) : (4.0f / 3.0f);
-        if (modeKey == "1080i" && wide)
-            windowAspect = (1792.0f / 1920.0f) * (16.0f / 9.0f);
-        const float sw = scaled(320.0f * zoom);
-        const float sh = sw / windowAspect;
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        const ImVec2 p1(p0.x + sw, p0.y + sh);
-        dl->AddRectFilled(p0, p1, IM_COL32(18, 20, 26, 255));
-        if (m.pauseGame) dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 115));
-        // The runtime's own scale, then buffer -> screen. The horizontal factor
-        // carries renderGameMenu's anamorphic compensation, so a widescreen
-        // preview shows what it shows there: the same proportions, covering
-        // three quarters of the width it did on 4:3.
-        const float uiSX = bufW / 512.0f * (4.0f / 3.0f) / windowAspect;
-        const float uiSY = bufH / 448.0f;
-        const float toX = sw / bufW, toY = sh / bufH;
-        const float panelW = menuPreviewW_ * uiSX;
-        const float panelH = menuPreviewContentH_ * uiSY;
-        const float panelX = m.screenPos[0] * bufW - panelW * 0.5f;
-        const float panelY = m.screenPos[1] * bufH - panelH * 0.5f;
-        const ImVec2 m0(p0.x + (panelX + ofsX) * toX, p0.y + (panelY + ofsY) * toY);
-        const ImVec2 m1(m0.x + panelW * toX, m0.y + panelH * toY);
-        dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1, ImVec2(0, 0),
-                     ImVec2(1.0f, (float)menuPreviewContentH_ /
-                                      (float)menuPreviewH_),
-                     panelTint);
-        if (sheen && sheen->seconds > 0.0f && menuPreviewPlay_) {
-            const float bandW = sheen->amount > 0 ? sheen->amount : 48.0f;
-            const float phase =
-                std::fmod(menuPreviewClock_, sheen->seconds) / sheen->seconds;
-            const float x0 = phase * ((float)menuPreviewW_ + bandW * 2.0f) - bandW;
-            {
-                const float bw = bandW * uiSX * toX;
-                const float cx = m0.x + (x0 + bandW * 0.5f) * uiSX * toX;
-                dl->PushClipRect(m0, m1, true);
-                dl->AddRectFilledMultiColor(
-                    ImVec2(cx - bw * 0.5f, m0.y), ImVec2(cx + bw * 0.5f, m1.y),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
-                             sheen->color.a),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
-                             sheen->color.a),
-                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0));
-                dl->PopClipRect();
-            }
-        }
-        dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 120));
-        char tag[96];
-        std::snprintf(tag, sizeof(tag), "%s  %.0fx%.0f  %s", dm.label, bufW, bufH,
-                      wide ? "16:9" : "4:3");
-        dl->AddText(ImVec2(p0.x + 4, p1.y - 18), IM_COL32(255, 255, 255, 160), tag);
-        ImGui::Dummy(ImVec2(sw, sh + 4.0f));
-        // Does it still fit? A panel authored for 512x448 is 87.5% as wide in
-        // 480p/1080i, so overflow is rare - but a full-screen panel placed near
-        // an edge does run off, and that is worth saying before the build.
-        if (panelX < 0.0f || panelY < 0.0f || panelX + panelW > bufW ||
-            panelY + panelH > bufH)
-            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.35f, 1.0f),
-                               "Runs off the screen in this mode - move it or "
-                               "make it narrower.");
-    }
-    if (menuPreviewClipped_)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "Panel taller than 512 px - the bottom gets clipped.");
+    if (mo.tint < 0.0f) mo.tint = 0.0f;
+    mo.sheen = menustyle::animation(sheet, menustyle::Animation::Panel);
+    return mo;
 }
 
-// The Menu Editor's own compact preview, above its tabs.
-void App::drawMenuPreview(const GameMenu& m) {
-    ImGui::SeparatorText("Preview");
-    menuPreviewControls(m, menuPreviewMode_);
-    // A shortcut to the roomy one. This preview is sized to leave the tabs
-    // below it visible, so a full-screen panel is judged at a size that is not
-    // the size anything ships at - which is what the standalone window exists
-    // for. Reaching it through Tools means leaving the menu you are editing, so
-    // it gets a button on the row it belongs to; the window it opens is docked
-    // beside this one in the Menu Designer layout, hence focus rather than just
-    // "shown" (a tab that opens behind another one reads as nothing happening).
-    // Not in menuPreviewControls: that row is shared with the standalone window,
-    // where a button opening itself would be nonsense.
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Big preview")) {
-        showMenuPreview_ = true;
-        pendingFocusWindow_ = "Menu Preview";
+// The sheen sweep over a drawn panel rect, the runtime's travel (one band
+// width before the panel to one after), cropped to the panel.
+void App::menuPreviewSheen(const MenuMotion& mo, ImDrawList* dl, ImVec2 m0, ImVec2 m1,
+                           float pxPerTexel) {
+    const menustyle::Animation* sheen = mo.sheen;
+    if (!sheen || sheen->seconds <= 0.0f || !menuPreviewPlay_) return;
+    const float bandW = sheen->amount > 0 ? sheen->amount : 48.0f;
+    const float phase = std::fmod(menuPreviewClock_, sheen->seconds) / sheen->seconds;
+    const float x0 = phase * ((float)menuPreviewW_ + bandW * 2.0f) - bandW;
+    const float bw = bandW * pxPerTexel;
+    const float cx = m0.x + (x0 + bandW * 0.5f) * pxPerTexel;
+    const ImU32 c0 = IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0);
+    const ImU32 c1 = IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, sheen->color.a);
+    dl->PushClipRect(m0, m1, true);
+    dl->AddRectFilledMultiColor(ImVec2(cx - bw * 0.5f, m0.y), ImVec2(cx + bw * 0.5f, m1.y), c0, c1,
+                                c1, c0);
+    dl->PopClipRect();
+}
+
+// The simulated cursor's row as a rect in panel texels (-1 h = no row).
+static bool previewRowBox(const GameMenu& m, const menulayout::Layout& L, int row, int scroll,
+                          float& y, float& h) {
+    if (row < 0 || row >= (int)L.rows.size() || row >= (int)m.entries.size()) return false;
+    if (L.scrolls) {
+        if (row < scroll || row >= scroll + L.rowsVisible) return false;
+        y = (float)(L.row0Y + (row - scroll) * L.rowH);
+        h = (float)L.rowH;
+    } else {
+        y = (float)L.rows[(size_t)row].box.y;
+        h = (float)L.rows[(size_t)row].box.h;
     }
-    prefHelp("Opens the standalone Menu Preview window (Tools > Menu Preview):\n"
-             "the same panel with a zoom, its own display mode and the VRAM\n"
-             "cost next to it. The Menu Designer layout docks the two together.");
-    menuPreviewRefresh(m);
-    menuPreviewDraw(m, menuPreviewMode_, 1.0f);
+    return h > 0.0f;
+}
+
+void App::menuPreviewPanel(const GameMenu& m, ImVec2 p0, float scale, bool outline) {
+    if (!menuPreviewTex_) return;
+    const MenuMotion mo = menuPreviewMotion(m);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 m0(p0.x + mo.ofsX * scale, p0.y + mo.ofsY * scale);
+    const ImVec2 m1(m0.x + (float)menuPreviewW_ * scale, m0.y + (float)menuPreviewContentH_ * scale);
+    dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1, ImVec2(0, 0),
+                 ImVec2(1.0f, (float)menuPreviewContentH_ / (float)menuPreviewH_),
+                 IM_COL32(255, 255, 255, (int)(255.0f * mo.tint)));
+    menuPreviewSheen(mo, dl, m0, m1, scale);
+    float ry = 0.0f, rh = 0.0f;
+    if (outline && mo.tint > 0.5f &&
+        previewRowBox(m, menulayout::compute(m, project_), menuPreviewRow_, menuPreviewScroll_, ry, rh)) {
+        const float pad = std::max(2.0f, scale * 2.0f);
+        dl->AddRect(ImVec2(m0.x - pad, m0.y + ry * scale - pad * 0.5f),
+                    ImVec2(m1.x + pad, m0.y + (ry + rh) * scale + pad * 0.5f),
+                    ImGui::GetColorU32(theme::semantics().accent), 3.0f, 0, 1.5f);
+    }
+}
+
+App::MenuFit App::menuPreviewTV(const GameMenu& m, const std::string& modeKey, bool wide,
+                                ImVec2 p0, float sw, bool outline) {
+    MenuFit fit;
+    const DisplayModeInfo& dm = project::displayModeInfo(modeKey);
+    const float bufW = (float)dm.bufW;
+    const float bufH = (float)dm.logicalH;
+    float windowAspect = wide ? (16.0f / 9.0f) : (4.0f / 3.0f);
+    if (modeKey == "1080i" && wide) windowAspect = (1792.0f / 1920.0f) * (16.0f / 9.0f);
+    const float sh = sw / windowAspect;
+    fit.screenH = sh;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p1(p0.x + sw, p0.y + sh);
+    const float rr = ImGui::GetStyle().FrameRounding;
+    // A mock TV for one display mode: its framebuffer stretched to the
+    // physical shape of its display window, the panel scaled exactly the way
+    // renderGameMenu scales it (the same two factors). The horizontal factor
+    // carries the anamorphic compensation, so a widescreen preview shows the
+    // same proportions covering three quarters of the width.
+    dl->AddRectFilled(p0, p1, ImGui::GetColorU32(sem.ground), rr);
+    if (m.pauseGame) dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 90), rr);
+    const float uiSX = bufW / 512.0f * (4.0f / 3.0f) / windowAspect;
+    const float uiSY = bufH / 448.0f;
+    const float toX = sw / bufW, toY = sh / bufH;
+    const float panelW = menuPreviewW_ * uiSX;
+    const float panelH = menuPreviewContentH_ * uiSY;
+    const float panelX = m.screenPos[0] * bufW - panelW * 0.5f;
+    const float panelY = m.screenPos[1] * bufH - panelH * 0.5f;
+    fit.panelW = panelW;
+    fit.panelH = panelH;
+    fit.fits = !(panelX < -0.5f || panelY < -0.5f || panelX + panelW > bufW + 0.5f ||
+                 panelY + panelH > bufH + 0.5f);
+    if (menuPreviewTex_) {
+        const MenuMotion mo = menuPreviewMotion(m);
+        const ImVec2 m0(p0.x + (panelX + mo.ofsX) * toX, p0.y + (panelY + mo.ofsY) * toY);
+        const ImVec2 m1(m0.x + panelW * toX, m0.y + panelH * toY);
+        dl->PushClipRect(p0, p1, true);
+        dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1, ImVec2(0, 0),
+                     ImVec2(1.0f, (float)menuPreviewContentH_ / (float)menuPreviewH_),
+                     IM_COL32(255, 255, 255, (int)(255.0f * mo.tint)));
+        menuPreviewSheen(mo, dl, m0, m1, uiSX * toX);
+        float ry = 0.0f, rh = 0.0f;
+        if (outline && mo.tint > 0.5f &&
+            previewRowBox(m, menulayout::compute(m, project_), menuPreviewRow_, menuPreviewScroll_,
+                          ry, rh)) {
+            const float pad = 3.0f;
+            dl->AddRect(ImVec2(m0.x - pad, m0.y + ry * uiSY * toY - pad * 0.5f),
+                        ImVec2(m1.x + pad, m0.y + (ry + rh) * uiSY * toY + pad * 0.5f),
+                        ImGui::GetColorU32(sem.accent), 3.0f, 0, 1.5f);
+        }
+        dl->PopClipRect();
+    }
+    dl->AddRect(p0, p1, ImGui::GetColorU32(sem.border), rr);
+    return fit;
+}
+
+// --- the cost card ------------------------------------------------------------
+// Shared by Menu Preview's side card: a VRAM meter, the textures, the counts,
+// and the honest failure states rather than a silent cut.
+void App::drawMenuCostCard(const GameMenu& m) {
+    const theme::Semantics& sem = theme::semantics();
+    const menulayout::Layout L = menulayout::compute(m, project_);
+    const float frac = L.vramFraction();
+    ui::Meter(frac * 2.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("00.0%").x -
+                               ImGui::GetStyle().ItemSpacing.x,
+              0.7f, 1.0f);  // meter shows 0..50% of the heap: a menu past 35% is a lot
+    ImGui::SameLine();
+    {
+        ui::FontScope mono(ui::monoFont());
+        ImGui::Text("%.1f%%", frac * 100.0f);
+    }
+    ImGui::TextDisabled("of GS texture VRAM · %d KB", L.words() * 4 / 1024);
+    if (frac > 0.35f) ImGui::TextColored(sem.warn, "A lot for one menu - try quant 4bit.");
+    ImGui::Spacing();
+    const float right = ImGui::GetContentRegionAvail().x;
+    auto kv = [&](const std::string& k, const std::string& v, bool monoKey) {
+        const ImVec2 p = ImGui::GetCursorPos();
+        {
+            ui::FontScope f(monoKey ? ui::monoFont() : nullptr);
+            ImGui::TextUnformatted(k.c_str());
+        }
+        ui::FontScope mono(ui::monoFont());
+        const float vw = ImGui::CalcTextSize(v.c_str()).x;
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), p.x + right - vw));
+        ImGui::TextDisabled("%s", v.c_str());
+    };
+    for (const menulayout::Texture& t : L.textures) {
+        char v[48];
+        std::snprintf(v, sizeof(v), "%dx%d · %d-bit", t.w, t.h, t.bits);
+        kv(std::filesystem::path(t.file).filename().string(), v, true);
+    }
+    kv("Sprites per frame", std::to_string(L.spritesPerFrame), false);
+    {
+        const int vis = L.rowsVisible > 0 ? L.rowsVisible : (int)L.rows.size();
+        kv("Rows visible", std::to_string(vis) + " of " + std::to_string(L.rows.size()), false);
+    }
+    if (L.stateCells > 0) kv("State cells baked", std::to_string(L.stateCells), false);
+    ImGui::PushTextWrapPos(0.0f);
+    if (L.clipped) ImGui::TextColored(sem.danger, "Panel taller than 512 px - the bottom is clipped.");
+    if (L.stateClipped)
+        ImGui::TextColored(sem.danger, "Too many state cells for one 512 px atlas - the rows that "
+                                       "missed out draw in their normal style.");
+    if (L.listClipped)
+        ImGui::TextColored(sem.danger, "More rows than a 512 px strip holds - the tail is clipped.");
+    ImGui::PopTextWrapPos();
+}
+
+// The pad cursor + the motion controls, shared by both surfaces' toolbars.
+void App::menuPreviewStepRow(const GameMenu& m, int dir) {
+    const menulayout::Layout L = menulayout::compute(m, project_);
+    menuPreviewStep(m, L, dir);
 }
 
 // The standalone Menu Preview window (Tools > Menu Preview, and part of the
-// Menu Designer layout). It follows the Menu Editor's selection and shares its
-// baked texture - what it adds is ROOM: a zoom, its own display mode, and the
-// cost readout next to a panel big enough to judge.
+// Menu Designer layout): the resolution contact sheet. "Does my menu fit" is a
+// per-resolution question (the framebuffer is 512x448 interlaced but 448x540 in
+// 1080i), so every supported mode is drawn side by side, each with its verdict;
+// the views below are the same panel one-large and at its baked pixels. It
+// follows the Menu Editor's selection and shares its baked texture.
 void App::drawMenuPreviewWindow() {
     if (!showMenuPreview_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(520), scaled(560)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1080), scaled(700)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Menu Preview", &showMenuPreview_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
     if (project_.menus.empty()) {
-        ImGui::TextDisabled("No menus in this project yet.");
+        if (ui::EmptyState(ui::Glyph::Screen, "No menus yet",
+                           "Menus are made in the Menu Editor; this window shows them at every "
+                           "resolution the project supports.",
+                           "Open Menu Editor")) {
+            showMenusEditor_ = true;
+            pendingFocusWindow_ = "Menu Editor";
+        }
         ImGui::End();
         return;
     }
-    // Its own menu picker, so the window is useful with the Menu Editor closed;
-    // it defaults to whatever the editor has selected.
-    if (selectedMenu_ < 0 || selectedMenu_ >= (int)project_.menus.size())
-        selectedMenu_ = 0;
-    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (selectedMenu_ < 0 || selectedMenu_ >= (int)project_.menus.size()) selectedMenu_ = 0;
+    const float fs = ImGui::GetFontSize();
+
+    // --- header: which menu, then how to look at it -------------------------
+    ImGui::SetNextItemWidth(scaled(170.0f));
     if (ImGui::BeginCombo("Menu", project_.menus[selectedMenu_].name.c_str())) {
         for (size_t i = 0; i < project_.menus.size(); ++i) {
             char id[96];
-            std::snprintf(id, sizeof(id), "%s##pvm%zu",
-                          project_.menus[i].name.c_str(), i);
+            std::snprintf(id, sizeof(id), "%s##pvm%zu", project_.menus[i].name.c_str(), i);
             if (ImGui::Selectable(id, (int)i == selectedMenu_)) {
                 selectedMenu_ = (int)i;
                 menuStyleLoaded_ = false;  // the sheet follows the selection
@@ -1443,17 +1391,208 @@ void App::drawMenuPreviewWindow() {
         ImGui::EndCombo();
     }
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(scaled(120.0f));
-    ImGui::SliderFloat("Zoom", &menuPreviewZoom_, 0.5f, 4.0f, "%.1fx");
+    ImGui::TextDisabled("follows the Menu Editor");
+    {
+        static const char* const kViews[] = {"Every resolution", "One, large", "Panel pixels"};
+        static const char* const kAspects[] = {"4:3", "16:9"};
+        float viewsW = ui::PillTabWidth("Every resolution", nullptr) +
+                       ui::PillTabWidth("One, large", nullptr) +
+                       ui::PillTabWidth("Panel pixels", nullptr);
+        const float aspW = ui::PillTabWidth("16:9", nullptr) * 2.0f;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        const float x = right - viewsW - aspW - fs;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() < x)
+            ImGui::SetCursorPosX(x);
+        else
+            ImGui::NewLine();  // a narrow dock: the switches get their own line
+        ui::Segmented("##mpv_view", kViews, 3, &menuPreviewView_);
+        ImGui::SameLine();
+        int asp = (menuPreviewAspect_ == 0 ? project_.settings.widescreen : menuPreviewAspect_ == 2) ? 1 : 0;
+        if (ui::Segmented("##mpv_aspect", kAspects, 2, &asp)) menuPreviewAspect_ = asp == 1 ? 2 : 1;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Widescreen is anamorphic: the panel keeps its authored proportions\n"
+                              "(the game squeezes it), it just covers less of the screen.\n"
+                              "Preferences > Widescreen picks the default.");
+    }
+    const bool wide = menuPreviewAspect_ == 0 ? project_.settings.widescreen : (menuPreviewAspect_ == 2);
 
     const GameMenu& m = project_.menus[selectedMenu_];
     menuStyleSync(m);
-    menuPreviewControls(m, menuPreviewWinMode_);
     menuPreviewRefresh(m);
-    ImGui::BeginChild("##menu_preview_img", ImVec2(0, -scaled(160.0f)), 0,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    menuPreviewDraw(m, menuPreviewWinMode_, menuPreviewZoom_);
+    menuPreviewTick();
+    {
+        const menulayout::Layout L = menulayout::compute(m, project_);
+        if (!menuPreviewRowUsable(m, L, menuPreviewRow_)) menuPreviewStep(m, L, 1);
+    }
+
+    ImGui::Spacing();
+    const ImVec2 bodyAvail = ImGui::GetContentRegionAvail();
+    const float sideW = std::min(scaled(300.0f), bodyAvail.x * 0.4f);
+    const std::vector<std::string> modes = project::previewDisplayModes(project_.settings);
+    const std::string boot = project::bootDisplayMode(project_.settings);
+
+    // --- the sheet ------------------------------------------------------------
+    ImGui::BeginChild("##mpv_sheet", ImVec2(bodyAvail.x - sideW - fs * 0.5f, bodyAvail.y));
+    {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 o = ImGui::GetCursorScreenPos();
+        // Captions take two lines when a TV is too narrow for label, size and
+        // verdict side by side.
+        const bool narrow = avail.x < scaled(640.0f);
+        const float capH = ImGui::GetTextLineHeightWithSpacing() * (narrow ? 2.0f : 1.0f) + fs * 0.4f;
+        const float gap = fs * 1.2f;
+        const float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+        auto caption = [&](const std::string& key, ImVec2 at, float w, const MenuFit& f) {
+            const DisplayModeInfo& dm = project::displayModeInfo(key);
+            ImGui::SetCursorScreenPos(at);
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted(dm.label);
+            }
+            ImGui::SameLine();
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextDisabled("%dx%d", dm.bufW, dm.logicalH);
+            }
+            std::string verdict;
+            int kind = 0;
+            char buf[64];
+            if (!f.fits) {
+                verdict = "runs off the screen";
+                kind = 2;
+            } else {
+                std::snprintf(buf, sizeof(buf), "fits · panel %.0fx%.0f", f.panelW, f.panelH);
+                verdict = buf;
+            }
+            if (key == boot && f.fits) {
+                verdict = "boots in this";
+                kind = 3;
+            }
+            const float pw = ui::PillWidth(verdict.c_str());
+            ImGui::SameLine();
+            if (ImGui::GetCursorScreenPos().x + pw > at.x + w) {
+                ImGui::NewLine();
+                ImGui::SetCursorScreenPos(ImVec2(at.x, ImGui::GetCursorScreenPos().y));
+            } else {
+                ImGui::SameLine(at.x - ImGui::GetWindowPos().x + w - pw);
+            }
+            ui::Pill(verdict.c_str(), kind);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(key == boot ? "The mode the game boots in (a guess while the region is Auto).\n"
+                                                "Panel %.0fx%.0f framebuffer px."
+                                              : "Panel %.0fx%.0f framebuffer px in this mode.",
+                                  f.panelW, f.panelH);
+        };
+        if (menuPreviewView_ == 0) {
+            const int n = (int)modes.size();
+            const int cols = n >= 2 && avail.x > scaled(520.0f) ? 2 : 1;
+            const int rowsN = (n + cols - 1) / cols;
+            float w = (avail.x - gap * (float)(cols - 1)) / (float)cols;
+            const float hFit = (avail.y - gap * (float)(rowsN - 1)) / (float)rowsN - capH;
+            if (w / aspect > hFit) w = std::max(scaled(120.0f), hFit * aspect);
+            const float gridW = w * (float)cols + gap * (float)(cols - 1);
+            const float x0 = o.x + (avail.x - gridW) * 0.5f;
+            for (int i = 0; i < n; ++i) {
+                const ImVec2 at(x0 + (float)(i % cols) * (w + gap),
+                                o.y + (float)(i / cols) * (w / aspect + capH + gap));
+                const MenuFit f = menuPreviewTV(m, modes[(size_t)i], wide, at, w, true);
+                caption(modes[(size_t)i], ImVec2(at.x, at.y + f.screenH + fs * 0.4f), w, f);
+            }
+            ImGui::SetCursorScreenPos(o);
+            ImGui::Dummy(ImVec2(avail.x, (float)rowsN * (w / aspect + capH) + gap * (float)(rowsN - 1)));
+        } else if (menuPreviewView_ == 1) {
+            if (menuPreviewWinMode_ < 1 || menuPreviewWinMode_ > (int)modes.size())
+                menuPreviewWinMode_ = 1;
+            // Which one, named by the same label the old window had.
+            std::string items;
+            for (const std::string& k : modes) {
+                items += project::displayModeInfo(k).label;
+                if (k == boot) items += "  (boots in this)";
+                items.push_back('\0');
+            }
+            items.push_back('\0');
+            int pick = menuPreviewWinMode_ - 1;
+            ImGui::SetNextItemWidth(scaled(280.0f));
+            if (ImGui::Combo("Preview in", &pick, items.c_str())) menuPreviewWinMode_ = pick + 1;
+            const ImVec2 a2 = ImGui::GetContentRegionAvail();
+            float w = a2.x;
+            if (w / aspect > a2.y - capH) w = std::max(scaled(160.0f), (a2.y - capH) * aspect);
+            const ImVec2 at(ImGui::GetCursorScreenPos().x + (a2.x - w) * 0.5f, ImGui::GetCursorScreenPos().y);
+            const std::string& key = modes[(size_t)menuPreviewWinMode_ - 1];
+            const MenuFit f = menuPreviewTV(m, key, wide, at, w, true);
+            caption(key, ImVec2(at.x, at.y + f.screenH + fs * 0.4f), w, f);
+        } else {
+            // The baked texels, as large as fits (whole-texel steps when
+            // there is room, so pixels stay square-edged).
+            const float pw = (float)std::max(1, menuPreviewW_), ph = (float)std::max(1, menuPreviewContentH_);
+            float s = std::min(avail.x / pw, (avail.y - capH) / ph);
+            if (s >= 1.0f) s = std::floor(s);
+            const ImVec2 at(o.x + (avail.x - pw * s) * 0.5f, o.y + std::max(0.0f, (avail.y - capH - ph * s) * 0.5f));
+            ImGui::GetWindowDrawList()->AddRectFilled(at, ImVec2(at.x + pw * s, at.y + ph * s),
+                                                      ImGui::GetColorU32(sem.ground));
+            menuPreviewPanel(m, at, s, true);
+            ImGui::SetCursorScreenPos(ImVec2(at.x, at.y + ph * s + fs * 0.4f));
+            ImGui::TextDisabled("%dx%d baked texels at %.0f%%", menuPreviewW_, menuPreviewContentH_, s * 100.0f);
+        }
+    }
     ImGui::EndChild();
-    drawMenuCost(m);
+    ImGui::SameLine();
+
+    // --- the side card ---------------------------------------------------------
+    ImGui::BeginChild("##mpv_side", ImVec2(0, bodyAvail.y));
+    {
+        ui::Caption("Try it like the pad");
+        const int rows = (int)m.entries.size();
+        if (ui::ToolIconButton("Row up", ui::ToolIcon::Up, 0.0f, rows > 0)) menuPreviewStepRow(m, -1);
+        ImGui::SameLine();
+        if (ui::ToolIconButton("Row down", ui::ToolIcon::Down, 0.0f, rows > 0)) menuPreviewStepRow(m, 1);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::Text("row %d / %d", rows > 0 ? menuPreviewRow_ + 1 : 0, rows);
+        }
+        if (ui::ChipButton("Motion", menuPreviewPlay_)) menuPreviewPlay_ = !menuPreviewPlay_;
+        uiscript::markLastItemChecked(menuPreviewPlay_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Runs the sheet's motion with the console's formulas: the loops,\n"
+                              "the caret easing and the transitions. Off freezes a still frame.");
+        ImGui::SameLine();
+        if (ui::ChipButton("Replay open")) {
+            menuPreviewCloseT_ = -1.0f;
+            menuPreviewOpenT_ = 0.0f;
+            menuPreviewClock_ = 0.0f;
+        }
+        ImGui::SameLine();
+        if (ui::ChipButton("Replay close")) menuPreviewCloseT_ = 0.0f;
+        {
+            const menustyle::Sheet& sheet = menulayout::sheetFor(m);
+            auto ms = [&](int which) {
+                const menustyle::Transition* t = menustyle::transition(sheet, which);
+                return t && t->seconds > 0.0f ? std::to_string((int)(t->seconds * 1000.0f + 0.5f)) + " ms"
+                                              : std::string("none");
+            };
+            const std::string line = "open " + ms(menustyle::Transition::Open) + " · close " +
+                                     ms(menustyle::Transition::Close) + " · cursor " +
+                                     ms(menustyle::Transition::Cursor);
+            ImGui::TextDisabled("%s", line.c_str());
+        }
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ui::Caption("What it costs");
+        drawMenuCostCard(m);
+        ImGui::Spacing();
+        ImGui::Spacing();
+        char n[16];
+        std::snprintf(n, sizeof(n), "%d", (int)modes.size());
+        ui::Caption("Resolutions", n);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("The modes this project supports (Preferences > Display). The game "
+                            "scales the panel per mode, so a panel near an edge can run off in one "
+                            "and not another.");
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::EndChild();
     ImGui::End();
 }

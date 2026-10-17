@@ -1,6 +1,11 @@
 // Tools > Vehicle Editor (docs/vehicles.md) - App:: methods declared in
 // app.hpp, own TU (the prefab_ui.cpp precedent).
 //
+// Layout: list (Global defaults, then vehicles) | preview (the hero: Wheels &
+// measures overlay, Baked cost card, scrubbers) | inspector (Model / Handling /
+// Damage / Feel / Cost, inheritance shown per value). Drive it is the header
+// action.
+//
 // A vehicle is defined ONCE per project and placed as often as you like, so
 // this window edits Project::vehicles and the scene knows only a name. Two
 // things shape the file:
@@ -29,10 +34,18 @@
 #include "placement.hpp"
 #include "imgui.h"
 #include "theme.hpp"
+#include "platform.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
+#include "update.hpp"
+#include "widgets.hpp"
+#include <imgui_internal.h>
 
 namespace {
 
 void vehicleHelp(const char* tip) {
+    // On an inspector row the help lives on the caption (dotted underline).
+    if (ui::RowHelp(tip)) return;
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered()) {
@@ -104,6 +117,33 @@ tmdl::Model viewportBody(const tmdl::Model& body, const vehbake::Result& r) {
         m.parts.push_back(std::move(matte));
     }
     return m;
+}
+
+// What the console draws past the far distance (vehicleLodTier = 1 and
+// applyGeoLod): every part that has tiers shows its first one (a part with
+// none stays detailed), the parts farHideMask names are skipped. Indices are
+// kept (a hidden part is emptied, not removed) so lampPart stays valid.
+tmdl::Model farTierBody(const tmdl::Model& body, const vehbake::Result& r) {
+    tmdl::Model m = body;
+    for (size_t pi = 0; pi < m.parts.size(); ++pi) {
+        tmdl::Part& p = m.parts[pi];
+        p.stripVerts.clear();
+        if (pi < 31 && ((r.farHideMask >> pi) & 1)) {
+            p.verts.clear();
+            p.ao.clear();
+        } else if (!p.lods.empty()) {
+            p.verts = p.lods.front().verts;
+            p.ao = p.lods.front().ao;
+        }
+        p.lods.clear();
+    }
+    return m;
+}
+
+// The far tier exists to be shown: a far part that actually carries a tier.
+bool hasFarTier(const vehbake::Result& r) {
+    return r.farPart >= 0 && r.farPart < (int)r.body.parts.size() &&
+           !r.body.parts[(size_t)r.farPart].lods.empty();
 }
 
 }  // namespace
@@ -584,10 +624,15 @@ void App::renameVehicleDef(int index, const std::string& newName) {
                 o.vehicleDef = newName;
 }
 
+// The preview column: the car as the hero (orbit/zoom), a "Wheels & measures"
+// overlay that tags each wheel on the car and draws the wheelbase, the baked
+// cost as a glass card, and the scrubbers (speed, steering, revs, Listen,
+// Spin wheels) as a card under it.
 void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
-    ImGui::SeparatorText("Live preview");
+    const theme::Semantics& sem = theme::semantics();
     if (index < 0 || index >= (int)project_.vehicles.size()) {
-        ImGui::TextWrapped("Add a car and choose its model to preview it.");
+        ui::EmptyState(ui::Glyph::Box, "No vehicle to preview",
+                       "Add a vehicle (+ in the list) and choose its model.");
         if (vehicleEnginePreview_) vehicleEnginePreview_->stop();
         vehiclePreviewSound_ = false;
         vehicleAudioKey_.clear();
@@ -597,7 +642,10 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     vehicleRefreshBake(index, false);
     const auto it = vehicleBakes_.find(v.id);
     if (it == vehicleBakes_.end() || !it->second.ok) {
-        ImGui::TextWrapped("Choose a valid model in the Model tab.");
+        ui::EmptyState(ui::Glyph::Box, "Nothing to preview yet",
+                       it != vehicleBakes_.end() && !it->second.error.empty()
+                           ? "The import failed - see the Model tab."
+                           : "Choose a .glb/.fbx model on the Model tab.");
         if (vehicleEnginePreview_) vehicleEnginePreview_->stop();
         vehiclePreviewSound_ = false;
         vehicleAudioKey_.clear();
@@ -641,7 +689,11 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     if (!hasFast) vehiclePreviewFast_ = false;
     else if (rate > tuning.drive.fastWheelSpeed) vehiclePreviewFast_ = true;
     else if (rate < tuning.drive.fastWheelSpeed * .8f) vehiclePreviewFast_ = false;
+    const bool farTier = hasFarTier(baked);
+    if (!farTier || vehDmgPreviewId_ == v.id) vehiclePreviewFar_ = false;
+    const bool showFar = vehiclePreviewFar_;
     const std::string key = it->second.key + "|" + v.name + (vehiclePreviewFast_ ? "|fast" : "|normal") +
+        (showFar ? "|far" : "|near") +
         "|" + std::to_string(v.drive.track) + "|" + std::to_string(v.drive.wheelBase) +
         "|" + std::to_string(v.drive.wheelRadius) + "|" + std::to_string(v.drive.rideHeight);
     if (key != vehiclePreviewKey_) {
@@ -651,8 +703,11 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         vehiclePreview_->clearVehicleDraws();
         vehiclePreview_->invalidateAssets();
         const auto& body = vehDmgPreviewId_ == v.id ? vehDmgPreviewBody_ : baked.body;
-        vehiclePreview_->setVehicleDraw(v.name, viewportBody(body, baked),
-            vehiclePreviewFast_ ? baked.fastWheel : baked.wheel,
+        // Far: the far tier carries the wheels baked in, and the console
+        // stops the wheel bag while it shows - so no wheel mesh.
+        static const tmdl::Model kNoWheel;
+        vehiclePreview_->setVehicleDraw(v.name, showFar ? farTierBody(baked.body, baked) : viewportBody(body, baked),
+            showFar ? kNoWheel : (vehiclePreviewFast_ ? baked.fastWheel : baked.wheel),
             ".res-baked/vehicles/veh-" + v.id + "-palette.png",
             v.drive.wheelBase, v.drive.track, v.drive.wheelRadius, v.drive.rideHeight,
             baked.lampPart, baked.lampRearVerts);
@@ -661,10 +716,15 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         vehiclePreviewSpin_ = std::fmod(vehiclePreviewSpin_ + rate *
             std::min(ImGui::GetIO().DeltaTime, .1f), 6.2831853f);
     bool steered[4] = {true, true, false, false};
+    bool driven[4] = {false, false, true, true};
     for (size_t w = 0; w < baked.detection.wheels.size() && w < 4; ++w) {
         steered[w] = baked.detection.wheels[w].steered;
+        driven[w] = baked.detection.wheels[w].driven;
         for (const auto& row : v.wheels)
-            if (row.node == baked.detection.wheels[w].nodeName) steered[w] = row.steered;
+            if (row.node == baked.detection.wheels[w].nodeName) {
+                steered[w] = row.steered;
+                driven[w] = row.driven;
+            }
     }
     vehiclePreview_->setVehiclePreviewPose(vehiclePreviewSpin_,
         vehiclePreviewSteer_ * .0174532925f, steered);
@@ -672,13 +732,20 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     car.type = PrimitiveType::Vehicle;
     car.vehicleDef = v.name;
     car.position[1] = v.drive.wheelRadius;
-    const float width = ImGui::GetContentRegionAvail().x;
-    const float height = std::max(scaled(180), std::min(scaled(300), width * .8f));
+
+    const bool driving = vehicleDriveObj_ >= 0;
+    const float cardH = driving ? ImGui::GetTextLineHeightWithSpacing() * 5.0f + scaled(24)
+                                : ImGui::GetFrameHeightWithSpacing() * 2.0f + scaled(24);
+    const float width = std::max(scaled(160), ImGui::GetContentRegionAvail().x);
+    const float height = std::max(scaled(180), ImGui::GetContentRegionAvail().y - cardH - scaled(8));
     const auto tex = vehiclePreview_->render((int)width, (int)height, {car}, {}, -1);
     const ImVec2 imagePos = ImGui::GetCursorScreenPos();
+    ImGui::SetNextItemAllowOverlap();  // the overlay controls sit on top
     ImGui::InvisibleButton("Vehicle preview canvas", ImVec2(width, height));
-    ImGui::GetWindowDrawList()->AddImage((ImTextureID)(intptr_t)tex, imagePos,
-        ImVec2(imagePos.x + width, imagePos.y + height), ImVec2(0, 1), ImVec2(1, 0));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+    dl->AddImageRounded((ImTextureID)(intptr_t)tex, imagePos,
+        ImVec2(imagePos.x + width, imagePos.y + height), ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, r);
     ImGui::SetItemTooltip("Drag to orbit. Scroll to zoom.");
     if (ImGui::IsItemHovered()) {
         const auto& io = ImGui::GetIO();
@@ -686,20 +753,241 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
             vehiclePreview_->orbit(io.MouseDelta.x, io.MouseDelta.y);
         if (io.MouseWheel != 0) vehiclePreview_->zoom(io.MouseWheel);
     }
-    if (ImGui::SmallButton("Reset view")) frameCar();
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s wheels", vehiclePreviewFast_ ? "Fast" : "Normal");
-    ImGui::Checkbox("Spin wheels", &vehiclePreviewPlay_);
-    ImGui::SetNextItemWidth(-scaled(95));
-    ImGui::SliderFloat("Speed", &vehiclePreviewSpeed_, 0, 240, "%.0f km/h");
-    ImGui::SetNextItemWidth(-scaled(95));
-    ImGui::SliderFloat("Steering", &vehiclePreviewSteer_, -40, 40, "%.0f deg");
-    ImGui::SeparatorText("Engine audition");
-    ImGui::SetNextItemWidth(-scaled(95));
-    ImGui::SliderFloat("Revs", &vehiclePreviewRevs_, 0, 1, "%.2f");
-    ImGui::TextDisabled("%.0f RPM", tuning.drive.idleRpm + vehiclePreviewRevs_ *
-        (tuning.drive.redlineRpm - tuning.drive.idleRpm));
-    ImGui::Checkbox("Listen to engine", &vehiclePreviewSound_);
+
+    // World -> canvas, from the preview's own orbit camera (Viewport's
+    // cameraRay: FOV 50 degrees, eye from yaw/pitch/distance around target).
+    float yaw, pitch, dist, tgt[3];
+    vehiclePreview_->camState(yaw, pitch, dist, tgt);
+    const float eye[3] = {tgt[0] + dist * std::cos(pitch) * std::cos(yaw), tgt[1] + dist * std::sin(pitch),
+                          tgt[2] + dist * std::cos(pitch) * std::sin(yaw)};
+    float fwd[3] = {tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]};
+    {
+        const float l = std::sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]);
+        for (float& c : fwd) c /= std::max(l, 1e-6f);
+    }
+    float right[3] = {-fwd[2], 0.0f, fwd[0]};  // fwd x up
+    {
+        const float l = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+        right[0] /= std::max(l, 1e-6f), right[2] /= std::max(l, 1e-6f);
+    }
+    const float up[3] = {right[1] * fwd[2] - right[2] * fwd[1], right[2] * fwd[0] - right[0] * fwd[2],
+                         right[0] * fwd[1] - right[1] * fwd[0]};
+    const float th = std::tan(50.0f * 3.14159265f / 180.0f * 0.5f), aspect = width / height;
+    auto toScreen = [&](float x, float y, float z, ImVec2& out) {
+        const float d[3] = {x - eye[0], y - eye[1], z - eye[2]};
+        const float zc = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2];
+        if (zc < 1e-3f) return false;
+        const float xc = (d[0] * right[0] + d[1] * right[1] + d[2] * right[2]) / (zc * th * aspect);
+        const float yc = (d[0] * up[0] + d[1] * up[1] + d[2] * up[2]) / (zc * th);
+        out = ImVec2(imagePos.x + (0.5f + 0.5f * xc) * width, imagePos.y + (0.5f - 0.5f * yc) * height);
+        return true;
+    };
+
+    // Wheels & measures: tags on the four hubs (front/rear and left/right
+    // from the bake's own detection) and the wheelbase as a dimension line.
+    if (vehicleShowMeasures_) {
+        const float hx = 0.5f * v.drive.track, hz = 0.5f * v.drive.wheelBase;
+        const float wy = v.drive.wheelRadius;
+        const float hub[4][3] = {{-hx, wy, hz}, {hx, wy, hz}, {-hx, wy, -hz}, {hx, wy, -hz}};
+        static const char* const kTags[4] = {"FL", "FR", "RL", "RR"};
+        // Draw the two wheels nearer the camera last, so their tags win.
+        int order[4] = {0, 1, 2, 3};
+        std::sort(order, order + 4, [&](int a, int b) {
+            auto dd = [&](int w) {
+                const float dx = hub[w][0] - eye[0], dz = hub[w][2] - eye[2];
+                return dx * dx + dz * dz;
+            };
+            return dd(a) > dd(b);
+        });
+        for (int k = 0; k < 4; ++k) {
+            const int w = order[k];
+            ImVec2 s;
+            if (!toScreen(hub[w][0], hub[w][1] - wy * 0.9f, hub[w][2], s)) continue;
+            const char* role = steered[w] && driven[w] ? "steer+drive" : steered[w] ? "steer" : driven[w] ? "drive" : "free";
+            const float fs = ImGui::GetFontSize() * 0.86f;
+            ImFont* f = ImGui::GetFont();
+            const float tw = f->CalcTextSizeA(fs, FLT_MAX, 0, kTags[w]).x;
+            const float rw = f->CalcTextSizeA(fs, FLT_MAX, 0, role).x;
+            const float pad = scaled(5), gap = scaled(5);
+            const float bw = pad + tw + gap + rw + pad * 1.6f, bh = fs + pad * 1.4f;
+            const ImVec2 b0(s.x - bw * 0.5f, s.y), b1(s.x + bw * 0.5f, s.y + bh);
+            const bool hot = vehicleHoverWheel_ == w;
+            ui::OverlayGlassPanel(dl, b0, b1);
+            if (hot) dl->AddRect(b0, b1, ImGui::GetColorU32(sem.accent), bh * 0.3f, 0, 2.0f);
+            dl->AddText(f, fs, ImVec2(b0.x + pad, b0.y + pad * 0.7f), ImGui::GetColorU32(sem.text), kTags[w]);
+            const ImVec4 rc = steered[w] ? sem.accent : driven[w] ? sem.ok : sem.textDim;
+            const ImVec2 r0(b0.x + pad + tw + gap - pad * 0.4f, b0.y + pad * 0.35f);
+            dl->AddRectFilled(r0, ImVec2(r0.x + rw + pad * 0.8f, b1.y - pad * 0.35f),
+                              ImGui::GetColorU32(ImVec4(rc.x, rc.y, rc.z, 0.18f)), bh * 0.3f);
+            dl->AddText(f, fs, ImVec2(r0.x + pad * 0.4f, b0.y + pad * 0.7f), ImGui::GetColorU32(rc), role);
+            if (hot) {
+                ImVec2 c;
+                if (toScreen(hub[w][0], hub[w][1], hub[w][2], c))
+                    dl->AddCircle(c, std::max(scaled(14), (s.y - c.y) * 1.05f), ImGui::GetColorU32(sem.accent), 32, 2.0f);
+            }
+        }
+        // The wheelbase on the side facing the camera, just above the floor.
+        const float side = (eye[0] >= 0.0f ? 1.0f : -1.0f) * (hx + wy * 0.6f);
+        ImVec2 a, b;
+        if (toScreen(side, 0.02f, hz, a) && toScreen(side, 0.02f, -hz, b)) {
+            const ImU32 lc = ImGui::GetColorU32(sem.ok);
+            dl->AddLine(a, b, lc, 1.5f);
+            dl->AddLine(ImVec2(a.x, a.y - scaled(5)), ImVec2(a.x, a.y + scaled(5)), lc, 1.5f);
+            dl->AddLine(ImVec2(b.x, b.y - scaled(5)), ImVec2(b.x, b.y + scaled(5)), lc, 1.5f);
+            char lab[48];
+            std::snprintf(lab, sizeof lab, "wheelbase %.3f m", v.drive.wheelBase / std::max(0.001f, project_.settings.unitsPerMeter));
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(lab);
+            const ImVec2 m((a.x + b.x) * 0.5f - ts.x * 0.5f - scaled(6), (a.y + b.y) * 0.5f - ts.y * 0.5f - scaled(3));
+            ui::OverlayGlassPanel(dl, m, ImVec2(m.x + ts.x + scaled(12), m.y + ts.y + scaled(6)));
+            dl->AddText(ImVec2(m.x + scaled(6), m.y + scaled(3)), lc, lab);
+        }
+    }
+
+    // Overlay: Near | Far, Reset view | Spin wheels | Wheels & measures, top left.
+    float overlayRight = imagePos.x;
+    {
+        const float pad = scaled(10);
+        const char* mText = "Wheels & measures";
+        const char* sText = vehiclePreviewFast_ ? "Spin wheels (fast)" : "Spin wheels";
+        const float w0 = ui::OverlayTextWidth("Reset view"), w1 = ui::OverlayTextWidth(mText),
+                    w2 = ui::OverlayTextWidth(sText);
+        const float wn = ui::OverlayTextWidth("Near"), wf = ui::OverlayTextWidth("Far");
+        const ImVec2 c0(imagePos.x + pad, imagePos.y + pad);
+        const ImVec2 c1(c0.x + wn + wf + w0 + w1 + w2 + ui::OverlayPad() * 2.0f + scaled(40),
+                        c0.y + ui::OverlayRowHeight() + ui::OverlayPad() * 2.0f);
+        ui::OverlayGlassPanel(dl, c0, c1);
+        overlayRight = c1.x;
+        ImGui::SetCursorScreenPos(ImVec2(c0.x + ui::OverlayPad(), c0.y + ui::OverlayPad()));
+        // Near | Far: the model the console draws close up, or the far tier
+        // it swaps to past the far distance (wheels baked in, glass an
+        // authored far model paints hidden).
+        const bool farOk = farTier && vehDmgPreviewId_ != v.id;
+        if (ui::OverlayTextButton("Near", "Near", !vehiclePreviewFar_)) vehiclePreviewFar_ = false;
+        uiscript::markLastItemChecked(!vehiclePreviewFar_);
+        ImGui::SameLine(0.0f, scaled(2));
+        if (ui::OverlayTextButton("Far", "Far", vehiclePreviewFar_, farOk)) vehiclePreviewFar_ = true;
+        uiscript::markLastItemChecked(vehiclePreviewFar_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(farOk ? "The far tier: what the console draws past the far distance\n"
+                                      "(wheels baked in, one bag fewer)."
+                                    : vehDmgPreviewId_ == v.id
+                                          ? "The damage preview shows the near model."
+                                          : "This car has no far tier (Cost tab).");
+        ImGui::SameLine(0.0f, scaled(16));
+        if (ui::OverlayTextButton("Reset view", "Reset view", false)) frameCar();
+        ImGui::SameLine(0.0f, scaled(8));
+        if (ui::OverlayTextButton("Spin wheels", sText, vehiclePreviewPlay_)) vehiclePreviewPlay_ = !vehiclePreviewPlay_;
+        uiscript::markLastItemChecked(vehiclePreviewPlay_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Turns the wheels at the Speed below; past the fast-wheel\n"
+                              "threshold the fast wheel swaps in.");
+        ImGui::SameLine(0.0f, scaled(8));
+        if (ui::OverlayTextButton("Wheels & measures", mText, vehicleShowMeasures_))
+            vehicleShowMeasures_ = !vehicleShowMeasures_;
+        uiscript::markLastItemChecked(vehicleShowMeasures_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Tags each wheel with its role (steered / driven) and draws\n"
+                              "the measured wheelbase. Hover a row of the Model tab's\n"
+                              "wheel table to ring that wheel.");
+    }
+
+    // Baked cost, glass card top right: what one of these costs the console.
+    {
+        const int submits = baked.bodyParts + baked.wheelParts;
+        char tris[32], subs[16], far[64];
+        std::snprintf(tris, sizeof tris, "%d", baked.bodyTris + baked.wheelTris * 4);
+        std::snprintf(subs, sizeof subs, "%d", submits);
+        far[0] = 0;
+        if (baked.farPart >= 0 && (v.farDistance > 0.0f || v.trafficDistance > 0.0f))
+            std::snprintf(far, sizeof far, "%d - %d subs", baked.farTris.empty() ? 0 : baked.farTris[0],
+                          baked.farSubmits);
+        const float fs = ImGui::GetFontSize();
+        const float lh = fs + scaled(4);
+        const float cw = scaled(200), chh = scaled(14) + lh * (far[0] ? 4.0f : 3.0f);
+        ImVec2 k0(imagePos.x + width - scaled(10) - cw, imagePos.y + scaled(10));
+        if (k0.x < overlayRight + scaled(10)) k0.y = imagePos.y + height - scaled(10) - chh;  // no room up top
+        if (cw < width * 0.6f) {
+            ui::OverlayGlassPanel(dl, k0, ImVec2(k0.x + cw, k0.y + chh));
+            float y = k0.y + scaled(8);
+            dl->AddText(ui::boldFont() ? ui::boldFont() : ImGui::GetFont(), fs * 0.8f, ImVec2(k0.x + scaled(10), y),
+                        ImGui::GetColorU32(sem.textDim), "BAKED COST");
+            y += lh;
+            auto rowL = [&](const char* l, const char* val) {
+                dl->AddText(ImVec2(k0.x + scaled(10), y), ImGui::GetColorU32(sem.textDim), l);
+                ui::FontScope mono(ui::monoFont());
+                const float vw = ImGui::CalcTextSize(val).x;
+                dl->AddText(ImVec2(k0.x + cw - scaled(10) - vw, y), ImGui::GetColorU32(sem.text), val);
+                y += lh;
+            };
+            rowL("Triangles", tris);
+            rowL("Draw submissions", subs);
+            if (far[0]) {
+                char l[32];
+                std::snprintf(l, sizeof l, "Beyond %.0f u", v.farDistance > 0.0f ? v.farDistance : v.trafficDistance);
+                rowL(l, far);
+            }
+        }
+    }
+    ImGui::SetCursorScreenPos(ImVec2(imagePos.x, imagePos.y + height + scaled(8)));
+
+    // The card under the preview: scrubbers, or the test drive's telemetry.
+    ui::BeginCard("##vehscrub", ImVec2(width, cardH - scaled(4)));
+    if (driving) {
+        const vehiclesim::DriveState& st = vehicleDriveState_;
+        ImGui::TextDisabled("W gas, S brake / reverse, A/D steer, Space handbrake, E nitrous");
+        ImGui::Text("Speed %.2f u/s   slip %.2f   steer %.1f deg", st.speed, st.lateral, st.steerAngle);
+        ImGui::Text("Gear %s%d   rpm %.0f   nitrous %.0f%%%s", st.gear < 0 ? "R" : "",
+                    st.gear < 0 ? 1 : st.gear + 1, st.rpm - st.limiterDip, st.nos * 100.0f,
+                    st.nosActive ? "  (boosting)" : "");
+        const float mag = std::fabs(st.speed) + std::fabs(st.lateral);
+        ImGui::Text("Pitch %.1f  roll %.1f  %s   sideways %.0f%%%s", st.pitch, st.roll,
+                    st.grounded ? "on the ground" : "airborne",
+                    mag > 0.01f ? 100.0f * std::fabs(st.lateral) / mag : 0.0f,
+                    v.drive.damage > 0.0f ? "" : "");
+        ui::Switch("Hold throttle", &vehicleDriveHoldThrottle_);
+        ImGui::SameLine(0.0f, scaled(16));
+        ImGui::SetNextItemWidth(scaled(160));
+        ImGui::SliderFloat("Steer", &vehicleDriveSteer_, -1.0f, 1.0f, "%.2f");
+    } else {
+        const float half = (ImGui::GetContentRegionAvail().x - scaled(20)) * 0.5f;
+        const float labW = ImGui::CalcTextSize("Steering").x + scaled(10);
+        auto scrub = [&](const char* label, float* val, float lo, float hi, const char* fmt) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(label);
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, labW - ImGui::CalcTextSize(label).x));
+            ImGui::SetNextItemWidth(half - labW);
+            ImGui::SliderFloat(label, val, lo, hi, fmt);
+        };
+        // The sliders keep their labels as IDs (scripts name 'Speed',
+        // 'Steering', 'Revs'); the right-hand label is clipped by a width
+        // that ends where the next column starts.
+        const float x0 = ImGui::GetCursorPosX();
+        ImGui::BeginGroup();
+        ImGui::PushClipRect(ImGui::GetCursorScreenPos(),
+                            ImVec2(ImGui::GetCursorScreenPos().x + half, ImGui::GetCursorScreenPos().y + 200), true);
+        scrub("Speed", &vehiclePreviewSpeed_, 0, 240, "%.0f km/h");
+        scrub("Revs", &vehiclePreviewRevs_, 0, 1, "%.2f");
+        ImGui::PopClipRect();
+        ImGui::EndGroup();
+        ImGui::SameLine(x0 + half + scaled(20));
+        ImGui::BeginGroup();
+        const ImVec2 g0 = ImGui::GetCursorScreenPos();
+        ImGui::PushClipRect(g0, ImVec2(g0.x + half, g0.y + 200), true);
+        scrub("Steering", &vehiclePreviewSteer_, -40, 40, "%.0f deg");
+        ImGui::PopClipRect();
+        ui::Switch("Listen to engine", &vehiclePreviewSound_);
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%.0f rpm", tuning.drive.idleRpm + vehiclePreviewRevs_ *
+            (tuning.drive.redlineRpm - tuning.drive.idleRpm));
+        ImGui::EndGroup();
+    }
+    if (vehicleEnginePreview_ && !vehicleEnginePreview_->error().empty())
+        ImGui::TextColored(sem.warn, "%s", vehicleEnginePreview_->error().c_str());
+    ui::EndCard();
+
     if (!vehicleEnginePreview_) vehicleEnginePreview_ = std::make_unique<audiopreview::EngineLoop>();
     const std::string audibleHigh = tuning.engineHighEnabled ? tuning.engineHighSound : "";
     const std::string audioKey = project_.dir + "|" + tuning.engineSound + "|" + audibleHigh;
@@ -731,8 +1019,6 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         vehicleEnginePreview_->stop();
         vehicleAudioKey_.clear();
     }
-    if (!vehicleEnginePreview_->error().empty())
-        ImGui::TextWrapped("%s", vehicleEnginePreview_->error().c_str());
 }
 
 void App::drawVehicleWindow() {
@@ -742,8 +1028,8 @@ void App::drawVehicleWindow() {
         vehicleAudioKey_.clear();
         return;
     }
-    ImGui::SetNextWindowSizeConstraints(ImVec2(scaled(1120), scaled(520)), ImVec2(FLT_MAX, FLT_MAX));
-    ImGui::SetNextWindowSize(ImVec2(scaled(1280), scaled(720)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(scaled(1000), scaled(560)), ImVec2(FLT_MAX, FLT_MAX));
+    ImGui::SetNextWindowSize(ImVec2(scaled(1280), scaled(780)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Vehicle Editor", &showVehicles_)) {
         if (vehicleEnginePreview_) vehicleEnginePreview_->stop();
         vehiclePreviewSound_ = false;
@@ -751,6 +1037,7 @@ void App::drawVehicleWindow() {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
 
     // The section guard: a widget added later that forgets its own `changed`
     // flag is still caught, because the whole body is compared before/after.
@@ -764,62 +1051,22 @@ void App::drawVehicleWindow() {
     // window reads as a feature that does not work.
     if (vehicleSel_ == -1) vehicleSel_ = defs.empty() ? -2 : 0;
 
-    // --- the definition list ------------------------------------------------
-    ImGui::BeginChild("##vehlist", ImVec2(scaled(180), 0), true);
-    if (ImGui::Selectable("Global defaults", vehicleSel_ == -2)) vehicleSel_ = -2;
-    ImGui::Separator();
-    for (int i = 0; i < (int)defs.size(); ++i) {
-        // An explicit ##id: two definitions may not share a name, but one is
-        // being TYPED for a moment during a rename, and a Selectable's label
-        // is its ImGui id.
-        const std::string label = defs[i].name + "##vehsel" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), vehicleSel_ == i)) vehicleSel_ = i;
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    ImGui::BeginChild("Vehicle settings", ImVec2(ImGui::GetContentRegionAvail().x - scaled(330), 0));
-    ImGui::BeginGroup();
-    if (ImGui::Button("New vehicle")) {
-        VehicleDef v;
-        v.id = project::newObjectId();
-        v.name = uniqueName(defs, "Car");
+    bool pendingNew = false;
+    auto newVehicle = [&] { pendingNew = true; };
+    auto createVehicle = [&] {
+        VehicleDef nv;
+        nv.id = project::newObjectId();
+        nv.name = uniqueName(defs, "Car");
         // A NEW car can be damaged; the struct default stays 0 so every
         // definition saved before damage existed keeps driving as it did.
-        v.drive.damage = 1.0f;
-        v.drive.lampGlow = 1.0f;
-        v.inheritDefaults = true;
-        defs.push_back(std::move(v));
+        nv.drive.damage = 1.0f;
+        nv.drive.lampGlow = 1.0f;
+        nv.inheritDefaults = true;
+        defs.push_back(std::move(nv));
         vehicleSel_ = (int)defs.size() - 1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Duplicate") && vehicleSel_ >= 0) {
-        VehicleDef v = defs[vehicleSel_];
-        v.id = project::newObjectId();
-        v.name = uniqueName(defs, v.name + " copy");
-        defs.push_back(std::move(v));
-        vehicleSel_ = (int)defs.size() - 1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Delete") && vehicleSel_ >= 0) {
-        // Instances keep their name reference. That is deliberate: a delete
-        // must not silently edit scenes, and a dangling name is reported by
-        // the instance's own Properties row where the author can see it.
-        vehicleBakes_.erase(defs[vehicleSel_].id);
-        defs.erase(defs.begin() + vehicleSel_);
-        if (vehicleSel_ >= (int)defs.size()) vehicleSel_ = (int)defs.size() - 1;
-    }
-
-    if (vehicleSel_ == -1) {
-        ImGui::Separator();
-        ImGui::TextDisabled("No vehicle selected.");
-        ImGui::EndGroup();
-        ImGui::EndChild();
-        if (project::sectionJson(project_, project::Section::Vehicles) != before)
-            commitChange();
-        ImGui::End();
-        return;
-    }
+        vehicleTab_ = 0;  // a new car needs its model first
+    };
+    int duplicateAt = -1, deleteAt = -1;
 
     const bool global = vehicleSel_ == -2;
     project::applyVehicleDefaults(project_);
@@ -828,33 +1075,236 @@ void App::drawVehicleWindow() {
     const VehicleBakeCache* bake = nullptr;
     if (auto it = vehicleBakes_.find(v.id); it != vehicleBakes_.end()) bake = &it->second;
 
-    ImGui::Separator();
+    // Which placed instance a test drive takes: the first of this definition
+    // in the active scene.
+    int inst = -1;
+    if (!global) {
+        const std::vector<SceneObject>& objs = project_.objects();
+        for (int i = 0; i < (int)objs.size(); ++i)
+            if (objs[i].type == PrimitiveType::Vehicle && objs[i].vehicleDef == v.name) {
+                inst = i;
+                break;
+            }
+    }
+
+    // --- header: count, Drive it, docs ------------------------------------------
+    {
+        const float rowH = ImGui::GetFrameHeight();
+        const float y0 = ImGui::GetCursorPosY();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%d vehicle%s", (int)defs.size(), defs.size() == 1 ? "" : "s");
+        const bool driving = vehicleDriveObj_ >= 0;
+        const char* label = driving ? "Stop driving" : "Drive it";
+        // Drive it = the design's green "go" primary (Run's colour) with a
+        // play triangle; room for the triangle in both states keeps it still.
+        const float bw = ImGui::CalcTextSize(label).x + ImGui::GetFontSize() * 1.1f +
+                         ImGui::GetStyle().FramePadding.x * 3.0f;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - bw - rowH - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SetCursorPosY(y0);
+        if (driving) {
+            if (ui::SecondaryButton(label, bw)) vehicleDriveStop();
+        } else {
+            // The reason vehiclesim is host-only: the same step() the console
+            // runs, driven from the keyboard against the real scene's terrain,
+            // so grip is tuned in a "slider, feel, slider" loop.
+            if (ui::GoButton(label, bw, inst >= 0)) {
+                vehicleDriveHoldThrottle_ = false;
+                vehicleDriveSteer_ = 0.0f;
+                vehicleDriveStart(inst);
+            }
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s", driving ? "Puts the car back where it was."
+                                    : global ? "Select a vehicle to drive it."
+                                    : inst < 0 ? "Place one in this scene first (Add object > Gameplay > Vehicle)."
+                                               : "Drive the placed car in the viewport (W/S/A/D, Space, E).\n"
+                                                 "Puts it back where it was when you stop.");
+        ImGui::SameLine();
+        ImGui::SetCursorPosY(y0);
+        if (ui::HelpButton("Vehicle docs", rowH, "Open docs/vehicles.md"))
+            platform::openUrl(std::string("https://github.com/") + update::kRepo + "/blob/main/docs/vehicles.md");
+    }
+
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float listW = scaled(230), inspW = scaled(380);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+
+    // --- the definition list ------------------------------------------------
+    ImGui::BeginChild("##vehlist", ImVec2(listW, bodyH), ImGuiChildFlags_None);
+    {
+        // Global defaults: the base every vehicle inherits from, pinned on top.
+        if (ui::ListRow("Global defaults", "base", global, ui::Glyph::Layers)) vehicleSel_ = -2;
+        uiscript::markLastItemChecked(global);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Settings every vehicle inherits until it changes them.");
+        ImGui::Dummy(ImVec2(0, scaled(6)));
+        const float capY = ImGui::GetCursorPosY();
+        ui::Caption("Vehicles");
+        const float pw = ImGui::GetFrameHeight();
+        ImGui::SetCursorPos(ImVec2(ImGui::GetContentRegionMax().x - pw, capY - scaled(5)));
+        if (ui::GhostButton("+###New vehicle", pw)) newVehicle();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("New vehicle");
+        ImGui::SetCursorPosY(capY + ImGui::GetFontSize() + scaled(8));
+        const float rowH = ImGui::GetFontSize() * 2.9f;
+        int budget = 2;
+        for (int i = 0; i < (int)defs.size(); ++i) {
+            const VehicleDef& d = defs[i];
+            const bool sel = vehicleSel_ == i;
+            // An explicit ##id: two definitions may not share a name, but one
+            // is being TYPED for a moment during a rename, and the label is
+            // the row's ImGui id.
+            const std::string label = d.name + "##vehsel" + std::to_string(i);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            if (ImGui::InvisibleButton(label.c_str(), ImVec2(w, rowH))) vehicleSel_ = i;
+            uiscript::markLastItemChecked(sel);
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Duplicate")) duplicateAt = i;
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+                if (ImGui::MenuItem("Delete")) deleteAt = i;
+                ImGui::PopStyleColor();
+                ImGui::EndPopup();
+            }
+            const bool hov = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float rr = ImGui::GetStyle().FrameRounding + 1.0f;
+            if (sel) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(sem.surface), rr);
+            else if (hov)
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH),
+                                  ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, 0.5f)), rr);
+            // The model's own thumbnail (the Asset Browser's renderer).
+            const float ts = rowH - scaled(10);
+            const ImVec2 t0(p.x + scaled(6), p.y + scaled(5));
+            dl->AddRectFilled(t0, ImVec2(t0.x + ts * 1.25f, t0.y + ts), ImGui::GetColorU32(sem.ground), rr);
+            {
+                // A side silhouette in the car's paint (dim without one), under
+                // the thumbnail: the row has a picture even before the model's
+                // render exists.
+                const ImU32 pc = d.paintEnabled
+                                     ? ImGui::ColorConvertFloat4ToU32(
+                                           ImVec4(d.paintColor[0], d.paintColor[1], d.paintColor[2], 1.0f))
+                                     : ImGui::GetColorU32(sem.textDim);
+                const float W = ts * 1.25f, H = ts;
+                const float bx0 = t0.x + W * 0.12f, bx1 = t0.x + W * 0.88f, by0 = t0.y + H * 0.48f,
+                            by1 = t0.y + H * 0.68f;
+                dl->AddRectFilled(ImVec2(bx0, by0), ImVec2(bx1, by1), pc, H * 0.06f);
+                const ImVec2 cab[4] = {ImVec2(t0.x + W * 0.32f, by0), ImVec2(t0.x + W * 0.40f, t0.y + H * 0.33f),
+                                       ImVec2(t0.x + W * 0.62f, t0.y + H * 0.33f), ImVec2(t0.x + W * 0.72f, by0)};
+                dl->AddConvexPolyFilled(cab, 4, pc);
+                dl->AddCircleFilled(ImVec2(t0.x + W * 0.28f, by1), H * 0.09f, ImGui::GetColorU32(sem.surface));
+                dl->AddCircleFilled(ImVec2(t0.x + W * 0.72f, by1), H * 0.09f, ImGui::GetColorU32(sem.surface));
+            }
+            uint32_t thumb = d.modelPath.empty() ? 0 : viewport_.assetThumb(d.modelPath, false);
+            if (!thumb && !d.modelPath.empty() && budget > 0) {
+                thumb = viewport_.assetThumb(d.modelPath, true);
+                --budget;
+            }
+            if (thumb)
+                dl->AddImage((ImTextureID)(intptr_t)thumb, ImVec2(t0.x + ts * 0.125f, t0.y),
+                             ImVec2(t0.x + ts * 1.125f, t0.y + ts), ImVec2(0, 1), ImVec2(1, 0));
+            const float tx = t0.x + ts * 1.25f + scaled(10);
+            const float fs = ImGui::GetFontSize();
+            int custom = 0;
+            for (const std::string& k : d.tuningOverrides) custom += !vehicleGeometryKey(k);
+            char sub[128];
+            const std::string file = d.modelPath.empty() ? std::string("no model")
+                                                         : std::filesystem::path(d.modelPath).filename().string();
+            if (!d.inheritDefaults) std::snprintf(sub, sizeof sub, "%s", file.c_str());
+            else if (custom == 0) std::snprintf(sub, sizeof sub, "%s - all defaults", file.c_str());
+            else std::snprintf(sub, sizeof sub, "%s - %d custom", file.c_str(), custom);
+            dl->PushClipRect(p, ImVec2(p.x + w - 2, p.y + rowH), true);
+            {
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(ImVec2(tx, p.y + rowH * 0.5f - fs), ImGui::GetColorU32(sem.text), d.name.c_str());
+            }
+            dl->AddText(ImGui::GetFont(), fs * 0.86f, ImVec2(tx, p.y + rowH * 0.5f + 1.0f),
+                        ImGui::GetColorU32(sem.textDim), sub);
+            dl->PopClipRect();
+        }
+        if (defs.empty())
+            if (ui::EmptyState(ui::Glyph::Box, "No vehicles yet",
+                               "A vehicle is defined once from an imported .glb and placed as often as you like.",
+                               "New vehicle##empty"))
+                newVehicle();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, gap);
+
+    // --- the preview: the hero -------------------------------------------------
+    const float previewW = ImMax(scaled(240), ImGui::GetContentRegionAvail().x - inspW - gap);
+    ImGui::BeginChild("Vehicle preview panel", ImVec2(previewW, bodyH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    drawVehiclePreview(v, global ? (defs.empty() ? -1 : 0) : vehicleSel_);
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, gap);
+
+    // --- the inspector -----------------------------------------------------------
+    ImGui::BeginChild("Vehicle settings", ImVec2(0, bodyH), ImGuiChildFlags_None);
     if (!global) {
         char name[128];
         std::snprintf(name, sizeof(name), "%s", v.name.c_str());
-        ImGui::SetNextItemWidth(scaled(240));
-        if (ImGui::InputText("Name", name, sizeof(name)) ) {
-            // Applied on commit, not per keystroke: retargeting every instance
-            // on each character would rewrite the scenes once per letter.
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit())
-            renameVehicleDef(vehicleSel_, uniqueName(defs, name));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 1.3f);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // Applied on commit, not per keystroke: retargeting every instance on
+        // each character would rewrite the scenes once per letter.
+        ImGui::InputText("##Name", name, sizeof(name));
+        const bool renamed = ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::PopFont();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        if (renamed) renameVehicleDef(vehicleSel_, uniqueName(defs, name));
+    } else {
+        ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 1.3f);
+        ImGui::TextUnformatted("Global defaults");
+        ImGui::PopFont();
     }
+    {
+        int custom = 0;
+        for (const std::string& k : v.tuningOverrides) custom += !vehicleGeometryKey(k);
+        ImGui::PushTextWrapPos(0.0f);
+        if (global)
+            ImGui::TextDisabled("What every vehicle starts from. A value a vehicle changes is marked there with a dot.");
+        else if (!v.inheritDefaults)
+            ImGui::TextDisabled("Uses its own values (made before global defaults existed).");
+        else if (custom == 0)
+            ImGui::TextDisabled("All values follow Global defaults. Edit one and it gets a dot and a reset.");
+        else
+            ImGui::TextDisabled("%d custom value%s (dot); the rest follow Global defaults.", custom,
+                                custom == 1 ? "" : "s");
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::Dummy(ImVec2(0, scaled(2)));
 
-    ImGui::TextDisabled(global ? "Shared defaults for all vehicles" :
-        "Uses global defaults. Edit a value to customise it.");
-    vehicleHelp("Each edited value becomes a local override. Use defaults resets the current section; geometry stays local.");
     const VehicleDef tuningBefore = v;
     std::vector<std::string> resetKeys;
+    // Resets ONE inherited value: drop the override, take the default back.
+    auto resetKey = [&](const std::string& key) {
+        visitVehicleTuning(v, project_.vehicleDefaults,
+            [&](const std::string& k, const char*, auto& value, const auto& base) {
+                if (k != key) return;
+                value = base;
+            });
+        auto& keys = v.tuningOverrides;
+        keys.erase(std::remove(keys.begin(), keys.end(), key), keys.end());
+        resetKeys.push_back(key);
+    };
+    // "Reset to defaults" for one section, right-aligned, only when it has
+    // custom values (the per-value dots say which).
     auto sectionDefaults = [&](const char* section) {
-        if (global) return;
+        if (global || !v.inheritDefaults) return;
         bool custom = false;
         visitVehicleTuning(v, project_.vehicleDefaults,
             [&](const std::string& key, const char* group, auto&, const auto&) {
                 if (std::strcmp(group, section) == 0 && vehicleTuningOverride(v, key)) custom = true;
             });
-        ImGui::BeginDisabled(!custom);
-        if (ImGui::SmallButton("Use defaults")) {
+        if (!custom) return;
+        const std::string lbl = std::string("Reset to defaults##") + section;
+        const float w = ImGui::CalcTextSize("Reset to defaults").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - w);
+        if (ui::GhostButton(lbl.c_str(), w)) {
             visitVehicleTuning(v, project_.vehicleDefaults,
                 [&](const std::string& key, const char* group, auto& value, const auto& base) {
                     if (std::strcmp(group, section) != 0) return;
@@ -864,10 +1314,62 @@ void App::drawVehicleWindow() {
                     value = base;
                 });
         }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::TextDisabled(custom ? "Custom values" : "All values from defaults");
-        ImGui::Separator();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Every custom value in this section follows Global defaults again.");
+    };
+    const float capMin = scaled(110), capMax = scaled(150);
+    // One tuned value as an inspector row with its inheritance ON the row: a
+    // dot + reset when this vehicle overrides it, a `model` badge when it is
+    // measured from the model (wheel placement).
+    auto tunedRow = [&](const char* key, const char* label, auto&& widget) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float cw = IM_TRUNC(ImClamp(avail * 0.34f, capMin, capMax));
+        const bool measured = vehicleGeometryKey(key);
+        const bool custom = !global && v.inheritDefaults && !measured && vehicleTuningOverride(v, key);
+        const float s = ImGui::GetFontSize() * 0.95f;
+        const float fh = ImGui::GetFrameHeight();
+        if (custom) {
+            ImGui::SetCursorScreenPos(ImVec2(p.x + cw - s - ImGui::GetStyle().ItemInnerSpacing.x, p.y + (fh - s) * 0.5f));
+            const std::string rl = std::string("Reset ") + label + "##rst_" + key;
+            if (ImGui::InvisibleButton(rl.c_str(), ImVec2(s, s))) resetKey(key);
+            const bool hov = ImGui::IsItemHovered();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Back to Global defaults");
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 c(p.x + cw - s * 0.5f - ImGui::GetStyle().ItemInnerSpacing.x, p.y + fh * 0.5f);
+            const ImU32 col = ImGui::GetColorU32(hov ? sem.text : sem.textDim);
+            dl->PathArcTo(c, s * 0.32f, 3.14159f * 0.15f, 3.14159f * 1.75f, 12);
+            dl->PathStroke(col, 0, 1.4f);
+            const ImVec2 tip(c.x + s * 0.32f * std::cos(3.14159f * 0.15f), c.y + s * 0.32f * std::sin(3.14159f * 0.15f));
+            dl->AddTriangleFilled(ImVec2(tip.x - s * 0.18f, tip.y - s * 0.02f), ImVec2(tip.x + s * 0.14f, tip.y - s * 0.12f),
+                                  ImVec2(tip.x + s * 0.06f, tip.y + s * 0.2f), col);
+            ImGui::SetCursorScreenPos(p);
+        }
+        widget();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float textW = ImGui::CalcTextSize(label, ImGui::FindRenderedTextEnd(label)).x;
+        if (custom) {
+            // The caption in full ink plus the dot: this value is this car's.
+            const float maxX = p.x + cw - s - ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
+            dl->PushClipRect(p, ImVec2(maxX, p.y + fh), true);
+            dl->AddText(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(sem.text), label,
+                        ImGui::FindRenderedTextEnd(label));
+            dl->PopClipRect();
+            const float dx = std::min(p.x + textW + scaled(7), maxX - scaled(3));
+            dl->AddCircleFilled(ImVec2(dx, p.y + fh * 0.5f), scaled(3), ImGui::GetColorU32(sem.accent), 12);
+        } else if (measured && !global) {
+            const char* b = "model";
+            const float bfs = ImGui::GetFontSize() * 0.75f;
+            const float bw = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0, b).x + bfs;
+            const float bx = p.x + cw - bw - ImGui::GetStyle().ItemInnerSpacing.x;
+            if (bx > p.x + textW + scaled(4)) {
+                dl->AddRectFilled(ImVec2(bx, p.y + fh * 0.5f - bfs * 0.6f), ImVec2(bx + bw, p.y + fh * 0.5f + bfs * 0.6f),
+                                  ImGui::GetColorU32(sem.field), bfs * 0.5f);
+                dl->AddText(ImGui::GetFont(), bfs, ImVec2(bx + bfs * 0.5f, p.y + fh * 0.5f - bfs * 0.5f),
+                            ImGui::GetColorU32(sem.textDim), b);
+            }
+        }
     };
     auto specControl = [&](const vehiclesim::SpecField& f) {
         if (global && vehicleGeometryKey(f.key)) return;
@@ -875,36 +1377,52 @@ void App::drawVehicleWindow() {
         if (std::strcmp(f.key, "damageVisual") == 0 ||
             std::strcmp(f.key, "damageMechanical") == 0) {
             bool enabled = *f.value > 0.5f;
-            if (ImGui::Checkbox(f.label, &enabled)) {
-                *f.value = enabled ? 1.0f : 0.0f;
-                if (std::strcmp(f.key, "damageVisual") == 0) vehicleDamagePreviewReset();
-            }
+            tunedRow(f.key, f.label, [&] {
+                if (ui::Switch(f.label, &enabled)) {
+                    *f.value = enabled ? 1.0f : 0.0f;
+                    if (std::strcmp(f.key, "damageVisual") == 0) vehicleDamagePreviewReset();
+                }
+            });
             if (f.tip && f.tip[0]) vehicleHelp(f.tip);
             ImGui::PopID();
             return;
         }
         if (std::strcmp(f.key, "nosCapacity") == 0) {
             bool enabled = *f.value > 0.001f;
-            if (ImGui::Checkbox("Has nitrous", &enabled))
+            if (ui::Switch("Has nitrous", &enabled))
                 *f.value = enabled ? 5.0f : 0.0f;
         }
-        ImGui::SetNextItemWidth(scaled(180));
-        ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
+        tunedRow(f.key, f.label, [&] { ui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g"); });
         if (f.tip && f.tip[0]) vehicleHelp(f.tip);
         ImGui::PopID();
     };
 
-    if (ImGui::BeginTabBar("##vehtabs")) {
+    if (ui::BeginQuietTabBar("##vehtabs")) {
+        static int lastFrame = -10;
+        const bool force = lastFrame != ImGui::GetFrameCount() - 1;
+        static const char* const kTabs[] = {"Model##vtab", "Handling##vtab", "Damage##vtab", "Feel##vtab",
+                                            "Cost##vtab"};
+        if (global && (vehicleTab_ == 0 || vehicleTab_ == 4)) vehicleTab_ = 1;
+        for (int i = 0; i < 5; ++i) {
+            if (global && (i == 0 || i == 4)) continue;  // per-vehicle only
+            const ImGuiTabItemFlags fl = force && i == vehicleTab_ ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ui::QuietTab(kTabs[i], i == vehicleTab_, fl) && !force) vehicleTab_ = i;
+        }
+        ui::EndQuietTabBar();
+        lastFrame = ImGui::GetFrameCount();
+    }
+    ImGui::BeginChild("##vehtabbody", ImVec2(0, 0), ImGuiChildFlags_None);
+    {
+        ui::InspectorRows rows(capMin, capMax);
         // --- Model ----------------------------------------------------------
-        if (!global && ImGui::BeginTabItem("Model")) {
+        if (!global && vehicleTab_ == 0) {
             // The same picker shape the Properties panel uses for a Model:
             // the project's own res/models assets, never a free-text path.
             const std::string current =
                 v.modelPath.empty()
                     ? "<none>"
                     : std::filesystem::path(v.modelPath).filename().string();
-            ImGui::SetNextItemWidth(scaled(320));
-            if (ImGui::BeginCombo("Model file", current.c_str())) {
+            if (ui::BeginCombo("Model file", current.c_str())) {
                 const std::vector<std::string> anim = listAnimatedModelFiles();
                 for (const std::string& m : anim) {
                     const std::string rel = "res/models/" + m;
@@ -924,11 +1442,10 @@ void App::drawVehicleWindow() {
                 "One .glb or .fbx holding the body AND the wheels. The wheels are\n"
                 "found by their geometry, so their node names do not matter.");
 
-            ImGui::SeparatorText("Body paint colour");
-            ImGui::Checkbox("Override paint colour", &v.paintEnabled);
+            ui::Caption("Body paint");
+            ui::Switch("Override paint colour", &v.paintEnabled);
             if (v.paintEnabled) {
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::ColorEdit3("Paint colour", v.paintColor);
+                ui::ColorHex("Paint colour", v.paintColor);
                 ImGui::TextDisabled("Mask: %s", v.paintMask.empty()
                     ? "<none>" : v.paintMask.c_str());
                 (void)pickProjectTexture("vehicle-paint-mask", v.paintMask);
@@ -942,7 +1459,7 @@ void App::drawVehicleWindow() {
                     ImGui::TextDisabled("Choose a mask for textured paint.");
             }
 
-            ImGui::Separator();
+            ui::Caption("Import");
             if (!bake || v.modelPath.empty()) {
                 ImGui::TextDisabled("Pick a model to see what the importer finds.");
             } else if (!bake->ok) {
@@ -954,7 +1471,7 @@ void App::drawVehicleWindow() {
                 // Every line the importer decided, verbatim. A detection
                 // nobody can check is a detection nobody should trust.
                 ImGui::Text("Imported: %d body triangles, %d per wheel", r.bodyTris, r.wheelTris);
-                if (ImGui::CollapsingHeader("Import details"))
+                if (ui::Section("Import details"))
                     for (const std::string& n : r.notes) ImGui::TextWrapped("%s", n.c_str());
 
                 if (r.detection.frontAssumed) {
@@ -963,15 +1480,20 @@ void App::drawVehicleWindow() {
                         "Check the front direction in the preview.");
                     ImGui::PopStyleColor();
                 }
-                ImGui::Checkbox("Flip front/rear", &v.flipFront);
+                ui::Switch("Flip front/rear", &v.flipFront);
 
-                ImGui::Separator();
+                ui::Caption("Wheels");
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextDisabled("Found by shape and position - node names don't matter (a "
+                                    "mirrored name is fine). Hover a row to ring it on the car.");
+                ImGui::PopTextWrapPos();
+                vehicleHoverWheel_ = -1;
                 if (ImGui::BeginTable("##wheels", 4,
-                                      ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp)) {
+                                      ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
                     ImGui::TableSetupColumn("Wheel");
                     ImGui::TableSetupColumn("Node");
-                    ImGui::TableSetupColumn("Steered");
-                    ImGui::TableSetupColumn("Driven");
+                    ImGui::TableSetupColumn("Steered", ImGuiTableColumnFlags_WidthFixed);
+                    ImGui::TableSetupColumn("Driven", ImGuiTableColumnFlags_WidthFixed);
                     ImGui::TableHeadersRow();
                     for (size_t i = 0; i < r.detection.wheels.size(); ++i) {
                         const vehiclesim::Wheel& w = r.detection.wheels[i];
@@ -992,39 +1514,52 @@ void App::drawVehicleWindow() {
                         }
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::Text("%s %s", w.front ? "front" : "rear",
-                                    w.left ? "left" : "right");
+                        ImGui::Text("%s%s", w.front ? "F" : "R", w.left ? "L" : "R");
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("%s %s", w.front ? "front" : "rear", w.left ? "left" : "right");
                         ImGui::TableNextColumn();
-                        ImGui::Text("%s", w.nodeName.c_str());
+                        {
+                            ui::FontScope mono(ui::monoFont());
+                            ImGui::TextDisabled("%s", w.nodeName.c_str());
+                        }
                         ImGui::SetItemTooltip("radius %.3f, width %.3f", w.radius, w.width);
                         ImGui::TableNextColumn();
                         ImGui::PushID((int)i * 2);
-                        ImGui::Checkbox("##st", &row->steered);
+                        ui::Switch("##st", &row->steered);
                         ImGui::PopID();
                         ImGui::TableNextColumn();
                         ImGui::PushID((int)i * 2 + 1);
-                        ImGui::Checkbox("##dr", &row->driven);
+                        ui::Switch("##dr", &row->driven);
                         ImGui::PopID();
+                        // Hovering anywhere on the row rings that wheel in the
+                        // preview (the order is the detection's: FL FR RL RR).
+                        const ImRect rr(ImVec2(ImGui::GetWindowPos().x, ImGui::GetItemRectMin().y - 2.0f),
+                                        ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
+                                               ImGui::GetItemRectMax().y + 2.0f));
+                        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+                            ImGui::IsMouseHoveringRect(rr.Min, rr.Max, false))
+                            vehicleHoverWheel_ = (int)(w.front ? 0 : 2) + (w.left ? 0 : 1);
                     }
                     ImGui::EndTable();
                 }
             }
-            ImGui::EndTabItem();
         }
 
-        // --- Driving --------------------------------------------------------
+        // --- Handling ------------------------------------------------------
         // Widgets are DERIVED from vehiclesim::specFields(), so a tunable added
         // to DriveSpec appears here, saves, loads and gets its tooltip by
-        // existing in that one list.
-        if (ImGui::BeginTabItem("Driving")) {
+        // existing in that one list. Groups collapse; the first two start open.
+        if (vehicleTab_ == 1) {
             sectionDefaults("driving");
             const std::vector<vehiclesim::SpecField> fields =
                 vehiclesim::specFields(v.drive);
+            bool open = true;
+            bool first = true;
             for (const vehiclesim::SpecField& f : fields) {
                 if (std::strncmp(f.key, "damage", 6) == 0) continue;  // Damage tab
-                if (std::strncmp(f.key, "lamp", 4) == 0) continue;    // Effects tab
-                if (std::strncmp(f.key, "feel", 4) == 0) continue;    // Effects tab
-                if (std::strncmp(f.key, "exhaust", 7) == 0) continue; // Effects tab
+                if (std::strncmp(f.key, "lamp", 4) == 0) continue;    // Feel tab
+                if (std::strncmp(f.key, "feel", 4) == 0) continue;    // Feel tab
+                if (std::strncmp(f.key, "exhaust", 7) == 0) continue; // Feel tab
                 const char* group = nullptr;
                 if (!global && std::strcmp(f.key, "wheelBase") == 0) group = "Wheel placement";
                 if (std::strcmp(f.key, "topSpeed") == 0) group = "Power and speed";
@@ -1034,17 +1569,37 @@ void App::drawVehicleWindow() {
                 if (std::strcmp(f.key, "gears") == 0) group = "Engine and gears";
                 if (std::strcmp(f.key, "nosCapacity") == 0) group = "Nitrous";
                 if (std::strcmp(f.key, "fastWheelSpeed") == 0) group = "Fast wheel swap";
-                if (group) ImGui::SeparatorText(group);
-                specControl(f);
+                if (group) {
+                    const bool startOpen = first || std::strcmp(group, "Power and speed") == 0;
+                    open = ui::Section(group, startOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+                    first = false;
+                    if (open && std::strcmp(group, "Wheel placement") == 0 && bake && bake->ok) {
+                        // Measured by the bake; Re-measure takes the model's
+                        // numbers back after an edit.
+                        const float w = ImGui::CalcTextSize("Re-measure").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+                        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - w);
+                        if (ui::GhostButton("Re-measure", w)) {
+                            const auto& sp = bake->result.spec;
+                            v.drive.wheelBase = r_geom(sp.wheelBase, v.drive.wheelBase);
+                            v.drive.track = r_geom(sp.track, v.drive.track);
+                            v.drive.wheelRadius = r_geom(sp.wheelRadius, v.drive.wheelRadius);
+                            v.drive.rideHeight = r_geom(sp.rideHeight, v.drive.rideHeight);
+                            v.drive.bodyOverhang = r_geom(sp.bodyOverhang, v.drive.bodyOverhang);
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip("Wheelbase, track, radius, ride height and overhang\n"
+                                              "as measured from the model.");
+                    }
+                }
+                if (open) specControl(f);
             }
-            ImGui::EndTabItem();
         }
 
         // --- Damage ---------------------------------------------------------
         // The "damage*" spec fields plus test hits: the dent is computed by the
         // same vehiclesim functions the console's twin mirrors, on a copy of
         // the baked body, so what shows here is where the game will dent.
-        if (ImGui::BeginTabItem("Damage")) {
+        if (vehicleTab_ == 2) {
             sectionDefaults("damage");
             const std::vector<vehiclesim::SpecField> fields =
                 vehiclesim::specFields(v.drive);
@@ -1052,7 +1607,7 @@ void App::drawVehicleWindow() {
                 if (std::strncmp(f.key, "damage", 6) != 0) continue;
                 specControl(f);
             }
-            ImGui::SeparatorText("Preview");
+            ui::Caption("Preview");
             auto bk = vehicleBakes_.find(v.id);
             const bool baked = bk != vehicleBakes_.end() && bk->second.ok;
             if (global) {
@@ -1062,8 +1617,7 @@ void App::drawVehicleWindow() {
             } else if (!baked) {
                 ImGui::TextDisabled("Import a model first.");
             } else {
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Hit speed", &vehDmgTestSpeed_, 0.0f, 40.0f, "%.1f u/s");
+                ui::SliderFloat("Hit speed", &vehDmgTestSpeed_, 0.0f, 40.0f, "%.1f u/s");
                 vehicleHelp("The speed change of the test hit - a head-on at this speed.");
                 const tmdl::Model& body = bk->second.result.body;
                 // Local hit directions: the velocity change points AWAY from
@@ -1113,79 +1667,18 @@ void App::drawVehicleWindow() {
                     ImGui::TextDisabled("Every placed %s shows the preview; the "
                                         "project is not changed.", v.name.c_str());
             }
-            ImGui::EndTabItem();
         }
 
-        // --- Test drive -------------------------------------------------------
-        // The reason vehiclesim is host-only: the same step() the console will
-        // run, driven from the keyboard against the real scene's terrain, so
-        // grip and acceleration are tuned in a "slider, feel, slider" loop
-        // instead of "slider, four minutes of Docker, PCSX2".
-        if (!global && ImGui::BeginTabItem("Test drive")) {
-            // Which placed instance to drive - the first one of this
-            // definition in the active scene.
-            int inst = -1;
-            const std::vector<SceneObject>& objs = project_.objects();
-            for (int i = 0; i < (int)objs.size(); ++i)
-                if (objs[i].type == PrimitiveType::Vehicle && objs[i].vehicleDef == v.name) {
-                    inst = i;
-                    break;
-                }
-            if (inst < 0) {
-                ImGui::TextDisabled(
-                    "Place one in this scene first (Add object > Gameplay > Vehicle).");
-            } else if (vehicleDriveObj_ == inst) {
-                if (ImGui::Button("Stop driving")) vehicleDriveStop();
-                ImGui::SameLine();
-                ImGui::TextDisabled("W gas, S brake / reverse, A/D steer, Space handbrake");
-                ImGui::Separator();
-                const vehiclesim::DriveState& st = vehicleDriveState_;
-                ImGui::Checkbox("Hold throttle", &vehicleDriveHoldThrottle_);
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Steer", &vehicleDriveSteer_, -1.0f, 1.0f, "%.2f");
-                ImGui::Separator();
-                ImGui::Text("Speed %.2f u/s   slip %.2f   steer %.1f deg", st.speed,
-                            st.lateral, st.steerAngle);
-                ImGui::Text("Gear %s%d   rpm %.0f   nitrous %.0f%%%s",
-                            st.gear < 0 ? "R" : "", st.gear < 0 ? 1 : st.gear + 1,
-                            st.rpm - st.limiterDip, st.nos * 100.0f,
-                            st.nosActive ? "  (boosting - E)" : "  (E to boost)");
-                ImGui::Text("Pitch %.1f  roll %.1f  %s", st.pitch, st.roll,
-                            st.grounded ? "on the ground" : "airborne");
-                if (v.drive.damage > 0.0f)
-                    ImGui::Text("Damage %.0f%%  (hit a wall to dent it)",
-                                st.damage * 100.0f);
-                // Slip against speed is the number that says whether the grip
-                // setting is doing anything - a car that never slips is on
-                // rails whatever the slider says.
-                const float mag = std::fabs(st.speed) + std::fabs(st.lateral);
-                ImGui::Text("Sideways fraction of travel: %.0f%%",
-                            mag > 0.01f ? 100.0f * std::fabs(st.lateral) / mag : 0.0f);
-            } else {
-                if (ImGui::Button("Drive it")) {
-                    vehicleDriveHoldThrottle_ = false;
-                    vehicleDriveSteer_ = 0.0f;
-                    vehicleDriveStart(inst);
-                }
-                ImGui::SameLine();
-                ImGui::TextDisabled("Puts the car back where it was when you stop.");
-            }
-            ImGui::EndTabItem();
-        }
-
-        // --- Camera and doors ------------------------------------------------
-        if (ImGui::BeginTabItem("Driver")) {
+        // --- Feel: driver, sounds, effects ------------------------------------
+        if (vehicleTab_ == 3) {
+            if (ui::Section("Driver", ImGuiTreeNodeFlags_DefaultOpen)) {
             sectionDefaults("driver");
-            ImGui::SetNextItemWidth(scaled(220));
-            ImGui::SliderFloat("Camera distance", &v.camDist, 1.0f, 20.0f, "%.2f");
-            ImGui::SetNextItemWidth(scaled(220));
-            ImGui::SliderFloat("Camera height", &v.camHeight, 0.0f, 10.0f, "%.2f");
-            ImGui::SetNextItemWidth(scaled(220));
-            ImGui::SliderFloat("Camera pitch", &v.camPitch, -30.0f, 60.0f, "%.1f");
+            tunedRow("camDist", "Camera distance", [&] { ui::SliderFloat("Camera distance", &v.camDist, 1.0f, 20.0f, "%.2f"); });
+            tunedRow("camHeight", "Camera height", [&] { ui::SliderFloat("Camera height", &v.camHeight, 0.0f, 10.0f, "%.2f"); });
+            tunedRow("camPitch", "Camera pitch", [&] { ui::SliderFloat("Camera pitch", &v.camPitch, -30.0f, 60.0f, "%.1f"); });
             ImGui::Separator();
-            ImGui::SetNextItemWidth(scaled(300));
             ImGui::BeginDisabled(global);
-            ImGui::DragFloat3("Exit offset", v.exitOffset, 0.05f);
+            ui::AxisDrag3("Exit offset", v.exitOffset, 0.05f);
             ImGui::EndDisabled();
             vehicleHelp(
                 "Where the player is put down on getting out, relative to the\n"
@@ -1193,22 +1686,21 @@ void App::drawVehicleWindow() {
 
             // --- The readout ---------------------------------------------------
             ImGui::Separator();
-            ImGui::Checkbox("Show a driver's HUD", &v.showHud);
+            tunedRow("showHud", "Show a driver's HUD", [&] { ui::Switch("Show a driver's HUD", &v.showHud); });
             vehicleHelp(
                 "Speed, gear and the nitrous tank, while driving.\n"
                 "Drawn as runtime text, so the font gets a glyph atlas.");
             if (v.showHud) {
                 fontCombo(v.hudFont);
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::DragFloat("Speed reads as", &v.hudSpeedScale, 0.05f, 0.0f,
-                                 100.0f, "%.2f x units/s");
+                tunedRow("hudSpeedScale", "Speed reads as", [&] { ui::DragFloat("Speed reads as", &v.hudSpeedScale, 0.05f, 0.0f,
+                                 100.0f, "%.2f x units/s"); });
                 vehicleHelp(
                     "What one world unit per second should show as. A unit is\n"
                     "whatever this project decided it is, so this cannot be\n"
                     "guessed: 3.6 turns metres per second into km/h.");
             }
             bool card = v.tutorialSeconds > 0.0f;
-            if (ImGui::Checkbox("Controls card on entry", &card)) {
+            if (ui::Switch("Controls card on entry", &card)) {
                 v.tutorialSeconds = card ? 8.0f : 0.0f;
                 // The card's steering rows want stick glyphs.
                 if (card) project::ensureStickIcons(project_);
@@ -1218,23 +1710,17 @@ void App::drawVehicleWindow() {
                 "buttons they are bound to now. Rows tick off as tried.");
             if (card) {
                 if (!v.showHud) fontCombo(v.hudFont);
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::DragFloat("Card stays", &v.tutorialSeconds, 0.1f, 1.0f, 60.0f,
+                ui::DragFloat("Card stays", &v.tutorialSeconds, 0.1f, 1.0f, 60.0f,
                                  "%.0f s");
                 if (v.tutorialSeconds < 1.0f) v.tutorialSeconds = 1.0f;
             }
 
-            ImGui::EndTabItem();
-        }
-
-        // --- Sounds -----------------------------------------------------------
-        // All vehicle audio: idle/high-rev loops, tyre squeal and gear shift.
-        if (ImGui::BeginTabItem("Sounds")) {
+            }
+            if (ui::Section("Sounds", ImGuiTreeNodeFlags_DefaultOpen)) {
             sectionDefaults("sounds");
             const auto& sounds = project_.sounds;
             const auto loopPicker = [&](const char* label, const char* tid,
                                         std::string& path, const char* tip) {
-                ImGui::SetNextItemWidth(scaled(300));
                 const std::string cur = path.empty() ? "(none)" : path;
                 if (ImGui::BeginCombo(label, cur.c_str())) {
                     if (ImGui::Selectable(
@@ -1253,11 +1739,10 @@ void App::drawVehicleWindow() {
             };
             // Selecting a continuous vehicle sound declares loop intent to
             // both build backends; the source filename is unrestricted.
-            ImGui::SeparatorText("Engine sound");
+            ui::Caption("Engine sound");
             vehicleHelp("Choose any imported WAV. The build encodes vehicle engine and tyre samples as loops; pitch follows engine speed.");
-            ImGui::SetNextItemWidth(scaled(300));
             const std::string cur = v.engineSound.empty() ? "(silent)" : v.engineSound;
-            if (ImGui::BeginCombo("Sample", cur.c_str())) {
+            if (ui::BeginCombo("Sample", cur.c_str())) {
                 // No `changed` flag: this window compares Section::Vehicles'
                 // JSON across its whole body, which covers a widget added later
                 // by construction (the repo-wide sectionJson guard).
@@ -1275,18 +1760,15 @@ void App::drawVehicleWindow() {
                 ImGui::TextDisabled(
                     "No sounds in the project. Import a WAV in Project > Sounds.");
             if (!v.engineSound.empty()) {
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Pitch at idle", &v.enginePitchIdle, 0.25f, 2.0f,
-                                   "%.2fx");
+                tunedRow("enginePitchIdle", "Pitch at idle", [&] { ui::SliderFloat("Pitch at idle", &v.enginePitchIdle, 0.25f, 2.0f,
+                                   "%.2fx"); });
                 vehicleHelp("Playback rate at idle, as a multiple of the sample's own.");
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Pitch at redline", &v.enginePitchRedline, 0.5f,
-                                   4.0f, "%.2fx");
+                tunedRow("enginePitchRedline", "Pitch at redline", [&] { ui::SliderFloat("Pitch at redline", &v.enginePitchRedline, 0.5f,
+                                   4.0f, "%.2fx"); });
                 vehicleHelp(
                     "Playback rate at the redline. The SPU2 register saturates\n"
                     "around 4x the sample's own rate.");
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Volume", &v.engineVolume, 0.0f, 100.0f, "%.0f");
+                tunedRow("engineVolume", "Volume", [&] { ui::SliderFloat("Volume", &v.engineVolume, 0.0f, 100.0f, "%.0f"); });
             }
 
             ImGui::Separator();
@@ -1294,15 +1776,12 @@ void App::drawVehicleWindow() {
                        "A second engine loop the base one CROSSFADES with as\n"
                        "the revs rise - the era's two-sample engine. Its pitch\n"
                        "has its own range. Any imported WAV is looped by the build.");
-            ImGui::Checkbox("Enable high-rev loop", &v.engineHighEnabled);
+            tunedRow("engineHighEnabled", "Enable high-rev loop", [&] { ui::Switch("Enable high-rev loop", &v.engineHighEnabled); });
             if (!v.engineHighSound.empty()) {
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("High-rev starts at", &v.engineHighStart, 0.0f, 0.95f, "%.2f of rev range");
+                tunedRow("engineHighStart", "High-rev starts at", [&] { ui::SliderFloat("High-rev starts at", &v.engineHighStart, 0.0f, 0.95f, "%.2f of rev range"); });
                 vehicleHelp("The high-rev recording fades in from this point to redline.");
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("High-rev pitch at start", &v.engineHighPitchStart, 0.25f, 4.0f, "%.2fx");
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("High-rev pitch at redline", &v.engineHighPitchEnd, 0.25f, 4.0f, "%.2fx");
+                tunedRow("engineHighPitchStart", "High-rev pitch at start", [&] { ui::SliderFloat("High-rev pitch at start", &v.engineHighPitchStart, 0.25f, 4.0f, "%.2fx"); });
+                tunedRow("engineHighPitchEnd", "High-rev pitch at redline", [&] { ui::SliderFloat("High-rev pitch at redline", &v.engineHighPitchEnd, 0.25f, 4.0f, "%.2fx"); });
             }
             ImGui::Separator();
             loopPicker("Tyre squeal loop", "vehsndscr", v.screechSound,
@@ -1310,16 +1789,14 @@ void App::drawVehicleWindow() {
                        "and the telemetry read, so they always agree about when\n"
                        "a tyre has let go. Any imported WAV is looped by the build.");
             if (!v.screechSound.empty()) {
-                ImGui::SetNextItemWidth(scaled(220));
-                ImGui::SliderFloat("Squeal volume", &v.screechVolume, 0.0f,
-                                   100.0f, "%.0f");
+                tunedRow("screechVolume", "Squeal volume", [&] { ui::SliderFloat("Squeal volume", &v.screechVolume, 0.0f,
+                                   100.0f, "%.0f"); });
             }
             ImGui::Separator();
             {
-                ImGui::SetNextItemWidth(scaled(300));
                 const std::string cur =
                     v.shiftSound.empty() ? "(none)" : v.shiftSound;
-                if (ImGui::BeginCombo("Gear shift", cur.c_str())) {
+                if (ui::BeginCombo("Gear shift", cur.c_str())) {
                     if (ImGui::Selectable("(none)##vehsndshift",
                                           v.shiftSound.empty()))
                         v.shiftSound.clear();
@@ -1337,32 +1814,24 @@ void App::drawVehicleWindow() {
                     "any sound qualifies, loops make no sense here. It borrows\n"
                     "a free script voice (priority 60), never the engine's.");
                 if (!v.shiftSound.empty()) {
-                    ImGui::SetNextItemWidth(scaled(220));
-                    ImGui::SliderFloat("Shift volume", &v.shiftVolume, 0.0f,
-                                       100.0f, "%.0f");
+                    tunedRow("shiftVolume", "Shift volume", [&] { ui::SliderFloat("Shift volume", &v.shiftVolume, 0.0f,
+                                       100.0f, "%.0f"); });
                 }
             }
-            ImGui::EndTabItem();
-        }
-
-        // --- Effects -----------------------------------------------------------
-        // What the tyres leave behind (docs/vehicles.md, "Skid marks and
-        // smoke"). An .mtl supplies the texture and the Kd tint; none = the
-        // built-in tread and puff the vehicle bake generates.
-        if (ImGui::BeginTabItem("Effects")) {
+            }
+            if (ui::Section("Effects")) {
             sectionDefaults("effects");
-            ImGui::SeparatorText("Lighting");
-            ImGui::Checkbox("Headlights", &v.headlights);
+            ui::Caption("Lighting");
+            tunedRow("headlights", "Headlights", [&] { ui::Switch("Headlights", &v.headlights); });
             vehicleHelp(
                 "Two additive beam pools painted on the terrain ahead of the\n"
                 "nose - the scene lights' ground-pool trick. Reads as light,\n"
                 "so it sells a NIGHT map; on a bright day map it is subtle.");
-            ImGui::SeparatorText("Tyre effects");
+            ui::Caption("Tyre effects");
             auto mtlPicker = [&](const char* label, std::string& path,
                                  const char* noneLabel) {
                 std::string current = path.empty() ? noneLabel : path;
                 if (current.rfind("res/", 0) == 0) current = current.substr(4);
-                ImGui::SetNextItemWidth(scaled(260));
                 if (ImGui::BeginCombo(label, current.c_str())) {
                     if (ImGui::Selectable(noneLabel, path.empty())) path.clear();
                     for (const std::string& rel : listMaterialAssets())
@@ -1389,8 +1858,7 @@ void App::drawVehicleWindow() {
                                   ? v.smokeMaterial.substr(4)
                                   : v.smokeMaterial;
                 }
-                ImGui::SetNextItemWidth(scaled(260));
-                if (ImGui::BeginCombo("Tyre smoke", current.c_str())) {
+                if (ui::BeginCombo("Tyre smoke", current.c_str())) {
                     if (ImGui::Selectable("<built-in puff>##vehsmokenone",
                                           v.smokeEffect.empty() && v.smokeMaterial.empty())) {
                         v.smokeEffect.clear();
@@ -1447,8 +1915,8 @@ void App::drawVehicleWindow() {
                 }
             }
             // The lamp halo: the "lamp*" spec fields, shown here rather than on
-            // the Driving tab (presentation, not handling).
-            ImGui::SeparatorText("Lamp glow");
+            // the Handling tab (presentation, not handling).
+            ui::Caption("Lamp glow");
             {
                 const std::vector<vehiclesim::SpecField> fields =
                     vehiclesim::specFields(v.drive);
@@ -1461,7 +1929,7 @@ void App::drawVehicleWindow() {
             // Speed feel: the "feel*" fields - what the driven car does to the
             // game camera near its top speed and on nitrous. Runtime only; the
             // test drive here does not shake or blur.
-            ImGui::SeparatorText("Speed feel");
+            ui::Caption("Speed feel");
             {
                 const std::vector<vehiclesim::SpecField> fields =
                     vehiclesim::specFields(v.drive);
@@ -1470,12 +1938,12 @@ void App::drawVehicleWindow() {
                     specControl(f);
                 }
                 if (v.drive.nosCapacity <= 0.001f)
-                    ImGui::TextDisabled("No nitrous (Driving > Nitrous seconds): "
+                    ImGui::TextDisabled("No nitrous (Handling > Nitrous seconds): "
                                         "the FOV kick and flame never fire.");
             }
             // Exhaust: where the nitrous flame, the shift backfire and the
             // smoke come out - the model's "exhaust" empties.
-            ImGui::SeparatorText("Exhaust");
+            ui::Caption("Exhaust");
             {
                 const std::vector<vehiclesim::SpecField> fields =
                     vehiclesim::specFields(v.drive);
@@ -1494,14 +1962,14 @@ void App::drawVehicleWindow() {
                         "Without one the effects use two pipes under the rear bumper.");
                 }
             }
-            ImGui::EndTabItem();
+            }
         }
 
         // --- Cost -------------------------------------------------------------
         // The number that decides whether a scene can afford this vehicle at
         // all. A PS2 submit is ~1 ms of fixed EE time whatever it holds, so
         // stating the submit count is stating the frame budget.
-        if (!global && ImGui::BeginTabItem("Cost")) {
+        if (!global && vehicleTab_ == 4) {
             if (!bake || !bake->ok) {
                 ImGui::TextDisabled("Import a model to see what it costs.");
             } else {
@@ -1548,8 +2016,7 @@ void App::drawVehicleWindow() {
                         v.farModel.empty()
                             ? "Automatic"
                             : std::filesystem::path(v.farModel).filename().string();
-                    ImGui::SetNextItemWidth(scaled(260));
-                    if (ImGui::BeginCombo("Far model", cur.c_str())) {
+                    if (ui::BeginCombo("Far model", cur.c_str())) {
                         if (ImGui::Selectable("Automatic", v.farModel.empty()))
                             v.farModel.clear();
                         for (const std::string& m : listAnimatedModelFiles()) {
@@ -1562,15 +2029,13 @@ void App::drawVehicleWindow() {
                     }
                     vehicleHelp("A low-poly twin with the same origin, scale and body texture, wheels included. Automatic uses generated distance tiers.");
                 }
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::DragFloat("Far tier from", &v.farDistance, 0.5f, 0.0f, 500.0f,
+                ui::DragFloat("Far tier from", &v.farDistance, 0.5f, 0.0f, 500.0f,
                                  "%.0f units");
                 vehicleHelp(
                     "Camera distance past which the car swaps to its far tier\n"
                     "(with a 10% hysteresis) and the wheel bag goes silent.\n"
                     "0 = never, for the car the player drives.");
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::DragFloat("Parked / AI cars from", &v.trafficDistance, 0.5f, 0.0f,
+                ui::DragFloat("Parked / AI cars from", &v.trafficDistance, 0.5f, 0.0f,
                                  500.0f, v.trafficDistance > 0.0f ? "%.0f units" : "same");
                 vehicleHelp(
                     "A traffic tier: cars NOBODY drives (parked, AI rivals)\n"
@@ -1578,15 +2043,13 @@ void App::drawVehicleWindow() {
                     "authored far model this can be close - a period racer's\n"
                     "traffic LOD. 0 = the same distance as above.");
                 ImGui::Separator();
-                ImGui::Checkbox("Edit triangle budgets (advanced)", &vehicleBudgetEdit_);
+                ui::Switch("Edit triangle budgets (advanced)", &vehicleBudgetEdit_);
                 ImGui::BeginDisabled(!vehicleBudgetEdit_);
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::SliderInt("Body triangles", &v.bodyTriBudget, 100, 6000);
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::SliderInt("Wheel triangles", &v.wheelTriBudget, 40, 3000);
+                ui::SliderInt("Body triangles", &v.bodyTriBudget, 100, 6000);
+                ui::SliderInt("Wheel triangles", &v.wheelTriBudget, 40, 3000);
                 ImGui::EndDisabled();
                 // The fast wheel (docs/vehicles.md, "A fast wheel"). The swap
-                // speed is a drive tunable (Driving > Fast wheel above), so it
+                // speed is a drive tunable (Handling > Fast wheel swap), so it
                 // saves and reaches the game through specFields like the rest.
                 {
                     int mode = v.fastWheel.empty()       ? 0
@@ -1594,36 +2057,32 @@ void App::drawVehicleWindow() {
                                                          : 2;
                     const char* modes[] = {"None", "Lower-resolution copy",
                                            "Mesh node of the model"};
-                    ImGui::SetNextItemWidth(scaled(200));
-                    if (ImGui::Combo("Fast wheel", &mode, modes, 3)) {
+                    if (ui::Combo("Fast wheel", &mode, modes, 3)) {
                         if (mode == 0) v.fastWheel.clear();
                         else if (mode == 1) v.fastWheel = "@auto";
                         else if (v.fastWheel.empty() || v.fastWheel == "@auto")
                             v.fastWheel = "wheel_blur";
                     }
-                    vehicleHelp("Swap all wheels above Driving > Fast wheel above. Choose an automatic simplified wheel or a motion-blurred mesh node. Test the swap in Live preview.");
+                    vehicleHelp("Swap all wheels above Handling > Fast wheel swap. Choose an automatic simplified wheel or a motion-blurred mesh node. Test the swap with Spin wheels and Speed in the preview.");
                     if (mode == 2) {
                         char nodeBuf[128];
                         std::snprintf(nodeBuf, sizeof(nodeBuf), "%s", v.fastWheel.c_str());
-                        ImGui::SetNextItemWidth(scaled(200));
-                        if (ImGui::InputText("Fast wheel node", nodeBuf, sizeof(nodeBuf)))
+                        if (ui::InputText("Fast wheel node", nodeBuf, sizeof(nodeBuf)))
                             v.fastWheel = nodeBuf[0] ? std::string(nodeBuf) : std::string("@auto");
                     }
                     if (mode != 0) {
                         ImGui::BeginDisabled(!vehicleBudgetEdit_);
-                        ImGui::SetNextItemWidth(scaled(200));
-                        ImGui::SliderInt("Fast wheel triangles", &v.fastWheelTriBudget, 12, 3000);
+                        ui::SliderInt("Fast wheel triangles", &v.fastWheelTriBudget, 12, 3000);
                         ImGui::EndDisabled();
                     }
                 }
-                ImGui::Checkbox("Merge untextured materials", &v.mergeUntextured);
+                ui::Switch("Merge untextured materials", &v.mergeUntextured);
                 vehicleHelp(
                     "Collapses every untextured material into one part, with the\n"
                     "colours in a generated palette texture. This is what takes a\n"
                     "36-part car down to two submits - turning it off is for\n"
                     "seeing what it costs, not for shipping.");
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
+                ui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
                 vehicleHelp(
                     "The paint's reflection pass. Rubber and near-black trim\n"
                     "stay MATTE (the bake splits them out - one extra submit),\n"
@@ -1640,7 +2099,6 @@ void App::drawVehicleWindow() {
                     if (ImGui::BeginPopup("Reflection texture")) {
                         if (ImGui::Selectable("Dynamic sky", v.bodyReflMap.empty()))
                             v.bodyReflMap.clear();
-                        ImGui::SetNextItemWidth(scaled(300));
                         ImGui::InputTextWithHint("##reflection-search", "Find texture...", reflectionFilter, sizeof(reflectionFilter));
                         ImGuiTextFilter filter(reflectionFilter);
                         ImGui::BeginChild("Reflection choices", ImVec2(scaled(300), scaled(240)));
@@ -1669,8 +2127,7 @@ void App::drawVehicleWindow() {
                     }
                     vehicleHelp("Sphere-map texture for body paint. Choose a PNG, or Use sky for the dynamic sky reflection.");
                 }
-                ImGui::SetNextItemWidth(scaled(200));
-                ImGui::SliderFloat("Glass opacity", &v.glassOpacity, 0.05f, 1.0f, "%.2f");
+                ui::SliderFloat("Glass opacity", &v.glassOpacity, 0.05f, 1.0f, "%.2f");
                 vehicleHelp(
                     "Below 1 the windows turn see-through: glass-named materials\n"
                     "get their own part, drawn last. One extra submit.");
@@ -1690,14 +2147,11 @@ void App::drawVehicleWindow() {
                 if (placed > 0)
                     ImGui::Text("All visible at once: %d draw submissions", placed * submits);
             }
-            ImGui::EndTabItem();
         }
-        ImGui::EndTabBar();
     }
-    ImGui::EndGroup();
     ImGui::EndChild();
-    ImGui::SameLine();
-    ImGui::BeginChild("Vehicle preview panel", ImVec2(0, 0), true);
+    ImGui::EndChild();
+
     if (!global) {
         visitVehicleTuning(v, tuningBefore,
             [&](const std::string& key, const char*, auto& value, const auto& previous) {
@@ -1707,8 +2161,24 @@ void App::drawVehicleWindow() {
             });
     }
     project::applyVehicleDefaults(project_);
-    drawVehiclePreview(v, global ? (defs.empty() ? -1 : 0) : vehicleSel_);
-    ImGui::EndChild();
+
+    if (pendingNew) createVehicle();
+    if (duplicateAt >= 0 && duplicateAt < (int)defs.size()) {
+        VehicleDef d = defs[duplicateAt];
+        d.id = project::newObjectId();
+        d.name = uniqueName(defs, d.name + " copy");
+        defs.push_back(std::move(d));
+        vehicleSel_ = (int)defs.size() - 1;
+    }
+    if (deleteAt >= 0 && deleteAt < (int)defs.size()) {
+        // Instances keep their name reference. That is deliberate: a delete
+        // must not silently edit scenes, and a dangling name is reported by
+        // the instance's own Properties row where the author can see it.
+        vehicleBakes_.erase(defs[deleteAt].id);
+        defs.erase(defs.begin() + deleteAt);
+        if (vehicleSel_ >= (int)defs.size()) vehicleSel_ = (int)defs.size() - 1;
+        if (vehicleSel_ < 0) vehicleSel_ = -2;
+    }
 
     if (project::sectionJson(project_, project::Section::Vehicles) != before)
         commitChange();

@@ -1,6 +1,6 @@
 # Drone Generator
 
-![Drone Generator with live controls](img/drone-generator.png)
+![The Drone Generator on the showcase example: Neon Dusk opened from the project rail, the timeline with the rendered waveform and the four-chord strip under it, the chord cards in Harmony, and the footer saying what Render WAV writes.](img/drone-generator.png)
 
 *Tools > Drone Generator* is an ambient / drone music generator built into the
 editor. You dial a piece in against **live playback** — the knobs are heard as you
@@ -14,6 +14,89 @@ runtime synthesizer. It is the tool for the job "this level needs a background
 bed and I am not going to compose one in a DAW". You will not write Bach with
 it. You can absolutely craft a piece you are happy to loop for twenty minutes
 under a level.
+
+## Simple and Detailed
+
+![The Simple view on the showcase example: the hero with the rendered waveform, the playhead and the dashed arc, Play/Stop and the meters; Over the track and the mood tiles on the left; the six Sound sliders, Feeling, Track and In the game on the right; Save to project in the footer.](img/drone-simple.png)
+
+The window opens on the **Simple** view; **Detailed** is everything below this
+section (the project rail and presets, the transport with Record, the seven
+tabs). The `Simple | Detailed` switch sits at the right of the title row in
+Simple and of the tab row in Detailed, and is remembered per machine
+(`droneDetailed` in `editor.ini`), not per project. Both views edit the SAME
+patch, transport and file: switching never stops playback, and Simple adds no
+saved field - every control reads its value back from the patch and writes by
+rescaling the fields the Detailed knobs edit, so a `.drone` file is the same
+whichever view made it.
+
+- **Track bar**: a small swatch of the track's sky (its mood's colours, lit
+  by *Brightness*; a night blue for a track from no mood), the track picker
+  (the project's `.drone` files, *New track*,
+  *Open file...*; the same unsaved-changes question as the rail), "Plays in
+  scene X" when a scene plays it (click = jump to *In the game*), the state
+  (*Not saved* / *Changed since last save* / *Saved*) and `...` (new, open,
+  the file name, *Duplicate*).
+- **The hero** is what you hear: the title (click to rename), one sentence
+  (the mood and the arc in words), the rendered WAV's waveform - or, after an
+  edit, the live output as it plays - with the playhead (click or drag to
+  seek), the arc as a dashed amber line when an Arc row drives something,
+  **Play / Stop** (**Space** while the window has focus; always the looping
+  Sound design mode), the time, "Loops forever in the game, no gap" and the
+  output meters.
+- **Start from a mood**: eight recipes named after uses - *Dark cave*, *Calm
+  wind*, *Tense*, *Deep space*, *Underwater*, *Temple*, *Frozen*,
+  *Machinery*. A mood replaces the whole sound (automation lanes included);
+  the length, format, file name and mastering stay, and the chords are
+  stretched to whole passes of the length. Picking one starts playback, and
+  **Undo** appears under the tiles until the next edit (10 s at most). A
+  title you typed is kept; an empty one or another mood's name follows the
+  mood. **Another take** keeps the mood and the sliders and re-rolls the
+  details: a new seed, and the free LFO rates, bell density and air motion
+  nudged from a stream seeded by it (so a take is reproducible from the file).
+  Every recipe's chord pass is exactly 60 s.
+- **Sound**, six sliders, each moving several fields at once:
+
+  | Slider | Reads | Also moves |
+  |---|---|---|
+  | Brightness | filter cutoff, 200 Hz - 8 kHz (log) | out high cut, tilt, every layer's tone, the air bed's cutoff, bell brightness |
+  | Pitch | root note, A0 - E3 | (chords are offsets, so they follow) |
+  | Movement | the LFO/Random mod rows' amounts x LFO depth | free LFO rates, air motion, layer drift; from still it adds LFO1 -> cutoff and LFO2 -> layer 1 |
+  | Space | reverb decay, 2 - 30 s (log) | reverb mix, size, predelay, delay mix - and the loop tail (0.8 x decay) |
+  | Wind | air bed level | air on/off, motion depth, stereo |
+  | Chimes | bell density, 0 - 40 a minute (log) | bells on/off (density kept when off) |
+
+  A drag rescales from a snapshot taken when it starts, so dragging back
+  restores the patch exactly; double-click returns to the mood's value (or
+  the value at load). A field driven by a timeline lane is shifted lane and
+  all (an amber dot by the label says so). Movement is disabled when it would
+  need a mod row and all six are in use.
+- **Feeling** writes the chords: *Calm* (major), *Open* (fifths, pentatonic),
+  *Mysterious* (dorian), *Uneasy* (phrygian), *Dread* - chord A on odd steps,
+  B on even ones, the bars untouched, the bells' scale with them. Chords
+  spelled by hand show the nearest feeling outlined ("Close to Uneasy").
+- **Over the track** shapes the arc: *Steady*, *Swell*, *Two waves*, *Build
+  up* (the last does not loop cleanly - for a scene that plays it once). A
+  shape adds Arc -> cutoff (and Arc -> reverb mix) rows when none exist.
+- **Track**: *Length* 30 s / 1 / 2 / 3 min stretches the chords so the track
+  is a whole number of passes (the "chords never heard" trap cannot happen
+  here) and shows the size on disc; *Loudness* Soft / Normal / Full sets the
+  normalize target (0.45 / 0.65 / 0.89).
+- **In the game** lists every Play Music node that plays this track: the
+  scene, how it starts ("starts with the level", "on Enter Area"...), loop
+  and volume, and **Open in Flow** (switches to that scene, selects the
+  object and shows its graph with the node selected). **+ Play in another
+  scene...** adds *On Start -> Play Music* (volume 80, loop on) to the
+  scene's player - or the first object that already runs something On Start,
+  or a new "Level music" empty after asking - and asks before replacing a
+  track that scene already plays on start. One undo step. It needs the WAV
+  saved first.
+- **Save to project** is Detailed's *Render WAV*: it writes
+  `res/audio/<name>.wav` and the `.drone` patch beside it, adds the track to
+  the Music list and asks before replacing a file. There is no separate
+  "Save patch" in Simple.
+
+A narrow window (a docked column) stacks the same sections in one scrolling
+column, moods first, with a shorter hero.
 
 ## What it costs on the PS2: nothing new
 
@@ -32,7 +115,7 @@ what `AudioSong::load` documents. The Music list's per-track *PS2 build* options
 
 Drag a dial vertically to turn it, **Shift** for fine and **Ctrl** for coarse,
 **double-click** to put it back to its default. Whole-number dials — *Octave*,
-*Semi*, *Unison*, *Root*, *Beats*, the bell octave and range — step, and a step
+*Semi*, *Unison*, *Root* (shown as a note, `B1`), *Beats*, the bell octave and range — step, and a step
 is about 30 pixels of travel regardless of how few steps the dial has. (They
 step because the drag position is kept apart from the value: a stepped dial that
 only accumulated within one frame would need half a step of movement in a single
@@ -42,7 +125,14 @@ has seven steps — sat there looking broken.)
 The **Mix** strip at the top of *Layers* is not a second set of gains: each of
 its four dials is the *same* parameter as that layer's *Level* knob, so the two
 always read alike. It exists so four stacks can be balanced without four tab
-clicks.
+clicks. Under it, one pill per layer (**Layer 1**...**Layer 4**, each with its
+wave or `off`) picks the layer whose pitch and shape dials are shown.
+
+Every tab is sections under small caps captions; a row of dials wraps onto the
+next line when the window is narrow. The dial's arc is the value (filled from
+the centre for a symmetric range such as *Pan*), the amber dot means automated.
+On/off settings (*Air on*, *Bells on*, *Ping-pong*, *Seamless loop*...) are
+switches.
 
 ## The signal chain
 
@@ -68,7 +158,8 @@ Two routing decisions are worth knowing because they are audible:
 
 Four independent oscillator stacks. Each holds up to six voices — one per chord
 degree — and each voice can be a **unison** stack of up to five detuned copies
-fanned across the stereo field. `Plays:` picks which chord degrees a layer takes,
+fanned across the stereo field. *Plays* - six chips, one per chord voice - picks
+which chord degrees a layer takes,
 which is the difference between a sub (root only), a pad (all six) and a top
 voice (the upper three).
 
@@ -88,6 +179,16 @@ from the root and held for a number of bars. Chord changes **glide** (portamento
 rather than jump — that is the drone idiom, and the *Glide* knob is how syrupy it
 gets. Voices that a chord does not use fade out over the layer's *Release*; new
 ones fade in over its *Attack*.
+
+In the *Harmony* tab the chords are **cards**: number and colour (the same
+colour as its segment under the timeline), bars, note names and the semitones.
+Click a card to edit it underneath (bars, the six voices - drag a voice left to
+`-` to drop it - and *Remove chord*); *+ Chord* copies the last one. **A chord
+the track never reaches is dimmed, and a warning says so**: four chords of 8
+bars at 64 BPM are 2:00, so in a 1:00 track chords 3 and 4 are never heard (the
+showcase example's Neon Dusk shipped exactly like that until its chords were
+cut to 4 bars - 16 bars = 1:00 - and the track re-rendered). *Fit length to
+whole passes* sits beside the warning (and below the cards otherwise).
 
 The *Scale* setting is only used by the bells; chords are spelled note by note,
 because "minor" is not a useful abstraction once you want a suspended fourth in
@@ -177,7 +278,7 @@ The intended way to make one is not to add a lane by hand:
 3. Turn a knob. A lane appears for that parameter with a keyframe at the
    playhead, and the amber dot on the knob says it is automated from now on.
 
-(The *Write keyframes* checkbox in the Timeline tab is the same arm, kept for
+(The *Write keyframes* switch in the Timeline tab is the same arm, kept for
 writing at a parked playhead: scrub to a moment, arm, turn a knob.)
 
 That works for **every knob in the tool** without any of them knowing the
@@ -213,10 +314,15 @@ would look like it worked and quietly do nothing.
 
 ### The transport bar
 
-The strip under the preset row is the position bar: ticks (bars while they are
-readable, otherwise round seconds), the elapsed fill, a **triangle for every
-keyframe in the piece** so you can see where it changes, the playhead, and a
-`0:27.0 / 1:00` readout. Click or drag it to move the playhead — it **seeks the
+The transport card holds `|<`, a round green **Play**, a red **Rec** ring, a
+`0:27.0 / 1:00` readout and the mode switch, and under them ONE timeline that
+is both the position bar and the waveform: bar numbers (round seconds when bars
+would be too dense), the finished track's waveform (the part already played in
+the accent; it is read from the WAV on disk when you open a rendered track), a
+**triangle for every keyframe in the piece** so you can see where it changes,
+the playhead, the output meters at its end and, under it, **the chord sequence
+as coloured segments** pass after pass - the same colours as the chord cards in
+*Harmony*. Click or drag it to move the playhead — it **seeks the
 live playback** (`Synth::setTime`), so the timeline drives playback rather than
 just reporting it. A seek keeps the delay and reverb tails (it is a jump in the
 piece, not a reset) but re-latches held notes at the chord you landed on instead
@@ -240,20 +346,22 @@ the patch seed, so:
   harness check for this compares audio rendered from a patch against audio
   rendered from that patch's saved text.
 
-## The transport: Generate and Record
+## The transport: Sound design and Record
 
-The same synth is used two ways, so the transport has two modes:
+The same synth is used two ways, so the transport has two modes - a segmented
+switch at the right of the transport card that shows the mode you are IN:
 
 **Both** modes play from the playhead and both have `|<` — "let me hear how it
 ends" is a transport need, not a mode. What the mode decides is what happens at
 the end of the piece and whether knobs are recorded:
 
-- **Generate** — free-running sound design. *Play* runs from the playhead and
+- **Sound design** (loops) — free-running. *Play* runs from the playhead and
   keeps going past the end until you stop it; nothing is written. This is the
   mode for dialling a patch in. *Restart* rewinds to bar 1 and re-seeds the
   random streams.
-- **Record** — *Play* starts at the playhead and **stops at the end of the
-  piece**; *Rec* does the same with keyframe writing armed. Stopping parks the
+- **Record** (stops at end) — *Play* starts at the playhead and **stops at the
+  end of the piece**; *Rec* does the same with keyframe writing armed (pressing
+  *Rec* in Sound design switches to Record first). Stopping parks the
   playhead where playback got to, so *Play* resumes rather than restarting (from
   a playhead already parked at the end, *Play* rewinds first).
 
@@ -317,16 +425,31 @@ reports it and the tool keeps working as an offline renderer.
 ## A patch is a project asset
 
 A `.drone` is not just a sidecar of a rendered WAV, it is the **audio project**:
-the thing you twiddle and save. The generator's bottom bar is a document bar -
-**New / Open... / Save**, the open patch's path, and a `*` while it has edits the
-file does not.
+the thing you twiddle and save.
 
-- **Save** writes `res/audio/<name>.drone` (or back over the patch you opened).
-  Saving over your own open patch is what "save" means and happens silently;
-  saving onto a *different* existing patch asks first.
-- **Open...** lists every `.drone` in the project, so a patch is picked by name
-  rather than hunted for in a file dialog (the dialog is still there under
-  *Browse for a file...* for patches from outside the project).
+- The window's left rail lists **every `.drone` in this project** (title, path,
+  a `wav` badge once it has been rendered - amber when the patch was saved after
+  its last render), then **+ New track**, then the **presets** (a preset replaces
+  the sound and keeps the length and file name), and *Open file...* for a patch
+  from outside the project. Clicking a track with unsaved edits open asks first
+  (*Discard and open* / *Save first* / *Cancel*).
+- **Opening the tool on a project that already has a patch opens that patch**
+  (the one named like the current file name, else the first), once per project
+  and only over the untouched default - it no longer opens on *Init Drone*
+  named `ambient` beside an `ambient.drone` it does not show. *+ New track*
+  picks a file name no track uses (`ambient-2`...).
+- The identity row: the patch's **title** (editable), chips for root + scale,
+  tempo, length, format and seed (with **Roll**), and the render state on the
+  right - *not rendered yet*, *rendered*, or **changed since last render**
+  (unsaved edits, or the `.drone` saved after its `.wav`).
+- The footer is the document bar: the **File** name, what a render writes
+  ("res/audio/ambient.wav + ambient.drone - replaces the current file - in
+  Music list"), **Save patch** (`*` while the patch has edits the file does
+  not) and the primary **Render WAV**, which shows its progress inside the
+  button (click it to cancel).
+- **Save patch** writes `res/audio/<name>.drone` (or back over the patch you
+  opened). Saving over your own open patch is what "save" means and happens
+  silently; saving onto a *different* existing patch asks first.
 - **Render WAV** writes the track *and* saves the patch beside it, and the pair
   becomes the open document.
 
@@ -401,7 +524,8 @@ wide, costs less than you would think (the low end is mono anyway).
 |---|---|
 | `src/dronegen.hpp/.cpp` | `Params`, the `Synth` (live, block-based), `LiveSynth` (thread hand-off), the offline `render()` + mastering, the WAV writer, the presets and the `.drone` text format. Host-only, no GL, no `Project`. |
 | `src/audiopreview.hpp/.cpp` | The editor's only audio *output* path: a miniaudio playback device pulling from a callback. The only TU that includes miniaudio. |
-| `src/droneui.cpp` | The window: the rotary knob widget, the arc editor, the chord table, the mod matrix, the scope/analyzer/meters, the timeline (position bar + lane editors + the write hook), and the render + patch I/O buttons. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
+| `src/drone_simple_ui.cpp` | The Simple view (`App::drawDroneSimple`): moods, sliders, In the game. The math behind it (moods, `simple::read/write`, feelings, shapes, length) is in `dronegen.cpp`, host-only. |
+| `src/droneui.cpp` | The window: the track/preset rail, the rotary knob widget, the arc editor, the chord cards, the mod matrix, the meters, the timeline (position bar + waveform + chord strip, lane editors, the write hook), and the render + patch I/O footer. `App::` methods in their own TU, the `assetbrowser.cpp` precedent. |
 
 Everything DSP is harness-testable without the GUI — link `dronegen.cpp` alone
 and render presets to WAV (see the PROGRESS entry for the checks that harness

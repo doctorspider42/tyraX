@@ -54,7 +54,7 @@ of blooming from a point.
 `s3-shadow-wall` is the shadow demo — a slab between the pit and the far left
 pillar. The light doesn't pass through it: the pillar behind is dark on the
 side facing the pit, and the ground carries the wall's shadow. Untick the
-wall's *Cast shadow* in Properties and the shadow disappears (the flag is
+wall's *Cast shadow* (Properties > Material tab) and the shadow disappears (the flag is
 shared with the ambient occlusion). Shadows come from the analytic box/sphere
 each object reduces to, so the *shape* is rectangular — a wall throws a
 rectangle, not its silhouette — but the **edge is soft**: the plate is an area
@@ -102,7 +102,7 @@ directly to the trigger, not to the first *Set Bloom*.)
 
 ## The project's glow settings
 
-*Tools > UI Editor* → the screen stack → **[ Bloom + color grading ]**:
+*Tools > UI Editor* → the screen stack → **Bloom + color grading**:
 
 | Setting | Value | Why |
 | --- | --- | --- |

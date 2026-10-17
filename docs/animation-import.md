@@ -2,7 +2,7 @@
 
 A character is rigged once, but its animation usually arrives separately — one
 `.fbx` per move from Mixamo, or a second export from an animator. *Tools >
-Animation Editor > **Imported clips*** borrows those clips onto a model that
+Animation Editor > **Borrowed from other files*** borrows those clips onto a model that
 already lives in your project, so you do not have to merge the files in Blender
 and re-export the character every time a move is added.
 
@@ -13,19 +13,24 @@ the model is parsed — for the editor's preview and again on the way into the
 and reversible, re-exporting either asset picks the change up, and the console
 pays nothing at runtime.
 
-![An import row on a real cross-rig pair: 49/51 bones matched, the retarget mode chip, and the imported clip already in the model's clip list.](img/animation-import.png)
+![A borrowed file selected under Borrowed from other files: its bone match and mode chip, Map bones as the primary action while bones are unmatched, and the retarget settings.](img/animation-import.png)
 
 ## Using it
 
-1. **Get the clip file into the project.** *Import file…* copies a `.glb`/`.fbx`
-   into `res/models/` like any other asset, or pick one already there. A
+1. **Borrow clips from a file.** The button (under the clip list) lists the
+   project's other rigged files with their bone match and clip count, and
+   *Import a file...* copies a new `.glb`/`.fbx` into the project first,
+   through the *Import model* window; pressing Import there adds it as a
+   borrowed row straight away (no second trip to the list). A
    clip-only download has no useful mesh, but it still has to be a project asset
    — the build opens it.
-2. **Read the skeleton match.** The percentage is how many of the source's
-   animated bones have a bone of the same name on your model. Green (>85%) is
-   fine. A low number means the two rigs do not share bone names, and the clip
-   will play with the unmatched bones simply not moving.
-3. **Add all clips.** They appear in the clip list immediately and animate in the
+2. **Read the skeleton match.** Picking a file adds it as a row under
+   *Borrowed from other files* with its clips under it; selecting the row shows
+   its settings in the inspector, led by `mapped / total bones` - how many of
+   the source's animated bones have a home on your model. When some do not,
+   **Map bones...** opens on its own (and is the inspector's primary button);
+   unmatched bones simply do not move.
+3. **Use them.** The clips appear in the list immediately and animate in the
    preview.
 
 An imported clip is an **ordinary clip of that model** from then on. It can be
@@ -100,14 +105,24 @@ matching names, and an exact match always wins over a normalised one.
 
 ## Mapping bones by hand
 
-![The bone mapper on a Mixamo source and a differently rigged target: both skeletons, the mode line, and the pair list.](img/bone-mapper.png)
+![Map bones on wobbler.glb -> cat.glb: the mode badge, the matched / suggested / unmatched bar, each rig framed in its own card (the cat from the side), a hovered suggestion linked across the cards, and the suggestion list.](img/bone-mapper.png)
 
-When the two rigs' names genuinely differ, **Map bones…** (on each import row;
-it also opens itself when *Add clips* lands a partial match) shows both
-skeletons drawn from their bind poses, side by side. Green joints matched by
-name; **amber** ones carry a suggestion; **red** ones matched nothing. Click a
-red or amber joint, then the joint on the right it should drive; right-click
-removes a pair; *Accept suggestions* takes every amber guess at once.
+When the two rigs' names genuinely differ, **Map bones…** (the borrowed
+file's inspector; it also opens itself when borrowing lands a partial match)
+shows both skeletons drawn from their bind poses. The title says what goes onto
+what (`wobbler.glb -> cat.glb`) and how - *copy path* or *full retarget* with
+the bind gap - and a bar counts the source joints **matched**, **suggested**
+and **unmatched**. Each rig has its own card, framed to itself: the source on
+whichever plane shows it wide (a chain seen end-on used to be one dot), this
+model from the **Side** or the **Front** (picked for you when the window opens;
+**Frame** resets the zoom). Green joints matched; **amber** ones carry a
+suggestion; **red** ones matched nothing. Click a red or amber joint, then the
+joint on the right it should drive; right-click removes a pair; hovering a
+joint or a list row draws its pair as a dashed link across the cards. The
+right column lists the **Suggestions** (one line each, with a score and an
+accept button, and *Accept all N*), the **Unmatched** joints, *Ask AI for
+pairs*, and the **Pairs** you made. **Apply N pairs** writes them to the import
+row - it stays disabled, with the reason on hover, while nothing changed.
 Suggestions are never applied on their own — a wrong guess bends the wrong
 limb, so a person confirms them.
 
@@ -121,16 +136,16 @@ pair you ever accepted lands in a machine-global alias book, so the next file
 from the same pack suggests itself). A left token or a clearly-left position
 still never pairs with a right one.
 
-![The test pose mid-walk: both rigs posed through the mapping - a wrong pair would show as a folded limb.](img/bone-mapper-pose.png)
+![The test pose: wobbler.glb's Wiggle playing through the mapping onto the cat's tail - a wrong pair would show as a folded limb.](img/bone-mapper-pose.png)
 
 Two shortcuts sit above the fuzzy scores. When the rigs differ by one rename
 pattern, an **Apply rule** button appears — `strip 'rigX:'+'X' (34)` — one
-reviewable transformation instead of thirty scores. And **Test pose** poses
-both skeletons through the current mapping with a clip of the source (slider +
-Play): a wrong pair shows as a folded limb in a quarter of a second, which
+reviewable transformation instead of thirty scores. And **Test pose**, pinned
+under the list, poses both skeletons through the current mapping with a clip of
+the source (pick the clip, Play/Pause, scrub): a wrong pair shows as a folded limb in a quarter of a second, which
 beats every percentage this window prints.
 
-**Ask AI** (optional — uses the backend from *Edit > Preferences*) sends both
+**Ask AI for pairs** (optional — uses the backend from *Edit > Preferences*) sends both
 hierarchies with bind positions to the model and lands its proposals in the
 list as one more suggestion group, blue, each with its own accept button.
 Nothing it says is applied on its own, exactly like the local suggestions.

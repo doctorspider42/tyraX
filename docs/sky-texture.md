@@ -6,8 +6,9 @@ scene gets it through the preset it uses, the same way it gets its sky colours.
 
 ## Using it
 
-1. *Ambience Editor > Sky > **Sky texture (PNG)...***, with *Gradient sky
-   dome* on. Pick a **360-degree equirectangular** panorama (2:1, horizon
+1. *Ambience Editor > Sky & time*, inspector: **Sky texture (PNG)...** (in
+   the *Look* tab's Sky section, or under *Sky dome* on the *Key* tab when the
+   preset has a day/night cycle), with *Gradient sky dome* on. Pick a **360-degree equirectangular** panorama (2:1, horizon
    across the middle). The file is copied into `res/sky/`.
 2. Turn **Sky rotation** until the painted sun sits where the scene's light
    comes from. The picture does not move the light and the light does not move

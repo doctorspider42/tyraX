@@ -9,6 +9,8 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "hardware_timeline.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -35,6 +37,7 @@
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "multiviewport.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -706,106 +709,6 @@ void App::timeMachineRewind(int index) {
     timeStatus_ = msg;
 }
 
-void App::drawTimeMachinePanel() {
-    if (project_.settings.buildProfile != "debug") {
-        ImGui::TextDisabled(
-            "Rewinding needs the debug build profile\n"
-            "(Project > Preferences > Build).");
-        return;
-    }
-    if (!project_.settings.timeMachine) {
-        ImGui::TextDisabled(
-            "The time machine is off for this project\n"
-            "(Project > Preferences > Build > Time machine).");
-        return;
-    }
-    if (timeHistory_.empty()) {
-        ImGui::TextDisabled(
-            "No captures yet. Build & run (F5), and the game starts\n"
-            "streaming its state a few times a second.");
-        return;
-    }
-
-    const size_t count = timeHistory_.count();
-    const uint32_t newestFrame = timeHistory_.newest().frame;
-    // Frames -> seconds at the project's refresh rate: what the user actually
-    // wants to know is "how far back can I go", in the units they think in.
-    const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
-    ImGui::Text("%zu captures, %.1f s of history", count,
-                (float)timeHistory_.frameSpan() / hz);
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%.1f of %d MB)",
-                        (double)timeHistory_.bytes() / (1024.0 * 1024.0),
-                        timeBudgetMb_);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "The history lives in the editor's memory, never on disk - the\n"
-            "only files the channel touches are two fixed-size ones next to\n"
-            "the ELF. Closing the project drops it. The budget is in\n"
-            "Edit > Preferences.");
-    if (ImGui::GetTime() - timeLastSeen_ > 2.0)
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "The game stopped reporting - this history is frozen.");
-
-    // The scrub picks WHICH capture; nothing happens to the game until Rewind.
-    int scrub = timeScrub_ < 0 ? (int)count - 1 : timeScrub_;
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    char label[64];
-    std::snprintf(label, sizeof(label), "-%.1f s",
-                  (float)(newestFrame - timeHistory_.at((size_t)ImClamp(
-                                                            scrub, 0, (int)count - 1))
-                                            .frame) /
-                      hz);
-    if (ImGui::SliderInt("##rewindscrub", &scrub, 0, (int)count - 1, label))
-        timeScrub_ = scrub;
-    scrub = ImClamp(scrub, 0, (int)count - 1);
-
-    const livetime::Snapshot& sel = timeHistory_.at((size_t)scrub);
-    ImGui::TextDisabled("frame %u, scene %d, %d objects, %zu B", sel.frame,
-                        sel.scene, sel.objectCount, sel.state.size());
-
-    if (ImGui::Button("Rewind to here")) timeMachineRewind(scrub);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Puts the RUNNING game back into this capture: object transforms,\n"
-            "physics, animation, flow variables, save values and where the\n"
-            "player stands. The game keeps running from there - with Live\n"
-            "Logic on you can edit a graph first and watch the new logic play\n"
-            "out on the old situation.");
-    ImGui::SameLine();
-    if (ImGui::Button("Live")) timeScrub_ = -1;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Follow the newest capture again.");
-    ImGui::SameLine();
-    if (ImGui::Button("Clear history")) {
-        timeHistory_.clear();
-        timeScrub_ = -1;
-        timeStatus_ = "History cleared";
-    }
-
-    if (!timeStatus_.empty()) {
-        ImGui::Separator();
-        ImGui::TextDisabled("%s", timeStatus_.c_str());
-    }
-
-    ImGui::Separator();
-    ImGui::TextDisabled("What a rewind puts back");
-    prefHelp(
-        "Objects (transform, physics, animation), the walker and its motion,\n"
-        "flow variables, save values, and every graph's own timers and\n"
-        "latches.\n\n"
-        "NOT put back: sequences mid-play, menus, audio and particles.\n"
-        "See docs/time-machine.md.");
-    ImGui::TextDisabled("Rewinding during a replay diverges it");
-    prefHelp(
-        "A recording is a list of INPUTS, not of states - it reproduces a run\n"
-        "by performing it again. Moving the world out from under it makes\n"
-        "every following frame describe a different situation, which the\n"
-        "Replay tab will report as a divergence. That is often exactly what\n"
-        "you want (rewind, patch a graph, watch the fix) - just do not read\n"
-        "the divergence count as a bug afterwards.");
-}
-
 // --- The input recorder -----------------------------------------------------
 // docs/input-replay.md. Almost everything here is about the NEXT run: the
 // mode is staged into the Runner, which prepares bin/ before it launches. The
@@ -1152,8 +1055,21 @@ void App::livedbgTick() {
         }
     }
 
+    // The file went away: a launch cleared the channel (both Runner paths
+    // delete it), so whatever reported before is over - not a hang. Without
+    // this a relaunch read as "stopped reporting" while the new game booted.
+    if (dbgSnapFileAge_ < 0.0) dbgSnapTime_ = 0.0;
+    // A snapshot file that was already old when this editor first saw it is a
+    // leftover of an earlier session (opening a project whose game ran
+    // yesterday), not a game: never attach to it, or it reads as "reporting"
+    // for a moment and then as a game that stopped reporting.
+    const int reportEvery = project_.settings.liveDebugSnapshotFrames > 0
+                                ? project_.settings.liveDebugSnapshotFrames : 25;
+    const bool freshFile = dbgSnapFileAge_ >= 0.0 &&
+                           dbgSnapFileAge_ < std::max(5.0, 2.0 + 3.0 * reportEvery / 25.0);
     livedbg::Snapshot snap;
-    if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
+    if ((dbgSnapTime_ > 0.0 || freshFile) &&
+        livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
         (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
         // A restarted game rewinds its frame counter: drop the history and the
         // heat so the new run is not drawn on top of the old one's trail.
@@ -1207,6 +1123,28 @@ void App::livedbgTick() {
                                     t.samples.begin() +
                                         (t.samples.size() - kDbgTrackSamples));
             }
+        // The Watch page's Changed column: which rows this report changed. The
+        // first report of a run (or of a different table) is a baseline.
+        if (restarted || dbgPrevVars_.size() != snap.vars.size()) {
+            dbgVarChanged_.assign(snap.vars.size() / 3, 0);
+            if (restarted) dbgFrameMs_.clear();
+        } else {
+            for (size_t v = 0; v + 2 < snap.vars.size() && v / 3 < dbgVarChanged_.size(); v += 3)
+                if (snap.vars[v] != dbgPrevVars_[v] || snap.vars[v + 1] != dbgPrevVars_[v + 1] ||
+                    snap.vars[v + 2] != dbgPrevVars_[v + 2])
+                    dbgVarChanged_[v / 3] = snap.frame;
+        }
+        dbgPrevVars_ = snap.vars;
+        // The Stats page's frame-time history: the game's own rendered rate.
+        if (snap.stats.valid) {
+            const int fx10 = snap.stats.fpsX10 > 0 ? snap.stats.fpsX10 : snap.stats.fps * 10;
+            if (fx10 > 0) {
+                dbgFrameMs_.push_back(10000.0f / (float)fx10);
+                if (dbgFrameMs_.size() > kDbgFrameMsKeep)
+                    dbgFrameMs_.erase(dbgFrameMs_.begin(),
+                                      dbgFrameMs_.begin() + (long)(dbgFrameMs_.size() - kDbgFrameMsKeep));
+            }
+        }
         dbgSnap_ = std::move(snap);
         dbgSnapTime_ = now;
     }
@@ -1227,8 +1165,11 @@ void App::livedbgTick() {
     // heartbeat is the only witness. Remember where it died - the fire history,
     // the watch curves and the timers from just before are still in memory, and
     // that is the post-mortem.
+    // Only while the game's process is still up (Runner::gameStatus: PCSX2 on
+    // this ELF, or our ps2client): a game that was closed, stopped or
+    // redeployed went quiet because it is gone, which is no crash and no hang.
     if (!reporting && dbgSnapTime_ > 0.0 && !dbgLostGame_ &&
-        !dbgCrash_.present && dbgSnap_.frame > 0) {
+        !dbgCrash_.present && dbgSnap_.frame > 0 && runner_.gameStatus().running) {
         dbgLostGame_ = true;
         dbgLostAtFrame_ = dbgSnap_.frame;
         statusMessage_ = "The game stopped reporting at frame " +
@@ -1515,12 +1456,21 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
 //
 // It used to say all of that inline, and the panel opened on a paragraph nobody
 // reads under stress. The rest lives in dbgSilenceDetail(), one hover away.
+// A frozen bin/livedbg.bin while PCSX2 is not running this ELF is simply the
+// last session's file: the game was closed. Over ps2link the same silence is
+// ambiguous (the console may still be running with its file server gone), so
+// that case keeps the "stale snapshot" reading and its explanation.
+bool App::dbgGameClosed() const {
+    return !runOnPs2_ && !runner_.gameStatus().running;
+}
+
 std::string App::dbgSilenceReason() const {
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
         return {};
     if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
     if (dbgSnapFileAge_ < 0.0)
         return "Nothing is reporting yet - Build & Run (F5 / F6).";
+    if (dbgGameClosed()) return "The game is not running - Build & Run (F5 / F6).";
     // Running/Waiting already accounts for the configured report interval and
     // observed frame rate in livedbgTick. File age adds transport context here.
     const double age = dbgSnapFileAge_;
@@ -1541,6 +1491,9 @@ const char* App::dbgSilenceDetail() const {
                "bin/livedbg.bin has not appeared yet. If the game IS running,\n"
                "it was built before the Live Debugger preference was switched\n"
                "on: rebuild it.";
+    if (dbgGameClosed())
+        return "No PCSX2 is running this project's ELF, so bin/livedbg.bin is\n"
+               "what the last session left behind. F5 builds and runs it again.";
     return "F5 for PCSX2, F6 for a console. That session is OVER:\n"
            "bin/livedbg.bin stopped changing, so what is on disk is a snapshot\n"
            "of a session that is over. The game may still be running: over\n"
@@ -1551,1594 +1504,2337 @@ const char* App::dbgSilenceDetail() const {
            "Under PCSX2 it means the game itself stopped.";
 }
 
+// --- The Debugger window ----------------------------------------------------
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
-// what the variables hold, where it is stopped - plus the transport controls
-// and the breakpoint list. The graph itself is the other half of this UI (the
-// Flow Graph window's overlay); this panel is the instrument cluster.
+// what the variables hold, where it is stopped - plus the transport, the
+// breakpoint list and the frame's performance. The graph itself is the other
+// half of this UI (the Flow Graph window's overlay); this panel is the
+// instrument cluster.
+//
+// Layout (docs/live-debugger.md): a status header (state pill, frame and both
+// frame rates, the transport with its keys), a section RAIL grouped by the
+// question asked - Logic / World / Performance - instead of thirteen tabs in
+// one strip, the page, a right-hand column that says where the game stopped
+// (or why it is not running), and ONE time strip at the bottom that replaced
+// the Timeline, Rewind and Replay tabs: node fires per frame, the inspected
+// frame, where the world is, and the input recorder's state.
+//
+// The window lives in two docks - the Default layout's bottom drawer (wide and
+// short) and the Logic layout's right column (narrow and tall) - so every part
+// adapts: the rail collapses to icons, the right column folds into the top of
+// the page, the transport drops to its own line and the time strip collapses.
+
+namespace {
+
+// What a watch value reads as. A scalar fact is one float in the game and a
+// TYPE in the catalog, so it prints the way the catalog means it - true/false,
+// an enum's option name - instead of the number the console stores. `tone`:
+// 0 plain, 1 true, 2 false/none, 3 enum.
+std::string dbgValueText(const Project& p, const livedbg::VarSym& v, const std::vector<float>& vals,
+                         size_t row, int* tone) {
+    *tone = 0;
+    const size_t o = row * 3;
+    if (o + 2 >= vals.size()) {
+        *tone = 2;
+        return "-";
+    }
+    char buf[96];
+    const facts::Fact* fact = nullptr;
+    if (v.kind == 'f' || v.kind == 'F')
+        for (const facts::Fact& f : p.facts)
+            if (f.name == v.name) {
+                fact = &f;
+                break;
+            }
+    if (v.kind == 'b' || (fact && fact->type == facts::Type::Bool)) {
+        *tone = vals[o] != 0.0f ? 1 : 2;
+        return vals[o] != 0.0f ? "true" : "false";
+    }
+    if (v.kind == 'p' || v.kind == 'F') {
+        // Three floats, which is what a position IS.
+        std::snprintf(buf, sizeof(buf), "%.2f  %.2f  %.2f", vals[o], vals[o + 1], vals[o + 2]);
+        return buf;
+    }
+    if (v.kind == 'i' || (fact && fact->type == facts::Type::Int)) {
+        std::snprintf(buf, sizeof(buf), "%d", (int)lroundf(vals[o]));
+        return buf;
+    }
+    if (fact && fact->type == facts::Type::Enum) {
+        const int idx = (int)lroundf(vals[o]);
+        *tone = 3;
+        if (idx >= 0 && idx < (int)fact->options.size()) return fact->options[(size_t)idx];
+        std::snprintf(buf, sizeof(buf), "%d (no option)", idx);  // say WHICH number
+        return buf;
+    }
+    std::snprintf(buf, sizeof(buf), "%g", vals[o]);
+    return buf;
+}
+
+// The Kind column, and one of the two things the filter matches against.
+const char* dbgKindText(char k) {
+    switch (k) {
+        case 'i': return "int";
+        case 'b': return "bool";
+        case 'p': return "position";
+        case 'f': return "fact";
+        case 'F': return "fact pos";
+        default: return "save";
+    }
+}
+
+// "18 432": frame numbers are read, not computed with - a thin space every
+// three digits makes a five-digit frame readable at a glance.
+std::string dbgFrameText(uint32_t f) {
+    std::string s = std::to_string(f);
+    for (int i = (int)s.size() - 3; i > 0; i -= 3) s.insert((size_t)i, " ");
+    return s;
+}
+
+ImU32 dbgCol(const ImVec4& c, float a = 1.0f) {
+    return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * a));
+}
+
+// An inline small-caps caption ("FRAME TIME") that, unlike ui::Caption, is an
+// ordinary item a SameLine can follow.
+void dbgCaps(const char* text) {
+    char up[64];
+    std::snprintf(up, sizeof(up), "%s", text);
+    for (char* c = up; *c; ++c) *c = (char)std::toupper((unsigned char)*c);
+    ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 0.8f);
+    ImGui::TextColored(theme::semantics().textDim, "%s", up);
+    ImGui::PopFont();
+}
+
+}  // namespace
+
+std::string App::dbgNodeLabel(const livedbg::NodeSym& n) const {
+    std::string obj = "(deleted object)";
+    if (n.scene >= 0 && n.scene < (int)project_.scenes.size())
+        for (const SceneObject& o : project_.scenes[n.scene].objects)
+            if (o.id == n.objectId) {
+                obj = o.name;
+                break;
+            }
+    const FlowNodeType* t = flowNodeType(n.type);
+    return obj + " \xc2\xb7 " + (t ? std::string(t->title) : n.type);
+}
+
+// Jumps the Flow Graph window to a node's owner (and selects the object).
+void App::dbgRevealNode(const livedbg::NodeSym& n) {
+    if (n.scene >= 0 && n.scene < (int)project_.scenes.size() && n.scene != project_.activeScene) {
+        // Same steps the Project window's scene list takes - terrain and
+        // lighting are per scene, and staged pastes belong to the old one.
+        project_.activeScene = n.scene;
+        clearSelection();
+        cancelPastePlacement();
+        flowPositionsApplied_ = false;
+        applyProjectToViewport();
+    }
+    const auto& objs = project_.objects();
+    for (size_t i = 0; i < objs.size(); ++i)
+        if (objs[i].id == n.objectId) {
+            flowGraphObject_ = (int)i;
+            flowPositionsApplied_ = false;
+            selectedObject_ = (int)i;
+            ImGui::SetWindowFocus("Flow Graph");
+            break;
+        }
+}
+
+void App::dbgSetTransport(int what) {
+    // 0 = pause/continue toggle, 1 = step one frame, 2 = run until a node fires
+    dbgCmd_.stepFrames = 0;
+    dbgCmd_.stepUntilFire = false;
+    if (what == 0) {
+        dbgCmd_.halt = dbgState_ != DbgState::Halted;
+    } else {
+        dbgCmd_.halt = false;
+        if (what == 1) dbgCmd_.stepFrames = 1;
+        else dbgCmd_.stepUntilFire = true;
+    }
+    dbgCmdWritten_ = false;
+    if (!dbgCmd_.halt) dbgScrub_ = -1;
+}
+
+void App::dbgBuildAndRun() {
+    // F5's own path: build, launch PCSX2, bring this panel forward.
+    if (runner_.busy()) return;
+    openDebuggerForLaunch();
+    runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+}
+
+// The header: where the game is, and the transport.
+void App::dbgDrawHeader() {
+    const theme::Semantics& sem = theme::semantics();
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const ImGuiStyle& st = ImGui::GetStyle();
+
+    // --- the state pill
+    std::string pill;
+    int kind = 4;
+    bool pauseIcon = false;
+    if (dbgCrash_.present) {
+        pill = "Crashed";
+        kind = 2;
+    } else if (dbgLostGame_) {
+        pill = "Stopped reporting";
+        kind = 2;
+    } else {
+        switch (dbgState_) {
+            case DbgState::Off: pill = "Off"; break;
+            case DbgState::NoBuild: pill = "Not built yet"; break;
+            case DbgState::Waiting:
+                // A frozen file is a DIFFERENT thing from an absent one: one is
+                // "not started yet", the other "the transport died and the
+                // console is still running".
+                if (dbgSnapFileAge_ >= 0.0 && dbgGameClosed()) {
+                    pill = "Not running";
+                    kind = 4;
+                } else if (dbgSnapFileAge_ >= 0.0) {
+                    pill = "Stale snapshot";
+                    kind = 1;
+                } else {
+                    pill = "Waiting for the game";
+                    kind = 3;
+                }
+                break;
+            case DbgState::Stale:
+                pill = "Rebuild needed";
+                kind = 1;
+                break;
+            case DbgState::Running:
+                pill = runner_.ps2ClientAlive() ? "Running \xc2\xb7 PS2" : "Running \xc2\xb7 PCSX2";
+                kind = 0;
+                break;
+            case DbgState::Halted:
+                pill = dbgSnap_.breakKey >= 0 ? "Halted on breakpoint" : "Paused";
+                kind = 1;
+                pauseIcon = true;
+                break;
+        }
+    }
+    ImGui::AlignTextToFramePadding();
+    ui::StatePill(pill.c_str(), kind, pauseIcon, ui::RtIcon::Pause);
+    if (dbgState_ == DbgState::Waiting || dbgState_ == DbgState::NoBuild)
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && dbgState_ == DbgState::Waiting)
+            ImGui::SetTooltip("%s", dbgSilenceDetail());
+
+    // --- the transport, right-aligned; on its own line when the row is full
+    const bool halted = dbgState_ == DbgState::Halted;
+    const char* why = live ? nullptr : "No game is reporting - Build & Run (F5) a debug build.";
+    ui::TransportItem items[3] = {
+        halted ? ui::TransportItem{"Continue", ui::RtIcon::Play, nullptr, "F10", true, live,
+                                   why ? why : "Let the game run again (F10)."}
+               : ui::TransportItem{"Pause", ui::RtIcon::Pause, nullptr, "F10", false, live,
+                                   why ? why
+                                       : "F10. A halt freezes the world - scripts, the walker, "
+                                         "particles, animation -\nwhile the game keeps "
+                                         "presenting frames, so you can still look at what you "
+                                         "stopped."},
+        {"Step frame", ui::RtIcon::StepFrame, nullptr, "F11", false, live,
+         why ? why : "F11. Runs exactly one frame, then stops again."},
+        {"Step node", ui::RtIcon::StepNode, nullptr, nullptr, false, live,
+         why ? why
+             : "Runs until ANY instrumented node fires, then stops on it -\nthe fastest way to "
+               "find out what actually runs next."},
+    };
+    const float iconW = ImGui::GetFrameHeight() + 6.0f;
+    // Too narrow for the words (the Logic layout's column): icons only, the
+    // names and keys stay in the tooltips.
+    if (ui::TransportBarWidth(items, 3) + iconW * 2 + scaled(24) > ImGui::GetWindowContentRegionMax().x)
+        for (ui::TransportItem& it : items) {
+            it.text = "";
+            it.key = nullptr;
+        }
+    const float barW = ui::TransportBarWidth(items, 3);
+    const float tailW = barW + st.ItemSpacing.x * 3 + iconW * 2 + scaled(8);
+    // --- frame / fps / scene, in the mono face
+    if (live) {
+        ImGui::SameLine(0.0f, scaled(10));
+        const livedbg::Stats& s = dbgSnap_.stats;
+        // Two rates, not one: rendered = loop iterations, presented = flips
+        // (about twice as many with frame extrapolation). The game's own
+        // measurement when it reports one, else frames over this editor's clock.
+        const float rendered = s.fpsX10 > 0 ? s.fpsX10 / 10.0f : dbgFps_;
+        const float presented = s.presentedX10 > 0 ? s.presentedX10 / 10.0f : rendered;
+        std::string scene = std::to_string(dbgSnap_.scene);
+        if (dbgSnap_.scene >= 0 && dbgSnap_.scene < (int)project_.scenes.size())
+            scene = project_.scenes[dbgSnap_.scene].name;
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "frame %s \xc2\xb7 %.1f / %.1f fps \xc2\xb7 scene %s",
+                      dbgFrameText(dbgSnap_.frame).c_str(), rendered, presented, scene.c_str());
+        ui::FontScope mono(ui::monoFont());
+        // Shorter forms on a narrow dock: drop the scene, then the rates.
+        // Keep the transport on this row when the full text is what would push it off.
+        const float full = ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX();
+        const float room = full - tailW > ImGui::CalcTextSize("frame 00 000").x ? full - tailW : full;
+        if (ImGui::CalcTextSize(buf).x > room)
+            std::snprintf(buf, sizeof(buf), "frame %s \xc2\xb7 %.1f / %.1f fps",
+                          dbgFrameText(dbgSnap_.frame).c_str(), rendered, presented);
+        if (ImGui::CalcTextSize(buf).x > room)
+            std::snprintf(buf, sizeof(buf), "frame %s", dbgFrameText(dbgSnap_.frame).c_str());
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "%s", buf);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Rendered / presented frames per second, as the game measures them.\n"
+                "Rendered = game loops; presented = buffer flips - frame extrapolation\n"
+                "shows about twice as many frames as it renders (docs/profiling.md).");
+    }
+
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    ImGui::SameLine();
+    if (ImGui::GetCursorPosX() + tailW > right) ImGui::NewLine();
+    ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), right - tailW));
+    const float rowY = ImGui::GetCursorPosY();
+    switch (ui::TransportBar("##transport", items, 3)) {
+        case 0: dbgSetTransport(0); break;
+        case 1: dbgSetTransport(1); break;
+        case 2: dbgSetTransport(2); break;
+        default: break;
+    }
+    ImGui::SameLine(0.0f, scaled(10));
+    ImGui::SetCursorPosY(rowY + 3.0f);
+    if (ui::IconButton("Capture screen", ui::RtIcon::Camera, iconW - 6.0f,
+                       live ? "Capture the console's own frame (Screen)"
+                            : "Capture screen - needs a running debug game",
+                       live)) {
+        dbgCmd_.captureFrame = true;
+        dbgCmdWritten_ = false;
+        dbgShotWaiting_ = true;
+        dbgPage_ = DbgPage::Screen;
+    }
+    ImGui::SameLine(0.0f, 2.0f);
+    ImGui::SetCursorPosY(rowY + 3.0f);
+    if (ui::IconButton("Debugger settings", ui::RtIcon::More, iconW - 6.0f))
+        ImGui::OpenPopup("##dbgsettings");
+    if (ImGui::BeginPopup("##dbgsettings")) {
+        // The devkit switches this panel depends on, where the panel is - the
+        // same project settings as Project > Preferences > Build.
+        ui::Caption("This project's devkit");
+        bool changed = false;
+        changed |= ui::Switch("Live Debugger", &project_.settings.liveDebug);
+        changed |= ui::Switch("Live Logic (hot-patch graphs)", &project_.settings.liveLogic);
+        changed |= ui::Switch("Time machine (rewind)", &project_.settings.timeMachine);
+        changed |= ui::Switch("Input recorder", &project_.settings.inputRecorder);
+        if (changed) commitChange();
+        ImGui::TextDisabled("Built into the next debug build.");
+        ImGui::Spacing();
+        ui::Caption("This window");
+        ui::Switch("Watched-object trails in the viewport", &dbgShowTrails_);
+        if (!timeHistory_.empty()) {
+            ImGui::Spacing();
+            ui::Caption("Rewind history");
+            const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+            ImGui::TextDisabled("%zu captures, %.1f s (%.1f of %d MB)", timeHistory_.count(),
+                                (float)timeHistory_.frameSpan() / hz,
+                                (double)timeHistory_.bytes() / (1024.0 * 1024.0), timeBudgetMb_);
+            if (ImGui::Button("Clear history")) {
+                timeHistory_.clear();
+                timeScrub_ = -1;
+                timeStatus_ = "History cleared";
+            }
+        }
+        ImGui::EndPopup();
+    }
+}
+
+// The rail: one row per page, grouped by the question it answers, each with
+// the count that says whether there is anything there without opening it.
+void App::dbgDrawRail(bool compact, bool horizontal) {
+    const theme::Semantics& sem = theme::semantics();
+    struct Row {
+        DbgPage page;
+        const char* label;
+        ui::RtIcon icon;
+        std::string count;
+        int kind;
+    };
+    int watchedNow = 0;
+    for (const DbgObjTrack& t : dbgObjWatch_)
+        if (t.index >= 0) ++watchedNow;
+    const std::string objCount =
+        std::to_string(watchedNow) + " / " + std::to_string(livedbg::kMaxWatchObjects);
+    std::string patches;
+    int patchKind = 4;
+    if (!liveLogicBlocked_.empty()) {
+        patches = std::to_string(liveLogicBlocked_.size());
+        patchKind = 1;
+    } else if (liveLogicPatchCount_ > 0) {
+        patches = std::to_string(liveLogicPatchCount_);
+        patchKind = 3;
+    }
+    const int bps = (int)project_.debugBreakpoints.size();
+    const Row logic[] = {
+        {DbgPage::Watch, "Watch", ui::RtIcon::Eye, dbgSyms_.loaded ? std::to_string(dbgSyms_.vars.size()) : "", 4},
+        {DbgPage::Nodes, "Nodes", ui::RtIcon::Nodes, dbgSyms_.loaded ? std::to_string(dbgSyms_.nodes.size()) : "", 4},
+        {DbgPage::Breakpoints, "Breakpoints", ui::RtIcon::Breakpoint, bps ? std::to_string(bps) : "", bps ? 2 : 4},
+        {DbgPage::Patches, "Hot patches", ui::RtIcon::Bolt, patches, patchKind},
+    };
+    const Row world[] = {
+        {DbgPage::Objects, "Objects", ui::RtIcon::Cube, watchedNow ? objCount : "", 4},
+        {DbgPage::Screen, "Screen", ui::RtIcon::Monitor, "", 4},
+    };
+    const Row perf[] = {
+        {DbgPage::Stats, "Stats", ui::RtIcon::Bars, "", 4},
+        {DbgPage::RenderCost, "Render cost", ui::RtIcon::Lines, "", 4},
+        {DbgPage::Hardware, "Hardware timeline", ui::RtIcon::Timeline, "", 4},
+        {DbgPage::Vu, "VU memory", ui::RtIcon::Chip, "", 4},
+    };
+    auto group = [&](const char* caption, const Row* rows, int n, bool first) {
+        if (horizontal) {
+            // A short dock (the bottom drawer): one row of icons over the page.
+            for (int i = 0; i < n; ++i) {
+                if (!first || i) ImGui::SameLine(0.0f, i ? scaled(2) : scaled(14));
+                if (ui::RailRow(rows[i].label, rows[i].icon, rows[i].count.c_str(), rows[i].kind,
+                                dbgPage_ == rows[i].page, true))
+                    dbgPage_ = rows[i].page;
+            }
+            return;
+        }
+        if (!compact) {
+            if (!first) ImGui::Dummy(ImVec2(0, scaled(6)));
+            ui::Caption(caption);
+        } else if (!first) {
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddLine(
+                p, ImVec2(p.x + ImGui::GetContentRegionAvail().x, p.y), dbgCol(sem.border));
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+        }
+        for (int i = 0; i < n; ++i)
+            if (ui::RailRow(rows[i].label, rows[i].icon, rows[i].count.c_str(), rows[i].kind,
+                            dbgPage_ == rows[i].page, compact))
+                dbgPage_ = rows[i].page;
+    };
+    group("Logic", logic, 4, true);
+    group("World", world, 2, false);
+    group("Performance", perf, 4, false);
+    if (horizontal) return;
+
+    // Armed countdowns, at the foot of the rail: a Delay only advances on
+    // frames that RUN, so a halted game (or a single-frame Fire) leaves the
+    // branch behind it looking dead. Saying so here is cheaper than a doc.
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    if (!compact && live && !dbgSnap_.timers.empty()) {
+        const float fps = dbgFps_ > 1.0f ? dbgFps_ : 50.0f;
+        int soonest = 1 << 30, soonestKey = -1;
+        for (const auto& t : dbgSnap_.timers)
+            if (t.second < soonest) {
+                soonest = t.second;
+                soonestKey = t.first;
+            }
+        std::string who = "Delay";
+        if (const livedbg::NodeSym* n = dbgSyms_.find(soonestKey)) who = dbgNodeLabel(*n);
+        char line[256];
+        std::snprintf(line, sizeof(line), "%s fires in %.1f s.%s", who.c_str(), soonest / fps,
+                      dbgState_ == DbgState::Halted ? " Frozen - Continue to let it count." : "");
+        // Sized to its text (the card's padding is 0.9 / 0.8 font sizes): a
+        // fixed three lines clipped the halted state's "Frozen - Continue"
+        // behind a scrollbar.
+        const float fs = ImGui::GetFontSize();
+        const float wrapW = ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().x - fs * 1.8f);
+        const float cardH = ImGui::GetTextLineHeightWithSpacing() +
+                            ImGui::CalcTextSize(line, nullptr, false, wrapW).y + fs * 1.6f + scaled(2);
+        const float y = ImGui::GetWindowHeight() - cardH - ImGui::GetStyle().WindowPadding.y;
+        if (y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(y);
+        ui::BeginCard("##dbgtimers", ImVec2(0, cardH));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ui::DrawRtIcon(ImGui::GetWindowDrawList(), ui::RtIcon::Timer,
+                       ImVec2(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f), fs * 0.85f,
+                       dbgCol(sem.warn));
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.3f, p.y));
+        ImGui::Text("%d armed timer%s", (int)dbgSnap_.timers.size(),
+                    dbgSnap_.timers.size() == 1 ? "" : "s");
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "%s", line);
+        ImGui::PopTextWrapPos();
+        ui::EndCard();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Delay nodes counting down. They only advance while the game runs:\n"
+                "after a one-frame Fire, or while stopped, the branch after a Delay\n"
+                "never comes.");
+    }
+}
+
+// Not running: what is missing, in order, with the fix next to it.
+void App::dbgDrawChecklist() {
+    const theme::Semantics& sem = theme::semantics();
+    ui::Caption("Not running");
+    const bool debug = project_.settings.buildProfile == "debug";
+    const bool on = project_.settings.liveDebug;
+    const bool built = dbgSyms_.loaded;
+    const bool stale = dbgState_ == DbgState::Stale;
+    auto item = [&](bool ok, const char* text, const char* detail) {
+        const float fs = ImGui::GetFontSize();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 c(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f);
+        if (ok) {
+            dl->AddCircleFilled(c, fs * 0.5f, dbgCol(sem.ok, 0.16f), 16);
+            ui::DrawRtIcon(dl, ui::RtIcon::Check, c, fs * 0.62f, dbgCol(sem.ok));
+        } else {
+            dl->AddCircle(c, fs * 0.45f, dbgCol(sem.textDim, 0.7f), 16, 1.3f);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.4f, p.y));
+        ImGui::BeginGroup();
+        if (ok) ImGui::TextUnformatted(text);
+        else ImGui::TextColored(sem.text, "%s", text);
+        if (detail && *detail) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(sem.textDim, "%s", detail);
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos(ImVec2(p.x, ImGui::GetCursorScreenPos().y));
+    };
+    item(debug, "Debug build profile",
+         debug ? nullptr : "A release build carries no debugger (the devkit's zero-cost rule).");
+    if (!debug) {
+        ImGui::Indent(ImGui::GetFontSize() * 1.4f);
+        if (ImGui::Button("Switch to debug")) {
+            project_.settings.buildProfile = "debug";
+            commitChange();
+        }
+        ImGui::Unindent(ImGui::GetFontSize() * 1.4f);
+    }
+    item(on, "Live Debugger on", on ? nullptr : "Project > Preferences > Build.");
+    if (!on) {
+        ImGui::Indent(ImGui::GetFontSize() * 1.4f);
+        if (ui::Switch("Live Debugger (project setting)", &project_.settings.liveDebug))
+            commitChange();
+        ImGui::Unindent(ImGui::GetFontSize() * 1.4f);
+    }
+    item(built && !stale,
+         stale ? "Built from these graphs" : "Built with symbols",
+         !built ? "Codegen writes src/gen/livedbg.sym on the first build."
+         : stale ? "The running game was built from different graphs." : nullptr);
+    std::string why = dbgSilenceReason();
+    item(false, "Game reporting",
+         dbgState_ == DbgState::Waiting && !why.empty() ? why.c_str() : "Nothing is reporting yet.");
+    if (dbgState_ == DbgState::Waiting && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("%s", dbgSilenceDetail());
+    ImGui::Spacing();
+    const bool busy = runner_.busy();
+    if (ui::PrimaryButton(busy ? "Building...##dbgrun" : "Build & Run (F5)", -1.0f, !busy && debug))
+        dbgBuildAndRun();
+}
+
+// Halted: where, which breakpoint, what the node did, what ran this frame.
+void App::dbgDrawStoppedAt(bool showPath) {
+    const theme::Semantics& sem = theme::semantics();
+    const bool halted = dbgState_ == DbgState::Halted;
+    const livedbg::NodeSym* n = halted ? dbgSyms_.find(dbgSnap_.breakKey) : nullptr;
+    if (halted) {
+        ui::Caption("Stopped at");
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(sem.warn.x, sem.warn.y, sem.warn.z, 0.06f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(sem.warn.x, sem.warn.y, sem.warn.z, 0.35f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGui::GetStyle().FrameRounding + 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                            ImVec2(ImGui::GetFontSize() * 0.8f, ImGui::GetFontSize() * 0.7f));
+        ImGui::BeginChild("##stopped", ImVec2(0, 0),
+                          ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY |
+                              ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+        const float fs = ImGui::GetFontSize();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddCircleFilled(ImVec2(p.x + fs * 0.4f, p.y + fs * 0.75f), fs * 0.55f, dbgCol(sem.warn, 0.18f), 16);
+        dl->AddCircleFilled(ImVec2(p.x + fs * 0.4f, p.y + fs * 0.75f), fs * 0.32f, dbgCol(sem.warn), 16);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.3f, p.y));
+        ImGui::BeginGroup();
+        if (n) {
+            const FlowNodeType* t = flowNodeType(n->type);
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted(t ? t->title : n->type.c_str());
+            }
+            std::string obj = dbgNodeLabel(*n);
+            obj = obj.substr(0, obj.find(" \xc2\xb7 "));
+            std::string scene = n->scene >= 0 && n->scene < (int)project_.scenes.size()
+                                    ? project_.scenes[n->scene].name
+                                    : std::to_string(n->scene);
+            ImGui::TextColored(sem.textDim, "on %s \xc2\xb7 scene %s", obj.c_str(), scene.c_str());
+        } else {
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted("Paused");
+            }
+            ImGui::TextColored(sem.textDim, "by you, at frame %s", dbgFrameText(dbgSnap_.frame).c_str());
+        }
+        ImGui::EndGroup();
+        if (n) {
+            // "..." at the card's top right: the breakpoint's own actions,
+            // so the two buttons below stay Reveal + Fire & continue.
+            const float ib = ImGui::GetFrameHeight();
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - ib);
+            ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, p.y));
+            if (ui::IconButton("Breakpoint options", ui::RtIcon::More, ib))
+                ImGui::OpenPopup("##stopped_more");
+            if (ImGui::BeginPopup("##stopped_more")) {
+                if (ImGui::MenuItem("Remove breakpoint")) dbgToggleBreakpoint(n->objectId, n->nodeId);
+                ImGui::EndPopup();
+            }
+        }
+        if (n) {
+            // What the node DID, when the game said so: a World Fact write
+            // carries the node that made it (FactEvent::src), so a Set Fact
+            // breakpoint reads as "name <- value", not as a node title.
+            std::vector<const livedbg::VarSym*> factSlots;
+            for (const livedbg::VarSym& v : dbgSyms_.vars)
+                if (v.kind == 'f') factSlots.push_back(&v);
+            for (const livedbg::VarSym& v : dbgSyms_.vars)
+                if (v.kind == 'F') factSlots.push_back(&v);
+            std::string did;
+            for (const livedbg::FactEvent& e : dbgSnap_.factEvents)
+                if (e.src == dbgSnap_.breakKey && e.slot >= 0 && e.slot < (int)factSlots.size()) {
+                    const livedbg::VarSym& v = *factSlots[(size_t)e.slot];
+                    std::vector<float> one = {e.value, 0.0f, 0.0f};
+                    int tone = 0;
+                    did = v.name + " \xe2\x86\x90 " + dbgValueText(project_, v, one, 0, &tone);
+                }
+            if (!did.empty()) {
+                ImGui::Spacing();
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, sem.field);
+                char buf[256];
+                std::snprintf(buf, sizeof(buf), "%s", did.c_str());
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::InputText("##stopdid", buf, sizeof(buf), ImGuiInputTextFlags_ReadOnly);
+                ImGui::PopStyleColor();
+            }
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(sem.textDim, "The node has run - a breakpoint stops at the end of its frame.");
+            ImGui::PopTextWrapPos();
+            const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            if (ImGui::Button("Reveal", ImVec2(half, 0))) dbgRevealNode(*n);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Open this node's graph in the Flow Graph window.");
+            ImGui::SameLine();
+            // Fire & continue fires a TRIGGER (codegen emits only a trigger's
+            // branch under livedbg::forced). An action stopped on is fired
+            // through the trigger whose exec chain reaches it - the branch it
+            // is on - found by walking the exec links backwards.
+            int fireKey = -1;
+            const char* fireTitle = nullptr;
+            const FlowNodeType* t = flowNodeType(n->type);
+            if (t && t->trigger) {
+                fireKey = dbgSnap_.breakKey;
+            } else if (n->scene >= 0 && n->scene < (int)project_.scenes.size()) {
+                const FlowGraph* g = nullptr;
+                for (const SceneObject& o : project_.scenes[(size_t)n->scene].objects)
+                    if (o.id == n->objectId) g = &o.flowGraph;
+                if (g) {
+                    std::vector<int> todo = {n->nodeId}, seen;
+                    while (!todo.empty() && fireKey < 0) {
+                        const int id = todo.back();
+                        todo.pop_back();
+                        if (std::find(seen.begin(), seen.end(), id) != seen.end()) continue;
+                        seen.push_back(id);
+                        for (const FlowLink& l : g->links) {
+                            if (l.kind != FlowLinkExec || l.toNode != id) continue;
+                            const FlowNode* from = nullptr;
+                            for (const FlowNode& fn : g->nodes)
+                                if (fn.id == l.fromNode) from = &fn;
+                            if (!from) continue;
+                            const FlowNodeType* ft = flowNodeType(from->type);
+                            if (ft && ft->trigger) {
+                                fireKey = dbgKeyFor(n->scene, n->objectId, from->id);
+                                fireTitle = ft->title;
+                                if (fireKey >= 0) break;
+                            } else {
+                                todo.push_back(from->id);
+                            }
+                        }
+                    }
+                }
+            }
+            if (fireKey >= 0) {
+                if (ImGui::Button("Fire & continue", ImVec2(half, 0))) dbgFireNode(fireKey, true);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    if (fireTitle)
+                        ImGui::SetTooltip("Fire %s again - the branch this node is on - and let\n"
+                                          "the game run, so a Delay in it gets frames to finish.",
+                                          fireTitle);
+                    else
+                        ImGui::SetTooltip("Fire this trigger once more and let the game run,\n"
+                                          "so a Delay in its branch gets frames to finish.");
+                }
+            } else {
+                // Nothing upstream to fire (an action no trigger reaches):
+                // the card's second action is plain Continue.
+                if (ImGui::Button("Continue##stopped", ImVec2(half, 0))) dbgSetTransport(0);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("No trigger reaches this node, so there is nothing to fire.\n"
+                                      "Lets the game run on (F10).");
+            }
+        }
+        ImGui::EndChild();
+        ImGui::Spacing();
+    }
+
+    // The path a frame took: the inspected frame on the strip, else the newest.
+    const auto& frames = dbgTimeline_.frames();
+    if (showPath && !frames.empty()) {
+        const int idx = dbgScrub_ >= 0 ? ImClamp(dbgScrub_, 0, (int)frames.size() - 1) : (int)frames.size() - 1;
+        const auto& fr = frames[(size_t)idx];
+        const std::string cap = dbgScrub_ >= 0 ? "Frame " + dbgFrameText(fr.frame) + "'s path"
+                                               : std::string(halted ? "This frame's path" : "Last frame's path");
+        ui::Caption(cap.c_str());
+        const float fs = ImGui::GetFontSize();
+        int shown = 0;
+        for (int k : fr.keys) {
+            if (++shown > 12) {
+                ImGui::TextDisabled("... %d more", (int)fr.keys.size() - 12);
+                break;
+            }
+            const livedbg::NodeSym* s = dbgSyms_.find(k);
+            if (!s) continue;
+            ImGui::PushID(shown);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const bool isBreak = halted && k == dbgSnap_.breakKey;
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                ImVec2(p.x, p.y + ImGui::GetTextLineHeight() * 0.5f - fs * 0.25f),
+                ImVec2(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f + fs * 0.25f),
+                dbgCol(isBreak ? sem.warn : sem.ok), 2.0f);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.9f, p.y));
+            char hits[24] = "";
+            if (k >= 0 && k < (int)dbgSnap_.hits.size()) std::snprintf(hits, sizeof(hits), "%u", dbgSnap_.hits[k]);
+            const float hw = ImGui::CalcTextSize(hits).x;
+            ImGui::SetNextItemAllowOverlap();
+            if (ImGui::Selectable(dbgNodeLabel(*s).c_str(), false, 0,
+                                  ImVec2(ImGui::GetContentRegionAvail().x - hw - fs * 0.5f, 0)))
+                dbgRevealNode(*s);
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - hw);
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::TextColored(sem.textDim, "%s", hits);
+            }
+            ImGui::PopID();
+        }
+        ImGui::Spacing();
+    }
+
+    if (halted && !project_.debugBreakpoints.empty()) {
+        ui::Caption("Breakpoints");
+        dbgDrawBreakpointList(true);
+    }
+}
+
+// The breakpoint rows, shared by the Breakpoints page and the Stopped card.
+void App::dbgDrawBreakpointList(bool compactRows) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    for (size_t i = 0; i < project_.debugBreakpoints.size(); ++i) {
+        const std::string b = project_.debugBreakpoints[i];
+        const size_t colon = b.rfind(':');
+        if (colon == std::string::npos) continue;
+        const std::string objId = b.substr(0, colon);
+        const int nodeId = std::atoi(b.c_str() + colon + 1);
+        const livedbg::NodeSym* sym = nullptr;
+        for (const livedbg::NodeSym& n : dbgSyms_.nodes)
+            if (n.objectId == objId && n.nodeId == nodeId) {
+                sym = &n;
+                break;
+            }
+        ImGui::PushID((int)i);
+        const bool hit = sym && dbgState_ == DbgState::Halted && sym->key == dbgSnap_.breakKey;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddCircleFilled(
+            ImVec2(p.x + fs * 0.3f, p.y + ImGui::GetFrameHeight() * 0.5f), fs * 0.25f,
+            dbgCol(hit ? sem.warn : sem.danger), 12);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.9f, p.y));
+        char tail[32] = "";
+        if (hit) std::snprintf(tail, sizeof(tail), "hit");
+        else if (sym && sym->key < (int)dbgSnap_.hits.size()) std::snprintf(tail, sizeof(tail), "%u", dbgSnap_.hits[sym->key]);
+        const float tw = ImGui::CalcTextSize(tail).x + (compactRows ? 0.0f : ImGui::GetFrameHeight() + fs * 0.6f);
+        ImGui::SetNextItemAllowOverlap();
+        const std::string label = sym ? dbgNodeLabel(*sym)
+                                      : "node " + std::to_string(nodeId) + " of " + objId + " (not in this build)";
+        ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+        if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(ImMax(1.0f, ImGui::GetContentRegionAvail().x - tw - fs * 0.5f),
+                                     ImGui::GetFrameHeight())) &&
+            sym)
+            dbgRevealNode(*sym);
+        ImGui::PopStyleVar();
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - tw);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(hit ? sem.warn : sem.textDim, "%s", tail);
+        bool removed = false;
+        if (!compactRows) {
+            ImGui::SameLine();
+            removed = ui::IconButton("Remove breakpoint", ui::RtIcon::Close, 0.0f);
+        }
+        ImGui::PopID();
+        if (removed) {
+            project_.debugBreakpoints.erase(project_.debugBreakpoints.begin() + (long)i);
+            dbgCmdWritten_ = false;
+            setDirty(true);
+            break;
+        }
+    }
+}
+
+void App::dbgDrawWatchPage() {
+    const theme::Semantics& sem = theme::semantics();
+    const std::vector<float>* vals = &dbgSnap_.vars;
+    const auto& frames = dbgTimeline_.frames();
+    uint32_t asOf = dbgSnap_.frame;
+    if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() && !frames[dbgScrub_].vars.empty()) {
+        vals = &frames[dbgScrub_].vars;
+        asOf = frames[dbgScrub_].frame;
+    }
+    if (!dbgSyms_.loaded) {
+        ui::EmptyState(ui::Glyph::Eye, "Nothing to watch yet",
+                       "The watch list comes from the first debug build's symbol table.");
+        return;
+    }
+    if (dbgSyms_.vars.empty()) {
+        ui::EmptyState(ui::Glyph::Eye, "No variables in this project",
+                       "Variables nodes (Set/Get Int, Bool, Position), save values and World Facts "
+                       "show up here automatically.");
+        return;
+    }
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    auto lower = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        return s;
+    };
+    auto classOf = [](char k) { return (k == 'f' || k == 'F') ? 1 : (k == 's' ? 2 : 3); };
+    const uint32_t newest = dbgSnap_.frame;
+    auto justChanged = [&](size_t i) {
+        return live && dbgScrub_ < 0 && i < dbgVarChanged_.size() && dbgVarChanged_[i] != 0 &&
+               dbgVarChanged_[i] == newest;
+    };
+    int counts[5] = {0, 0, 0, 0, 0};
+    for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
+        ++counts[0];
+        ++counts[classOf(dbgSyms_.vars[i].kind)];
+        if (justChanged(i)) ++counts[4];
+    }
+    // The filter: a search box (name and kind, "marta", "bool") and the chips
+    // that answer "which kind" and "what did the last frame change".
+    {
+        char fbuf[128];
+        std::snprintf(fbuf, sizeof(fbuf), "%s", dbgWatchFilter_.c_str());
+        ImGui::SetNextItemWidth(ImMin(scaled(260), ImGui::GetContentRegionAvail().x));
+        if (ImGui::InputTextWithHint("##watchfilter", "Filter by name or kind", fbuf, sizeof(fbuf)))
+            dbgWatchFilter_ = fbuf;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Matches the name and the kind: \"marta\", \"bool\", \"save\".");
+        static const char* const kChips[5] = {"All", "Facts", "Save values", "Flow variables", "Just changed"};
+        for (int c = 0; c < 5; ++c) {
+            if (c == 4 && counts[4] == 0 && dbgWatchKind_ != 4) continue;
+            const float w = ui::FilterChipWidth(kChips[c], counts[c]);
+            ui::ChipFlow(w, false);
+            if (c == 4) ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+            if (ui::FilterChip(kChips[c], dbgWatchKind_ == c, counts[c])) dbgWatchKind_ = c;
+            if (c == 4) {
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Changed between the previous report and this one.");
+            }
+        }
+        if (live) {
+            const std::string t = "Values as of frame " + dbgFrameText(asOf);
+            const float tw = ImGui::CalcTextSize(t.c_str()).x;
+            ImGui::SameLine();
+            if (ImGui::GetCursorPosX() + tw > ImGui::GetContentRegionMax().x) ImGui::NewLine();
+            ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - tw));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(dbgScrub_ >= 0 ? sem.warn : sem.textDim, "%s", t.c_str());
+        }
+    }
+    const std::string needle = lower(dbgWatchFilter_);
+    auto matches = [&](size_t i) {
+        const livedbg::VarSym& v = dbgSyms_.vars[i];
+        if (dbgWatchKind_ >= 1 && dbgWatchKind_ <= 3 && classOf(v.kind) != dbgWatchKind_) return false;
+        if (dbgWatchKind_ == 4 && !justChanged(i)) return false;
+        if (needle.empty()) return true;
+        return lower(v.name + " " + dbgKindText(v.kind)).find(needle) != std::string::npos;
+    };
+    int shown = 0;
+    for (size_t i = 0; i < dbgSyms_.vars.size(); ++i)
+        if (matches(i)) ++shown;
+    if (shown == 0) {
+        // Say so rather than showing an empty table, which reads as "the game
+        // stopped reporting".
+        ImGui::TextDisabled("Nothing matches.");
+        return;
+    }
+    ImGui::Spacing();
+    // A narrow dock drops the Kind column (the filter chips still say it):
+    // the name is what has to fit.
+    const bool showKind = ImGui::GetContentRegionAvail().x >= scaled(460);
+    if (ImGui::BeginTable("##watch", 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.52f);
+        ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.13f);
+        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+        ImGui::TableSetupColumn("Changed", ImGuiTableColumnFlags_WidthStretch, 0.13f);
+        ImGui::TableSetColumnEnabled(1, showKind);
+        ImGui::TableHeadersRow();
+        // The mono face must be popped before EndTable (the table is a child
+        // window), hence the scope.
+        ImGui::PushFont(ui::monoFont(), 0.0f);
+        for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
+            if (!matches(i)) continue;
+            const livedbg::VarSym& v = dbgSyms_.vars[i];
+            const bool hot = justChanged(i);
+            ImGui::TableNextRow();
+            if (hot) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, dbgCol(sem.warn, 0.08f));
+            ImGui::TableSetColumnIndex(0);
+            // The leaf in the text colour, its namespace dim: a fact catalog
+            // is "world.generator.partA" forty times over, and the part that
+            // differs is the last one.
+            const size_t dot = v.name.rfind('.');
+            if (hot) {
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddCircleFilled(
+                    ImVec2(p.x - ImGui::GetFontSize() * 0.45f, p.y + ImGui::GetTextLineHeight() * 0.5f),
+                    ImGui::GetFontSize() * 0.17f, dbgCol(sem.warn), 8);
+            }
+            if (dot != std::string::npos) {
+                ImGui::TextColored(sem.textDim, "%.*s", (int)dot + 1, v.name.c_str());
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::TextUnformatted(v.name.c_str() + dot + 1);
+            } else {
+                ImGui::TextUnformatted(v.name.c_str());
+            }
+            ImGui::TableSetColumnIndex(1);
+            // The kind as a chip (Debugger-Halted design), in the UI face:
+            // the row's mono is for names and values.
+            ImGui::PushFont(ImGui::GetDefaultFont(), 0.0f);
+            ui::Badge(dbgKindText(v.kind), 4);
+            ImGui::PopFont();
+            ImGui::TableSetColumnIndex(2);
+            int tone = 0;
+            const std::string val = live || dbgScrub_ >= 0 ? dbgValueText(project_, v, *vals, i, &tone) : "-";
+            if (!live && dbgScrub_ < 0) tone = 2;
+            const ImVec4 col = tone == 1 ? sem.ok : tone == 2 ? sem.textDim : tone == 3 ? sem.warn : sem.text;
+            ImGui::TextColored(col, "%s", val.c_str());
+            ImGui::TableSetColumnIndex(3);
+            const uint32_t ch = i < dbgVarChanged_.size() ? dbgVarChanged_[i] : 0;
+            const std::string chs = ch ? dbgFrameText(ch) : "-";
+            const float cw = ImGui::CalcTextSize(chs.c_str()).x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImMax(0.0f, ImGui::GetContentRegionAvail().x - cw));
+            ImGui::TextColored(hot ? sem.warn : sem.textDim, "%s", chs.c_str());
+            if (ch && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                ImGui::SetTooltip("Last changed in the report of frame %u.", ch);
+            }
+        }
+        ImGui::PopFont();
+        ImGui::EndTable();
+    }
+}
+
+// Nodes: everything instrumented in the graph currently being edited, with its
+// hit count, a breakpoint toggle and (for triggers) a Fire button.
+void App::dbgDrawNodesPage() {
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const auto& objs = project_.objects();
+    const bool haveGraph = flowGraphObject_ >= 0 && flowGraphObject_ < (int)objs.size();
+    if (!haveGraph) {
+        ui::EmptyState(ui::Glyph::Nodes, "No graph open",
+                       "Pick an object's graph in the Flow Graph window - its nodes show here with "
+                       "their hit counts.");
+        return;
+    }
+    ImGui::Text("Graph of \"%s\"", objs[flowGraphObject_].name.c_str());
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("The graph open in the Flow Graph window. Right-clicking a node\n"
+                          "there sets breakpoints and fires triggers too.");
+    {
+        int instrumented = 0;
+        for (const FlowNode& n : objs[flowGraphObject_].flowGraph.nodes)
+            if (const FlowNodeType* t = flowNodeType(n.type); t && !(t->pure && !t->trigger)) ++instrumented;
+        if (instrumented == 0) {
+            ImGui::TextDisabled("No triggers or actions in this graph - nothing here reports.");
+            return;
+        }
+    }
+    if (ImGui::BeginTable("##nodes", 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Break", ImGuiTableColumnFlags_WidthFixed, scaled(44.0f));
+        ImGui::TableSetupColumn("Node", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+        ImGui::TableSetupColumn("Hits", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch, 0.3f);
+        ImGui::TableHeadersRow();
+        const std::string ownerId = objs[flowGraphObject_].id;
+        for (const FlowNode& n : objs[flowGraphObject_].flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (!t || (t->pure && !t->trigger)) continue;  // data node
+            const int key = dbgKeyFor(project_.activeScene, ownerId, n.id);
+            ImGui::TableNextRow();
+            ImGui::PushID(n.id);
+            ImGui::TableSetColumnIndex(0);
+            bool bp = dbgHasBreakpoint(ownerId, n.id);
+            if (ImGui::Checkbox("##bp", &bp)) dbgToggleBreakpoint(ownerId, n.id);
+            ImGui::TableSetColumnIndex(1);
+            const float age = dbgNodeHeat(key);
+            if (age < 0.35f)
+                ImGui::TextColored(theme::semantics().warn, "%s", t->title);
+            else
+                ImGui::TextUnformatted(t->title);
+            ImGui::TableSetColumnIndex(2);
+            if (key >= 0 && key < (int)dbgSnap_.hits.size())
+                ImGui::Text("%u", dbgSnap_.hits[key]);
+            else
+                ImGui::TextDisabled("-");
+            ImGui::TableSetColumnIndex(3);
+            const int armed = dbgTimerFrames(key);
+            if (t->trigger && key >= 0) {
+                ImGui::BeginDisabled(!live);
+                if (ImGui::SmallButton("Fire")) dbgFireNode(key, ImGui::GetIO().KeyShift);
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(
+                        "Runs everything wired to this trigger in the running game, once.\n"
+                        "Shift+click = fire AND continue, so a Delay in the branch gets frames "
+                        "to finish.");
+            } else if (armed > 0) {
+                // An armed countdown is the usual reason a branch looks dead.
+                ImGui::TextColored(theme::semantics().accent, "%d f (%.1fs)", armed,
+                                   armed / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
+            } else if (age < FLT_MAX) {
+                ImGui::TextDisabled("%.1fs ago", age);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+void App::dbgDrawBreakpointsPage() {
+    if (project_.debugBreakpoints.empty()) {
+        ui::EmptyState(ui::Glyph::Nodes, "No breakpoints",
+                       "Right-click a node in the Flow Graph (or tick it on the Nodes page) to stop "
+                       "the game the moment it runs.");
+        return;
+    }
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%d of %d slots", (int)project_.debugBreakpoints.size(), livedbg::kMaxBreakpoints);
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize("Clear all").x -
+                    ImGui::GetStyle().FramePadding.x * 2.6f);
+    if (ui::DangerButton("Clear all")) {
+        project_.debugBreakpoints.clear();
+        dbgCmdWritten_ = false;
+        setDirty(true);
+        return;
+    }
+    ImGui::Spacing();
+    dbgDrawBreakpointList(false);
+}
+
+// Hot patches: what is currently hot-patched into the running game, and what
+// still needs a rebuild (docs/live-logic.md).
+void App::dbgDrawPatchesPage() {
+    const theme::Semantics& sem = theme::semantics();
+    if (!project_.settings.liveLogic) {
+        ImGui::TextWrapped("Live Logic is off for this project - editing a graph needs a rebuild.");
+        if (ui::Switch("Live Logic (project setting)", &project_.settings.liveLogic)) commitChange();
+        return;
+    }
+    switch (liveLogicState_) {
+        case LogicState::Off:
+        case LogicState::OffStale:
+            ImGui::TextDisabled("Release profile - graphs run as compiled C++ only.");
+            break;
+        case LogicState::NoBuild:
+            ImGui::TextDisabled("No built-graph list yet.");
+            prefHelp("Build & Run (F5) once; after that, editing a graph takes\n"
+                     "effect in the running game without another build.");
+            break;
+        case LogicState::InSync:
+            ui::StatusLine(0, "In sync with the build - nothing to patch.");
+            ImGui::TextWrapped("Edit any graph and it is compiled and streamed into the running "
+                               "game within a fraction of a second.");
+            break;
+        case LogicState::Patched: {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "%d graph(s) running from the editor's patch",
+                          liveLogicPatchCount_);
+            ui::StatusLine(3, buf);
+            ImGui::TextWrapped("Their compiled C++ stands down while the patch is live; a rebuild "
+                               "folds the edits back into native code.");
+            break;
+        }
+        case LogicState::Blocked:
+            ui::StatusLine(1, "Rebuild needed");
+            break;
+    }
+    if (!liveLogicBlocked_.empty()) {
+        ImGui::Spacing();
+        ui::Caption("Cannot be hot-patched");
+        for (const auto& e : liveLogicBlocked_) {
+            ImGui::Bullet();
+            ImGui::TextWrapped("%s - %s", e.first.c_str(), e.second.c_str());
+        }
+        ImGui::TextColored(sem.textDim, "Build & Run (F5) and everything is native again.");
+    }
+}
+
+// Objects: what the game's own RuntimeObject holds for a watched object,
+// sampled every frame - live values plus a curve per axis.
+void App::dbgDrawObjectsPage() {
+    const auto& objs = project_.objects();
+    ImGui::BeginDisabled(selectedObject_ < 0 || selectedObject_ >= (int)objs.size() ||
+                         ((int)dbgObjWatch_.size() >= livedbg::kMaxWatchObjects &&
+                          !dbgIsWatched(selectedObject_)));
+    if (ImGui::Button(dbgIsWatched(selectedObject_) ? "- Unwatch selected" : "+ Watch selected"))
+        dbgToggleObjectWatch(selectedObject_);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%d/%d watched", (int)dbgObjWatch_.size(), livedbg::kMaxWatchObjects);
+    if (dbgObjWatch_.empty()) {
+        ui::EmptyState(ui::Glyph::Box, "Nothing watched yet",
+                       "Select an object and Watch it: the game reports its position, rotation, "
+                       "scale, colour and flags every frame, and its path is drawn in the viewport.");
+        return;
+    }
+    for (size_t i = 0; i < dbgObjWatch_.size(); ++i) {
+        DbgObjTrack& t = dbgObjWatch_[i];
+        ImGui::PushID((int)i);
+        ImGui::Separator();
+        const std::string label =
+            (t.index >= 0 && t.index < (int)objs.size() ? objs[t.index].name : t.name) + "  (#" +
+            std::to_string(t.index) + ")";
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(label.c_str());
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
+        if (ui::IconButton("Stop watching", ui::RtIcon::Close)) {
+            dbgToggleObjectWatch(t.index);
+            ImGui::PopID();
+            break;
+        }
+        if (t.samples.empty()) {
+            ImGui::TextDisabled("waiting for samples...");
+            ImGui::PopID();
+            continue;
+        }
+        const livedbg::ObjSample& s = t.samples.back();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::Text("pos   %.2f, %.2f, %.2f", s.pos[0], s.pos[1], s.pos[2]);
+            ImGui::Text("rot   %.1f, %.1f, %.1f   scale %.2f, %.2f, %.2f", s.rot[0], s.rot[1], s.rot[2],
+                        s.scale[0], s.scale[1], s.scale[2]);
+            ImGui::Text("color %.2f, %.2f, %.2f", s.color[0], s.color[1], s.color[2]);
+        }
+        ImGui::SameLine();
+        ImGui::TextColored(s.visible ? theme::semantics().ok : theme::semantics().textDim,
+                           s.visible ? "visible" : "hidden");
+        if (!s.active) {
+            ImGui::SameLine();
+            ImGui::TextColored(theme::semantics().warn, "inactive");
+        }
+        // One plot per axis, over the whole kept history.
+        const int n = (int)t.samples.size();
+        static std::vector<float> series;
+        for (int axis = 0; axis < 3; ++axis) {
+            series.resize(n);
+            float lo = FLT_MAX, hi = -FLT_MAX;
+            for (int k = 0; k < n; ++k) {
+                series[k] = t.samples[k].pos[axis];
+                lo = ImMin(lo, series[k]);
+                hi = ImMax(hi, series[k]);
+            }
+            if (hi - lo < 0.01f) {  // a flat line still deserves a scale
+                const float mid = (hi + lo) * 0.5f;
+                lo = mid - 0.5f;
+                hi = mid + 0.5f;
+            }
+            char overlay[48];
+            std::snprintf(overlay, sizeof(overlay), "%c  %.2f .. %.2f", "XYZ"[axis], lo, hi);
+            // Per-axis id: three plots with one label are one ID to ImGui.
+            const char* plotId = axis == 0 ? "##plotX" : axis == 1 ? "##plotY" : "##plotZ";
+            ImGui::PlotLines(plotId, series.data(), n, 0, overlay, lo, hi, ImVec2(-FLT_MIN, scaled(38.0f)));
+        }
+        ImGui::TextDisabled("%d samples (%.1fs of history)", n, n / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
+        ImGui::PopID();
+    }
+}
+
+// Screen: the picture the game took of ITSELF (docs/devkit.md, "The game's own
+// screenshot") - it reads the frame buffer out of GS VRAM and hands over a TGA.
+void App::dbgDrawScreenPage() {
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    if (!live) dbgShotWaiting_ = false;  // nobody left to answer
+    if (ui::PrimaryButton("Capture frame", 0.0f, live)) {
+        dbgCmd_.captureFrame = true;
+        dbgCmdWritten_ = false;
+        dbgShotWaiting_ = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "Asks the game to read its last finished frame out of GS VRAM. Works on a\n"
+            "real PlayStation 2, and on a locked or remote desktop where the emulator's\n"
+            "own screenshot key cannot.\n\nKept as a PNG in the project's screenshots/ folder.\n\n"
+            "One shot: ~900 KB over host:, so it costs the game a visible hitch -\nabout three "
+            "seconds of it over ps2link.");
+    if (dbgShotWaiting_) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("waiting for the game...");
+    }
+    if (dbgShotTex_) {
+        ImGui::SameLine();
+        // The SAVED PNG, never bin/frame.tga: the channel file is overwritten
+        // by the next capture and deleted by every launch.
+        if (ImGui::Button("Show file")) {
+            std::error_code ec;
+            if (!dbgShotFile_.empty() && std::filesystem::exists(dbgShotFile_, ec)) {
+                dbgShotError_.clear();
+                platform::revealInFileManager(dbgShotFile_);
+            } else {
+                dbgShotError_ = "the saved PNG is gone - capture again to write one.";
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Copy image")) {
+            if (platform::copyImageToClipboard(dbgShotPixels_.data(), dbgShotW_, dbgShotH_, dbgShotFile_)) {
+                dbgShotError_.clear();
+                statusMessage_ = "Frame image copied to the clipboard";
+            } else {
+                dbgShotError_ = "could not put the frame image on the clipboard.";
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Copies the actual bitmap, ready to paste into chat or an image editor.");
+    }
+    if (!dbgShotError_.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(theme::semantics().danger, "%s", dbgShotError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    if (!dbgShotTex_) {
+        ui::EmptyState(ui::Glyph::Screen, "No capture yet",
+                       "The frame comes back over the same host: channel as everything else here - "
+                       "a real PlayStation 2 included - and is kept as a PNG in screenshots/.");
+        return;
+    }
+    ImGui::TextDisabled("%dx%d - the frame buffer as the GS holds it", dbgShotW_, dbgShotH_);
+    if (!dbgShotFile_.empty())
+        ImGui::TextDisabled("screenshots/%s", std::filesystem::path(dbgShotFile_).filename().string().c_str());
+    // Fit and keep the buffer's own aspect: this is the GS RASTER, not the TV.
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    float scale = dbgShotW_ > 0 ? ImMin(1.0f, avail.x / (float)dbgShotW_) : 1.0f;
+    if (dbgShotH_ > 0 && avail.y > scaled(80)) scale = ImMin(scale, avail.y / (float)dbgShotH_);
+    ImGui::Image((ImTextureID)(intptr_t)dbgShotTex_, ImVec2((float)dbgShotW_ * scale, (float)dbgShotH_ * scale));
+}
+
+// Stats: the frame's vital signs - tiles for the numbers people compare, a
+// frame-time history against the budget, and the two memory budgets as meters.
+void App::dbgDrawStatsPage() {
+    const theme::Semantics& sem = theme::semantics();
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const livedbg::Stats& st = dbgSnap_.stats;
+    if (!live || !st.valid) {
+        // Say WHICH silence: not booted, no runtime, or a dead file server.
+        const std::string why = dbgSilenceReason();
+        if (!why.empty())
+            ui::EmptyState(ui::Glyph::Sliders, "No stats", why.c_str());
+        else if (!live)
+            ui::EmptyState(ui::Glyph::Sliders, "No stats yet",
+                           "They arrive with the game's reports - run a debug build with the Live "
+                           "Debugger on.");
+        else
+            ui::EmptyState(ui::Glyph::Sliders, "No stats block",
+                           "This game was built before the Stats page existed. Rebuild it (F5 / F6).");
+        return;
+    }
+    const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    const float budgetMs = 1000.0f / hz;
+    const float rendered = st.fpsX10 > 0 ? st.fpsX10 / 10.0f : (float)st.fps;
+    const float presented = st.presentedX10 > 0 ? st.presentedX10 / 10.0f : rendered;
+    float worst = 0.0f, sum = 0.0f;
+    for (float ms : dbgFrameMs_) {
+        worst = ImMax(worst, ms);
+        sum += ms;
+    }
+    const float avgMs = dbgFrameMs_.empty() ? (rendered > 0 ? 1000.0f / rendered : 0.0f)
+                                            : sum / (float)dbgFrameMs_.size();
+
+    // --- tiles
+    {
+        char v[5][32], s[5][64];
+        std::snprintf(v[0], 32, "%.1f fps", rendered);
+        std::snprintf(s[0], 64, "game loops / s");
+        std::snprintf(v[1], 32, "%.1f fps", presented);
+        std::snprintf(s[1], 64, presented > rendered * 1.15f ? "with frame extrapolation" : "buffer flips / s");
+        std::snprintf(v[2], 32, "%.1f ms", avgMs);
+        std::snprintf(s[2], 64, "worst %.1f \xc2\xb7 budget %.1f", worst, budgetMs);
+        std::snprintf(v[3], 32, "%u", st.verts);
+        std::snprintf(s[3], 64, "%d flushes \xc2\xb7 %u qw", st.flushes, st.qw);
+        std::snprintf(v[4], 32, "%d / %d", st.objVisible, st.objects);
+        std::snprintf(s[4], 64, "%d active", st.objActive);
+        const char* labels[5] = {"Rendered", "Presented", "Frame time", "VU1 vertices", "Objects visible"};
+        const ImU32 cols[5] = {dbgCol(rendered + 0.5f < hz ? sem.warn : sem.ok), dbgCol(sem.ok),
+                               dbgCol(worst > budgetMs ? sem.warn : sem.text), 0, 0};
+        const float gap = scaled(8);
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const int perRow = avail > scaled(640) ? 5 : avail > scaled(380) ? 3 : 2;
+        const float w = (avail - gap * (perRow - 1)) / perRow;
+        for (int i = 0; i < 5; ++i) {
+            if (i % perRow) ImGui::SameLine(0.0f, gap);
+            ui::KpiTile(labels[i], v[i], s[i], cols[i], w);
+            if (i == 1 && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(
+                    "Measured by the game itself: rendered = game loops per second,\n"
+                    "presented = buffer flips. Frame extrapolation synthesises a frame\n"
+                    "per rendered one, so it shows about twice as often as it renders.\n"
+                    "Neither is the frame-timing rig, which measures sub-frame WORK in\n"
+                    "milliseconds (docs/profiling.md).");
+        }
+    }
+    ImGui::Spacing();
+
+    // --- frame time over the kept reports, against the budget line
+    ui::BeginCard("##frametime", ImVec2(0, 0));
+    {
+        dbgCaps("Frame time");
+        ImGui::SameLine();
+        ImGui::TextDisabled("budget %.1f ms \xc2\xb7 %s %.0f Hz", budgetMs, hz > 55.0f ? "NTSC" : "PAL", hz);
+        const float h = scaled(70);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        ImGui::InvisibleButton("Frame time chart", ImVec2(ImMax(1.0f, w), h));
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float top = ImMax(budgetMs * 1.5f, worst * 1.1f);
+        const float by = p.y + h - h * (budgetMs / top);
+        const int n = (int)dbgFrameMs_.size();
+        const int cap = (int)kDbgFrameMsKeep;
+        const float bw = w / (float)cap;
+        int hover = -1;
+        for (int i = 0; i < n; ++i) {
+            const float ms = dbgFrameMs_[(size_t)i];
+            const float x = p.x + w - (n - i) * bw;
+            const float bh = ImMax(1.0f, h * ImMin(1.0f, ms / top));
+            dl->AddRectFilled(ImVec2(x, p.y + h - bh), ImVec2(x + ImMax(1.0f, bw - 1.0f), p.y + h),
+                              dbgCol(ms > budgetMs ? sem.danger : sem.ok, 0.85f), 1.0f);
+            if (ImGui::IsItemHovered() && ImGui::GetMousePos().x >= x && ImGui::GetMousePos().x < x + bw) hover = i;
+        }
+        for (float x = p.x; x < p.x + w; x += 8.0f)
+            dl->AddLine(ImVec2(x, by), ImVec2(ImMin(x + 4.0f, p.x + w), by), dbgCol(sem.danger, 0.5f));
+        if (hover >= 0)
+            ImGui::SetTooltip("%.1f ms (%.1f fps rendered)", dbgFrameMs_[(size_t)hover],
+                              1000.0f / dbgFrameMs_[(size_t)hover]);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("One bar per report: the game's own rendered rate as milliseconds a frame.");
+        ImGui::PopTextWrapPos();
+    }
+    ui::EndCard();
+    ImGui::Spacing();
+
+    // --- the two memory budgets
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const bool two = avail > scaled(560);
+    const float cardW = two ? (avail - scaled(8)) * 0.5f : avail;
+    ui::BeginCard("##vram", ImVec2(cardW, 0));
+    {
+        const float freeMB = st.vramFreeKB / 1024.0f;
+        const float usedMB = ImMax(0.0f, 4.0f - freeMB);
+        dbgCaps("GS VRAM");
+        ImGui::SameLine();
+        {
+            ui::FontScope mono(ui::monoFont());
+            char buf[48];
+            std::snprintf(buf, sizeof(buf), "%.2f / 4.00 MB", usedMB);
+            ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(),
+                                       ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(buf).x));
+            ImGui::TextUnformatted(buf);
+        }
+        const float lowUsed = ImMax(0.0f, 4.0f - st.vramMinFreeKB / 1024.0f);
+        const float fr[2] = {usedMB / 4.0f, ImMax(0.0f, lowUsed - usedMB) / 4.0f};
+        const ImU32 cl[2] = {dbgCol(sem.accent), dbgCol(sem.accent, 0.35f)};
+        ui::Meter(fr, cl, 2);
+        ui::LegendSwatch(dbgCol(sem.accent), "in use now");
+        ImGui::SameLine(0.0f, scaled(14));
+        ui::LegendSwatch(dbgCol(sem.accent, 0.35f), "peak (low-water)");
+        ImGui::TextDisabled("largest free block %u KB \xc2\xb7 %d textures resident (peak %d)", st.vramLargestKB,
+                            st.vramResident, st.vramPeak);
+        ui::FontScope mono(ui::monoFont());
+        // Wrapped: beside the Stopped at aside the half-width card is narrower
+        // than this line, which then lost its last word to the card's edge.
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%u binds \xc2\xb7 %u hits \xc2\xb7 %u uploads \xc2\xb7 %u evictions", st.vramBinds,
+                            st.vramHits, st.vramUploads, st.vramEvictions);
+        ImGui::PopTextWrapPos();
+        if (st.vramEvictions) {
+            ImGui::TextColored(sem.warn, "Evictions: the working set does not fit, textures re-upload.");
+        }
+    }
+    ui::EndCard();
+    if (two) ImGui::SameLine(0.0f, scaled(8));
+    ui::BeginCard("##eeram", ImVec2(cardW, 0));
+    {
+        dbgCaps("EE memory");
+        ImGui::SameLine();
+        const char* btn = "Measure now";
+        ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(),
+                                   ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(btn).x -
+                                       ImGui::GetStyle().FramePadding.x * 2.0f));
+        if (ImGui::SmallButton(btn)) {
+            dbgCmd_.measureRam = true;
+            dbgCmdWritten_ = false;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "On request only. The engine measures free RAM by allocating every free block\n"
+                "until malloc fails and then freeing the chain - honest, but not something to\n"
+                "run once a frame.");
+        // ramFrame is the "it answered" signal: zero KB with a frame behind it
+        // is a FAILED measurement, not "not measured yet".
+        if (st.ramFreeKB) {
+            const float freeMB = st.ramFreeKB / 1024.0f;
+            const float fr[1] = {ImClamp((32.0f - freeMB) / 32.0f, 0.0f, 1.0f)};
+            const ImU32 cl[1] = {dbgCol(sem.warn)};
+            ui::Meter(fr, cl, 1);
+            ImGui::TextDisabled("%.2f MB free of 32 MB \xc2\xb7 measured at frame %s", freeMB,
+                                dbgFrameText(st.ramFrame).c_str());
+        } else if (st.ramFrame) {
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(sem.warn,
+                               "Measured at frame %u and found 0 MB free - the game is out of memory "
+                               "or the probe failed.",
+                               st.ramFrame);
+            ImGui::PopTextWrapPos();
+        } else {
+            const float fr[1] = {0.0f};
+            const ImU32 cl[1] = {dbgCol(sem.warn)};
+            ui::Meter(fr, cl, 1);
+            ImGui::TextDisabled("not measured yet");
+        }
+        ui::FontScope mono(ui::monoFont());
+        ImGui::TextDisabled("%d objects \xc2\xb7 %d active \xc2\xb7 %d visible", st.objects, st.objActive,
+                            st.objVisible);
+        if (st.maxChunkVerts) ImGui::TextDisabled("largest VU1 stream %d verts", st.maxChunkVerts);
+    }
+    ui::EndCard();
+}
+
+void App::dbgDrawRenderCostPage() {
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    if (dbgRenderCostProject_ != project_.dir) {
+        dbgRenderCostProject_ = project_.dir;
+        dbgRenderCost_ = {};
+        dbgRenderBaseline_ = {};
+        dbgRenderCostWaiting_ = false;
+        dbgRenderCostSeq_ = 0;
+    }
+    if (ui::PrimaryButton("Measure render cost", 0.0f, live && !dbgRenderCostWaiting_)) {
+        dbgCmd_.captureRenderCost = true;
+        dbgCmdWritten_ = false;
+        dbgRenderCostWaiting_ = true;
+        dbgRenderCostSeq_ = 0;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(
+            "On-demand render-pass attribution. Synchronizes VU/GS between stages, so the\n"
+            "measured pass is slower than normal. It excludes update, vsync and file transfer.");
+    if (dbgRenderCostWaiting_) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Waiting for the game...");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel measurement")) dbgRenderCostWaiting_ = false;
+    }
+    const double costNow = ImGui::GetTime();
+    if (dbgRenderCostWaiting_ && dbgRenderCostSeq_ && costNow >= dbgRenderCostPoll_) {
+        dbgRenderCostPoll_ = costNow + 0.5;
+        livedbg::RenderCost result;
+        if (livedbg::readRenderCost((std::filesystem::path(project_.dir) / "bin" / "rendercost.txt").string(),
+                                    result) &&
+            result.seq == dbgRenderCostSeq_) {
+            dbgRenderCost_ = std::move(result);
+            dbgRenderCostWaiting_ = false;
+        }
+    }
+    if (!dbgRenderCost_.seq) {
+        ui::EmptyState(ui::Glyph::Sliders, "No measurement yet",
+                       "Measure one synchronized render pass of the running game - phases first, "
+                       "then every drawn object. Needs a debug game built with 1.80 or later.");
+        return;
+    }
+    ImGui::Text("Synchronized render pass: %.3f ms (scene %d)", dbgRenderCost_.totalMs, dbgRenderCost_.scene);
+    if (dbgRenderBaseline_.seq && dbgRenderBaseline_.scene == dbgRenderCost_.scene) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("total delta %+.3f ms", dbgRenderCost_.totalMs - dbgRenderBaseline_.totalMs);
+    }
+    if (ImGui::Button("Keep as baseline")) dbgRenderBaseline_ = dbgRenderCost_;
+    ImGui::SameLine();
+    if (ImGui::Button("Copy render cost CSV"))
+        ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
+    ImGui::SameLine();
+    // The Obj_* rows are ~15 per drawn object: the answer to "why is THIS
+    // object dear", and noise in every other reading.
+    ui::Switch("Per-object pipeline detail", &dbgRenderCostDetail_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Adds each object's own counters (Obj_ rows): EE time of its\n"
+                          "main and companion passes, bounds/prepare/dispatch/DMA, and\n"
+                          "package counts (cull/guard/clip/outside, as whole numbers).");
+    ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
+    // Resolve the label and the baseline delta ONCE, before sorting: both are
+    // what the table shows and sorts on.
+    struct CostView {
+        std::string label;
+        double ms = 0;
+        double delta = 0;
+        bool hasDelta = false;
+        bool object = false;
+    };
+    const bool haveBase = dbgRenderBaseline_.seq && dbgRenderBaseline_.scene == dbgRenderCost_.scene;
+    std::vector<CostView> view;
+    view.reserve(dbgRenderCost_.rows.size());
+    for (const auto& row : dbgRenderCost_.rows) {
+        const bool detail = row.label.rfind("Obj_", 0) == 0;
+        if (detail && !dbgRenderCostDetail_) continue;
+        CostView v;
+        v.ms = row.ms;
+        v.object = row.object >= 0;
+        std::string label = row.label;
+        std::replace(label.begin(), label.end(), '_', ' ');
+        if (v.object) {
+            label = "Object #" + std::to_string(row.object);
+            const int si = dbgRenderCost_.scene;
+            if (si >= 0 && si < (int)project_.scenes.size() && row.object < (int)project_.scenes[si].objects.size())
+                label += " " + project_.scenes[si].objects[row.object].name;
+            if (detail) {
+                std::string stage = row.label.substr(4);
+                std::replace(stage.begin(), stage.end(), '_', ' ');
+                label += " - " + stage;
+            }
+        }
+        v.label = std::move(label);
+        if (haveBase)
+            for (const auto& old : dbgRenderBaseline_.rows)
+                if (old.object == row.object && old.label == row.label) {
+                    v.delta = row.ms - old.ms;
+                    v.hasDelta = true;
+                    break;
+                }
+        view.push_back(std::move(v));
+    }
+    if (ImGui::BeginTable("Render cost results", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Sortable |
+                              ImGuiTableFlags_SortTristate | ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Stage / object");
+        // Both cost columns prefer descending - "what is dearest" - but neither
+        // carries DefaultSort: an untouched capture reads in its grouping.
+        ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_PreferSortDescending);
+        ImGui::TableSetupColumn("Delta ms", ImGuiTableColumnFlags_PreferSortDescending);
+        ImGui::TableHeadersRow();
+        int sortCol = -1;
+        bool sortAsc = false;
+        if (const ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+            if (specs->SpecsCount > 0) {
+                sortCol = specs->Specs[0].ColumnIndex;
+                sortAsc = specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending;
+            }
+        std::stable_sort(view.begin(), view.end(), [&](const CostView& a, const CostView& b) {
+            // Tristate: a third click clears the sort - phases first and
+            // dearest first, objects after them.
+            if (sortCol < 0) {
+                if (a.object != b.object) return !a.object;
+                return a.ms > b.ms;
+            }
+            if (sortCol == 0) {
+                std::string la = a.label, lb = b.label;
+                auto lower = [](std::string& t) {
+                    std::transform(t.begin(), t.end(), t.begin(),
+                                   [](unsigned char c) { return (char)std::tolower(c); });
+                };
+                lower(la);
+                lower(lb);
+                if (la == lb) return false;
+                return sortAsc ? la < lb : lb < la;
+            }
+            if (sortCol == 2) {
+                // A row the baseline does not carry sorts last both ways.
+                if (a.hasDelta != b.hasDelta) return a.hasDelta;
+                if (!a.hasDelta || a.delta == b.delta) return false;
+                return sortAsc ? a.delta < b.delta : a.delta > b.delta;
+            }
+            if (a.ms == b.ms) return false;
+            return sortAsc ? a.ms < b.ms : a.ms > b.ms;
+        });
+        for (const auto& v : view) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(v.label.c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.3f", v.ms);
+            ImGui::TableSetColumnIndex(2);
+            if (v.hasDelta) ImGui::Text("%+.3f", v.delta);
+        }
+        ImGui::EndTable();
+    }
+}
+
+// VU memory: what the EE actually fed VU1 for one draw - the DMA chain decoded,
+// and the vertex stream it carried drawn as a wireframe. VU1 debugging is
+// otherwise blind (no printf, output straight to the GS), and this is the half
+// we own (docs/devkit.md).
+void App::dbgDrawVuPage() {
+const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    if (!live) dbgVuCapWaiting_ = false;  // nobody left to answer
+    ImGui::BeginDisabled(!live);
+    if (ImGui::Button("Capture VU1 packet")) {
+        dbgCmd_.captureVu = true;
+        dbgCmd_.vuFlush = dbgVuPinFlush_ ? dbgVuFlushWanted_ : -1;
+        dbgCmdWritten_ = false;
+        dbgVuCapWaiting_ = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Asks the game for one DMA chain it sends to VU1: the scales, "
+            "the\nGIF tag, the matrices and the vertex stream, exactly as "
+            "packed.\nA frame sends one chain per bag flush - unpinned, "
+            "each click\nwalks to the next one.");
+    // A frame sends the same draws in the same order, so "the next packet"
+    // forever means the same picture forever. Unpinned the game advances one
+    // flush per click; pinned it re-grabs the same draw, which is what you
+    // want when watching ONE thing change over time.
+    ImGui::SameLine();
+    ImGui::Checkbox("pin flush", &dbgVuPinFlush_);
+    if (dbgVuPinFlush_) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90.0f));
+        const int maxFlush =
+            dbgVuCap_.flushCount > 0 ? dbgVuCap_.flushCount - 1 : 63;
+        ImGui::SliderInt("##vuflush", &dbgVuFlushWanted_, 0, maxFlush,
+                         "flush %d");
+    }
+    // Two captures of the same draw look alike; say plainly whether what is
+    // on screen is the answer to the last click or still the previous one.
+    if (dbgVuCapWaiting_) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("waiting for the game...");
+    }
+
+    // The flush map: every draw of the last complete frame, so finding the
+    // one you care about is reading a table instead of clicking through
+    // dozens of captures. Click a row to capture THAT draw.
+    if (!dbgSnap_.flushes.empty() &&
+        ImGui::CollapsingHeader("Flush map - the frame's draws")) {
+        uint32_t totalV = 0;
+        for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
+            totalV += (uint32_t)f.verts;
+        ImGui::TextDisabled(
+            "%d flush(es), %u vertices in the last complete frame. Click a "
+            "row to capture it.",
+            (int)dbgSnap_.flushes.size(), totalV);
+        const float h = scaled(150.0f);
+        if (ImGui::BeginTable("##flushmap", 5,
+                              ImGuiTableFlags_RowBg |
+                                  ImGuiTableFlags_SizingStretchProp |
+                                  ImGuiTableFlags_ScrollY,
+                              ImVec2(0, h))) {
+            ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthStretch, 0.12f);
+            ImGui::TableSetupColumn("verts", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+            ImGui::TableSetupColumn("qw", ImGuiTableColumnFlags_WidthStretch, 0.18f);
+            ImGui::TableSetupColumn("unpacks", ImGuiTableColumnFlags_WidthStretch, 0.22f);
+            ImGui::TableSetupColumn("program", ImGuiTableColumnFlags_WidthStretch, 0.26f);
+            ImGui::TableHeadersRow();
+            int biggest = 0;
+            for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
+                biggest = ImMax(biggest, f.verts);
+            for (size_t i = 0; i < dbgSnap_.flushes.size(); ++i) {
+                const livedbg::FlushInfo& f = dbgSnap_.flushes[i];
+                ImGui::TableNextRow();
+                ImGui::PushID((int)i);
+                ImGui::TableSetColumnIndex(0);
+                char label[24];  // fits any 64-bit size_t
+                std::snprintf(label, sizeof(label), "%zu", i);
+                const bool pinnedHere =
+                    dbgVuPinFlush_ && dbgVuFlushWanted_ == (int)i;
+                if (ImGui::Selectable(label, pinnedHere,
+                                      ImGuiSelectableFlags_SpanAllColumns)) {
+                    dbgVuPinFlush_ = true;
+                    dbgVuFlushWanted_ = (int)i;
+                    dbgCmd_.captureVu = true;
+                    dbgCmd_.vuFlush = (int)i;
+                    dbgCmdWritten_ = false;
+                    dbgVuCapWaiting_ = true;
+                }
+                ImGui::TableSetColumnIndex(1);
+                // The fattest draws are the ones worth looking at first.
+                if (biggest > 0 && f.verts >= biggest / 2)
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%d",
+                                       f.verts);
+                else
+                    ImGui::Text("%d", f.verts);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%d", f.qw);
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%d", f.unpacks);
+                ImGui::TableSetColumnIndex(4);
+                if (f.program)
+                    ImGui::Text("@%d", f.program);
+                else
+                    ImGui::TextDisabled("carried over");
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+    }
+    if (!dbgVuCap_.loaded) {
+        ImGui::TextWrapped(
+            "No capture yet. %s",
+            dbgVuCap_.error.empty() ? "" : dbgVuCap_.error.c_str());
+    } else {
+        if (dbgVuCap_.flushIndex >= 0)
+            ImGui::Text("frame %u  |  flush %d of %d  |  %d quadwords  |  "
+                        "%d mesh(es)",
+                        dbgVuCap_.frame, dbgVuCap_.flushIndex,
+                        dbgVuCap_.flushCount, dbgVuCap_.qw,
+                        (int)dbgVuCap_.meshes.size());
+        else
+            ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  "
+                        "%d mesh(es)",
+                        dbgVuCap_.frame, dbgVuCap_.qw,
+                        (int)dbgVuCap_.unpacks.size(),
+                        (int)dbgVuCap_.meshes.size());
+        {
+            std::string progs;
+            for (size_t i = 0; i < dbgVuCap_.mscal.size(); ++i)
+                progs += (i ? ", " : "") + std::to_string(dbgVuCap_.mscal[i]);
+            std::string res;
+            if (dbgVuCap_.renderWidth > 0)
+                res = "  |  rendering at " +
+                      std::to_string(dbgVuCap_.renderWidth) + "x" +
+                      std::to_string(dbgVuCap_.renderHeight);
+            ImGui::TextDisabled("microprogram entry: %s%s",
+                                progs.empty() ? "-" : progs.c_str(),
+                                res.c_str());
+        }
+
+        dbgVuDrawFindings(dbgVuCap_);
+
+        // One flush is a whole bag: a dozen meshes, each with its own
+        // position stream. Pick which one the preview draws - they cannot
+        // be drawn together, every mesh being in its OWN model space.
+        const int meshes = (int)dbgVuCap_.meshes.size();
+        dbgVuMesh_ = meshes ? ImClamp(dbgVuMesh_, 0, meshes - 1) : 0;
+        if (meshes > 1) {
+            ImGui::SetNextItemWidth(scaled(180.0f));
+            ImGui::SliderInt("##vumesh", &dbgVuMesh_, 0, meshes - 1,
+                             "mesh %d");
+            ImGui::SameLine();
+            const vucap::Mesh& m = dbgVuCap_.meshes[dbgVuMesh_];
+            std::string tail;
+            // A chain that only ever says MSCNT re-runs the program the
+            // PREVIOUS chain loaded - it is not in this capture at all.
+            tail += m.program >= 0
+                        ? "  program @" + std::to_string(m.program)
+                        : std::string("  program carried over (MSCNT)");
+            if (m.degenerate)
+                tail += "  " + std::to_string(m.degenerate) + " degenerate";
+            ImGui::TextDisabled(
+                "of %d - %d verts, %d tris, %.1f units across%s", meshes,
+                m.verts, m.tris, m.extent(), tail.c_str());
+        }
+
+        // The wireframe: the captured positions are model space, so this is
+        // its own little orbit view rather than an overlay on the scene.
+        const std::vector<float>* verts =
+            meshes ? dbgVuCap_.verticesOf(dbgVuMesh_) : dbgVuCap_.vertices();
+        if (verts && verts->size() >= 12) {
+            const float h = scaled(220.0f);
+            const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
+            const ImVec2 org = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##vuview", size);
+            if (ImGui::IsItemActive()) {
+                dbgVuYaw_ += ImGui::GetIO().MouseDelta.x * 0.01f;
+                dbgVuPitch_ += ImGui::GetIO().MouseDelta.y * 0.01f;
+            }
+            if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
+                dbgVuZoom_ = ImClamp(
+                    dbgVuZoom_ * (1.0f + ImGui::GetIO().MouseWheel * 0.1f),
+                    0.1f, 20.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
+                              IM_COL32(18, 20, 24, 255), scaled(3.0f));
+            // Fit the soup in the box, then spin it with the mouse.
+            float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
+            float hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+            const size_t n = verts->size() / 4;
+            for (size_t i = 0; i < n; ++i)
+                for (int a = 0; a < 3; ++a) {
+                    lo[a] = ImMin(lo[a], (*verts)[i * 4 + a]);
+                    hi[a] = ImMax(hi[a], (*verts)[i * 4 + a]);
+                }
+            const float cx = (lo[0] + hi[0]) * 0.5f;
+            const float cy = (lo[1] + hi[1]) * 0.5f;
+            const float cz = (lo[2] + hi[2]) * 0.5f;
+            float extent = 0.001f;
+            for (int a = 0; a < 3; ++a) extent = ImMax(extent, hi[a] - lo[a]);
+            const float scale = (ImMin(size.x, size.y) * 0.38f) / extent *
+                                dbgVuZoom_;
+            const float cyaw = cosf(dbgVuYaw_), syaw = sinf(dbgVuYaw_);
+            const float cp = cosf(dbgVuPitch_), sp = sinf(dbgVuPitch_);
+            auto project = [&](size_t vi) {
+                const float x = (*verts)[vi * 4 + 0] - cx;
+                const float y = (*verts)[vi * 4 + 1] - cy;
+                const float z = (*verts)[vi * 4 + 2] - cz;
+                const float rx = x * cyaw + z * syaw;
+                const float rz = -x * syaw + z * cyaw;
+                const float ry = y * cp - rz * sp;
+                return ImVec2(org.x + size.x * 0.5f + rx * scale,
+                              org.y + size.y * 0.5f - ry * scale);
+            };
+            dl->PushClipRect(org, ImVec2(org.x + size.x, org.y + size.y), true);
+            const size_t tris = n / 3;
+            for (size_t t = 0; t < tris && t < 4000; ++t) {
+                const ImVec2 a = project(t * 3 + 0);
+                const ImVec2 b = project(t * 3 + 1);
+                const ImVec2 c = project(t * 3 + 2);
+                const ImU32 col = IM_COL32(120, 210, 255, 150);
+                dl->AddLine(a, b, col);
+                dl->AddLine(b, c, col);
+                dl->AddLine(c, a, col);
+            }
+            dl->PopClipRect();
+            ImGui::TextDisabled(
+                "%zu vertices, %zu triangles - drag to orbit, wheel to zoom. "
+                "Model space, as packed.",
+                n, tris);
+        }
+
+        // What the microprogram STAGED for the GS: the GIF packets it built
+        // in VU1 memory, decoded to screen-space vertices.
+        if (dbgVuCap_.hasVuMem) {
+            ImGui::Separator();
+            ImGui::Text("VU1 memory captured - %d GIF packet(s), %d GS vertices",
+                        (int)dbgVuCap_.gifs.size(), dbgVuCap_.outputVerts());
+            if (dbgVuCap_.hasMvp)
+                ImGui::TextDisabled(
+                    "MVP in VU1: [%.3f %.3f %.3f %.3f] ... (quadword 0)",
+                    dbgVuCap_.mvp[0], dbgVuCap_.mvp[4], dbgVuCap_.mvp[8],
+                    dbgVuCap_.mvp[12]);
+            for (size_t i = 0; i < dbgVuCap_.gifs.size(); ++i) {
+                const vucap::GifPacket& g = dbgVuCap_.gifs[i];
+                if (!g.hasGeometry) continue;
+                if (!ImGui::TreeNode(
+                        (void*)(intptr_t)i, "@VU1 %d  %s  %d verts  [%s]%s",
+                        g.vuAddr, g.primName().c_str(), (int)g.verts.size(),
+                        g.regs.c_str(), g.eop ? "  EOP" : ""))
+                    continue;
+                for (size_t v = 0; v < g.verts.size() && v < 24; ++v) {
+                    const vucap::GsVertex& gv = g.verts[v];
+                    ImGui::Text("v%-3zu  x %8.1f  y %8.1f  z %8u  rgba %3u %3u %3u %3u",
+                                v, gv.px(), gv.py(), gv.z, gv.r, gv.g, gv.b,
+                                gv.a);
+                }
+                if (g.verts.size() > 24) ImGui::TextDisabled("...");
+                ImGui::TreePop();
+            }
+            if (dbgVuCap_.diffCompared) {
+                ImGui::TextDisabled(
+                    "Host reference (diagnostic): max dx %.1f, dy %.1f over %d "
+                    "vertices, 12.4 units.",
+                    dbgVuCap_.diffMaxX, dbgVuCap_.diffMaxY,
+                    dbgVuCap_.diffCompared);
+                prefHelp(
+                    "One flush can carry several meshes and VU1 memory holds\n"
+                    "only the LAST MVP, so this comparison is exact only for\n"
+                    "a single-mesh flush - read it as a hint, not a verdict\n"
+                    "(docs/devkit.md).");
+            }
+        }
+
+        // The chain itself, decoded.
+        if (ImGui::BeginChild("##vusteps", ImVec2(0, scaled(160.0f)), true)) {
+            for (const vucap::Step& st : dbgVuCap_.steps)
+                ImGui::TextUnformatted(st.text.c_str());
+        }
+        ImGui::EndChild();
+    }
+}
+
+// The loudest thing in the panel, because it is the most important: a real EE
+// exception, or a heartbeat that simply stopped. Drawn across the top of the
+// window, above the rail and the page.
+void App::dbgDrawCrashBanner() {
+if (!dbgCrash_.present && !dbgLostGame_) return;
+const theme::Semantics& sem = theme::semantics();
+ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(sem.danger.x, sem.danger.y, sem.danger.z, 0.07f));
+ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(sem.danger.x, sem.danger.y, sem.danger.z, 0.4f));
+ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGui::GetStyle().FrameRounding + 3.0f);
+ImGui::BeginChild("##dbgcrash", ImVec2(0, 0),
+                  ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+ImGui::PopStyleVar();
+ImGui::PopStyleColor(2);
+if (dbgCrash_.present) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+    ImGui::TextWrapped("CRASH: %s", dbgCrash_.cause.empty()
+                                        ? "EE exception"
+                                        : dbgCrash_.cause.c_str());
+    ImGui::PopStyleColor();
+    ImGui::Text("epc 0x%08x   badvaddr 0x%08x   frame %u   scene %d",
+                dbgCrash_.epc, dbgCrash_.badvaddr, dbgCrash_.frame,
+                dbgCrash_.scene);
+    if (ImGui::SmallButton("Resolve names")) dbgResolveCrashNames();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Runs the PS2 toolchain's addr2line in the build container "
+            "against\nthe unstripped bin/*.elf.sym a debug build keeps - "
+            "turns these\naddresses into functions and source lines.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy report")) ImGui::SetClipboardText(dbgCrash_.raw.c_str());
+    // A crash is terminal - the game is idling on its crash screen and the
+    // only way on is to launch it again. Offer that HERE rather than making
+    // the reader go find F5/F6: same transport the crash came from (the PS2
+    // if its file server is still up, otherwise the emulator) and no
+    // rebuild, since nothing was edited.
+    ImGui::SameLine();
+    const bool crashBusy = runner_.busy();
+    const bool onPs2 = runner_.ps2ClientAlive();
+    ImGui::BeginDisabled(crashBusy);
+    if (ImGui::SmallButton(onPs2 ? "Run again on PS2" : "Run again")) {
+        dbgCrash_ = DbgCrash();
+        dbgCrashSize_ = 0;
+        if (onPs2)
+            runner_.buildAndRunPs2(projectForBuild(), false, false,
+                                   project_.activeScene);
+        else
+            runner_.buildAndRun(projectForBuild(), false);
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Relaunches the SAME build (no rebuild) and clears this "
+            "report.\nRebuild first with F5 / F6 if you changed anything.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Dismiss")) {
+        dbgCrash_ = DbgCrash();
+        dbgCrashSize_ = 0;
+    }
+    if (!dbgCrash_.namesError.empty())
+        ImGui::TextDisabled("%s", dbgCrash_.namesError.c_str());
+    if (!dbgCrash_.names.empty()) {
+        // A demangled C++ name carries its whole template expansion and runs
+        // to hundreds of characters, while the Debugger is a narrow docked
+        // panel - so the backtrace gets its OWN horizontally scrolling box
+        // instead of running off the right edge where it cannot be read.
+        // Wrapping was the other option and is worse here: one frame per
+        // line is what makes a backtrace scannable.
+        int rows = 0;
+        for (const elfsym::Location& l : dbgCrash_.names)
+            if (!l.func.empty()) ++rows;
+        if (rows > 8) rows = 8;
+        const float lineH = ImGui::GetTextLineHeightWithSpacing();
+        ImGui::BeginChild("##crashtrace",
+                          ImVec2(0.0f, lineH * ((float)rows + 0.6f)),
+                          ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+        for (size_t i = 0; i < dbgCrash_.names.size(); ++i) {
+            const elfsym::Location& l = dbgCrash_.names[i];
+            const char* label = i == 0 ? "crash" : "called from";
+            if (l.func.empty()) continue;
+            ImGui::Text("%-11s %s", label, l.func.c_str());
+            if (!l.source.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", l.source.c_str());
+            }
+        }
+        ImGui::EndChild();
+    }
+    // The post-mortem the devkit already has: what the graphs did just
+    // before, and where the watched objects were.
+    const auto& frames = dbgTimeline_.frames();
+    if (!frames.empty()) {
+        ImGui::TextDisabled("Last flow-graph nodes before the crash:");
+        int shown = 0;
+        for (size_t i = frames.size(); i-- > 0 && shown < 8;) {
+            for (int k : frames[i].keys) {
+                if (shown++ >= 8) break;
+                if (const livedbg::NodeSym* n = dbgSyms_.find(k))
+                    ImGui::BulletText("frame %u: %s", frames[i].frame,
+                                      dbgNodeLabel(*n).c_str());
+            }
+        }
+    }
+    for (const DbgObjTrack& t : dbgObjWatch_)
+        if (!t.samples.empty()) {
+            const livedbg::ObjSample& s = t.samples.back();
+            ImGui::BulletText("%s at %.2f, %.2f, %.2f (frame %u)",
+                              t.name.c_str(), s.pos[0], s.pos[1], s.pos[2],
+                              s.frame);
+        }
+} else if (dbgLostGame_) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.7f, 0.35f, 1.0f));
+    char lost[96];
+    std::snprintf(lost, sizeof(lost),
+                  "The game stopped reporting at frame %u - it hung.",
+                  dbgLostAtFrame_);
+    textWrappedHelp(
+        lost,
+        "No crash report and no assertion came with it: either a real\n"
+        "hang, or an exception taken with the EE crash handler off.");
+    ImGui::PopStyleColor();
+    const auto& frames = dbgTimeline_.frames();
+    if (!frames.empty()) {
+        ImGui::TextDisabled("The last nodes that ran:");
+        int shown = 0;
+        for (size_t i = frames.size(); i-- > 0 && shown < 6;)
+            for (int k : frames[i].keys) {
+                if (shown++ >= 6) break;
+                if (const livedbg::NodeSym* n = dbgSyms_.find(k))
+                    ImGui::BulletText("frame %u: %s", frames[i].frame,
+                                      dbgNodeLabel(*n).c_str());
+            }
+    }
+    if (!project_.settings.eeCrashHandler) {
+        ImGui::TextDisabled("Tip: turn the EE crash handler on");
+        prefHelp(
+            "Preferences > Build > \"EE crash handler\" makes the game write\n"
+            "a register dump and a backtrace instead of just going quiet\n"
+            "(experimental).");
+    }
+}
+ImGui::EndChild();
+ImGui::Spacing();
+}
+
+// The one time strip: node fires per frame (the old Timeline), the frame being
+// inspected, where the WORLD is (the time machine), and the input recorder.
+// Three tabs with three sliders over the same frame axis used to answer these
+// separately; here "I am looking at frame N, the world is at M" is one picture.
+void App::dbgDrawTimeStrip(bool open) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const auto& frames = dbgTimeline_.frames();
+    const float hz = project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    const bool debug = project_.settings.buildProfile == "debug";
+
+    // --- the header row
+    ImGui::AlignTextToFramePadding();
+    dbgCaps("Time");
+    // The tail of the row (recorder state, Replay, Rewind, collapse) is
+    // measured first: on a narrow dock the description gives way to it.
+    std::string rec;
+    int recKind = 4;
+    if (replayHaveStatus_ && replayStatus_.mode == livereplay::Status::Record && !replayStatus_.done) {
+        const int secs = (int)(replayStatus_.frame / hz);
+        char b[48];
+        std::snprintf(b, sizeof(b), "REC input %02d:%02d", secs / 60, secs % 60);
+        rec = b;
+        recKind = 2;
+    } else if (replayHaveStatus_ && replayStatus_.mode == livereplay::Status::Replay) {
+        char b[96];
+        if (replayStatus_.divergences)
+            std::snprintf(b, sizeof(b), "PLAY %u / %u \xc2\xb7 %u divergences", replayStatus_.frame,
+                          replayStatus_.total, replayStatus_.divergences);
+        else
+            std::snprintf(b, sizeof(b), "PLAY %u / %u%s", replayStatus_.frame, replayStatus_.total,
+                          replayStatus_.done ? " \xc2\xb7 exact" : "");
+        rec = b;
+        recKind = replayStatus_.divergences ? 1 : 3;
+    } else if (replayArm_ == ReplayArm::Record) {
+        rec = "REC armed - next run";
+    } else if (replayArm_ == ReplayArm::Play && !replayFile_.empty()) {
+        rec = "PLAY armed - next run";
+    }
+    const char* rewindLabel = "Rewind world";
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    const float fpx = ImGui::GetStyle().FramePadding.x * 2;
+    float tail = ImGui::GetFrameHeight() + sp;
+    tail += ImGui::CalcTextSize("Replay...").x + fpx + sp;
+    tail += ImGui::CalcTextSize(rewindLabel).x + fpx + sp;
+    if (!rec.empty()) tail += ui::StatePillWidth(rec.c_str()) + sp;
+    else if (!open) tail += ImGui::CalcTextSize("Record input").x + fpx + sp;
+    std::string desc;
+    if (open && frames.empty()) {
+        desc = "node fires per frame - nothing has fired yet";
+    } else if (open) {
+        char b[160];
+        std::snprintf(b, sizeof(b), "node fires per frame \xc2\xb7 %d frames kept (%.0f s) \xc2\xb7 click one to inspect it",
+                      (int)frames.size(), (frames.back().frame - frames.front().frame) / hz);
+        desc = b;
+    } else if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size()) {
+        desc = "inspecting frame " + dbgFrameText(frames[(size_t)dbgScrub_].frame);
+    } else {
+        desc = "live \xc2\xb7 " + std::to_string(frames.size()) + " frames kept";
+    }
+    ImGui::SameLine();
+    const float room = ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - tail - sp;
+    if (room > scaled(60)) {
+        // Shortened rather than wrapped: it is a caption, the strip says the rest.
+        while (desc.size() > 4 && ImGui::CalcTextSize(desc.c_str()).x > room)
+            desc = desc.substr(0, desc.size() - 5) + "...";
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(dbgScrub_ >= 0 && !open ? sem.warn : sem.textDim, "%s", desc.c_str());
+        ImGui::SameLine();
+    }
+    const bool canRewind = dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() && !timeHistory_.empty() &&
+                           timeHistory_.indexAtOrBefore(frames[(size_t)dbgScrub_].frame) >= 0;
+    if (ImGui::GetCursorPosX() + tail > ImGui::GetContentRegionMax().x + 1.0f) ImGui::NewLine();
+    ImGui::SetCursorPosX(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - tail));
+    const float rowY = ImGui::GetCursorPosY();
+    if (!rec.empty()) {
+        ui::StatePill(rec.c_str(), recKind, recKind == 2, ui::RtIcon::Record);
+        ImGui::SameLine();
+    } else if (!open) {
+        ImGui::BeginDisabled(!debug || !project_.settings.inputRecorder);
+        if (ImGui::Button("Record input")) replayArm_ = ReplayArm::Record;
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(project_.settings.inputRecorder
+                                  ? "Record the next run's input (takes effect on the next Build & Run)."
+                                  : "Turn on the input recorder first (... > Input recorder).");
+        ImGui::SameLine();
+    }
+    ImGui::SetCursorPosY(rowY);
+    if (ImGui::Button("Replay...")) ImGui::OpenPopup("##dbgreplay");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Record the next run's input, play a recording back, save one.");
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), 0));
+    if (ImGui::BeginPopup("##dbgreplay")) {
+        drawReplayPanel();
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!canRewind);
+    if (ImGui::Button(rewindLabel) && canRewind) {
+        timeMachineRewind(timeHistory_.indexAtOrBefore(frames[(size_t)dbgScrub_].frame));
+        statusMessage_ = timeStatus_;  // "Rewound N frames" or why not
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) {
+        if (canRewind)
+            ImGui::SetTooltip(
+                "Put the RUNNING game back into its capture at or before the inspected frame:\n"
+                "object transforms, physics, animation, flow variables, save values and where\n"
+                "the player stands. Not put back: sequences mid-play, menus, audio, particles.\n"
+                "Rewinding during a replay diverges it (docs/time-machine.md).");
+        else if (!project_.settings.timeMachine)
+            ImGui::SetTooltip("The time machine is off for this project (... > Time machine).");
+        else
+            ImGui::SetTooltip("Click a past frame on the strip, then rewind the world to it.");
+    }
+    ImGui::SameLine();
+    if (ui::IconButton(open ? "Collapse time strip" : "Expand time strip",
+                       open ? ui::RtIcon::ChevronDown : ui::RtIcon::ChevronUp))
+        dbgTimeOpen_ = !open;
+
+    // --- the strip itself: bars on a frame-number axis
+    if (!open) return;  // collapsed: the header row is the whole strip
+    const float h = ImMax(scaled(28), ImGui::GetContentRegionAvail().y - scaled(2));
+    const ImVec2 org = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    if (w < 4.0f || h < 4.0f) return;
+    ImGui::InvisibleButton("Time strip", ImVec2(w, h));
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(org, ImVec2(org.x + w, org.y + h), dbgCol(sem.field), scaled(5));
+    if (frames.empty()) {
+        if (open)
+            dl->AddText(ImVec2(org.x + fs * 0.8f, org.y + (h - fs) * 0.5f), dbgCol(sem.textDim, 0.8f),
+                        dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted
+                            ? "Waiting for the first node to fire."
+                            : "Fires appear here while a debug game runs.");
+        return;
+    }
+    const uint32_t f0 = frames.front().frame;
+    const uint32_t f1 = ImMax(frames.back().frame, dbgSnap_.frame);
+    const float span = (float)ImMax<uint32_t>(1, f1 - f0);
+    const float pad = scaled(6);
+    const float iw = w - pad * 2.0f;
+    auto xOf = [&](uint32_t f) { return org.x + pad + iw * ((float)(f - f0) / span); };
+    int maxFires = 1;
+    for (const auto& fr : frames) maxFires = ImMax(maxFires, (int)fr.keys.size());
+    const float bw = ImClamp(iw / span, ImMax(2.0f, scaled(2)), scaled(9));
+    const float base = org.y + h - scaled(4);
+    const float top = org.y + (open ? scaled(14) : scaled(2));
+    int hoverIdx = -1;
+    float hoverDist = FLT_MAX;
+    const float mx = ImGui::GetMousePos().x;
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const float x = xOf(frames[i].frame);
+        const float frac = (float)frames[i].keys.size() / (float)maxFires;
+        const float bh = ImMax(2.0f, frac * (base - top));
+        const bool sel = dbgScrub_ == (int)i;
+        bool hasBreak = false;
+        if (dbgState_ == DbgState::Halted && i + 1 == frames.size())
+            for (int k : frames[i].keys) hasBreak |= k == dbgSnap_.breakKey;
+        dl->AddRectFilled(ImVec2(x - bw * 0.5f, base - bh), ImVec2(x + bw * 0.5f, base),
+                          dbgCol(sel || hasBreak ? sem.warn : sem.ok, open ? 0.9f : 0.6f), ImMin(1.5f, bw * 0.3f));
+        if (hovered && std::fabs(mx - x) < hoverDist && std::fabs(mx - x) < ImMax(bw, scaled(6))) {
+            hoverDist = std::fabs(mx - x);
+            hoverIdx = (int)i;
+        }
+    }
+    if (!open) return;
+    // Where the world is: the newest capture the time machine holds (the game
+    // runs on from a rewind, so this is also "after the rewind").
+    if (!timeHistory_.empty()) {
+        const uint32_t wf = timeHistory_.newest().frame;
+        if (wf >= f0) {
+            const float x = ImMin(xOf(wf), org.x + w - pad);
+            dl->AddLine(ImVec2(x, org.y + scaled(2)), ImVec2(x, org.y + h - scaled(2)), dbgCol(sem.accent, 0.7f), 1.5f);
+        }
+    }
+    // The playhead: the inspected frame, or the live edge.
+    const bool scrubbed = dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size();
+    const uint32_t pf = scrubbed ? frames[(size_t)dbgScrub_].frame : dbgSnap_.frame;
+    {
+        const float x = ImClamp(xOf(pf), org.x + pad, org.x + w - pad);
+        const ImU32 c = dbgCol(scrubbed || dbgState_ == DbgState::Halted ? sem.warn : sem.textDim);
+        for (float y = org.y + scaled(2); y < org.y + h - scaled(2); y += 6.0f)
+            dl->AddLine(ImVec2(x, y), ImVec2(x, ImMin(y + 3.0f, org.y + h - scaled(2))), c, 2.0f);
+        const std::string tag = (dbgState_ == DbgState::Halted && !scrubbed ? "halted " : scrubbed ? "frame " : "live ") +
+                                dbgFrameText(pf);
+        ui::FontScope mono(ui::monoFont());
+        const float tfs = ImGui::GetFontSize() * 0.85f;
+        const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(tfs, FLT_MAX, 0.0f, tag.c_str());
+        const float tx = ImClamp(x - ts.x - scaled(6), org.x + pad, org.x + w - ts.x - scaled(8));
+        dl->AddRectFilled(ImVec2(tx - scaled(4), org.y + scaled(2)), ImVec2(tx + ts.x + scaled(4), org.y + scaled(2) + ts.y),
+                          dbgCol(scrubbed || dbgState_ == DbgState::Halted ? sem.warn : sem.surface,
+                                 scrubbed || dbgState_ == DbgState::Halted ? 0.18f : 1.0f),
+                          scaled(3));
+        dl->AddText(ImGui::GetFont(), tfs, ImVec2(tx, org.y + scaled(2)),
+                    dbgCol(scrubbed || dbgState_ == DbgState::Halted ? sem.warn : sem.textDim), tag.c_str());
+    }
+    if (hoverIdx >= 0) {
+        ImGui::BeginTooltip();
+        ImGui::Text("frame %s", dbgFrameText(frames[(size_t)hoverIdx].frame).c_str());
+        int shown = 0;
+        for (int k : frames[(size_t)hoverIdx].keys) {
+            if (++shown > 8) {
+                ImGui::TextDisabled("...");
+                break;
+            }
+            if (const livedbg::NodeSym* n = dbgSyms_.find(k)) ImGui::TextDisabled("%s", dbgNodeLabel(*n).c_str());
+        }
+        ImGui::TextDisabled("click to inspect \xc2\xb7 double-click = live");
+        ImGui::EndTooltip();
+        if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) dbgScrub_ = -1;
+        else if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) dbgScrub_ = hoverIdx;
+    } else if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        dbgScrub_ = -1;
+    }
+    // Arrow keys walk the inspected frame while the strip is hovered.
+    if (hovered && !frames.empty()) {
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+            dbgScrub_ = ImMax(0, (dbgScrub_ < 0 ? (int)frames.size() - 1 : dbgScrub_) - 1);
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && dbgScrub_ >= 0)
+            dbgScrub_ = dbgScrub_ + 1 >= (int)frames.size() ? -1 : dbgScrub_ + 1;
+    }
+}
+
 void App::drawDebuggerWindow() {
     if (!showDebugger_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(520)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(900), scaled(560)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Debugger", &showDebugger_)) {
         ImGui::End();
         return;
     }
     if (!hasProject_) {
-        ImGui::TextDisabled("No project open.");
+        ui::EmptyState(ui::Glyph::Nodes, "No project open", "Open a project, then Build & Run a debug build.");
         ImGui::End();
         return;
     }
-
-    // --- object / node naming helpers --------------------------------------
-    auto objectName = [&](int scene, const std::string& id) -> std::string {
-        if (scene >= 0 && scene < (int)project_.scenes.size())
-            for (const SceneObject& o : project_.scenes[scene].objects)
-                if (o.id == id) return o.name;
-        return "(deleted object)";
-    };
-    auto nodeTitle = [&](const livedbg::NodeSym& n) -> std::string {
-        const FlowNodeType* t = flowNodeType(n.type);
-        return t ? t->title : n.type;
-    };
-    auto nodeLabel = [&](const livedbg::NodeSym& n) -> std::string {
-        return objectName(n.scene, n.objectId) + " \xc2\xb7 " + nodeTitle(n);
-    };
-    // Jumps the Flow Graph window to a node's owner (and selects the object).
-    auto revealNode = [&](const livedbg::NodeSym& n) {
-        if (n.scene >= 0 && n.scene < (int)project_.scenes.size() &&
-            n.scene != project_.activeScene) {
-            // Same steps the Project window's scene list takes - terrain and
-            // lighting are per scene, and staged pastes belong to the old one.
-            project_.activeScene = n.scene;
-            clearSelection();
-            cancelPastePlacement();
-            flowPositionsApplied_ = false;
-            applyProjectToViewport();
-        }
-        const auto& objs = project_.objects();
-        for (size_t i = 0; i < objs.size(); ++i)
-            if (objs[i].id == n.objectId) {
-                flowGraphObject_ = (int)i;
-                flowPositionsApplied_ = false;
-                selectedObject_ = (int)i;
-                ImGui::SetWindowFocus("Flow Graph");
-                break;
-            }
-    };
-
-    // --- state chip + guidance ---------------------------------------------
-    struct Chip { ImU32 col; const char* text; };
-    Chip chip{IM_COL32(150, 150, 150, 255), "off"};
-    switch (dbgState_) {
-        case DbgState::Off: chip = {IM_COL32(150, 150, 150, 255), "OFF"}; break;
-        case DbgState::NoBuild:
-            chip = {IM_COL32(140, 140, 140, 255), "NO SYMBOLS"};
-            break;
-        case DbgState::Waiting:
-            // A frozen file is a DIFFERENT thing from an absent one and must
-            // not share a chip with it: one is "not started yet", the other is
-            // "the transport died and the console is still running".
-            if (dbgSnapFileAge_ >= 0.0)
-                chip = {IM_COL32(240, 175, 70, 255), "STALE SNAPSHOT"};
-            else
-                chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
-            break;
-        case DbgState::Stale:
-            chip = {IM_COL32(240, 175, 70, 255), "STALE (rebuild)"};
-            break;
-        case DbgState::Running:
-            chip = {IM_COL32(95, 200, 115, 255), "RUNNING"};
-            break;
-        case DbgState::Halted:
-            chip = {IM_COL32(245, 130, 90, 255), "HALTED"};
-            break;
-    }
-    {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const float r = scaled(5.0f);
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        dl->AddCircleFilled(
-            ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f), r,
-            chip.col);
-        ImGui::Dummy(ImVec2(r * 2.0f + scaled(4.0f), 0.0f));
-        ImGui::SameLine();
-        ImGui::TextColored(ImColor(chip.col), "%s", chip.text);
-    }
-    if (dbgState_ == DbgState::Halted && dbgSnap_.breakKey >= 0) {
-        if (const livedbg::NodeSym* n = dbgSyms_.find(dbgSnap_.breakKey)) {
-            ImGui::SameLine();
-            ImGui::Text("at %s", nodeLabel(*n).c_str());
-            if (ImGui::IsItemClicked()) revealNode(*n);
-        }
-    }
-    if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
-        ImGui::SameLine(0.0f, scaled(12.0f));
-        // "rendered" is not decoration: this is the game's frame counter over
-        // the EDITOR's wall clock, and the frame counter counts loop
-        // iterations - so on a game with frame extrapolation on, the picture
-        // changes about twice as often as this says. The Stats tab has the
-        // game's own measurement of both.
-        ImGui::TextDisabled("frame %u \xc2\xb7 %.1f fps rendered \xc2\xb7 scene %d",
-                            dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
-    }
-
-    switch (dbgState_) {
-        case DbgState::Off:
-            textWrappedHelp(
-                "Needs a debug build with the preference on.",
-                "The Live Debugger runtime is compiled only into debug builds\n"
-                "that have the \"Live Debugger\" preference switched on.");
-            if (project_.settings.buildProfile != "debug")
-                ImGui::TextDisabled(
-                    "This project builds in the release profile "
-                    "(Project > Preferences > Build).");
-            if (ImGui::Checkbox("Live Debugger (project setting)",
-                                &project_.settings.liveDebug))
-                commitChange();
-            break;
-        case DbgState::NoBuild:
-            textWrappedHelp(
-                "No symbol table yet - Build & Run (F5) once.",
-                "Codegen writes src/gen/livedbg.sym next to the generated\n"
-                "sources; the game reports as soon as it boots.");
-            break;
-        case DbgState::Waiting:
-            textWrappedHelp(dbgSilenceReason().c_str(), dbgSilenceDetail());
-            if (dbgSnapFileAge_ < 0.0)
-                ImGui::TextDisabled("Symbols loaded (%d nodes).",
-                                    (int)dbgSyms_.nodes.size());
-            break;
-        case DbgState::Stale:
-            textWrappedHelp(
-                "The running game was built from different graphs - Build & Run "
-                "(F5) to resync.",
-                "Its node numbering no longer matches the project, so nothing\n"
-                "is highlighted until you rebuild.");
-            break;
-        default: break;
-    }
-
-    // --- transport ---------------------------------------------------------
+    const theme::Semantics& sem = theme::semantics();
     const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
-    ImGui::Separator();
-    ImGui::BeginDisabled(!live);
-    const float btnW = scaled(104.0f);
-    if (dbgState_ == DbgState::Halted) {
-        if (ImGui::Button("\xe2\x96\xb6 Continue", ImVec2(btnW, 0))) {
-            dbgCmd_.halt = false;
-            dbgCmd_.stepFrames = 0;
-            dbgCmd_.stepUntilFire = false;
-            dbgCmdWritten_ = false;
-            dbgScrub_ = -1;
-        }
+    const float W = ImGui::GetContentRegionAvail().x;
+
+    dbgDrawHeader();
+    ImGui::Spacing();
+    dbgDrawCrashBanner();
+
+    // How the window is docked decides the layout, not a setting: the bottom
+    // drawer is wide and short, the Logic layout's column narrow and tall.
+    const bool compactRail = W < scaled(600);
+    const bool wideAside = W >= scaled(940);
+    const bool halted = dbgState_ == DbgState::Halted;
+    const bool scrubbed = dbgScrub_ >= 0;
+    const bool wantAside = halted || !live || scrubbed;
+    const float availH = ImGui::GetContentRegionAvail().y;
+    const bool timeOpen = dbgTimeOpen_ && availH >= scaled(300);
+    const float stripH = timeOpen ? ImClamp(availH * 0.22f, scaled(96), scaled(130))
+                                  : ImGui::GetFrameHeight() + scaled(16);
+    float bodyH = ImMax(scaled(60), availH - stripH - ImGui::GetStyle().ItemSpacing.y);
+    // Too short for a column of ten rows (the bottom drawer): the rail becomes
+    // one row of icons above the page, the counts as dots and in the tooltips.
+    const bool railRow = bodyH < scaled(400) && !compactRail;
+
+    // --- rail
+    if (railRow) {
+        const float y0 = ImGui::GetCursorPosY();
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, scaled(2)));
+        dbgDrawRail(true, true);
+        ImGui::PopStyleVar();
+        bodyH = ImMax(scaled(40), bodyH - (ImGui::GetCursorPosY() - y0));
     } else {
-        if (ImGui::Button("\xe2\x8f\xb8 Pause", ImVec2(btnW, 0))) {
-            dbgCmd_.halt = true;
-            dbgCmd_.stepFrames = 0;
-            dbgCmd_.stepUntilFire = false;
-            dbgCmdWritten_ = false;
-        }
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "F10. A halt freezes the world - scripts, the walker, particles, "
-            "animation -\nwhile the game keeps presenting frames, so you can "
-            "still look at what you stopped.");
-    ImGui::SameLine();
-    if (ImGui::Button("\xe2\x8f\xad Step frame", ImVec2(btnW, 0))) {
-        dbgCmd_.halt = false;
-        dbgCmd_.stepFrames = 1;
-        dbgCmd_.stepUntilFire = false;
-        dbgCmdWritten_ = false;
-        dbgScrub_ = -1;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("F11. Runs exactly one frame, then stops again.");
-    ImGui::SameLine();
-    if (ImGui::Button("\xe2\x8f\xa9 Step node", ImVec2(btnW, 0))) {
-        dbgCmd_.halt = false;
-        dbgCmd_.stepFrames = 0;
-        dbgCmd_.stepUntilFire = true;
-        dbgCmdWritten_ = false;
-        dbgScrub_ = -1;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Runs until ANY instrumented node fires, then stops on it -\n"
-            "the fastest way to find out what actually runs next.");
-    ImGui::EndDisabled();
-
-    // --- crash / lost game -------------------------------------------------
-    // The loudest thing in the panel, because it is the most important: a real
-    // EE exception, or a heartbeat that simply stopped.
-    if (dbgCrash_.present) {
-        ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
-        ImGui::TextWrapped("CRASH: %s", dbgCrash_.cause.empty()
-                                            ? "EE exception"
-                                            : dbgCrash_.cause.c_str());
-        ImGui::PopStyleColor();
-        ImGui::Text("epc 0x%08x   badvaddr 0x%08x   frame %u   scene %d",
-                    dbgCrash_.epc, dbgCrash_.badvaddr, dbgCrash_.frame,
-                    dbgCrash_.scene);
-        if (ImGui::SmallButton("Resolve names")) dbgResolveCrashNames();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Runs the PS2 toolchain's addr2line in the build container "
-                "against\nthe unstripped bin/*.elf.sym a debug build keeps - "
-                "turns these\naddresses into functions and source lines.");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Copy report")) ImGui::SetClipboardText(dbgCrash_.raw.c_str());
-        // A crash is terminal - the game is idling on its crash screen and the
-        // only way on is to launch it again. Offer that HERE rather than making
-        // the reader go find F5/F6: same transport the crash came from (the PS2
-        // if its file server is still up, otherwise the emulator) and no
-        // rebuild, since nothing was edited.
-        ImGui::SameLine();
-        const bool crashBusy = runner_.busy();
-        const bool onPs2 = runner_.ps2ClientAlive();
-        ImGui::BeginDisabled(crashBusy);
-        if (ImGui::SmallButton(onPs2 ? "Run again on PS2" : "Run again")) {
-            dbgCrash_ = DbgCrash();
-            dbgCrashSize_ = 0;
-            if (onPs2)
-                runner_.buildAndRunPs2(projectForBuild(), false, false,
-                                       project_.activeScene);
-            else
-                runner_.buildAndRun(projectForBuild(), false);
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Relaunches the SAME build (no rebuild) and clears this "
-                "report.\nRebuild first with F5 / F6 if you changed anything.");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Dismiss")) {
-            dbgCrash_ = DbgCrash();
-            dbgCrashSize_ = 0;
-        }
-        if (!dbgCrash_.namesError.empty())
-            ImGui::TextDisabled("%s", dbgCrash_.namesError.c_str());
-        if (!dbgCrash_.names.empty()) {
-            // A demangled C++ name carries its whole template expansion and runs
-            // to hundreds of characters, while the Debugger is a narrow docked
-            // panel - so the backtrace gets its OWN horizontally scrolling box
-            // instead of running off the right edge where it cannot be read.
-            // Wrapping was the other option and is worse here: one frame per
-            // line is what makes a backtrace scannable.
-            int rows = 0;
-            for (const elfsym::Location& l : dbgCrash_.names)
-                if (!l.func.empty()) ++rows;
-            if (rows > 8) rows = 8;
-            const float lineH = ImGui::GetTextLineHeightWithSpacing();
-            ImGui::BeginChild("##crashtrace",
-                              ImVec2(0.0f, lineH * ((float)rows + 0.6f)),
-                              ImGuiChildFlags_Borders,
-                              ImGuiWindowFlags_HorizontalScrollbar);
-            for (size_t i = 0; i < dbgCrash_.names.size(); ++i) {
-                const elfsym::Location& l = dbgCrash_.names[i];
-                const char* label = i == 0 ? "crash" : "called from";
-                if (l.func.empty()) continue;
-                ImGui::Text("%-11s %s", label, l.func.c_str());
-                if (!l.source.empty()) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("%s", l.source.c_str());
-                }
-            }
-            ImGui::EndChild();
-        }
-        // The post-mortem the devkit already has: what the graphs did just
-        // before, and where the watched objects were.
-        const auto& frames = dbgTimeline_.frames();
-        if (!frames.empty()) {
-            ImGui::TextDisabled("Last flow-graph nodes before the crash:");
-            int shown = 0;
-            for (size_t i = frames.size(); i-- > 0 && shown < 8;) {
-                for (int k : frames[i].keys) {
-                    if (shown++ >= 8) break;
-                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
-                        ImGui::BulletText("frame %u: %s", frames[i].frame,
-                                          nodeLabel(*n).c_str());
-                }
-            }
-        }
-        for (const DbgObjTrack& t : dbgObjWatch_)
-            if (!t.samples.empty()) {
-                const livedbg::ObjSample& s = t.samples.back();
-                ImGui::BulletText("%s at %.2f, %.2f, %.2f (frame %u)",
-                                  t.name.c_str(), s.pos[0], s.pos[1], s.pos[2],
-                                  s.frame);
-            }
-    } else if (dbgLostGame_) {
-        ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.7f, 0.35f, 1.0f));
-        char lost[96];
-        std::snprintf(lost, sizeof(lost),
-                      "The game stopped reporting at frame %u - it hung.",
-                      dbgLostAtFrame_);
-        textWrappedHelp(
-            lost,
-            "No crash report and no assertion came with it: either a real\n"
-            "hang, or an exception taken with the EE crash handler off.");
-        ImGui::PopStyleColor();
-        const auto& frames = dbgTimeline_.frames();
-        if (!frames.empty()) {
-            ImGui::TextDisabled("The last nodes that ran:");
-            int shown = 0;
-            for (size_t i = frames.size(); i-- > 0 && shown < 6;)
-                for (int k : frames[i].keys) {
-                    if (shown++ >= 6) break;
-                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
-                        ImGui::BulletText("frame %u: %s", frames[i].frame,
-                                          nodeLabel(*n).c_str());
-                }
-        }
-        if (!project_.settings.eeCrashHandler) {
-            ImGui::TextDisabled("Tip: turn the EE crash handler on");
-            prefHelp(
-                "Preferences > Build > \"EE crash handler\" makes the game write\n"
-                "a register dump and a backtrace instead of just going quiet\n"
-                "(experimental).");
-        }
-    }
-
-    // Armed countdowns, right under the transport: a Delay only advances on
-    // frames that RUN, so a halted game (or a single-frame Fire) leaves the
-    // branch behind it looking dead. Saying so here is cheaper than a doc.
-    if (live && !dbgSnap_.timers.empty()) {
-        const float fps = dbgFps_ > 1.0f ? dbgFps_ : 50.0f;
-        int soonest = 1 << 30;
-        for (const auto& t : dbgSnap_.timers)
-            soonest = ImMin(soonest, t.second);
-        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f),
-                           "\xe2\x8f\xb1 %d armed timer%s, next in %.1fs",
-                           (int)dbgSnap_.timers.size(),
-                           dbgSnap_.timers.size() == 1 ? "" : "s",
-                           soonest / fps);
-        if (dbgState_ == DbgState::Halted) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(frozen - Continue for it to fire)");
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Delay nodes counting down. They only advance while the game "
-                "runs:\nafter a one-frame Fire, or while stopped, the branch "
-                "after a Delay never comes.");
-    }
-
-    // --- tabs --------------------------------------------------------------
-    if (!ImGui::BeginTabBar("##dbgtabs", ImGuiTabBarFlags_TabListPopupButton)) {
-        ImGui::End();
-        return;
-    }
-
-    // Watch: flow variables + save values, live or as of the scrubbed frame.
-    if (ImGui::BeginTabItem("Watch")) {
-        const std::vector<float>* vals = &dbgSnap_.vars;
-        const auto& frames = dbgTimeline_.frames();
-        if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() &&
-            !frames[dbgScrub_].vars.empty())
-            vals = &frames[dbgScrub_].vars;
-        // What a row's Kind column says - and one of the two things the search
-        // below matches against, so it stays in one place.
-        //
-        // Four sources share this table and the symbol file distinguishes all
-        // of them: the Variables nodes ('i'/'b'/'p'), save values ('s') and
-        // World Facts, which come in scalar ('f') and POSITION ('F') flavours.
-        // Everything but the first three used to fall through to "save value"
-        // and one %g - which is why a position fact read as a lone float that
-        // happened to be its X.
-        auto kindOf = [](char k) {
-            switch (k) {
-                case 'i': return "int";
-                case 'b': return "bool";
-                case 'p': return "position";
-                case 'f': return "fact";
-                case 'F': return "fact (position)";
-                default: return "save value";
-            }
-        };
-        // A scalar fact is one float in the game and a TYPE in the catalog, so
-        // the editor can print it the way the catalog means it - true/false,
-        // an enum's option name - instead of the number the console stores.
-        // The blackboard already does this; the watch had no reason not to.
-        auto factNamed = [&](const std::string& n) -> const facts::Fact* {
-            for (const facts::Fact& f : project_.facts)
-                if (f.name == n) return &f;
-            return nullptr;
-        };
-        auto lower = [](std::string s) {
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return (char)std::tolower(c); });
-            return s;
-        };
-        const std::string needle = lower(dbgWatchFilter_);
-        auto matches = [&](const livedbg::VarSym& v) {
-            if (needle.empty()) return true;
-            return lower(v.name + " " + kindOf(v.kind)).find(needle) !=
-                   std::string::npos;
-        };
-
-        if (dbgSyms_.vars.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                                  ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-            textWrappedHelp(
-                "This project has no flow variables and no save values.",
-                "Variables nodes (Set/Get Int, Bool, Position) and Save values\n"
-                "show up here automatically.");
-            ImGui::PopStyleColor();
-        } else {
-        // A search box, because a fact catalog puts EVERY declared fact in
-        // here: past a dozen rows the panel is a list to scroll rather than a
-        // reading. It matches the name and the Kind text together, so "marta"
-        // narrows to a character and "bool" or "save" narrows to a column's
-        // worth - one field instead of a filter row of checkboxes.
+        const float railW = compactRail ? ImGui::GetFrameHeight() + scaled(18) : scaled(180);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, scaled(2)));
+        ImGui::BeginChild("##dbgrail", ImVec2(railW, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+        dbgDrawRail(compactRail);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
         {
-            char fbuf[128];
-            std::snprintf(fbuf, sizeof(fbuf), "%s", dbgWatchFilter_.c_str());
-            ImGui::SetNextItemWidth(scaled(220));
-            if (ImGui::InputTextWithHint("##watchfilter", "Filter...", fbuf,
-                                         sizeof(fbuf)))
-                dbgWatchFilter_ = fbuf;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Matches the name and the kind: \"marta\", \"bool\", "
-                    "\"save\".");
-            int shown = 0;
-            for (const livedbg::VarSym& v : dbgSyms_.vars)
-                if (matches(v)) ++shown;
-            ImGui::SameLine();
-            if (dbgWatchFilter_.empty()) {
-                ImGui::TextDisabled("%d row(s)", (int)dbgSyms_.vars.size());
-            } else {
-                if (ImGui::SmallButton("Clear##watchfilter"))
-                    dbgWatchFilter_.clear();
-                ImGui::SameLine();
-                ImGui::TextDisabled("%d of %d", shown,
-                                    (int)dbgSyms_.vars.size());
-            }
-            // Say so rather than showing an empty table, which reads as "the
-            // game stopped reporting" - the one thing this panel must never be
-            // ambiguous about.
-            if (shown == 0)
-                ImGui::TextDisabled("Nothing matches \"%s\".",
-                                    dbgWatchFilter_.c_str());
+            const ImVec2 a = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(a.x, a.y - bodyH), a, dbgCol(sem.border));
         }
-
-        if (ImGui::BeginTable("##watch", 3,
-                              ImGuiTableFlags_RowBg |
-                                  ImGuiTableFlags_SizingStretchProp |
-                                  ImGuiTableFlags_ScrollY)) {
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-            ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-            ImGui::TableHeadersRow();
-            for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
-                const livedbg::VarSym& v = dbgSyms_.vars[i];
-                // The VALUE index is the row's position in the symbol table,
-                // not its position on screen - filtering hides rows, it does
-                // not renumber them.
-                if (!matches(v)) continue;
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(v.name.c_str());
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextDisabled("%s", kindOf(v.kind));
-                ImGui::TableSetColumnIndex(2);
-                const size_t o = i * 3;
-                const ImVec4 kTrue(0.45f, 0.85f, 0.5f, 1.0f);
-                const ImVec4 kFalse(0.6f, 0.6f, 0.6f, 1.0f);
-                const facts::Fact* fact =
-                    (v.kind == 'f' || v.kind == 'F') ? factNamed(v.name)
-                                                     : nullptr;
-                if (o + 2 >= vals->size()) {
-                    ImGui::TextDisabled("-");
-                } else if (v.kind == 'b') {
-                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
-                                       (*vals)[o] != 0.0f ? "true" : "false");
-                } else if (v.kind == 'p' || v.kind == 'F') {
-                    // Three floats, which is what a position IS. It reaches the
-                    // editor as three slots of the same row, so printing one of
-                    // them was printing X and calling it the position.
-                    ImGui::Text("%.2f, %.2f, %.2f", (*vals)[o], (*vals)[o + 1],
-                                (*vals)[o + 2]);
-                } else if (v.kind == 'i') {
-                    ImGui::Text("%d", (int)(*vals)[o]);
-                } else if (fact && fact->type == facts::Type::Bool) {
-                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
-                                       (*vals)[o] != 0.0f ? "true" : "false");
-                } else if (fact && fact->type == facts::Type::Enum) {
-                    const int idx = (int)lroundf((*vals)[o]);
-                    if (idx >= 0 && idx < (int)fact->options.size())
-                        ImGui::Text("%s", fact->options[(size_t)idx].c_str());
-                    else  // out of range: say WHICH number, not "?"
-                        ImGui::TextDisabled("%d (no option)", idx);
-                } else if (fact && fact->type == facts::Type::Int) {
-                    ImGui::Text("%d", (int)lroundf((*vals)[o]));
-                } else {
-                    ImGui::Text("%g", (*vals)[o]);
-                }
-            }
-            ImGui::EndTable();
-        }
-        }
-        ImGui::EndTabItem();
+        ImGui::SameLine(0.0f, 0.0f);
     }
 
-    // Timeline: the rewind. One column per frame that had a fire; click (or
-    // drag the slider) to inspect that frame - the graph overlay follows.
-    if (ImGui::BeginTabItem("Timeline")) {
-        const auto& frames = dbgTimeline_.frames();
-        if (frames.empty()) {
-            ImGui::TextDisabled("Nothing has fired yet.");
-        } else {
-            const bool liveView = dbgScrub_ < 0;
-            if (liveView) {
-                ImGui::TextDisabled(
-                    "Live. Click a column (or drag below) to rewind - the graph "
-                    "shows that frame.");
-            } else {
-                const int idx = ImClamp(dbgScrub_, 0, (int)frames.size() - 1);
-                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f),
-                                   "Rewound to frame %u (%d fired)",
-                                   frames[idx].frame,
-                                   (int)frames[idx].keys.size());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Back to live")) dbgScrub_ = -1;
-            }
-
-            // The tape: newest frames on the right, bar height = fires in that
-            // frame, breakpoint-carrying frames tinted.
-            const float h = scaled(72.0f);
-            const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
-            const ImVec2 org = ImGui::GetCursorScreenPos();
-            ImGui::InvisibleButton("##tape", size);
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
-                              IM_COL32(22, 24, 28, 255), scaled(3.0f));
-            const float colW = ImMax(scaled(2.0f), 3.0f);
-            const int fits = (int)(size.x / colW);
-            const int first = ImMax(0, (int)frames.size() - fits);
-            int maxFires = 1;
-            for (size_t i = first; i < frames.size(); ++i)
-                maxFires = ImMax(maxFires, (int)frames[i].keys.size());
-            const bool hovered = ImGui::IsItemHovered();
-            int hoverIdx = -1;
-            for (size_t i = first; i < frames.size(); ++i) {
-                const float x = org.x + (i - first) * colW;
-                const float frac = (float)frames[i].keys.size() / (float)maxFires;
-                const float bh = ImMax(scaled(2.0f), frac * (h - scaled(8.0f)));
-                const bool sel = dbgScrub_ == (int)i;
-                ImU32 col = sel ? IM_COL32(250, 200, 90, 255)
-                                : IM_COL32(90, 175, 235, 220);
-                dl->AddRectFilled(ImVec2(x, org.y + h - bh - scaled(4.0f)),
-                                  ImVec2(x + colW - 1.0f, org.y + h - scaled(4.0f)),
-                                  col);
-                if (hovered && ImGui::GetMousePos().x >= x &&
-                    ImGui::GetMousePos().x < x + colW)
-                    hoverIdx = (int)i;
-            }
-            if (hoverIdx >= 0) {
-                ImGui::BeginTooltip();
-                ImGui::Text("frame %u", frames[hoverIdx].frame);
-                int shown = 0;
-                for (int k : frames[hoverIdx].keys) {
-                    if (++shown > 8) {
-                        ImGui::TextDisabled("...");
-                        break;
-                    }
-                    if (const livedbg::NodeSym* n = dbgSyms_.find(k))
-                        ImGui::TextDisabled("%s", nodeLabel(*n).c_str());
-                }
-                ImGui::EndTooltip();
-            }
-            if (hoverIdx >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                dbgScrub_ = hoverIdx;
-            int scrub = dbgScrub_ < 0 ? (int)frames.size() - 1 : dbgScrub_;
-            ImGui::SetNextItemWidth(-FLT_MIN);
-            if (ImGui::SliderInt("##scrub", &scrub, 0, (int)frames.size() - 1,
-                                 "frame %d of history"))
-                dbgScrub_ = scrub;
-
-            // What fired in the inspected frame, in order.
-            const int idx = ImClamp(dbgScrub_ < 0 ? (int)frames.size() - 1 : dbgScrub_,
-                                    0, (int)frames.size() - 1);
-            ImGui::BeginChild("##fires", ImVec2(0, 0), true);
-            {
-                for (int k : frames[idx].keys) {
-                    const livedbg::NodeSym* n = dbgSyms_.find(k);
-                    if (!n) continue;
-                    const FlowNodeType* t = flowNodeType(n->type);
-                    ImGui::PushID(k);
-                    ImGui::Bullet();
-                    ImGui::SameLine();
-                    if (ImGui::Selectable(nodeLabel(*n).c_str())) revealNode(*n);
-                    if (t && t->trigger) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(trigger)");
-                    }
-                    ImGui::PopID();
-                }
-            }
-            ImGui::EndChild();
+    // --- page (+ the aside folded into its top when the window is narrow)
+    const float asideW = wideAside && wantAside ? scaled(300) : 0.0f;
+    ImGui::BeginChild("##dbgpage", ImVec2(asideW > 0 ? -asideW : 0.0f, bodyH),
+                      ImGuiChildFlags_AlwaysUseWindowPadding);
+    // Narrow: the checklist leads every page (nothing works without it); the
+    // Stopped card only the Logic pages, where it is the context.
+    const bool logicPage = dbgPage_ == DbgPage::Watch || dbgPage_ == DbgPage::Nodes ||
+                           dbgPage_ == DbgPage::Breakpoints || dbgPage_ == DbgPage::Patches;
+    if (!wideAside && wantAside && (!live || logicPage)) {
+        if (!live) dbgDrawChecklist();
+        else dbgDrawStoppedAt(scrubbed);
+        ImGui::Spacing();
+    }
+    switch (dbgPage_) {
+        case DbgPage::Watch: dbgDrawWatchPage(); break;
+        case DbgPage::Nodes: dbgDrawNodesPage(); break;
+        case DbgPage::Breakpoints: dbgDrawBreakpointsPage(); break;
+        case DbgPage::Patches: dbgDrawPatchesPage(); break;
+        case DbgPage::Objects: dbgDrawObjectsPage(); break;
+        case DbgPage::Screen: dbgDrawScreenPage(); break;
+        case DbgPage::Stats: dbgDrawStatsPage(); break;
+        case DbgPage::RenderCost: dbgDrawRenderCostPage(); break;
+        case DbgPage::Hardware: hardware_timeline::draw(project_.dir, scaled(1.0f)); break;
+        case DbgPage::Vu: dbgDrawVuPage(); break;
+    }
+    ImGui::EndChild();
+    if (asideW > 0) {
+        ImGui::SameLine(0.0f, 0.0f);
+        {
+            const ImVec2 a = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddLine(a, ImVec2(a.x, a.y + bodyH), dbgCol(sem.border));
         }
-        ImGui::EndTabItem();
+        ImGui::BeginChild("##dbgaside", ImVec2(0, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
+        if (!live) dbgDrawChecklist();
+        else dbgDrawStoppedAt(true);
+        ImGui::EndChild();
     }
 
-    // Rewind: the same axis as the Timeline above, but it moves the WORLD.
-    // The execution log says what ran on frame N; this puts the game back into
-    // the state it was in on frame N (docs/time-machine.md).
-    if (ImGui::BeginTabItem("Rewind")) {
-        drawTimeMachinePanel();
-        ImGui::EndTabItem();
+    // --- the time strip
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(a, ImVec2(a.x + W, a.y), dbgCol(sem.border));
     }
-
-    // Replay: the other axis again. Rewind moves the world back; this makes
-    // the game DO the same thing again from the boot (docs/input-replay.md).
-    if (ImGui::BeginTabItem("Replay")) {
-        drawReplayPanel();
-        ImGui::EndTabItem();
-    }
-
-    // Nodes: everything instrumented in the graph currently being edited, with
-    // its hit count, a breakpoint toggle and (for triggers) a Fire button.
-    if (ImGui::BeginTabItem("Nodes")) {
-        const auto& objs = project_.objects();
-        const bool haveGraph = flowGraphObject_ >= 0 &&
-                               flowGraphObject_ < (int)objs.size();
-        if (!haveGraph) {
-            ImGui::TextDisabled("No graph selected in the Flow Graph window.");
-        } else {
-            ImGui::Text("Graph of \"%s\"", objs[flowGraphObject_].name.c_str());
-            ImGui::TextDisabled(
-                "Right-clicking a node in the Flow Graph does the same.");
-            if (ImGui::BeginTable("##nodes", 4,
-                                  ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_SizingStretchProp |
-                                      ImGuiTableFlags_ScrollY)) {
-                ImGui::TableSetupColumn("Break", ImGuiTableColumnFlags_WidthFixed,
-                                        scaled(44.0f));
-                ImGui::TableSetupColumn("Node", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                ImGui::TableSetupColumn("Hits", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                ImGui::TableHeadersRow();
-                const std::string ownerId = objs[flowGraphObject_].id;
-                for (const FlowNode& n : objs[flowGraphObject_].flowGraph.nodes) {
-                    const FlowNodeType* t = flowNodeType(n.type);
-                    if (!t || (t->pure && !t->trigger)) continue;  // data node
-                    const int key = dbgKeyFor(project_.activeScene, ownerId, n.id);
-                    ImGui::TableNextRow();
-                    ImGui::PushID(n.id);
-                    ImGui::TableSetColumnIndex(0);
-                    bool bp = dbgHasBreakpoint(ownerId, n.id);
-                    if (ImGui::Checkbox("##bp", &bp))
-                        dbgToggleBreakpoint(ownerId, n.id);
-                    ImGui::TableSetColumnIndex(1);
-                    const float age = dbgNodeHeat(key);
-                    if (age < 0.35f)
-                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%s",
-                                           t->title);
-                    else
-                        ImGui::TextUnformatted(t->title);
-                    ImGui::TableSetColumnIndex(2);
-                    if (key >= 0 && key < (int)dbgSnap_.hits.size())
-                        ImGui::Text("%u", dbgSnap_.hits[key]);
-                    else
-                        ImGui::TextDisabled("-");
-                    ImGui::TableSetColumnIndex(3);
-                    const int armed = dbgTimerFrames(key);
-                    if (t->trigger && key >= 0) {
-                        ImGui::BeginDisabled(!live);
-                        if (ImGui::SmallButton("Fire"))
-                            dbgFireNode(key, ImGui::GetIO().KeyShift);
-                        ImGui::EndDisabled();
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(
-                                "Runs everything wired to this trigger in the "
-                                "running game, once.\n"
-                                "Shift+click = fire AND "
-                                "continue, so a Delay in the branch gets frames "
-                                "to finish.");
-                    } else if (armed > 0) {
-                        // An armed countdown is the usual reason a branch looks
-                        // dead: show it counting instead of leaving a blank.
-                        ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f),
-                                           "%d f (%.1fs)", armed,
-                                           armed / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
-                    } else if (age < FLT_MAX) {
-                        ImGui::TextDisabled("%.1fs ago", age);
-                    }
-                    ImGui::PopID();
-                }
-                ImGui::EndTable();
-            }
-        }
-        ImGui::EndTabItem();
-    }
-
-    // Stats: the frame's vital signs. Every number here already existed
-    // somewhere the developer could not see it - the engine's own counters, the
-    // VU1 tap's per-flush accounting, the scene's object list - and the whole
-    // feature is carrying them across the same channel as everything else.
-    if (ImGui::BeginTabItem("Stats")) {
-        const livedbg::Stats& st = dbgSnap_.stats;
-        if (!live || !st.valid) {
-            // "No stats yet." was the whole message here, and it was the same
-            // message whether the game had not booted, the build carried no
-            // debugger runtime, or the file server had died half an hour ago
-            // with the console still running. Say WHICH.
-            const std::string why = dbgSilenceReason();
-            if (!why.empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text,
-                                      ImVec4(0.94f, 0.75f, 0.35f, 1.0f));
-                textWrappedHelp(why.c_str(), dbgSilenceDetail());
-                ImGui::PopStyleColor();
-            } else if (!live) {
-                ImGui::TextDisabled("No stats yet.");
-                prefHelp(
-                    "They arrive with the game's snapshots - run a debug build\n"
-                    "with the Live Debugger on.");
-            } else {
-                // Reporting, but the stats block is empty: an older ELF.
-                ImGui::TextDisabled(
-                    "This game reports no stats block - it was built before "
-                    "the Stats tab existed. Rebuild it (F5 / F6).");
-            }
-        } else {
-            ImGui::SeparatorText("Frame");
-            // The game's OWN measurement, on its COP0 clock, over its stated
-            // 0.5 s window - a different instrument from the header's
-            // frames-over-the-editor's-wall-clock, and the two should agree.
-            // A game built before the tenths existed reports only whole
-            // frames per second, so fall back rather than printing 0.0.
-            if (st.fpsX10 > 0)
-                ImGui::Text("%.1f FPS rendered", st.fpsX10 / 10.0f);
-            else
-                ImGui::Text("%d FPS rendered", st.fps);
-            if (st.presentedX10 > st.fpsX10 * 115 / 100) {
-                ImGui::SameLine();
-                ImGui::Text("\xc2\xb7 %.1f presented", st.presentedX10 / 10.0f);
-            }
-            prefHelp(
-                "Measured by the game itself: rendered = game loops per\n"
-                "second, presented = buffer flips. Frame extrapolation\n"
-                "synthesises a frame per rendered one, so it shows about\n"
-                "twice as often as it renders and both numbers are quoted.\n"
-                "The number beside the frame counter above is the same\n"
-                "rendered rate timed against this editor's wall clock -\n"
-                "they should agree. Neither is the frame-timing rig, which\n"
-                "measures sub-frame WORK in milliseconds (docs/profiling.md).");
-            ImGui::SameLine();
-            ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
-                                "%u vertices",
-                                st.flushes, st.qw, st.verts);
-            if (st.maxChunkVerts) {
-                ImGui::TextDisabled("Largest single stream: %d vertices",
-                                    st.maxChunkVerts);
-                prefHelp(
-                    "That IS the VU1 buffer's capacity for this vertex layout,\n"
-                    "and the size a mesh gets cut into.");
-            }
-
-            ImGui::SeparatorText("GS VRAM");
-            const float freeMB = st.vramFreeKB / 1024.0f;
-            const float lowMB = st.vramMinFreeKB / 1024.0f;
-            ImGui::Text("%.2f MB free, largest block %u KB", freeMB,
-                        st.vramLargestKB);
-            // 4 MB total on the console; the bar is against what is left, which
-            // is what actually runs out.
-            ImGui::ProgressBar(ImClamp(freeMB / 4.0f, 0.0f, 1.0f),
-                               ImVec2(-FLT_MIN, 0), "");
-            ImGui::TextDisabled("low-water mark %.2f MB   |   %d textures "
-                                "resident (peak %d)",
-                                lowMB, st.vramResident, st.vramPeak);
-            ImGui::TextDisabled("%u binds, %u hits, %u uploads, %u evictions "
-                                "(cumulative)",
-                                st.vramBinds, st.vramHits, st.vramUploads,
-                                st.vramEvictions);
-            if (st.vramEvictions)
-                ImGui::TextColored(ImVec4(0.94f, 0.75f, 0.35f, 1.0f),
-                                   "Evictions happen: the working set does not "
-                                   "fit, so textures are re-uploaded.");
-
-            ImGui::SeparatorText("EE memory");
-            // ramFrame is the "it answered" signal: the game stamps it with
-            // the frame it measured on. Zero KB with a frame behind it is a
-            // FAILED measurement, and saying "not measured yet" for it is how
-            // this read as "Measure now does nothing" - the button worked, the
-            // probe came back empty, and the panel showed the same line as
-            // before (the engine's probe used to collapse to 0, see
-            // Info::allocateLargestFreeRAMBlock).
-            if (st.ramFreeKB)
-                ImGui::Text("%.2f MB free at frame %u", st.ramFreeKB / 1024.0f,
-                            st.ramFrame);
-            else if (st.ramFrame)
-                ImGui::TextColored(ImVec4(0.94f, 0.75f, 0.35f, 1.0f),
-                                   "measured at frame %u and found 0 MB free - "
-                                   "the game is either out of memory or the "
-                                   "probe failed",
-                                   st.ramFrame);
-            else
-                ImGui::TextDisabled("not measured yet");
-            ImGui::BeginDisabled(!live);
-            if (ImGui::Button("Measure now")) {
-                dbgCmd_.measureRam = true;
-                dbgCmdWritten_ = false;
-            }
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "On request only. The engine measures free RAM by "
-                    "allocating every free block\nuntil malloc fails and then "
-                    "freeing the chain - honest, but not something to\nrun once "
-                    "a frame.");
-
-            ImGui::SeparatorText("Scene");
-            ImGui::Text("%d objects: %d active, %d visible", st.objects,
-                        st.objActive, st.objVisible);
-        }
-        ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Hardware timeline")) {
-        hardware_timeline::draw(project_.dir);
-        ImGui::EndTabItem();
-    }
-
-    if (ImGui::BeginTabItem("Render cost")) {
-        if (dbgRenderCostProject_ != project_.dir) {
-            dbgRenderCostProject_ = project_.dir;
-            dbgRenderCost_ = {}; dbgRenderBaseline_ = {};
-            dbgRenderCostWaiting_ = false; dbgRenderCostSeq_ = 0;
-        }
-        ImGui::TextWrapped("On-demand render-pass attribution. Synchronizes VU/GS between stages; "
-                           "the measured pass is slower than normal. It excludes update, vsync and file transfer.");
-        ImGui::BeginDisabled(!live || dbgRenderCostWaiting_);
-        if (ImGui::Button("Measure render cost")) {
-            dbgCmd_.captureRenderCost = true; dbgCmdWritten_ = false;
-            dbgRenderCostWaiting_ = true; dbgRenderCostSeq_ = 0;
-        }
-        ImGui::EndDisabled();
-        if (dbgRenderCostWaiting_) {
-            ImGui::SameLine(); ImGui::TextDisabled("Waiting for game...");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Cancel measurement")) dbgRenderCostWaiting_ = false;
-        }
-        const double costNow = ImGui::GetTime();
-        if (dbgRenderCostWaiting_ && dbgRenderCostSeq_ && costNow >= dbgRenderCostPoll_) {
-            dbgRenderCostPoll_ = costNow + 0.5;
-            livedbg::RenderCost result;
-            if (livedbg::readRenderCost((std::filesystem::path(project_.dir)/"bin"/"rendercost.txt").string(),result) &&
-                result.seq == dbgRenderCostSeq_) {
-                dbgRenderCost_ = std::move(result); dbgRenderCostWaiting_ = false;
-            }
-        }
-        if (!dbgRenderCost_.seq)
-            ImGui::TextDisabled("Requires a rebuilt debug game with Live Debugger enabled (1.80+).");
-        else {
-            ImGui::Text("Synchronized render pass: %.3f ms (scene %d)",dbgRenderCost_.totalMs,dbgRenderCost_.scene);
-            if (dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
-                ImGui::Text("Total delta: %+.3f ms",dbgRenderCost_.totalMs-dbgRenderBaseline_.totalMs);
-            if (ImGui::Button("Keep as baseline")) dbgRenderBaseline_ = dbgRenderCost_;
-            ImGui::SameLine();
-            if (ImGui::Button("Copy render cost CSV"))
-                ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
-            ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
-            // The Obj_* rows are ~15 per drawn object: the answer to "why is
-            // THIS object dear", and noise in every other reading.
-            ImGui::Checkbox("Per-object pipeline detail", &dbgRenderCostDetail_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Adds each object's own counters (Obj_ rows): EE time of its\n"
-                                  "main and companion passes, bounds/prepare/dispatch/DMA, and\n"
-                                  "package counts (cull/guard/clip/outside, as whole numbers).");
-            // Resolve the label and the baseline delta ONCE, before sorting:
-            // both are what the table shows, so both are what it has to sort
-            // on, and the delta is a lookup a comparator would otherwise
-            // repeat on every comparison.
-            struct CostView {
-                std::string label;
-                double ms = 0;
-                double delta = 0;
-                bool hasDelta = false;
-                bool object = false;
-            };
-            const bool haveBase = dbgRenderBaseline_.seq &&
-                                  dbgRenderBaseline_.scene == dbgRenderCost_.scene;
-            std::vector<CostView> view;
-            view.reserve(dbgRenderCost_.rows.size());
-            for (const auto& row : dbgRenderCost_.rows) {
-                const bool detail = row.label.rfind("Obj_", 0) == 0;
-                if (detail && !dbgRenderCostDetail_) continue;
-                CostView v;
-                v.ms = row.ms;
-                v.object = row.object >= 0;
-                std::string label = row.label;
-                std::replace(label.begin(), label.end(), '_', ' ');
-                if (v.object) {
-                    label = "Object #" + std::to_string(row.object);
-                    const int si = dbgRenderCost_.scene;
-                    if (si >= 0 && si < (int)project_.scenes.size() &&
-                        row.object < (int)project_.scenes[si].objects.size())
-                        label += " " + project_.scenes[si].objects[row.object].name;
-                    if (detail) {
-                        std::string stage = row.label.substr(4);
-                        std::replace(stage.begin(), stage.end(), '_', ' ');
-                        label += " - " + stage;
-                    }
-                }
-                v.label = std::move(label);
-                if (haveBase)
-                    for (const auto& old : dbgRenderBaseline_.rows)
-                        if (old.object == row.object && old.label == row.label) {
-                            v.delta = row.ms - old.ms;
-                            v.hasDelta = true;
-                            break;
-                        }
-                view.push_back(std::move(v));
-            }
-            if (ImGui::BeginTable("Render cost results", 3,
-                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_Sortable |
-                                      ImGuiTableFlags_SortTristate)) {
-                ImGui::TableSetupColumn("Stage / object");
-                // Both cost columns prefer descending - the question this table
-                // answers is always "what is dearest" - but neither carries
-                // DefaultSort: with SortTristate that leaves the fresh table
-                // unsorted, so an untouched capture still reads in the grouping
-                // it always had.
-                ImGui::TableSetupColumn("ms",
-                                        ImGuiTableColumnFlags_PreferSortDescending);
-                ImGui::TableSetupColumn("Delta ms",
-                                        ImGuiTableColumnFlags_PreferSortDescending);
-                ImGui::TableHeadersRow();
-                int sortCol = -1;
-                bool sortAsc = false;
-                if (const ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
-                    if (specs->SpecsCount > 0) {
-                        sortCol = specs->Specs[0].ColumnIndex;
-                        sortAsc = specs->Specs[0].SortDirection ==
-                                  ImGuiSortDirection_Ascending;
-                    }
-                std::stable_sort(
-                    view.begin(), view.end(),
-                    [&](const CostView& a, const CostView& b) {
-                        // Tristate: a third click clears the sort and the list
-                        // falls back to the grouping it had before it was
-                        // sortable - phases first and dearest first, objects
-                        // after them.
-                        if (sortCol < 0) {
-                            if (a.object != b.object) return !a.object;
-                            return a.ms > b.ms;
-                        }
-                        if (sortCol == 0) {
-                            std::string la = a.label, lb = b.label;
-                            auto lower = [](std::string& t) {
-                                std::transform(t.begin(), t.end(), t.begin(),
-                                               [](unsigned char c) {
-                                                   return (char)std::tolower(c);
-                                               });
-                            };
-                            lower(la);
-                            lower(lb);
-                            if (la == lb) return false;
-                            return sortAsc ? la < lb : lb < la;
-                        }
-                        if (sortCol == 2) {
-                            // A row the baseline does not carry has no delta
-                            // at all; it sorts last in both directions rather
-                            // than pretending to be a zero.
-                            if (a.hasDelta != b.hasDelta) return a.hasDelta;
-                            if (!a.hasDelta || a.delta == b.delta) return false;
-                            return sortAsc ? a.delta < b.delta : a.delta > b.delta;
-                        }
-                        if (a.ms == b.ms) return false;
-                        return sortAsc ? a.ms < b.ms : a.ms > b.ms;
-                    });
-                for (const auto& v : view) {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextUnformatted(v.label.c_str());
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%.3f", v.ms);
-                    ImGui::TableSetColumnIndex(2);
-                    if (v.hasDelta) ImGui::Text("%+.3f", v.delta);
-                }
-                ImGui::EndTable();
-            }
-        }
-        ImGui::EndTabItem();
-    }
-
-    // Screen: the picture the game took of ITSELF. Every host-side capture
-    // needs a desktop and a window on top of it, and none of them exists on a
-    // console - this one reads the frame buffer out of GS VRAM and hands over a
-    // TGA (docs/devkit.md, "The game's own screenshot").
-    if (ImGui::BeginTabItem("Screen")) {
-        if (!live) dbgShotWaiting_ = false;  // nobody left to answer
-        ImGui::BeginDisabled(!live);
-        if (ImGui::Button("Capture frame")) {
-            dbgCmd_.captureFrame = true;
-            dbgCmdWritten_ = false;
-            dbgShotWaiting_ = true;
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Asks the game to read its last finished frame out of GS VRAM. "
-                "Works on a\nreal PlayStation 2, and on a locked or remote "
-                "desktop where the emulator's\nown screenshot key cannot.\n\n"
-                "Kept as a PNG in the project's screenshots/ folder.\n\n"
-                "One shot: ~900 KB over host:, so it costs the game a visible "
-                "hitch -\nabout three seconds of it over ps2link.");
-        if (dbgShotWaiting_) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("waiting for the game...");
-        }
-        if (dbgShotTex_) {
-            ImGui::SameLine();
-            // This reveals the SAVED PNG rather than bin/frame.tga: the
-            // channel file is overwritten by the next capture and deleted by
-            // every launch, so pointing the file manager at it opened a path
-            // that was usually gone - and a missing path is answered by
-            // explorer with the user's Documents folder, which reads as a
-            // broken button. The PNG is the copy that lasts.
-            if (ImGui::Button("Show file")) {
-                std::error_code ec;
-                if (!dbgShotFile_.empty() &&
-                    std::filesystem::exists(dbgShotFile_, ec)) {
-                    dbgShotError_.clear();
-                    platform::revealInFileManager(dbgShotFile_);
-                } else {
-                    dbgShotError_ =
-                        "the saved PNG is gone - capture again to write one.";
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Copy image")) {
-                if (platform::copyImageToClipboard(
-                        dbgShotPixels_.data(), dbgShotW_, dbgShotH_,
-                        dbgShotFile_)) {
-                    dbgShotError_.clear();
-                    statusMessage_ = "Frame image copied to the clipboard";
-                } else {
-                    dbgShotError_ =
-                        "could not put the frame image on the clipboard.";
-                }
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Copies the actual bitmap, ready to paste into chat or an "
-                    "image editor.");
-        }
-
-        if (!dbgShotError_.empty()) {
-            // Wrapped: this panel is a narrow dock column and an unwrapped
-            // line simply runs off its right edge, taking the half of the
-            // sentence that says what to do about it.
-            ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextColored(ImVec4(0.94f, 0.55f, 0.45f, 1.0f), "%s",
-                               dbgShotError_.c_str());
-            ImGui::PopTextWrapPos();
-        }
-        if (!dbgShotTex_) {
-            ImGui::TextWrapped(
-                "No capture yet. The frame comes back over the same host: "
-                "channel everything else here rides on - a real PlayStation 2 "
-                "included - and is kept as a PNG in the project's "
-                "screenshots/ folder.");
-        } else {
-            ImGui::TextDisabled("%dx%d - the frame buffer as the GS holds it",
-                                dbgShotW_, dbgShotH_);
-            if (!dbgShotFile_.empty())
-                ImGui::TextDisabled(
-                    "screenshots/%s",
-                    std::filesystem::path(dbgShotFile_).filename().string().c_str());
-            // Fit the width and keep the buffer's own aspect: this is the
-            // GS RASTER, not the television picture, so a 512x448 frame is
-            // shown as 512x448 rather than stretched to 4:3 - the point of
-            // looking at it here is to see what the console drew.
-            const float avail = ImGui::GetContentRegionAvail().x;
-            const float scale =
-                dbgShotW_ > 0 ? ImMin(1.0f, avail / (float)dbgShotW_) : 1.0f;
-            ImGui::Image((ImTextureID)(intptr_t)dbgShotTex_,
-                         ImVec2((float)dbgShotW_ * scale,
-                                (float)dbgShotH_ * scale));
-        }
-        ImGui::EndTabItem();
-    }
-
-    // VU: what the EE actually fed VU1 for one draw - the DMA chain decoded,
-    // and the vertex stream it carried drawn as a wireframe. VU1 debugging is
-    // otherwise blind (no printf, output straight to the GS), and this is the
-    // half we own (docs/devkit.md).
-    if (ImGui::BeginTabItem("VU")) {
-        if (!live) dbgVuCapWaiting_ = false;  // nobody left to answer
-        ImGui::BeginDisabled(!live);
-        if (ImGui::Button("Capture VU1 packet")) {
-            dbgCmd_.captureVu = true;
-            dbgCmd_.vuFlush = dbgVuPinFlush_ ? dbgVuFlushWanted_ : -1;
-            dbgCmdWritten_ = false;
-            dbgVuCapWaiting_ = true;
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Asks the game for one DMA chain it sends to VU1: the scales, "
-                "the\nGIF tag, the matrices and the vertex stream, exactly as "
-                "packed.\nA frame sends one chain per bag flush - unpinned, "
-                "each click\nwalks to the next one.");
-        // A frame sends the same draws in the same order, so "the next packet"
-        // forever means the same picture forever. Unpinned the game advances one
-        // flush per click; pinned it re-grabs the same draw, which is what you
-        // want when watching ONE thing change over time.
-        ImGui::SameLine();
-        ImGui::Checkbox("pin flush", &dbgVuPinFlush_);
-        if (dbgVuPinFlush_) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(90.0f));
-            const int maxFlush =
-                dbgVuCap_.flushCount > 0 ? dbgVuCap_.flushCount - 1 : 63;
-            ImGui::SliderInt("##vuflush", &dbgVuFlushWanted_, 0, maxFlush,
-                             "flush %d");
-        }
-        // Two captures of the same draw look alike; say plainly whether what is
-        // on screen is the answer to the last click or still the previous one.
-        if (dbgVuCapWaiting_) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("waiting for the game...");
-        }
-
-        // The flush map: every draw of the last complete frame, so finding the
-        // one you care about is reading a table instead of clicking through
-        // dozens of captures. Click a row to capture THAT draw.
-        if (!dbgSnap_.flushes.empty() &&
-            ImGui::CollapsingHeader("Flush map - the frame's draws")) {
-            uint32_t totalV = 0;
-            for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
-                totalV += (uint32_t)f.verts;
-            ImGui::TextDisabled(
-                "%d flush(es), %u vertices in the last complete frame. Click a "
-                "row to capture it.",
-                (int)dbgSnap_.flushes.size(), totalV);
-            const float h = scaled(150.0f);
-            if (ImGui::BeginTable("##flushmap", 5,
-                                  ImGuiTableFlags_RowBg |
-                                      ImGuiTableFlags_SizingStretchProp |
-                                      ImGuiTableFlags_ScrollY,
-                                  ImVec2(0, h))) {
-                ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthStretch, 0.12f);
-                ImGui::TableSetupColumn("verts", ImGuiTableColumnFlags_WidthStretch, 0.22f);
-                ImGui::TableSetupColumn("qw", ImGuiTableColumnFlags_WidthStretch, 0.18f);
-                ImGui::TableSetupColumn("unpacks", ImGuiTableColumnFlags_WidthStretch, 0.22f);
-                ImGui::TableSetupColumn("program", ImGuiTableColumnFlags_WidthStretch, 0.26f);
-                ImGui::TableHeadersRow();
-                int biggest = 0;
-                for (const livedbg::FlushInfo& f : dbgSnap_.flushes)
-                    biggest = ImMax(biggest, f.verts);
-                for (size_t i = 0; i < dbgSnap_.flushes.size(); ++i) {
-                    const livedbg::FlushInfo& f = dbgSnap_.flushes[i];
-                    ImGui::TableNextRow();
-                    ImGui::PushID((int)i);
-                    ImGui::TableSetColumnIndex(0);
-                    char label[24];  // fits any 64-bit size_t
-                    std::snprintf(label, sizeof(label), "%zu", i);
-                    const bool pinnedHere =
-                        dbgVuPinFlush_ && dbgVuFlushWanted_ == (int)i;
-                    if (ImGui::Selectable(label, pinnedHere,
-                                          ImGuiSelectableFlags_SpanAllColumns)) {
-                        dbgVuPinFlush_ = true;
-                        dbgVuFlushWanted_ = (int)i;
-                        dbgCmd_.captureVu = true;
-                        dbgCmd_.vuFlush = (int)i;
-                        dbgCmdWritten_ = false;
-                        dbgVuCapWaiting_ = true;
-                    }
-                    ImGui::TableSetColumnIndex(1);
-                    // The fattest draws are the ones worth looking at first.
-                    if (biggest > 0 && f.verts >= biggest / 2)
-                        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "%d",
-                                           f.verts);
-                    else
-                        ImGui::Text("%d", f.verts);
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("%d", f.qw);
-                    ImGui::TableSetColumnIndex(3);
-                    ImGui::Text("%d", f.unpacks);
-                    ImGui::TableSetColumnIndex(4);
-                    if (f.program)
-                        ImGui::Text("@%d", f.program);
-                    else
-                        ImGui::TextDisabled("carried over");
-                    ImGui::PopID();
-                }
-                ImGui::EndTable();
-            }
-        }
-        if (!dbgVuCap_.loaded) {
-            ImGui::TextWrapped(
-                "No capture yet. %s",
-                dbgVuCap_.error.empty() ? "" : dbgVuCap_.error.c_str());
-        } else {
-            if (dbgVuCap_.flushIndex >= 0)
-                ImGui::Text("frame %u  |  flush %d of %d  |  %d quadwords  |  "
-                            "%d mesh(es)",
-                            dbgVuCap_.frame, dbgVuCap_.flushIndex,
-                            dbgVuCap_.flushCount, dbgVuCap_.qw,
-                            (int)dbgVuCap_.meshes.size());
-            else
-                ImGui::Text("frame %u  |  %d quadwords  |  %d unpack(s)  |  "
-                            "%d mesh(es)",
-                            dbgVuCap_.frame, dbgVuCap_.qw,
-                            (int)dbgVuCap_.unpacks.size(),
-                            (int)dbgVuCap_.meshes.size());
-            {
-                std::string progs;
-                for (size_t i = 0; i < dbgVuCap_.mscal.size(); ++i)
-                    progs += (i ? ", " : "") + std::to_string(dbgVuCap_.mscal[i]);
-                std::string res;
-                if (dbgVuCap_.renderWidth > 0)
-                    res = "  |  rendering at " +
-                          std::to_string(dbgVuCap_.renderWidth) + "x" +
-                          std::to_string(dbgVuCap_.renderHeight);
-                ImGui::TextDisabled("microprogram entry: %s%s",
-                                    progs.empty() ? "-" : progs.c_str(),
-                                    res.c_str());
-            }
-
-            dbgVuDrawFindings(dbgVuCap_);
-
-            // One flush is a whole bag: a dozen meshes, each with its own
-            // position stream. Pick which one the preview draws - they cannot
-            // be drawn together, every mesh being in its OWN model space.
-            const int meshes = (int)dbgVuCap_.meshes.size();
-            dbgVuMesh_ = meshes ? ImClamp(dbgVuMesh_, 0, meshes - 1) : 0;
-            if (meshes > 1) {
-                ImGui::SetNextItemWidth(scaled(180.0f));
-                ImGui::SliderInt("##vumesh", &dbgVuMesh_, 0, meshes - 1,
-                                 "mesh %d");
-                ImGui::SameLine();
-                const vucap::Mesh& m = dbgVuCap_.meshes[dbgVuMesh_];
-                std::string tail;
-                // A chain that only ever says MSCNT re-runs the program the
-                // PREVIOUS chain loaded - it is not in this capture at all.
-                tail += m.program >= 0
-                            ? "  program @" + std::to_string(m.program)
-                            : std::string("  program carried over (MSCNT)");
-                if (m.degenerate)
-                    tail += "  " + std::to_string(m.degenerate) + " degenerate";
-                ImGui::TextDisabled(
-                    "of %d - %d verts, %d tris, %.1f units across%s", meshes,
-                    m.verts, m.tris, m.extent(), tail.c_str());
-            }
-
-            // The wireframe: the captured positions are model space, so this is
-            // its own little orbit view rather than an overlay on the scene.
-            const std::vector<float>* verts =
-                meshes ? dbgVuCap_.verticesOf(dbgVuMesh_) : dbgVuCap_.vertices();
-            if (verts && verts->size() >= 12) {
-                const float h = scaled(220.0f);
-                const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
-                const ImVec2 org = ImGui::GetCursorScreenPos();
-                ImGui::InvisibleButton("##vuview", size);
-                if (ImGui::IsItemActive()) {
-                    dbgVuYaw_ += ImGui::GetIO().MouseDelta.x * 0.01f;
-                    dbgVuPitch_ += ImGui::GetIO().MouseDelta.y * 0.01f;
-                }
-                if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
-                    dbgVuZoom_ = ImClamp(
-                        dbgVuZoom_ * (1.0f + ImGui::GetIO().MouseWheel * 0.1f),
-                        0.1f, 20.0f);
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
-                                  IM_COL32(18, 20, 24, 255), scaled(3.0f));
-                // Fit the soup in the box, then spin it with the mouse.
-                float lo[3] = {FLT_MAX, FLT_MAX, FLT_MAX};
-                float hi[3] = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
-                const size_t n = verts->size() / 4;
-                for (size_t i = 0; i < n; ++i)
-                    for (int a = 0; a < 3; ++a) {
-                        lo[a] = ImMin(lo[a], (*verts)[i * 4 + a]);
-                        hi[a] = ImMax(hi[a], (*verts)[i * 4 + a]);
-                    }
-                const float cx = (lo[0] + hi[0]) * 0.5f;
-                const float cy = (lo[1] + hi[1]) * 0.5f;
-                const float cz = (lo[2] + hi[2]) * 0.5f;
-                float extent = 0.001f;
-                for (int a = 0; a < 3; ++a) extent = ImMax(extent, hi[a] - lo[a]);
-                const float scale = (ImMin(size.x, size.y) * 0.38f) / extent *
-                                    dbgVuZoom_;
-                const float cyaw = cosf(dbgVuYaw_), syaw = sinf(dbgVuYaw_);
-                const float cp = cosf(dbgVuPitch_), sp = sinf(dbgVuPitch_);
-                auto project = [&](size_t vi) {
-                    const float x = (*verts)[vi * 4 + 0] - cx;
-                    const float y = (*verts)[vi * 4 + 1] - cy;
-                    const float z = (*verts)[vi * 4 + 2] - cz;
-                    const float rx = x * cyaw + z * syaw;
-                    const float rz = -x * syaw + z * cyaw;
-                    const float ry = y * cp - rz * sp;
-                    return ImVec2(org.x + size.x * 0.5f + rx * scale,
-                                  org.y + size.y * 0.5f - ry * scale);
-                };
-                dl->PushClipRect(org, ImVec2(org.x + size.x, org.y + size.y), true);
-                const size_t tris = n / 3;
-                for (size_t t = 0; t < tris && t < 4000; ++t) {
-                    const ImVec2 a = project(t * 3 + 0);
-                    const ImVec2 b = project(t * 3 + 1);
-                    const ImVec2 c = project(t * 3 + 2);
-                    const ImU32 col = IM_COL32(120, 210, 255, 150);
-                    dl->AddLine(a, b, col);
-                    dl->AddLine(b, c, col);
-                    dl->AddLine(c, a, col);
-                }
-                dl->PopClipRect();
-                ImGui::TextDisabled(
-                    "%zu vertices, %zu triangles - drag to orbit, wheel to zoom. "
-                    "Model space, as packed.",
-                    n, tris);
-            }
-
-            // What the microprogram STAGED for the GS: the GIF packets it built
-            // in VU1 memory, decoded to screen-space vertices.
-            if (dbgVuCap_.hasVuMem) {
-                ImGui::Separator();
-                ImGui::Text("VU1 memory captured - %d GIF packet(s), %d GS vertices",
-                            (int)dbgVuCap_.gifs.size(), dbgVuCap_.outputVerts());
-                if (dbgVuCap_.hasMvp)
-                    ImGui::TextDisabled(
-                        "MVP in VU1: [%.3f %.3f %.3f %.3f] ... (quadword 0)",
-                        dbgVuCap_.mvp[0], dbgVuCap_.mvp[4], dbgVuCap_.mvp[8],
-                        dbgVuCap_.mvp[12]);
-                for (size_t i = 0; i < dbgVuCap_.gifs.size(); ++i) {
-                    const vucap::GifPacket& g = dbgVuCap_.gifs[i];
-                    if (!g.hasGeometry) continue;
-                    if (!ImGui::TreeNode(
-                            (void*)(intptr_t)i, "@VU1 %d  %s  %d verts  [%s]%s",
-                            g.vuAddr, g.primName().c_str(), (int)g.verts.size(),
-                            g.regs.c_str(), g.eop ? "  EOP" : ""))
-                        continue;
-                    for (size_t v = 0; v < g.verts.size() && v < 24; ++v) {
-                        const vucap::GsVertex& gv = g.verts[v];
-                        ImGui::Text("v%-3zu  x %8.1f  y %8.1f  z %8u  rgba %3u %3u %3u %3u",
-                                    v, gv.px(), gv.py(), gv.z, gv.r, gv.g, gv.b,
-                                    gv.a);
-                    }
-                    if (g.verts.size() > 24) ImGui::TextDisabled("...");
-                    ImGui::TreePop();
-                }
-                if (dbgVuCap_.diffCompared) {
-                    ImGui::TextDisabled(
-                        "Host reference (diagnostic): max dx %.1f, dy %.1f over %d "
-                        "vertices, 12.4 units.",
-                        dbgVuCap_.diffMaxX, dbgVuCap_.diffMaxY,
-                        dbgVuCap_.diffCompared);
-                    prefHelp(
-                        "One flush can carry several meshes and VU1 memory holds\n"
-                        "only the LAST MVP, so this comparison is exact only for\n"
-                        "a single-mesh flush - read it as a hint, not a verdict\n"
-                        "(docs/devkit.md).");
-                }
-            }
-
-            // The chain itself, decoded.
-            if (ImGui::BeginChild("##vusteps", ImVec2(0, scaled(160.0f)), true)) {
-                for (const vucap::Step& st : dbgVuCap_.steps)
-                    ImGui::TextUnformatted(st.text.c_str());
-            }
-            ImGui::EndChild();
-        }
-        ImGui::EndTabItem();
-    }
-
-    // Objects: what the game's own RuntimeObject holds for a watched object,
-    // sampled every frame - live values plus a curve per axis. This is the
-    // answer to "where is it ACTUALLY, and what did it do a second ago".
-    if (ImGui::BeginTabItem("Objects")) {
-        const auto& objs = project_.objects();
-        ImGui::BeginDisabled(selectedObject_ < 0 ||
-                             selectedObject_ >= (int)objs.size() ||
-                             ((int)dbgObjWatch_.size() >= livedbg::kMaxWatchObjects &&
-                              !dbgIsWatched(selectedObject_)));
-        if (ImGui::SmallButton(dbgIsWatched(selectedObject_) ? "- Unwatch selected"
-                                                            : "+ Watch selected"))
-            dbgToggleObjectWatch(selectedObject_);
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::Checkbox("Trails in viewport", &dbgShowTrails_);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%d/%d", (int)dbgObjWatch_.size(),
-                            livedbg::kMaxWatchObjects);
-        if (dbgObjWatch_.empty()) {
-            ImGui::Separator();
-            ImGui::TextDisabled("Nothing watched yet.");
-            prefHelp(
-                "Select an object and click \"+ Watch selected\" above. The game\n"
-                "then reports that object's position, rotation, scale, color and\n"
-                "flags EVERY frame, and the path it takes is drawn in the\n"
-                "viewport.");
-        }
-        for (size_t i = 0; i < dbgObjWatch_.size(); ++i) {
-            DbgObjTrack& t = dbgObjWatch_[i];
-            ImGui::PushID((int)i);
-            ImGui::Separator();
-            const std::string label =
-                (t.index >= 0 && t.index < (int)objs.size() ? objs[t.index].name
-                                                            : t.name) +
-                "  (#" + std::to_string(t.index) + ")";
-            ImGui::TextUnformatted(label.c_str());
-            ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(26.0f));
-            if (ImGui::SmallButton("x")) {
-                dbgToggleObjectWatch(t.index);
-                ImGui::PopID();
-                break;
-            }
-            if (t.samples.empty()) {
-                ImGui::TextDisabled("waiting for samples...");
-                ImGui::PopID();
-                continue;
-            }
-            const livedbg::ObjSample& s = t.samples.back();
-            ImGui::Text("pos %.2f, %.2f, %.2f", s.pos[0], s.pos[1], s.pos[2]);
-            ImGui::Text("rot %.1f, %.1f, %.1f   scale %.2f, %.2f, %.2f",
-                        s.rot[0], s.rot[1], s.rot[2], s.scale[0], s.scale[1],
-                        s.scale[2]);
-            ImGui::Text("color %.2f, %.2f, %.2f", s.color[0], s.color[1],
-                        s.color[2]);
-            ImGui::SameLine();
-            ImGui::TextColored(s.visible ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
-                                         : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                               s.visible ? "visible" : "hidden");
-            if (!s.active) {
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.4f, 1.0f), "inactive");
-            }
-            // One plot per axis, over the whole kept history - ImGui's own
-            // PlotLines is enough and costs nothing to maintain.
-            const int n = (int)t.samples.size();
-            static std::vector<float> series;
-            for (int axis = 0; axis < 3; ++axis) {
-                series.resize(n);
-                float lo = FLT_MAX, hi = -FLT_MAX;
-                for (int k = 0; k < n; ++k) {
-                    series[k] = t.samples[k].pos[axis];
-                    lo = ImMin(lo, series[k]);
-                    hi = ImMax(hi, series[k]);
-                }
-                if (hi - lo < 0.01f) {  // a flat line still deserves a scale
-                    const float mid = (hi + lo) * 0.5f;
-                    lo = mid - 0.5f;
-                    hi = mid + 0.5f;
-                }
-                char overlay[48];
-                std::snprintf(overlay, sizeof(overlay), "%c  %.2f .. %.2f",
-                              "XYZ"[axis], lo, hi);
-                // Per-axis id: three plots inside one PushID scope with the
-                // same label are three widgets claiming one ID, which ImGui
-                // reports as a conflict (and makes tooltips/hover ambiguous).
-                const char* plotId = axis == 0 ? "##plotX"
-                                     : axis == 1 ? "##plotY"
-                                                 : "##plotZ";
-                ImGui::PlotLines(plotId, series.data(), n, 0, overlay, lo, hi,
-                                 ImVec2(-FLT_MIN, scaled(38.0f)));
-            }
-            ImGui::TextDisabled("%d samples (%.1fs of history)", n,
-                                n / (dbgFps_ > 1.0f ? dbgFps_ : 50.0f));
-            ImGui::PopID();
-        }
-        ImGui::EndTabItem();
-    }
-
-    // Logic: what is currently hot-patched into the running game, and what
-    // still needs a rebuild (docs/live-logic.md).
-    if (ImGui::BeginTabItem("Logic")) {
-        if (!project_.settings.liveLogic) {
-            ImGui::TextWrapped(
-                "Live Logic is off for this project - editing a graph needs a "
-                "rebuild.");
-            if (ImGui::Checkbox("Live Logic (project setting)",
-                                &project_.settings.liveLogic))
-                commitChange();
-        } else {
-            switch (liveLogicState_) {
-                case LogicState::Off:
-                    ImGui::TextDisabled(
-                        "Release profile - graphs run as compiled C++ only.");
-                    break;
-                case LogicState::NoBuild:
-                    ImGui::TextDisabled("No built-graph list yet.");
-                    prefHelp(
-                        "Build & Run (F5) once; after that, editing a graph takes\n"
-                        "effect in the running game without another build.");
-                    break;
-                case LogicState::InSync:
-                    ImGui::TextColored(ImVec4(0.6f, 0.75f, 0.6f, 1.0f),
-                                       "In sync with the build - nothing to "
-                                       "patch.");
-                    ImGui::TextWrapped(
-                        "Edit any graph and it is compiled and streamed into the "
-                        "running game within a fraction of a second.");
-                    break;
-                case LogicState::Patched:
-                    ImGui::TextColored(ImVec4(0.45f, 0.8f, 1.0f, 1.0f),
-                                       "%d graph(s) running from the editor's "
-                                       "patch",
-                                       liveLogicPatchCount_);
-                    ImGui::TextWrapped(
-                        "Their compiled C++ stands down while the patch is "
-                        "live; a rebuild folds the edits back into native "
-                        "code.");
-                    break;
-                case LogicState::Blocked:
-                    ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.3f, 1.0f),
-                                       "Rebuild needed");
-                    break;
-            }
-            if (!liveLogicBlocked_.empty()) {
-                ImGui::Separator();
-                ImGui::TextWrapped(
-                    "These edited graphs cannot be hot-patched - the "
-                    "interpreter has no instruction for what they use:");
-                for (const auto& e : liveLogicBlocked_) {
-                    ImGui::Bullet();
-                    ImGui::TextWrapped("%s - %s", e.first.c_str(),
-                                       e.second.c_str());
-                }
-                ImGui::TextDisabled(
-                    "Build & Run (F5) and everything is native again.");
-            }
-        }
-        ImGui::EndTabItem();
-    }
-
-    // Breakpoints: the whole project's list, resolvable to names and clearable.
-    if (ImGui::BeginTabItem("Breakpoints")) {
-        if (project_.debugBreakpoints.empty()) {
-            ImGui::TextWrapped(
-                "No breakpoints. Right-click a node in the Flow Graph (or use "
-                "the Nodes tab) to stop the game the moment it runs.");
-        } else {
-            if (ImGui::SmallButton("Clear all")) {
-                project_.debugBreakpoints.clear();
-                dbgCmdWritten_ = false;
-                setDirty(true);
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("%d of %d slots",
-                                (int)project_.debugBreakpoints.size(),
-                                livedbg::kMaxBreakpoints);
-            ImGui::Separator();
-            for (size_t i = 0; i < project_.debugBreakpoints.size(); ++i) {
-                const std::string& b = project_.debugBreakpoints[i];
-                const size_t colon = b.rfind(':');
-                if (colon == std::string::npos) continue;
-                const std::string objId = b.substr(0, colon);
-                const int nodeId = std::atoi(b.c_str() + colon + 1);
-                ImGui::PushID((int)i);
-                if (ImGui::SmallButton("x")) {
-                    project_.debugBreakpoints.erase(
-                        project_.debugBreakpoints.begin() + i);
-                    dbgCmdWritten_ = false;
-                    setDirty(true);
-                    ImGui::PopID();
-                    break;
-                }
-                ImGui::SameLine();
-                bool named = false;
-                for (const livedbg::NodeSym& n : dbgSyms_.nodes)
-                    if (n.objectId == objId && n.nodeId == nodeId) {
-                        if (ImGui::Selectable(nodeLabel(n).c_str())) revealNode(n);
-                        named = true;
-                        break;
-                    }
-                if (!named)
-                    ImGui::TextDisabled("node %d of %s (not in this build)",
-                                        nodeId, objId.c_str());
-                ImGui::PopID();
-            }
-        }
-        ImGui::EndTabItem();
-    }
-
-    ImGui::EndTabBar();
+    ImGui::BeginChild("##dbgtime", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    dbgDrawTimeStrip(timeOpen);
+    ImGui::EndChild();
     ImGui::End();
 }
 
@@ -3316,7 +4012,12 @@ void App::uiScriptTick() {
         s.kind == uiscript::Step::RightClick ||
         s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
         s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Wheel ||
-        s.kind == uiscript::Step::Expect;
+        s.kind == uiscript::Step::Expect || s.kind == uiscript::Step::Drop;
+    // The ten menus sit behind the logo button: a step naming one of them
+    // while that menu is closed opens it first (uiscript::namesMainMenu), so a
+    // script written for the old menu bar still reads `click Tools`.
+    if (needsTarget && uiStepPhase_ == 0 && !logoMenuOpen_ && uiscript::namesMainMenu(s.arg))
+        logoMenuOpenRequest_ = true;
     if (needsTarget && uiStepPhase_ == 0) {
         // Everything here but Expect ends in a mouse CLICK, so exclude the
         // whole-window items (see uiscript::find). Wheel is the exception: what
@@ -3341,7 +4042,7 @@ void App::uiScriptTick() {
         if (s.kind == uiscript::Step::Click ||
             s.kind == uiscript::Step::RightClick ||
             s.kind == uiscript::Step::DoubleClick ||
-            s.kind == uiscript::Step::Hover) {
+            s.kind == uiscript::Step::Hover || s.kind == uiscript::Step::Drop) {
             uiTargetX_ += s.dx;
             uiTargetY_ += s.dy;
         }
@@ -3396,6 +4097,12 @@ void App::uiScriptTick() {
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_++ >= 2) finishStep();
             break;
+        case uiscript::Step::Drop: {
+            const char* file = s.path.c_str();
+            handleFileDrop(1, &file, uiTargetX_, uiTargetY_);
+            finishStep();
+            break;
+        }
         case uiscript::Step::Click:
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_ == 1) {
@@ -3499,15 +4206,19 @@ void App::uiScriptTick() {
                 failStep(s, "cannot parse the key chord '" + s.arg + "'");
                 break;
             }
+            // "ctrl" means the editor's Ctrl shortcuts (Ctrl+S, Ctrl+K...). With
+            // ConfigMacOSXBehaviors ImGui swaps Ctrl and Cmd as events arrive,
+            // so on macOS the chord is sent as Super to land on ImGuiMod_Ctrl.
+            const ImGuiKey ctrlMod = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
             if (uiStepPhase_ == 0) {
-                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, true);
+                if (ctrl) io.AddKeyEvent(ctrlMod, true);
                 if (shift) io.AddKeyEvent(ImGuiMod_Shift, true);
                 if (alt) io.AddKeyEvent(ImGuiMod_Alt, true);
                 io.AddKeyEvent((ImGuiKey)key, true);
                 uiStepPhase_ = 1;
             } else if (uiStepPhase_ == 1) {
                 io.AddKeyEvent((ImGuiKey)key, false);
-                if (ctrl) io.AddKeyEvent(ImGuiMod_Ctrl, false);
+                if (ctrl) io.AddKeyEvent(ctrlMod, false);
                 if (shift) io.AddKeyEvent(ImGuiMod_Shift, false);
                 if (alt) io.AddKeyEvent(ImGuiMod_Alt, false);
                 uiStepPhase_ = 2;
@@ -3545,6 +4256,18 @@ void App::uiScriptTick() {
             // capture holds the UI the script has built up to here.
             uiShotPath_ = s.arg;
             finishStep();
+            break;
+        case uiscript::Step::Undock:  // multiviewport.cpp; settles over a few frames
+        case uiscript::Step::Dock:
+        case uiscript::Step::MainWindow:
+            if (uiStepPhase_ == 0) {
+                const std::string why = mvp::scriptStep(s);
+                if (!why.empty()) {
+                    failStep(s, why);
+                    break;
+                }
+            }
+            if (++uiStepPhase_ > 4) finishStep();
             break;
         case uiscript::Step::Dump:
             std::printf("%s", uiscript::dumpText().c_str());
@@ -3639,205 +4362,400 @@ void App::remotePadTick() {
         ++padSeq_, true);
 }
 
+// Tools > Remote Pad (docs/remote-pad.md): a drawn DualShock - shoulders on
+// top, d-pad left, the four face buttons as their shapes (this is the one
+// place the editor depicts real pad buttons), Select/Start between them and two
+// round sticks dragged in 2-D. A header pill says whether a game is listening,
+// keyboard capture is a switch with a visible focus ring and key caps printed
+// on the buttons, and the footer is Release all plus the same moment as a
+// --pad script line.
 void App::drawRemotePadWindow() {
     if (!showRemotePad_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(470), scaled(400)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(720), scaled(800)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Remote Pad", &showRemotePad_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
     if (!hasProject_) {
-        ImGui::TextDisabled("Open a project first.");
-        ImGui::End();
-        return;
-    }
-    if (project_.settings.buildProfile != "debug") {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "This project builds in the RELEASE profile.");
-        ImGui::TextWrapped(
-            "A release build carries no Remote Pad (the devkit's zero-cost "
-            "rule), so nothing here reaches the game. Switch the profile in "
-            "Project > Preferences > Build.");
-        ImGui::End();
-        return;
-    }
-    if (!project_.settings.remotePad) {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "The \"Remote Pad\" preference is off.");
-        ImGui::TextWrapped(
-            "Turn it on in Project > Preferences > Build and rebuild - the "
-            "poller is compiled into the game, so this needs a build, not just "
-            "a save.");
+        ui::EmptyState(ui::Glyph::Box, "No project open", "Open a project, then run a debug build.");
         ImGui::End();
         return;
     }
 
+    // --- preconditions: a card with the fix, not a wall of text
+    const bool debug = project_.settings.buildProfile == "debug";
+    if (!debug || !project_.settings.remotePad) {
+        ui::BeginCard("##padpre", ImVec2(0, 0));
+        ui::StatusLine(1, !debug ? "This project builds in the release profile."
+                                 : "The Remote Pad preference is off.");
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "%s",
+                           !debug ? "A release build carries no Remote Pad (the devkit's zero-cost rule), "
+                                    "so nothing here would reach the game."
+                                  : "The poller is compiled into the game, so turning it on needs a "
+                                    "build, not just a save.");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        if (!debug) {
+            if (ui::PrimaryButton("Switch to debug profile")) {
+                project_.settings.buildProfile = "debug";
+                commitChange();
+            }
+        } else if (ui::PrimaryButton("Turn on Remote Pad")) {
+            project_.settings.remotePad = true;
+            commitChange();
+        }
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "then Build & Run (F5)");
+        ui::EndCard();
+        ImGui::End();
+        return;
+    }
+
+    const bool single = project_.settings.multiplayer == "off";
+    if (single) padTarget_ = 0;
     const int pi = padTarget_;
     livepad::State& st = padState_;
     const double now = ImGui::GetTime();
+    const bool shift = ImGui::GetIO().KeyShift;
+
+    // --- header: is anyone listening, and which port
+    const bool listening = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const bool noGame = padStatus_.empty() && !listening && project_.settings.liveDebug;
+    {
+        char pill[96];
+        int kind = 4;
+        if (!padStatus_.empty()) {
+            std::snprintf(pill, sizeof(pill), "Write failed");
+            kind = 2;
+        } else if (listening) {
+            std::snprintf(pill, sizeof(pill), "Game listening \xc2\xb7 pad %d \xc2\xb7 25 Hz", pi + 1);
+            kind = 0;
+        } else if (!project_.settings.liveDebug) {
+            std::snprintf(pill, sizeof(pill), "Writing \xc2\xb7 25 Hz");
+            kind = 3;
+        } else {
+            std::snprintf(pill, sizeof(pill), "No game running");
+        }
+        ImGui::AlignTextToFramePadding();
+        ui::StatePill(pill, kind);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s", !padStatus_.empty() ? padStatus_.c_str()
+                                    : listening ? "The game's debug channel is reporting, so it reads bin/livepad.bin."
+                                    : !project_.settings.liveDebug
+                                        ? "Writing bin/livepad.bin. Without the Live Debugger the editor\n"
+                                          "cannot tell whether a game is reading it."
+                                        : "Nothing is reporting - Build & Run (F5) a debug build.");
+        if (kind == 4 && !runner_.busy()) {
+            ImGui::SameLine();
+            if (ui::GhostButton("Run (F5)")) dbgBuildAndRun();
+        }
+        // Pad 1 / Pad 2, each with its port colour (the P1/P2 badge on the pad).
+        const float segW = scaled(150);
+        ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - segW));
+        int port = pi;
+        if (ui::PadPortSegmented("##padport", &port, segW, !single)) padTarget_ = port;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(single ? "Single player - turn on Multiplayer in Project Preferences\n"
+                                       "to open the second port."
+                                     : "Which connector the panel drives. Start on pad 2 hot-joins player two.");
+    }
+    ImGui::Spacing();
+
     // A click has to survive the trip: the state is snapshotted ~25 times a
-    // second and the game reads whatever it finds, so a 20 ms click could fall
-    // between two writes and never exist. Every press is therefore latched for
-    // kMinHold, which is also long enough for the game to see it as a press AND
-    // a release rather than a single ambiguous frame.
+    // second, so every press is latched for kMinHold - long enough for the
+    // game to see a press AND a release rather than one ambiguous frame.
     const double kMinHold = 0.12;
-    auto held = [&](const char* name, bool down) {
-        const int idx = livepad::buttonByName(name);
-        const uint32_t m = livepad::buttonBit(idx);
+    auto held = [&](int idx, bool down) {
         if (idx < 0) return;
+        const uint32_t m = livepad::buttonBit(idx);
         if (down && (st.buttons[pi] & m) == 0) padLatch_[pi][idx] = now + kMinHold;
-        if (down || now < padLatch_[pi][idx])
+        if (down || now < padLatch_[pi][idx] || padSticky_[pi][idx])
             st.buttons[pi] |= m;
         else
             st.buttons[pi] &= ~m;
     };
-    // A button is HELD while its widget is held down: that is the whole point -
-    // ImGui reports the mouse being down, we mirror it into the state and the
-    // ticker announces it.
-    auto padButton = [&](const char* label, const char* name, float w) {
-        const uint32_t m = livepad::buttonBit(livepad::buttonByName(name));
-        const bool on = (st.buttons[pi] & m) != 0;
-        if (on)
-            ImGui::PushStyleColor(
-                ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        ImGui::Button(label, ImVec2(w, scaled(26)));
-        if (on) ImGui::PopStyleColor();
-        held(name, ImGui::IsItemActive());
-    };
+    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    const bool capturing = padKeyboard_ && focused;
 
-    if (ImGui::RadioButton("Pad 1", padTarget_ == 0)) padTarget_ = 0;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Pad 2", padTarget_ == 1)) padTarget_ = 1;
-    ImGui::SameLine();
-    prefHelp(
-        "Pad 2 only does something in a multiplayer project (Project >\n"
-        "Preferences > Multiplayer) - that is where the generated game opens\n"
-        "the second connector. Start on pad 2 is what hot-joins player two.");
-    ImGui::SameLine();
-    if (ImGui::Button("Release all")) {
+    // --- the controller: ui::PadDiagram in Interactive mode on a card. The
+    // widget only draws and reports (toolkit.hpp "pad"); the latching, the
+    // spring-back and the keyboard stay here.
+    const float availW = ImGui::GetContentRegionAvail().x;
+    const float lineH = ImGui::GetTextLineHeight();
+    const float readH = lineH * 2.0f + scaled(4);
+    // The drawing grows with the width but never pushes the two switches and
+    // the Release all footer out of the window: cap it by the height left.
+    float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
+    {
+        const ImGuiStyle& gs = ImGui::GetStyle();
+        const float frameH = ImGui::GetFrameHeight();
+        const float cardFixed = scaled(26) + scaled(8) + readH + scaled(6) + frameH + scaled(10);
+        const float below = scaled(8) + 2.0f * (frameH + lineH + gs.ItemSpacing.y * 2.0f) +
+                            gs.ItemSpacing.y * 2.0f + scaled(4) + frameH + gs.ItemSpacing.y;
+        const float roomH = ImGui::GetContentRegionAvail().y - cardFixed - below;
+        const float perW = ui::PadDiagramHeight(ui::PadMode::Interactive, 1000.0f) / 1000.0f;
+        if (perW > 0.0f && roomH > 0.0f) padW = ImMax(scaled(160), ImMin(padW, roomH / perW));
+    }
+    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
+    const float cardH = scaled(26) + padH + scaled(8) + readH + scaled(6) + ImGui::GetFrameHeight() + scaled(10);
+    const ImVec2 o = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    {
+        const ImVec2 z(o.x + availW, o.y + cardH);
+        dl->AddRectFilled(o, z, dbgCol(sem.field), scaled(12));
+        if (capturing) {
+            dl->AddRect(ImVec2(o.x - 2, o.y - 2), ImVec2(z.x + 2, z.y + 2), dbgCol(sem.accent, 0.14f), scaled(13), 0,
+                        3.0f);
+            dl->AddRect(o, z, dbgCol(sem.accent, 0.55f), scaled(12), 0, 1.0f);
+        } else {
+            dl->AddRect(o, z, dbgCol(sem.border), scaled(12));
+        }
+    }
+    ui::PadState ps;
+    ps.pressed = st.buttons[pi] & 0xFFFFu;
+    for (int b = 0; b < 16; ++b)
+        if (padSticky_[pi][b]) ps.latched |= 1u << b;
+    ps.stick[0] = ImVec2(st.axes[pi][0] / 127.0f, st.axes[pi][1] / 127.0f);
+    ps.stick[1] = ImVec2(st.axes[pi][2] / 127.0f, st.axes[pi][3] / 127.0f);
+    ps.deadzone[0] = project_.settings.stickDeadzoneL;
+    ps.deadzone[1] = project_.settings.stickDeadzoneR;
+    ps.port = pi + 1;
+    ps.led = listening;
+    // No game reporting (the Live Debugger would know): the pad dims and its
+    // LED goes out, but every element stays an item - a script may press ahead
+    // of the boot, and bin/livepad.bin is still written for the game to come.
+    ps.disabled = noGame;
+    ps.backdrop = sem.field;  // the card
+    if (padKeyboard_) {
+        // Select / Start show the Backspace / Return signs when the face has them.
+        ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const bool signs = mono->IsGlyphInFont(0x232B) && mono->IsGlyphInFont(0x21B5);
+        ps.keycaps[0] = "Spc";
+        ps.keycaps[3] = "E";
+        ps.keycaps[1] = "Q";
+        ps.keycaps[2] = "R";
+        ps.keycaps[8] = "1";
+        ps.keycaps[9] = "2";
+        ps.keycaps[11] = "3";
+        ps.keycaps[12] = "4";
+        ps.keycaps[15] = signs ? "\xe2\x8c\xab" : "Bk";
+        ps.keycaps[14] = signs ? "\xe2\x86\xb5" : "Ent";
+    }
+    ImGui::SetCursorScreenPos(ImVec2(o.x + (availW - padW) * 0.5f, o.y + scaled(26)));
+    ui::PadDiagramOut po;
+    ui::PadDiagram("##remotepad", ui::PadMode::Interactive, padW, ps, &po);
+
+    // Buttons. While a script plays it owns the pad: the panel only shows it.
+    const bool shiftHold = padShiftHold_ && shift;
+    if (!padScriptRunning_) {
+        for (int b = 0; b < 16; ++b) {
+            if (b == 10 || b == 13) continue;  // L3 / R3: the sticks, below
+            if (po.clicked == b) {
+                if (padShiftHold_ && po.shiftClicked)
+                    padSticky_[pi][b] = !padSticky_[pi][b];
+                else if (padSticky_[pi][b])
+                    padSticky_[pi][b] = false;  // a plain click lets a latched button go
+            }
+            held(b, po.held == b && !shiftHold);
+        }
+    }
+    // The sticks: drag in 2-D. Released, a stick springs back like a real one -
+    // unless Shift is held, which leaves it there (a player that keeps walking
+    // while you watch PCSX2). A click without a drag is L3 / R3; a
+    // double-click centres a parked stick.
+    for (int side = 0; side < 2; ++side) {
+        const int base = side * 2, idx = side ? 13 : 10;
+        padStickDragged_[side] = po.stickActive == side;
+        if (padScriptRunning_) continue;
+        if (po.stickActive == side) {
+            st.axes[pi][base] = (int8_t)lroundf(po.stickValue[side].x * 127.0f);
+            st.axes[pi][base + 1] = (int8_t)lroundf(po.stickValue[side].y * 127.0f);
+        }
+        if (po.stickReleased[side] && !shift) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+        if (po.stickClicked[side]) held(idx, true);  // a click: tap L3 / R3
+        else if (po.stickActive != side) held(idx, false);
+        if (po.stickDoubleClicked[side]) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+    }
+    if ((po.hovered == 10 || po.hovered == 13) && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        ImGui::SetTooltip("Drag to push the stick; it springs back on release.\n"
+                          "Shift while releasing leaves it there; double-click centres it.\n"
+                          "A click without a drag presses %s.", po.hovered == 10 ? "L3" : "R3");
+
+    // The numbers live under the pad, aligned to each stick, never in it.
+    {
+        const float pw = po.rectMax.x - po.rectMin.x;
+        const float y0 = po.rectMax.y + scaled(8);
+        ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const float mfs = ImGui::GetFontSize() * 0.85f, hfs = ImGui::GetFontSize() * 0.78f;
+        for (int side = 0; side < 2; ++side) {
+            const float cx = po.rectMin.x + pw * (side ? 0.65f : 0.35f);
+            const float vx = st.axes[pi][side * 2] / 127.0f, vy = st.axes[pi][side * 2 + 1] / 127.0f;
+            const bool moved = vx != 0.0f || vy != 0.0f;
+            char v[48];
+            std::snprintf(v, sizeof(v), "%c  %.2f, %.2f", side ? 'R' : 'L', vx, vy);
+            const ImVec2 vs = mono->CalcTextSizeA(mfs, FLT_MAX, 0.0f, v);
+            dl->AddText(mono, mfs, ImVec2(IM_ROUND(cx - vs.x * 0.5f), y0), dbgCol(moved ? sem.accent : sem.textDim), v);
+            char hint[48];
+            std::snprintf(hint, sizeof(hint), "%s%sclick = %s", padKeyboard_ ? (side ? "IJKL" : "WASD") : "",
+                          padKeyboard_ ? " \xc2\xb7 " : "", side ? "R3" : "L3");
+            const ImVec2 hz = ImGui::GetFont()->CalcTextSizeA(hfs, FLT_MAX, 0.0f, hint);
+            dl->AddText(ImGui::GetFont(), hfs, ImVec2(IM_ROUND(cx - hz.x * 0.5f), y0 + vs.y + 2.0f),
+                        dbgCol(sem.textDim, 0.8f), hint);
+        }
+    }
+    // The card's footer: where the keys go, what is held, how to let go.
+    {
+        const float fs = ImGui::GetFontSize() * 0.85f;
+        const float rowH = ImGui::GetFrameHeight();
+        const float y = o.y + cardH - scaled(10) - rowH;
+        const float cy = y + rowH * 0.5f;
+        const float x = o.x + scaled(14);
+        if (capturing) {
+            ui::DrawRtIcon(dl, ui::RtIcon::Keyboard, ImVec2(x + fs * 0.5f, cy), fs, dbgCol(sem.accent));
+            dl->AddText(ImGui::GetFont(), fs, ImVec2(x + fs * 1.4f, cy - fs * 0.5f), dbgCol(sem.accent),
+                        "Keys go to the game");
+        }
+        float rx = o.x + availW - scaled(14);
+        if (capturing) {
+            const char* esc = "Esc releases";
+            const float ew = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, esc).x;
+            rx -= ew;
+            dl->AddText(ImGui::GetFont(), fs, ImVec2(rx, cy - fs * 0.5f), dbgCol(sem.textDim, 0.7f), esc);
+            rx -= scaled(12);
+        }
+        // What is held right now, as chips: the buttons, then the sticks.
+        std::vector<std::pair<int, std::string>> chips;
+        for (int b = 0; b < 16; ++b)
+            if (st.buttons[pi] & livepad::buttonBit(b)) chips.push_back({b, ui::PadItemName(b)});
+        for (int side = 0; side < 2; ++side)
+            if (st.axes[pi][side * 2] || st.axes[pi][side * 2 + 1]) chips.push_back({-1, side ? "R stick" : "L stick"});
+        const float ch = rowH * 0.86f, gh = ch * 0.62f;
+        const float minX = x + (capturing ? scaled(170) : 0.0f);
+        for (int i = (int)chips.size() - 1; i >= 0; --i) {
+            const bool isStick = chips[i].first < 0;
+            ImFont* f = isStick && ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float tw = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, chips[i].second.c_str()).x;
+            const float gw = isStick ? 0.0f : ui::PadButtonGlyphAt(nullptr, ImVec2(), chips[i].first, gh);
+            const float w = tw + gw + (gw > 0 ? scaled(5) : 0.0f) + scaled(14);
+            if (rx - w < minX) break;
+            const ImVec2 a(rx - w, cy - ch * 0.5f), z(rx, cy + ch * 0.5f);
+            dl->AddRectFilled(a, z, dbgCol(sem.surface), scaled(6));
+            dl->AddRect(a, z, dbgCol(sem.border), scaled(6));
+            float tx = a.x + scaled(7);
+            if (gw > 0) {
+                ui::PadButtonGlyphAt(dl, ImVec2(tx, cy - gh * 0.5f), chips[i].first, gh);
+                tx += gw + scaled(5);
+            }
+            dl->AddText(f, fs, ImVec2(tx, cy - fs * 0.5f), dbgCol(isStick ? sem.accent : sem.text),
+                        chips[i].second.c_str());
+            rx -= w + scaled(6);
+            if (i == 0) {
+                const float hw = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, "Held").x;
+                if (rx - hw >= minX)
+                    dl->AddText(ImGui::GetFont(), fs, ImVec2(rx - hw, cy - fs * 0.5f), dbgCol(sem.textDim), "Held");
+            }
+        }
+    }
+    ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + cardH));
+    ImGui::Dummy(ImVec2(availW, scaled(8)));
+
+    // --- the keyboard: reaches the GAME while THIS window has focus, so PCSX2
+    // never needs it. Nothing is read while you type anywhere else.
+    ui::Switch("Drive with the keyboard (While this window has focus. PCSX2 never needs the focus.)",
+               &padKeyboard_);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("WASD / arrows = left stick, IJKL = right stick, Space = Cross,\n"
+                          "E = Circle, Q = Square, R = Triangle, Enter = Start,\n"
+                          "Backspace = Select, 1/2 = L1/L2, 3/4 = R1/R2. Esc lets go of the focus.");
+    ui::Switch("Shift-click holds a button (Until you click it again - for charge moves and menus.)",
+               &padShiftHold_);
+    if (capturing) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            ImGui::SetWindowFocus(nullptr);
+        } else {
+            struct KeyMap {
+                ImGuiKey key;
+                const char* button;
+            };
+            static const KeyMap kKeys[] = {
+                {ImGuiKey_Space, "Cross"},  {ImGuiKey_E, "Circle"},          {ImGuiKey_Q, "Square"},
+                {ImGuiKey_R, "Triangle"},   {ImGuiKey_Enter, "Start"},       {ImGuiKey_Backspace, "Select"},
+                {ImGuiKey_1, "L1"},         {ImGuiKey_2, "L2"},              {ImGuiKey_3, "R1"},
+                {ImGuiKey_4, "R2"},
+            };
+            for (const KeyMap& km : kKeys)
+                if (ImGui::IsKeyDown(km.key)) held(livepad::buttonByName(km.button), true);
+            auto axis = [](ImGuiKey neg, ImGuiKey pos, ImGuiKey neg2, ImGuiKey pos2) {
+                int v = 0;
+                if (ImGui::IsKeyDown(neg) || ImGui::IsKeyDown(neg2)) v -= 127;
+                if (ImGui::IsKeyDown(pos) || ImGui::IsKeyDown(pos2)) v += 127;
+                return (int8_t)v;
+            };
+            if (!padStickDragged_[0]) {
+                st.axes[pi][0] = axis(ImGuiKey_A, ImGuiKey_D, ImGuiKey_LeftArrow, ImGuiKey_RightArrow);
+                st.axes[pi][1] = axis(ImGuiKey_W, ImGuiKey_S, ImGuiKey_UpArrow, ImGuiKey_DownArrow);
+            }
+            if (!padStickDragged_[1]) {
+                st.axes[pi][2] = axis(ImGuiKey_J, ImGuiKey_L, ImGuiKey_J, ImGuiKey_L);
+                st.axes[pi][3] = axis(ImGuiKey_I, ImGuiKey_K, ImGuiKey_I, ImGuiKey_K);
+            }
+        }
+    }
+
+    // --- footer: the panic button, and this moment as a --pad script line
+    ImGui::Spacing();
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        dl->AddLine(a, ImVec2(a.x + ImGui::GetContentRegionAvail().x, a.y), dbgCol(sem.border));
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+    }
+    if (ui::DangerButton("Release all")) {
         padState_.clear();
         // The latches too, or a just-clicked button comes straight back.
         for (int p = 0; p < livepad::kPads; ++p)
-            for (int b = 0; b < 16; ++b) padLatch_[p][b] = 0.0;
+            for (int b = 0; b < 16; ++b) {
+                padLatch_[p][b] = 0.0;
+                padSticky_[p][b] = false;
+            }
     }
-
-    ImGui::Separator();
-
-    const float bw = scaled(62);
-    ImGui::BeginGroup();  // D-pad + left shoulders
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Up", "DpadUp", bw);
-    padButton("Left", "DpadLeft", bw);
-    ImGui::SameLine();
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Right", "DpadRight", bw);
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Down", "DpadDown", bw);
-    ImGui::Spacing();
-    padButton("L1", "L1", bw);
-    ImGui::SameLine();
-    padButton("L2", "L2", bw);
-    padButton("L3", "L3", bw);
-    ImGui::SameLine();
-    padButton("Select", "Select", bw);
-    ImGui::EndGroup();
-
-    ImGui::SameLine(0.0f, scaled(24));
-
-    ImGui::BeginGroup();  // face buttons + right shoulders
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Tri", "Triangle", bw);
-    padButton("Square", "Square", bw);
-    ImGui::SameLine();
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Circle", "Circle", bw);
-    ImGui::Dummy(ImVec2(bw, 0));
-    ImGui::SameLine();
-    padButton("Cross", "Cross", bw);
-    ImGui::Spacing();
-    padButton("R1", "R1", bw);
-    ImGui::SameLine();
-    padButton("R2", "R2", bw);
-    padButton("R3", "R3", bw);
-    ImGui::SameLine();
-    padButton("Start", "Start", bw);
-    ImGui::EndGroup();
-
-    ImGui::Separator();
-
-    // The sticks are what the generated walker actually reads (it polls the
-    // analog sticks, never the D-pad - a held Up does nothing), so they get
-    // real sliders, each with a Centre: a slider left at -80 is a player who
-    // never stops walking.
-    auto stick = [&](const char* label, int base) {
-        int x = st.axes[pi][base], y = st.axes[pi][base + 1];
-        ImGui::PushID(label);
-        ImGui::TextUnformatted(label);
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::SliderInt("X", &x, -127, 127)) st.axes[pi][base] = (int8_t)x;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::SliderInt("Y", &y, -127, 127))
-            st.axes[pi][base + 1] = (int8_t)y;
-        ImGui::SameLine();
-        if (ImGui::Button("Centre")) {
-            st.axes[pi][base] = 0;
-            st.axes[pi][base + 1] = 0;
-        }
-        ImGui::PopID();
-    };
-    stick("Left stick (move)", 0);
-    stick("Right stick (look)", 2);
-
-    ImGui::Checkbox("Drive with the editor's keyboard", &padKeyboard_);
-    prefHelp(
-        "WASD / arrows = left stick, IJKL = right stick, Space = Cross,\n"
-        "E = Circle, Q = Square, R = Triangle, Enter = Start,\n"
-        "Backspace = Select, 1/2 = L1/L2, 3/4 = R1/R2. The keys reach the GAME\n"
-        "while THIS window is focused, so PCSX2 never needs the focus - that is\n"
-        "the whole point. Nothing is read while you are typing anywhere else in\n"
-        "the editor.");
-    if (padKeyboard_ &&
-        ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        struct KeyMap {
-            ImGuiKey key;
-            const char* button;
-        };
-        static const KeyMap kKeys[] = {
-            {ImGuiKey_Space, "Cross"},  {ImGuiKey_E, "Circle"},
-            {ImGuiKey_Q, "Square"},     {ImGuiKey_R, "Triangle"},
-            {ImGuiKey_Enter, "Start"},  {ImGuiKey_Backspace, "Select"},
-            {ImGuiKey_1, "L1"},         {ImGuiKey_2, "L2"},
-            {ImGuiKey_3, "R1"},         {ImGuiKey_4, "R2"},
-        };
-        for (const KeyMap& k : kKeys) held(k.button, ImGui::IsKeyDown(k.key));
-        auto axis = [](ImGuiKey neg, ImGuiKey pos, ImGuiKey neg2, ImGuiKey pos2) {
-            int v = 0;
-            if (ImGui::IsKeyDown(neg) || ImGui::IsKeyDown(neg2)) v -= 127;
-            if (ImGui::IsKeyDown(pos) || ImGui::IsKeyDown(pos2)) v += 127;
-            return (int8_t)v;
-        };
-        st.axes[pi][0] =
-            axis(ImGuiKey_A, ImGuiKey_D, ImGuiKey_LeftArrow, ImGuiKey_RightArrow);
-        st.axes[pi][1] =
-            axis(ImGuiKey_W, ImGuiKey_S, ImGuiKey_UpArrow, ImGuiKey_DownArrow);
-        st.axes[pi][2] = axis(ImGuiKey_J, ImGuiKey_L, ImGuiKey_J, ImGuiKey_L);
-        st.axes[pi][3] = axis(ImGuiKey_I, ImGuiKey_K, ImGuiKey_I, ImGuiKey_K);
+    std::string script;
+    for (int p = 0; p < livepad::kPads; ++p) {
+        std::string part;
+        std::string btns;
+        for (int b = 0; b < 16; ++b)
+            if (st.buttons[p] & livepad::buttonBit(b)) btns += std::string(btns.empty() ? "" : ",") + kPadButtonNames[b];
+        if (!btns.empty()) part += "hold " + btns;
+        for (int s = 0; s < 2; ++s)
+            if (st.axes[p][s * 2] || st.axes[p][s * 2 + 1])
+                part += std::string(part.empty() ? "" : "; ") + "stick " + (s ? "r " : "l ") +
+                        std::to_string(st.axes[p][s * 2]) + " " + std::to_string(st.axes[p][s * 2 + 1]);
+        if (part.empty()) continue;
+        if (p == 1) part = "pad 2; " + part;
+        script += (script.empty() ? "" : "; ") + part;
     }
-
-    ImGui::Separator();
-    if (!padStatus_.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f), "%s",
-                           padStatus_.c_str());
-    else
-        ImGui::TextDisabled("Driving bin/livepad.bin at ~25 Hz.");
-    ImGui::TextDisabled("Same channel from a script:");
-    ImGui::TextDisabled("  tyrax-editor --pad <project> \"stick l 0 -127; wait 2\"");
+    if (script.empty()) script = "press cross";
+    script += "; wait 1";
+    const std::string line = "tyrax-editor --pad " + platform::shellArg(project_.dir) + " \"" + script + "\"";
+    ImGui::SameLine();
+    const float copyW = ImGui::GetFrameHeight();
+    {
+        ui::FontScope mono(ui::monoFont());
+        const float room = ImGui::GetContentRegionAvail().x - copyW - ImGui::GetStyle().ItemSpacing.x;
+        std::string shown = "tyrax-editor --pad " + project_.name + " \"" + script + "\"";
+        while (shown.size() > 8 && ImGui::CalcTextSize(shown.c_str()).x > room)
+            shown = shown.substr(0, shown.size() - 4) + "...";
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "%s", shown.c_str());
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("The same moment from a script (docs/remote-pad.md):\n%s", line.c_str());
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - copyW);
+    if (ui::IconButton("Copy script line", ui::RtIcon::Copy, copyW, "Copy as a --pad command line")) {
+        ImGui::SetClipboardText(line.c_str());
+        statusMessage_ = "Remote Pad script line copied";
+    }
     ImGui::End();
 }

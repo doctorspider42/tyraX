@@ -2750,8 +2750,10 @@ static int uiScriptFromCli(int argc, char** argv) {
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
             "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
-            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
-            " shot pad.png\"\n"
+            "example: --ui-script myproj \"click \\\"TyraX menu\\\"; click Tools;"
+            " click \\\"Remote Pad\\\"; shot pad.png\"\n"
+            "         (the menus live behind the logo button \"TyraX menu\"; a step\n"
+            "         naming a menu - click Tools - opens it first)\n"
             "hint:    a script of just \"dump\" lists every widget on screen\n");
         return 2;
     };

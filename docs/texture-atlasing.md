@@ -7,10 +7,19 @@ at build time — *Project > Preferences > Rendering > Texture atlasing*
 (default off). The GS then keeps **one VRAM allocation per page** instead of
 one per texture, and draw batches switch textures less.
 
-**Look at what it did before trusting it.** *Tools > Texture Atlas* shows every
-page with its members and a preview, every texture the packer refused **with
-the reason**, and the VRAM arithmetic — and it is where the two decisions that
-are yours are made. The headless twin is
+**Look at what it did before trusting it.** *Tools > Texture Atlas* opens on
+the verdict: an *Atlasing on/off* chip (with a jump to *Rendering prefs*) and
+three numbers - **GS VRAM** before and after with the difference as the big
+figure (green when it saves, amber with a `+` when it costs), **Allocations**
+(textures -> pages) and **Refused**. Below them: the list of pages (thumbnail,
+depth, member count and a capacity meter such as `30/49`) with **Not atlased**
+right under it - every refused texture **with the reason**; the selected page
+as the large centre view (*Baked* shows the composited page, *Slots* numbers
+each member's slot; free slots are dashed and a note says how many more fit
+before a second page); and on the right the one texture you picked - on the
+page, in the member list or among the refusals - with the two decisions that
+are yours. Hovering a member row lights its slot; clicking a slot selects it.
+The headless twin is
 
 ```bash
 tyrax-editor --atlas-report <projectDir>
@@ -44,15 +53,15 @@ the running game: `VRAMSTAT` reports **0.115 MB** free with atlasing off and
 **0.060 MB** with it on, i.e. 56.5 KB against the predicted 57.
 
 So on that project atlasing buys fewer allocations and fewer texture switches
-per frame, and **spends** bytes. The window prints the same two numbers in
+per frame, and **spends** bytes. The window's GS VRAM card shows the same two numbers, in
 green or amber; there is no need to guess which case you are in.
 
 ## The page's depth
 
 A page is quantized as one image, and **how deep** decides everything above.
 It follows the project's own texture quality — a 4-bit project gets a 4-bit
-page — and any texture can ask for more (*page: 4-bit / 8-bit / full* on its
-row); the group takes the **highest** request its members make.
+page — and any texture can ask for more (*Page depth: 4-bit / 8-bit / Full* in
+the texture's inspector); the group takes the **highest** request its members make.
 
 | page | VRAM | break-even (64×64 members) |
 | --- | --- | --- |
@@ -135,8 +144,8 @@ Excluded, and the window says which of these applied:
 
 ## What you control
 
-Both live per texture, in *Tools > Texture Atlas* (page members and refused
-textures alike), and are stored in the project's `atlasControl` section.
+Both live per texture, in *Tools > Texture Atlas* (select a page member or a refused
+texture; its inspector holds both), and are stored in the project's `atlasControl` section.
 
 - **Keep out** — never pack this texture. Reach for it when its colours must
   not share a page's palette, or when a streamed layer should be able to drop

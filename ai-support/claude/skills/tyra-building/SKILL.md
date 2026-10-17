@@ -60,7 +60,7 @@ not replace it with a bare `make` or compose call.
   (`bin/livelogic.bin`). The interpreter covers a small core only;
   audio, AI, animation, spawning, sequences, menus, runtime text, Raycast,
   custom nodes and any wired number/text plane still need `--build`
-  (docs/live-logic.md; the editor's Debugger > Logic tab names them).
+  (docs/live-logic.md; the editor's Debugger > Hot patches page names them).
 - **Flow-graph logic**: a debug build with the *Live Debugger* preference on
   reports every trigger and action it runs into `bin/livedbg.bin`, and the
   editor can set breakpoints / stop / step / force-fire a trigger through

@@ -8,8 +8,28 @@ The PlayStation 2 samples those baked results and shades geometry at runtime;
 it does not trace rays.
 
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
-the same window the sky, the sun and the AO are authored in — press **Bake this
-scene**, and build. Two example projects:
+the same window the sky, the sun and the AO are authored in (*Tools > Global
+Illumination* opens it on that tab) — press **Bake this scene**, and build.
+
+The tab is two columns. On the left, the settings: the master switch in the
+header, **Quality** with a *Draft / Final / Custom* choice (Draft = 32 rays, 1
+bounce, for blocking out; Final = 128 rays, 2 bounces; anything else reads as
+Custom) above the sliders, each with its meaning written underneath, and **Light
+probes** with what the grid costs for the current scene (grid size, probe
+count, EE RAM) and **Show probes in viewport**: every probe the scene's bake
+holds as a small diamond over the scene, each of its six tips shaded with the
+light that probe sampled in that direction (`L0 + 2/3 L1·n`, the formula below
+without the trilinear blend), dead probes as small dark ones; the line under
+it counts baked / live / dead. It is view state (not saved) and never shows in
+the tool previews' game view. On the right, the **Bake** column, which never scrolls away: a
+state card with **Bake this scene** / **Bake all scenes** (or, while baking, the
+progress, the stage - bounce *n* of *m*, lightmap, probes - the elapsed time and
+**Cancel**), every scene with a *baked / stale / not baked* badge and what its
+cache holds, and the two options pinned at the bottom. A stale scene also marks
+the window's **Global illumination** tab, so it shows from the Sky & time tab
+too. In a narrow dock the Bake card comes first and the settings follow it. The same two
+bakes are **Build > Bake global illumination** (and *... for all scenes*), so the command
+palette (Ctrl+K, type "bake") starts them without opening the window. Two example projects:
 [global-illumination](../examples/global-illumination) is the one-room proof (a
 red wall and a green wall, and nothing else coloured);
 [gi-showcase](../examples/gi-showcase) is the guided walk with one station per
@@ -279,7 +299,8 @@ and the example project ships its cache, which a fresh `git clone` would
 otherwise invalidate the instant it landed on disk.
 
 Run it from *Tools > Ambience Editor > Global illumination* (worker thread,
-progress bar, cancel), or headlessly:
+progress with the bake stage and elapsed time, cancel; the viewport keeps the
+previous bake until the new one lands), or headlessly:
 
 ```bash
 tyrax-editor --bake-gi <projectDir>
@@ -293,9 +314,10 @@ those surfaces, projected rather than unwrapped. The two do not overlap: with a
 fresh bake here, the shadow projection **skips** the terrain and the untextured
 primitives this one already covers, so nothing is darkened twice.
 
-**Or let the build do it — for stale scenes only.** *Project > Preferences >
-Build > Re-bake stale global illumination* (the same switch sits under the
-Bake buttons on this tab; off by default, needs GI enabled). Every build — the
+**Or let the build do it — for stale scenes only.** *Re-bake stale global
+illumination before every build* - the same switch, under the same name, at
+the bottom of this tab's Bake column and in *Project > Preferences > Build*
+(off by default, needs GI enabled). Every build — the
 toolbar, `--build`, Run on PS2 — then re-bakes exactly the scenes whose cache
 signature no longer matches, before the [pre-lit](prelit-models.md) pass and the
 source refresh, and prints one `gi: baked GI ...` / `gi: fresh ...` line per
@@ -473,8 +495,9 @@ flatters the GPU by a factor of eight and is the wrong number to plan with.
 
 ### Baking with it
 
-In the editor it is a tick box beside the Bake buttons — *Tools > Ambience
-Editor > Global illumination > **Bake on the GPU***. It is greyed out with the
+In the editor it is a switch at the bottom of the Bake column — *Tools >
+Ambience Editor > Global illumination > **Bake on the GPU*** (the column's
+header badge says which engine the next bake uses). It is greyed out with the
 reason on hover when the machine has no usable GPU, and it is **machine-global**
 (editor.ini), not a project setting: whether this box has a GPU is a fact about
 the box. Headless it is `--bake-gi <projectDir> --gpu`.

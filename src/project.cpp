@@ -1110,6 +1110,7 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.editorGroup.empty())
         json += ", \"editorGroup\": \"" + jsonEscape(o.editorGroup) + "\"";
+    if (o.editorHidden) json += ", \"editorHidden\": true";
     if (!o.prefabSource.empty())
         json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
     // The mesh's numbers for the project's own VU1 program. Omitted at the
@@ -4884,11 +4885,12 @@ void seedBuiltinLayouts(Project& p) {
     // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
     // time each is shown (see WindowLayout / LayoutRecipe).
     // "debugger" in the DEFAULT layout: the panel is open from the first run of
-    // a new project, docked as a tab behind Properties (buildLayoutRecipe), so
-    // the first Build & Run has somewhere to report instead of the debugger
-    // being a thing you have to know to go and open. Properties is the selected
-    // tab, so an open Debugger costs one tab header until it has something to
-    // say. Existing projects keep the layouts saved in their .tyra.
+    // a new project, docked as a tab of the bottom console drawer beside Output
+    // and Debug (buildLayoutRecipe), so the first Build & Run has somewhere to
+    // report instead of the debugger being a thing you have to know to go and
+    // open. Output is the selected tab, so an open Debugger costs one tab
+    // header until a debug launch brings it forward. Existing projects keep the
+    // layouts saved in their .tyra.
     p.windowLayouts.push_back(
         {"Default", "", (int)LayoutRecipe::Default, {"debugger"}});
     p.windowLayouts.push_back(
@@ -6240,6 +6242,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("editorGroup"))
             o.editorGroup = v->stringOr("");
+        if (const auto* v = jo.find("editorHidden")) o.editorHidden = v->boolOr(false);
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
         if (const auto* v = jo.find("comment")) o.commentText = v->stringOr("");
@@ -6270,12 +6273,25 @@ bool parseObject(const std::string& body, SceneObject& out) {
 // loaded from objects/<id>.json in list order (the merge-friendly split - one
 // file per object). A referenced object file that is missing or malformed is
 // skipped (the object is dropped) rather than aborting the load.
+// The cancel flag of the load() running on THIS thread (null = not
+// cancellable); thread_local so a load on a worker and one on the main thread
+// cannot see each other's.
+static thread_local const std::atomic<bool>* tlLoadCancel = nullptr;
+static bool loadCancelled() { return tlLoadCancel && tlLoadCancel->load(); }
+// The progress report of the load() running on THIS thread (null = none).
+static thread_local LoadProgress* tlLoadProgress = nullptr;
+static void loadPhase(int phase) {
+    if (tlLoadProgress) tlLoadProgress->phase.store(phase);
+}
+
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
     if (objs.type != json::Value::Type::Array) return;
     for (const auto& jid : objs.arr) {
+        if (loadCancelled()) return;
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
+        if (tlLoadProgress) tlLoadProgress->objectsDone.fetch_add(1);
         std::ifstream f(objectPath(p, id), std::ios::binary);
         if (!f) continue;
         std::stringstream ss;
@@ -7902,6 +7918,29 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
     return true;
 }
 
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel) {
+    return load(out, projectDir, cancel, nullptr);
+}
+
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel,
+                 LoadProgress* progress) {
+    struct Scope {
+        Scope(const std::atomic<bool>* c, LoadProgress* pr) {
+            tlLoadCancel = c;
+            tlLoadProgress = pr;
+        }
+        ~Scope() {
+            tlLoadCancel = nullptr;
+            tlLoadProgress = nullptr;
+        }
+    } scope(cancel, progress);
+    loadPhase(0);
+    std::string err = load(out, projectDir);
+    if (err.empty() && loadCancelled()) err = kLoadCancelled;
+    loadPhase(3);
+    return err;
+}
+
 std::string load(Project& out, const std::string& projectDir) {
     // The project is defined by a single <name>.tyra file in the directory.
     fs::path tyraPath;
@@ -7989,6 +8028,15 @@ std::string load(Project& out, const std::string& projectDir) {
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
         out.scenes.clear();
+        if (tlLoadProgress) {
+            int total = 0;
+            for (const auto& js : scenes->arr)
+                if (const auto* objs = js.find("objects"); objs && objs->type == json::Value::Type::Array)
+                    total += (int)objs->arr.size();
+            tlLoadProgress->objectsTotal.store(total);
+            tlLoadProgress->objectsDone.store(0);
+        }
+        loadPhase(1);
         for (const auto& js : scenes->arr) {
             SceneData sc;
             if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
@@ -8017,6 +8065,7 @@ std::string load(Project& out, const std::string& projectDir) {
             }
             readSceneVisuals(js, sc);
             out.scenes.push_back(std::move(sc));
+            if (loadCancelled()) return kLoadCancelled;
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
@@ -8094,6 +8143,8 @@ std::string load(Project& out, const std::string& projectDir) {
     // has no saveMenu entry and would otherwise bake no save panel at all.
     ensureSaveMenu(out);
 
+    if (loadCancelled()) return kLoadCancelled;
+    loadPhase(2);
     loadHeights(out);
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers

@@ -23,6 +23,8 @@
 
 #include <imgui.h>
 
+#include "widgets.hpp"
+
 #include "platform.hpp"
 
 // ---------------------------------------------------------------------------
@@ -144,7 +146,7 @@ inline std::string readTextFileTail(const std::string& path, size_t maxBytes) {
     return data;
 }
 
-// ImGui's own std::string bridge (vendor/imgui/misc/cpp/imgui_stdlib.cpp is
+// ImGui's own std::string bridge (imgui_stdlib.cpp from upstream misc/ is
 // not in the build): the widget writes into the string's own buffer and asks
 // for a bigger one through this callback, so the field has no length limit.
 inline int growString(ImGuiInputTextCallbackData* d) {
@@ -202,7 +204,11 @@ inline void inputTextProse(const char* id, std::string& value, bool* changed,
 // that reveals its explanation on hover, instead of unrolling a multi-paragraph
 // description inline. Keeps the dense Preferences dialogs from running several
 // screens tall - the same idiom the Layers list already uses.
+// Inside the Properties panel's label-left rows the help goes on the row's
+// caption instead (ui::RowHelp: dotted underline + hover), so a field can fill
+// the row without a marker being pushed off its end.
 inline void prefHelp(const char* tip) {
+    if (ui::RowHelp(tip)) return;
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);

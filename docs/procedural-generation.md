@@ -4,7 +4,26 @@ Procedural volumes fill a region with rule-driven objects: forests, rocks,
 fences, orchards or exact arrays. Open **Tools > Procedural** or switch to the
 **Procedural** layout.
 
-![A procedural forest graph beside its baked preview in the editor.](img/procedural-editor.png)
+![The Procedural window: the volumes with their bake state, the forest graph as compact nodes with per-node point counts, and the selected Filter by Attribute node in the inspector.](img/procedural-editor.png)
+
+The window is three panes. **Volumes** on the left lists every procedural
+volume in the scene with its state (`baked`, `stale`, `frozen`, `runtime`),
+node count and seed; **+** adds one. The **graph** in the middle shows each
+node as a compact card: its title, one line of what it is set to
+(`slope · min 0`, `pine · rock`) and the number of points leaving it, so the
+recipe reads without opening a node and the filter that thins the forest is the
+one where the number drops. The canvas frames the graph whenever a volume is
+opened; its toolbar has *Add node* (Tab, or right-click), *Frame all* (F) and
+*Auto-arrange*, which lays the graph out left to right in rows that fit the
+canvas, plus *Procedural layout* while another layout is active - one click to
+the docked desk with the graph under the viewport. The **inspector** on the right holds the volume - *Baked at build* /
+*Runtime on PS2*, the bake state card, the labelled triangle budget - then the
+parameters of the selected node with its description and *In → out* count
+(`245 → 235, -4%`), then the seed and the preview switches.
+
+Selecting a node also shows its output in the viewport (*Viewport shows
+Filter by Attribute* on the canvas, with *Show final output*); counts on the
+nodes after it are from the last full pass and are drawn dim until then.
 
 The graph runs on your PC. A build merges its instances into ordinary chunk
 meshes, so the PS2 never evaluates the graph. For generation on the console,
@@ -25,13 +44,15 @@ Try the six graphs in [examples/procedural](../examples/procedural).
    ![The same graph with its generated trees visible as a live preview.](img/procedural-preview.png)
 
 3. Click **Bake now**. The preview becomes chunk meshes that will ship in the
-   game; the status changes to `baked`.
+   game; the state card turns green, *Baked - up to date*. A stale bake reads
+   *Bake is stale* with how long ago the graph changed.
 
    ![The same result baked into chunk meshes with the live preview disabled again.](img/procedural-baked.png)
 
 ## Freeze a finished layout
 
-In baked mode, check **Frozen** beside **Clear bake**. If the current layout
+In baked mode, turn on **Frozen** beside **Bake now** (**Clear bake** is in the
+card's `...` menu). If the current layout
 has not been baked, or its bake is stale, the editor bakes it first. The saved
 chunks then stay in place when roads, painted materials, terrain, the volume
 transform or graph parameters change. The viewport draws those chunks, and
@@ -48,8 +69,8 @@ deletes its generated output.
 
 ## Start a volume
 
-Add **Procedural volume** from the object menu or click **New volume** in the
-Procedural window. Its transform is the region: position sets the centre, scale
+Add **Procedural volume** from the object menu or click **+** (*New volume*) in
+the Procedural window's volume list. Its transform is the region: position sets the centre, scale
 sets its size and Y rotation turns the footprint.
 
 The window lets you:
@@ -62,7 +83,9 @@ The window lets you:
 
 Graphs pass three data types: **points**, **masks** (0–1 fields over the region)
 and **curves**. Pins only accept their own type, and cycles are refused.
-Input labels sit on the left; output labels sit on the right beside their pins.
+Pins are coloured by type - points blue, masks pink, curves green, from the
+theme's accent / special / ok colours (the legend is on the canvas); a node with more than
+one input or output labels the extra ones beside their pins.
 
 ## Node cheat sheet
 
@@ -75,7 +98,8 @@ Input labels sit on the left; output labels sit on the right beside their pins.
 | Assign | Pick Asset, Pick Prefab, Vary Transform, Set Attribute | Choose and vary the result |
 | Output | Output, Object Settings | Set chunks, budget and shared properties |
 
-Hover a node or its controls for the full parameter description.
+Select a node to edit it in the inspector; hover a node or a control for the
+full parameter description.
 
 ### Common recipes
 

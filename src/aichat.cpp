@@ -431,7 +431,7 @@ const std::vector<Tool>& tools() {
           {"scene", "string", false, "scene name; omitted = the active scene"}}},
         {"create_prefab", ToolKind::Edit,
          "Capture scene objects into a reusable prefab - the Prefabs window's "
-         "\"Create from selection\", which is otherwise the one step you would "
+         "\"+ From selection\", which is otherwise the one step you would "
          "have to hand back to the user in the middle of your own work (a Pick "
          "Prefab pool can only name a prefab that already exists). Members keep "
          "their materials, physics, scripts and flow graphs; the origin is the "

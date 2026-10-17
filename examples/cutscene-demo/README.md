@@ -8,7 +8,7 @@ position/rotation, scale/colour and visibility, Cinema 2.39:1 widescreen bars
 that slide in/out, a fade-in/out, a hidden HUD and a skip screen — all running
 on the PS2. See [docs/cutscenes.md](../../docs/cutscenes.md).
 
-![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide HUD, Cinema 2.39:1 bars, fades) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
+![The Cutscene Director editing "The Reveal": the shot at the playhead (cam-low, Cinema 2.39:1 bars), the Key tab on the selected camera cut, and the timeline - five shots as clips on the camera lane (cam-wide, cam-low, cam-dolly, cam-hero, cam-crane), the fades and bars, and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keys are draggable; the red playhead scrubs the whole scene.](../../docs/img/cutscene-director.png)
 
 Open `cutscene-demo.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.

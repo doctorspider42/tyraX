@@ -542,8 +542,8 @@ twins get checked:
   line here sits next to a row of `--blss-eval --features`. It is compiled out of
   an `NDEBUG` build (`TYRA_LOG`), which the editor's own game build is not.
   **It is reachable from the UI**: *Debug view* → "Log the feature spread to
-  bin/log.txt (no tint)", in the upscaler window's *Project settings* tab and in
-  *Project ▸ Preferences*. Until `7d3dbf67` that combo offered only two entries
+  bin/log.txt (no tint)", in *Project ▸ Preferences ▸ Display ▸ Frame delivery*
+  (*Tuning the network*; the upscaler window links there). Until `7d3dbf67` that combo offered only two entries
   against a field the loader clamps to `0..2`, so reaching view 2 meant editing
   `"blssDebugView": 2` into the `.tyra` by hand and a project that already had it
   displayed as "Off".

@@ -232,6 +232,6 @@ express them either.
   a reused `liveCaught` buffer once per owner per frame.
 - Live Link: an area's transform is part of its recipe hash, because catch
   areas expand into baked tables at build. Moving an area during a live
-  session flips the toolbar chip to **LIVE (rebuild)** instead of showing you
+  session flips the status bar chip to **LIVE (rebuild)** instead of showing you
   half the edit. (That holds for live catch areas too — the *candidate list*
   is baked even though the test is not.)

@@ -303,14 +303,14 @@ somewhere else.
 colour program does not build: VCL runs out of VF registers and dies with `no
 opt table`, because a cull-family program already keeps ~23 of the 31 live and
 the sine costs about five more. The measured cliff is exact - 35 allocated, 36
-did not - and the *Micro memory* tab prints the estimate next to the slot bar
+did not - and the VU Programs budget strip prints the estimate on the slot bar
 for this reason. The fix when you hit it is to split the effect across two
 material classes, which is what this example does: the wobble is on the colour
 program and the UV scroll is on the textured one, each with its own 31.
 
 ## The loop this example exists for
 
-**1. Run it, and capture one draw.** *Debugger > VU > "Capture next VU1 packet"*.
+**1. Run it, and capture one draw.** *Debugger > VU memory > "Capture VU1 packet"*.
 A frame sends one DMA chain per bag flush, and the flush picker chooses which
 draw you get. The file lands in `bin/vucap.bin`.
 
