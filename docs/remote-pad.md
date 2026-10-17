@@ -66,7 +66,9 @@ debug profile*, *Turn on Remote Pad*) instead of the controller.
 
 The footer shows the current moment as the equivalent `--pad` command line
 (`tyrax-editor --pad world-facts "hold Cross; stick l -90 -54; wait 1"`) and a
-**Copy** button that copies it with the project's full path.
+**Copy** button that copies it with the project's full path. The drawing grows
+with the window's width but never pushes the switches and this footer out of
+the window: in a short window the controller shrinks instead.
 
 **Drive with the keyboard** turns the panel into a controller:
 

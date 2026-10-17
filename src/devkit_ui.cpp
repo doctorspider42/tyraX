@@ -1924,23 +1924,30 @@ void App::dbgDrawRail(bool compact, bool horizontal) {
                 soonest = t.second;
                 soonestKey = t.first;
             }
-        const float cardH = ImGui::GetTextLineHeightWithSpacing() * 3.6f;
+        std::string who = "Delay";
+        if (const livedbg::NodeSym* n = dbgSyms_.find(soonestKey)) who = dbgNodeLabel(*n);
+        char line[256];
+        std::snprintf(line, sizeof(line), "%s fires in %.1f s.%s", who.c_str(), soonest / fps,
+                      dbgState_ == DbgState::Halted ? " Frozen - Continue to let it count." : "");
+        // Sized to its text (the card's padding is 0.9 / 0.8 font sizes): a
+        // fixed three lines clipped the halted state's "Frozen - Continue"
+        // behind a scrollbar.
+        const float fs = ImGui::GetFontSize();
+        const float wrapW = ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().x - fs * 1.8f);
+        const float cardH = ImGui::GetTextLineHeightWithSpacing() +
+                            ImGui::CalcTextSize(line, nullptr, false, wrapW).y + fs * 1.6f + scaled(2);
         const float y = ImGui::GetWindowHeight() - cardH - ImGui::GetStyle().WindowPadding.y;
         if (y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(y);
         ui::BeginCard("##dbgtimers", ImVec2(0, cardH));
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float fs = ImGui::GetFontSize();
         ui::DrawRtIcon(ImGui::GetWindowDrawList(), ui::RtIcon::Timer,
                        ImVec2(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f), fs * 0.85f,
                        dbgCol(sem.warn));
         ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.3f, p.y));
         ImGui::Text("%d armed timer%s", (int)dbgSnap_.timers.size(),
                     dbgSnap_.timers.size() == 1 ? "" : "s");
-        std::string who = "Delay";
-        if (const livedbg::NodeSym* n = dbgSyms_.find(soonestKey)) who = dbgNodeLabel(*n);
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextColored(sem.textDim, "%s fires in %.1f s.%s", who.c_str(), soonest / fps,
-                           dbgState_ == DbgState::Halted ? " Frozen - Continue to let it count." : "");
+        ImGui::TextColored(sem.textDim, "%s", line);
         ImGui::PopTextWrapPos();
         ui::EndCard();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -2788,8 +2795,12 @@ void App::dbgDrawStatsPage() {
         ImGui::TextDisabled("largest free block %u KB \xc2\xb7 %d textures resident (peak %d)", st.vramLargestKB,
                             st.vramResident, st.vramPeak);
         ui::FontScope mono(ui::monoFont());
+        // Wrapped: beside the Stopped at aside the half-width card is narrower
+        // than this line, which then lost its last word to the card's edge.
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("%u binds \xc2\xb7 %u hits \xc2\xb7 %u uploads \xc2\xb7 %u evictions", st.vramBinds,
                             st.vramHits, st.vramUploads, st.vramEvictions);
+        ImGui::PopTextWrapPos();
         if (st.vramEvictions) {
             ImGui::TextColored(sem.warn, "Evictions: the working set does not fit, textures re-upload.");
         }
@@ -3734,7 +3745,7 @@ void App::drawDebuggerWindow() {
         case DbgPage::Screen: dbgDrawScreenPage(); break;
         case DbgPage::Stats: dbgDrawStatsPage(); break;
         case DbgPage::RenderCost: dbgDrawRenderCostPage(); break;
-        case DbgPage::Hardware: hardware_timeline::draw(project_.dir); break;
+        case DbgPage::Hardware: hardware_timeline::draw(project_.dir, scaled(1.0f)); break;
         case DbgPage::Vu: dbgDrawVuPage(); break;
     }
     ImGui::EndChild();
@@ -4408,10 +4419,22 @@ void App::drawRemotePadWindow() {
     // widget only draws and reports (toolkit.hpp "pad"); the latching, the
     // spring-back and the keyboard stay here.
     const float availW = ImGui::GetContentRegionAvail().x;
-    const float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
-    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
     const float lineH = ImGui::GetTextLineHeight();
     const float readH = lineH * 2.0f + scaled(4);
+    // The drawing grows with the width but never pushes the two switches and
+    // the Release all footer out of the window: cap it by the height left.
+    float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
+    {
+        const ImGuiStyle& gs = ImGui::GetStyle();
+        const float frameH = ImGui::GetFrameHeight();
+        const float cardFixed = scaled(26) + scaled(8) + readH + scaled(6) + frameH + scaled(10);
+        const float below = scaled(8) + 2.0f * (frameH + lineH + gs.ItemSpacing.y * 2.0f) +
+                            gs.ItemSpacing.y * 2.0f + scaled(4) + frameH + gs.ItemSpacing.y;
+        const float roomH = ImGui::GetContentRegionAvail().y - cardFixed - below;
+        const float perW = ui::PadDiagramHeight(ui::PadMode::Interactive, 1000.0f) / 1000.0f;
+        if (perW > 0.0f && roomH > 0.0f) padW = ImMax(scaled(160), ImMin(padW, roomH / perW));
+    }
+    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
     const float cardH = scaled(26) + padH + scaled(8) + readH + scaled(6) + ImGui::GetFrameHeight() + scaled(10);
     const ImVec2 o = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
