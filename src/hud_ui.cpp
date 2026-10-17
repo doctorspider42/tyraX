@@ -1280,16 +1280,40 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
     InputBinding& b = preset.at(action.name);
     const theme::Semantics& sem = theme::semantics();
     const float capW = ImGui::CalcTextSize("Press a button...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    // Each field shares its line with its Press to set button (the design's
+    // shape): the row is laid out against a content edge pulled in by the
+    // button's width, then the button follows on the same line. The label
+    // column stays put - it is clamped to its max at any usable width.
+    ImGuiWindow* win = ImGui::GetCurrentWindow();
+    const float gapX = ImGui::GetStyle().ItemSpacing.x;
+    auto narrow = [&](bool on) {
+        static float crMax = 0.0f, wrMax = 0.0f;
+        if (on) {
+            crMax = win->ContentRegionRect.Max.x;
+            wrMax = win->WorkRect.Max.x;
+            win->ContentRegionRect.Max.x -= capW + gapX;
+            win->WorkRect.Max.x -= capW + gapX;
+        } else {
+            win->ContentRegionRect.Max.x = crMax;
+            win->WorkRect.Max.x = wrMax;
+        }
+    };
+    auto buttonBeside = [&] {
+        ImGui::SameLine(0.0f, gapX);
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+    };
 
     // Pad: the list, or "press to set" from a controller on this machine.
     {
         const bool stick = b.pad.empty() && isMoveRole(action.role);
+        narrow(true);
         if (ui::PadButtonCombo("Pad button", &b.pad, true, nullptr, stick ? "(stick)" : "(none)")) changed = true;
         if (stick) ui::RowHelp("The analog stick drives it; a pad button is optional.");
+        narrow(false);
     }
     {
         const bool capturing = inputCapture_ == 1;
-        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        buttonBeside();
         if (ImGui::Button(capturing ? "Press a button...##padcap" : "Press to set##pad", ImVec2(capW, 0))) {
             inputCapture_ = capturing ? 0 : 1;
             inputCaptureNoPad_ = false;
@@ -1321,6 +1345,7 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
 
     {
         const char* keyLabel = b.key ? inputKeyLabel(b.key) : "";
+        narrow(true);
         if (ui::BeginCombo("Keyboard key", *keyLabel ? keyLabel : "(none)")) {
             if (ImGui::Selectable("(none)", b.key == 0)) {
                 b.key = 0;
@@ -1334,8 +1359,9 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
             ImGui::EndCombo();
         }
         ui::RowHelp("A USB keyboard on the console (experimental).");
+        narrow(false);
         const bool capturing = inputCapture_ == 2;
-        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        buttonBeside();
         if (ImGui::Button(capturing ? "Press a key...##keycap" : "Press to set##key", ImVec2(capW, 0)))
             inputCapture_ = capturing ? 0 : 2;
         if (capturing) {
@@ -1350,14 +1376,16 @@ bool App::inputBindingRow(InputPreset& preset, const InputAction& action) {
         }
     }
 
+    narrow(true);
     if (ui::Combo("Mouse button", &b.mouse, "(none)\0Left\0Right\0Middle\0")) changed = true;
+    narrow(false);
     // Press to set: the next click ON the button, with whichever mouse button,
     // is the binding (b.mouse: 1 left, 2 right, 3 middle). Capturing on the
     // button itself rather than anywhere keeps the click from also landing on
     // some other widget; a click elsewhere or Esc cancels.
     {
         const bool capturing = inputCapture_ == 3;
-        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - capW);
+        buttonBeside();
         const bool pressed = ImGui::Button(capturing ? "Click here...##mousecap" : "Press to set##mouse",
                                            ImVec2(capW, 0));
         const bool over = ImGui::IsItemHovered();

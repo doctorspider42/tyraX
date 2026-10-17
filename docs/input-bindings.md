@@ -34,7 +34,7 @@ in-game** from a menu row.
 - **The selected action** — label, name, role, then its pad button, keyboard
   key and mouse button in the edited preset. The pad button is a picker with
   the button's glyph; its list opens over a small pad you can click. **Press
-  to set** captures the next button of a controller connected to this
+  to set** (beside each of the three fields) captures the next button of a controller connected to this
   computer (pad) — while it listens the drawing's outline pulses, and you can
   also **click the button on the drawing** (the way to set it with no
   controller connected; hovering previews `Circle → Jump`) — the next
