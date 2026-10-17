@@ -454,14 +454,17 @@ procbake::Report App::bakeStaleProcVolumes() {
 static int procInPin(int node, int slot) { return node * 32 + slot; }
 static int procOutPin(int node, int slot) { return node * 32 + 8 + slot; }
 
-// Pin colors per data type, so a glance says what can connect to what.
+// Pin colors per data type, so a glance says what can connect to what. From the
+// theme's semantics, as the design's legend has them: points = accent (blue in
+// Graphite), mask = special (pink), curve = ok (green).
 static ImU32 procTypeColor(ProcType t) {
+    const theme::Semantics& sem = theme::semantics();
     switch (t) {
-        case ProcType::Points: return IM_COL32(120, 200, 130, 255);
-        case ProcType::Mask: return IM_COL32(110, 160, 230, 255);
-        case ProcType::Curve: return IM_COL32(230, 190, 90, 255);
+        case ProcType::Points: return ImGui::GetColorU32(sem.accent);
+        case ProcType::Mask: return ImGui::GetColorU32(sem.special);
+        case ProcType::Curve: return ImGui::GetColorU32(sem.ok);
     }
-    return IM_COL32(200, 200, 200, 255);
+    return ImGui::GetColorU32(sem.textDim);
 }
 
 // What a node's variable-length table means, column by column. The rows editor
@@ -1557,10 +1560,21 @@ void App::drawProceduralWindow() {
             ui::OverlayPanel(ImGui::GetWindowDrawList(), a, ImVec2(a.x + size.x, a.y + size.y));
         };
         const char* addText = "Add node  Tab";
+        // The design's "open the Procedural layout": the docked desk (graph under
+        // the viewport, Properties beside it) is one click away from the tool
+        // that wants it, shown only while another layout is active.
+        int procLayout = -1;
+        for (int i = 0; i < (int)project_.windowLayouts.size(); ++i)
+            if (project_.windowLayouts[i].recipe == (int)LayoutRecipe::Procedural) {
+                procLayout = i;
+                break;
+            }
+        if (procLayout == project_.activeLayout) procLayout = -1;
         const float w0 = ui::OverlayTextWidth(addText), w1 = ui::OverlayTextWidth("Frame all  F"),
-                    w2 = ui::OverlayTextWidth("Auto-arrange");
+                    w2 = ui::OverlayTextWidth("Auto-arrange"),
+                    w3 = procLayout >= 0 ? ui::OverlayTextWidth("Procedural layout") : 0.0f;
         const ImVec2 a(canvasOrigin.x + m, canvasOrigin.y + m);
-        beginOverlay("##proctools", a, ImVec2(w0 + w1 + w2 + pad * 2.0f, rowH + pad * 2.0f));
+        beginOverlay("##proctools", a, ImVec2(w0 + w1 + w2 + w3 + pad * 2.0f, rowH + pad * 2.0f));
         ImGui::SetCursorScreenPos(ImVec2(a.x + pad, a.y + pad));
         if (ui::OverlayTextButton("Add node", addText, false)) openAdd = true;
         ImGui::SetCursorScreenPos(ImVec2(a.x + pad + w0, a.y + pad));
@@ -1572,6 +1586,14 @@ void App::drawProceduralWindow() {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Lay the graph out left to right by how far each node is from a source.");
+        if (procLayout >= 0) {
+            ImGui::SetCursorScreenPos(ImVec2(a.x + pad + w0 + w1 + w2, a.y + pad));
+            if (ui::OverlayTextButton("Procedural layout", "Procedural layout", false))
+                switchLayout(procLayout);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Switch to the Procedural layout: this window docked under the viewport,\n"
+                                  "Properties beside it - so the graph and the world it fills are both in view.");
+        }
         ImGui::EndChild();
 
         if (procPreviewNode_ != 0) {
@@ -1585,7 +1607,7 @@ void App::drawProceduralWindow() {
             const float cardW = tw + bw + pad * 2.0f;
             float x1 = canvasOrigin.x + canvasSize.x - m;
             ImVec2 b(x1 - cardW, canvasOrigin.y + m);
-            if (b.x <= a.x + w0 + w1 + w2 + pad * 3.0f) {
+            if (b.x <= a.x + w0 + w1 + w2 + w3 + pad * 3.0f) {
                 b = ImVec2(a.x, a.y + rowH + pad * 2.0f + m * 0.6f);
                 x1 = b.x + cardW;
             }
