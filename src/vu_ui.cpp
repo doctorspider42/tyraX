@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "app.hpp"
 #include "app_internal.hpp"
@@ -441,6 +442,36 @@ void smallCaps(const char* text) {
     ImGui::PopFont();
 }
 
+// Dim text that must stop before window-local x `maxX` (the next control on
+// the row): ellipsized to the room, the whole text as its tooltip when cut,
+// nothing at all when under two characters' worth is left. Call it where the
+// text would go (after SameLine); returns whether anything was drawn.
+bool dimTextFit(const char* text, float maxX) {
+    const float fs = ImGui::GetFontSize();
+    const float room = maxX - ImGui::GetCursorPosX();
+    if (room < fs * 2.0f) {
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+        return false;
+    }
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    if (ts.x <= room) {
+        ImGui::TextDisabled("%s", text);
+        return true;
+    }
+    ImVec2 sp = ImGui::GetCursorScreenPos();
+    sp.y += ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;  // where Text() would sit
+    ImGui::Dummy(ImVec2(room, ts.y));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), sp, ImVec2(sp.x + room, sp.y + ts.y), sp.x + room, text,
+                              nullptr, &ts);
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", text);
+    return true;
+}
+
+// The window-local x just past the last item (for "does the next one fit").
+float lastItemEndX() { return ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + ImGui::GetScrollX(); }
+
 // A dashed rectangle (the "Add stage" row): draw-list has no dash style.
 void dashedRect(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 c) {
     const float d = 6.0f, g = 4.0f;
@@ -503,17 +534,16 @@ void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
                 ImGui::PopTextWrapPos();
                 ImGui::EndTooltip();
             }
-            if (def) {
+            const float switchX = ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight() -
+                                  ImGui::GetFontSize() * 2.3f;
+            if (def && lastItemEndX() + fs * 0.6f + ImGui::CalcTextSize(vugen::slotName(def->slot)).x + fs * 1.4f <=
+                           switchX) {
                 ImGui::SameLine(0.0f, fs * 0.6f);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetStyle().FramePadding.y);
                 ui::Badge(vugen::slotName(def->slot),
                           def->slot == vugen::Slot::Color     ? 3
                           : def->slot == vugen::Slot::Texture ? 0
                                                               : 4);
-                if (def->needsTexture && !kernel) {
-                    ImGui::SameLine(0.0f, fs * 0.5f);
-                    ImGui::TextDisabled("only Textured and Reflective meshes run it");
-                }
             }
             // right side: ~N instr, switch, more
             const float right = ImGui::GetWindowContentRegionMax().x;
@@ -522,11 +552,22 @@ void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
             char ins[32];
             std::snprintf(ins, sizeof ins, "~%d instr", def ? def->perVertex : 0);
             const float iw = ImGui::CalcTextSize(ins).x;
-            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), right - moreW - swW - iw - fs * 1.2f));
-            ImGui::TextDisabled("%s", ins);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Emitted instructions per vertex, measured by building the\n"
-                                  "stage alone - a budget number, not a cycle count.");
+            const float insX = right - moreW - swW - iw - fs * 1.2f;  // window-local
+            // The note between the badge and "~N instr" gets the room that is
+            // left and is ellipsized to it (it ran into the count in a narrow
+            // editor); the whole sentence is its tooltip.
+            if (def && def->needsTexture && !kernel) {
+                ImGui::SameLine(0.0f, fs * 0.5f);
+                dimTextFit("only Textured and Reflective meshes run it", insX - fs * 0.6f);
+            }
+            // "~N instr" only where it does not run into what is left of it.
+            if (lastItemEndX() + fs * 0.6f <= insX) {
+                ImGui::SameLine(insX);
+                ImGui::TextDisabled("%s", ins);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Emitted instructions per vertex, measured by building the\n"
+                                      "stage alone - a budget number, not a cycle count.");
+            }
             ImGui::SameLine(right - moreW - swW - fs * 0.4f);
             // The return value, not IsItemDeactivatedAfterEdit - a switch is
             // edited and deactivated in the SAME frame.
@@ -554,33 +595,37 @@ void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
                 paramTip(pd.tip);
                 ImGui::SameLine(capW);
                 const float avail = ImGui::GetContentRegionAvail().x;
-                const float valW = fs * 3.6f;
-                const float sliderW = std::max(fs * 4.0f, avail - valW - bindW - fs * 1.0f);
+                // The slider draws its own value at its right end (the thin
+                // track, style.SliderThinTrack), so it takes the value column too.
+                // Too narrow for slider + mesh-slot combo side by side: the
+                // combo goes under the slider (it was cut off at the card edge).
+                const float wantBind = (!pd.literalOnly && !kernel) ? bindW : pd.literalOnly ? fs * 3.0f : 0.0f;
+                const bool stack = wantBind > 0.0f && avail - wantBind - fs * 0.6f < fs * 8.0f;
+                const float sliderW = stack ? avail : std::max(fs * 6.0f, avail - bindW - fs * 0.6f);
+                auto toBind = [&] {
+                    if (stack) ImGui::SetCursorPosX(capW);
+                    else ImGui::SameLine(capW + sliderW + fs * 0.6f);
+                };
                 if (bound) {
                     ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
                     ImGui::Text("from mesh slot %s", bindLabel(s.bind[k]) + 5);
                     ImGui::PopStyleColor();
-                    ImGui::SameLine(capW + sliderW + valW + fs * 0.6f);
+                    toBind();
                 } else {
                     float v = s.params[k];
                     // The slider's own label is clipped: the caption names it.
                     const ImVec2 p = ImGui::GetCursorScreenPos();
                     ImGui::PushClipRect(p, ImVec2(p.x + sliderW, p.y + ImGui::GetFrameHeight()), true);
                     ImGui::SetNextItemWidth(sliderW);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
                     if (ImGui::SliderFloat(pd.name, &v, pd.lo, pd.hi, "%.3f")) {
                         s.params[k] = v;
                         setDirty(true);
                     }
-                    ImGui::PopStyleColor();
                     const bool done = ImGui::IsItemDeactivatedAfterEdit();
                     ImGui::PopClipRect();
                     if (done) commitChange();
                     paramTip(pd.tip);
-                    ImGui::SameLine(capW + sliderW + fs * 0.4f);
-                    ui::FontScope mono(ui::monoFont());
-                    ImGui::Text("%.2f", s.params[k]);
-                    ImGui::SameLine(capW + sliderW + valW + fs * 0.6f);
+                    toBind();
                 }
                 if (!pd.literalOnly && !kernel) {
                     ImGui::SetNextItemWidth(bindW);
@@ -650,10 +695,12 @@ void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
         dashedRect(dl, p, ImVec2(p.x + w, p.y + h), vcol(sem.textDim, hov ? 0.8f : 0.45f));
         const std::string t = "+  " + hint;
         const ImVec2 ts = ImGui::CalcTextSize(t.c_str());
-        dl->PushClipRect(p, ImVec2(p.x + w, p.y + h), true);
-        dl->AddText(ImVec2(p.x + std::max(fs * 0.6f, (w - ts.x) * 0.5f), p.y + (h - ts.y) * 0.5f),
-                    vcol(hov ? sem.text : sem.textDim), t.c_str());
-        dl->PopClipRect();
+        // Centred when it fits, else ellipsized inside the dashes.
+        const float x0 = p.x + std::max(fs * 0.6f, (w - ts.x) * 0.5f), x1 = p.x + w - fs * 0.6f;
+        const float ty = p.y + (h - ts.y) * 0.5f;
+        ImGui::PushStyleColor(ImGuiCol_Text, hov ? sem.text : sem.textDim);
+        ImGui::RenderTextEllipsis(dl, ImVec2(x0, ty), ImVec2(x1, ty + ts.y), x1, t.c_str(), nullptr, &ts);
+        ImGui::PopStyleColor();
     }
     if (ImGui::BeginPopup("addVuStage")) {
         vugen::Slot last = (vugen::Slot)255;
@@ -717,8 +764,14 @@ void App::drawVuProgramsWindow() {
         }
         ImGui::SameLine(0.0f, fs * 0.5f);
         ImGui::TextDisabled("of 2042 slots");
+        // The clipping choice sits at the right end; the note gets what is left.
+        char segA[48], segB[48];
+        std::snprintf(segA, sizeof segA, "Clip on EE  %d###Clip on EE", bud.asIsTot);
+        std::snprintf(segB, sizeof segB, "Clip on VU1  %d###Clip on VU1", bud.clipTot);
+        const float segW = ImGui::CalcTextSize(segA).x + ImGui::CalcTextSize(segB).x + fs * 3.0f;
+        const float segX = ImGui::GetWindowContentRegionMax().x - segW;
         ImGui::SameLine(0.0f, fs * 1.0f);
-        ImGui::TextDisabled("a range: VCL pairs upper and lower ops when it can");
+        dimTextFit("a range: VCL pairs upper and lower ops when it can", segX - fs);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "VU1 holds 2048 instruction slots and Path1 parks the draw-finish\n"
@@ -728,13 +781,12 @@ void App::drawVuProgramsWindow() {
                 "compiles out. The exact size is only known after VCL runs.");
         // The clipping choice, priced both ways, at the right end.
         {
-            char a[48], b[48];
-            std::snprintf(a, sizeof a, "Clip on EE  %d###Clip on EE", bud.asIsTot);
-            std::snprintf(b, sizeof b, "Clip on VU1  %d###Clip on VU1", bud.clipTot);
-            const char* opts[2] = {a, b};
+            const char* opts[2] = {segA, segB};
             int cur = project_.settings.clipping == "vu1" ? 1 : 0;
-            const float w = ImGui::CalcTextSize(a).x + ImGui::CalcTextSize(b).x + fs * 3.0f;
-            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - w));
+            const float w = segW;
+            // Its own line when the title and slot count leave no room for it.
+            if (lastItemEndX() + fs <= segX) ImGui::SameLine(segX);
+            else ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), segX));
             if (ui::Segmented("##clipmode", opts, 2, &cur, w)) {
                 project_.settings.clipping = cur == 1 ? "vu1" : "precise";
                 commitChange();
@@ -798,6 +850,13 @@ void App::drawVuProgramsWindow() {
                 ImGui::Dummy(ImVec2(fs * 0.5f, fs));
                 ImGui::SameLine(0.0f, fs * 0.35f);
             };
+            // Flow: an entry that does not fit the rest of the line starts the
+            // next one (in a narrow window the legend ran off the card).
+            const float maxX = ImGui::GetWindowContentRegionMax().x;
+            auto next = [&](const char* text) {
+                const float w = fs * 0.85f + ImGui::CalcTextSize(text).x;
+                if (lastItemEndX() + fs * 0.9f + w <= maxX) ImGui::SameLine(0.0f, fs * 0.9f);
+            };
             dot(sem.textDim);
             ImGui::TextDisabled("clipper");
             std::string notDrawn;
@@ -809,25 +868,35 @@ void App::drawVuProgramsWindow() {
                     continue;
                 }
                 const int e = bud.classCull[i] + engineSizes().instr[i][bud.fam];
-                ImGui::SameLine(0.0f, fs * 0.9f);
+                char t[96];
+                std::snprintf(t, sizeof t, "%s %d-%d", c.label, (e + 1) / 2, e);
+                next(t);
                 dot(classColour(i));
-                ImGui::TextDisabled("%s %d-%d", c.label, (e + 1) / 2, e);
+                ImGui::TextDisabled("%s", t);
             }
             if (bud.programs != 0) {
-                ImGui::SameLine(0.0f, fs * 0.9f);
+                char t[32];
+                std::snprintf(t, sizeof t, "yours %+d", bud.programs);
+                next(t);
                 dot(sem.text);
-                ImGui::TextDisabled("yours %+d", bud.programs);
+                ImGui::TextDisabled("%s", t);
             }
             if (!notDrawn.empty()) {
-                ImGui::SameLine(0.0f, fs * 0.9f);
-                ImGui::TextDisabled("%s not resident \xc2\xb7 %s", notDrawn.c_str(),
-                                    project_.vu.residentAuto ? "detected automatically" : "set by hand");
+                const std::string t = notDrawn + " not resident \xc2\xb7 " +
+                                      (project_.vu.residentAuto ? "detected automatically" : "set by hand");
+                const float w = ImGui::CalcTextSize(t.c_str()).x;
+                if (lastItemEndX() + fs * 0.9f + w <= maxX) ImGui::SameLine(0.0f, fs * 0.9f);
+                ImGui::TextDisabled("%s", t.c_str());
             }
             const char* verdict = !fits ? "DOES NOT FIT - the engine asserts"
                                   : otherFits ? "fits either way"
                                               : "fits - the other clipping mode does not";
             const float vw = ImGui::CalcTextSize(verdict).x;
-            ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - vw));
+            // Right-aligned after the legend - or on a line of its own when the
+            // legend leaves no room (it used to be drawn over the legend's end).
+            const float legendEnd = lastItemEndX();
+            if (legendEnd + fs * 0.9f + vw <= maxX) ImGui::SameLine(maxX - vw);
+            else ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), maxX - vw));
             ImGui::PushStyleColor(ImGuiCol_Text, !fits ? sem.danger : otherFits ? sem.ok : sem.warn);
             ImGui::TextUnformatted(verdict);
             ImGui::PopStyleColor();
@@ -1039,10 +1108,16 @@ void App::drawVuLook(int li) {
         const float moreW = ImGui::GetFrameHeight();
         const float sw = ImGui::CalcTextSize("Build into the game").x +
                          ImGui::CalcTextSize("Active at boot").x + fs * 7.5f;
-        const float nameW = std::max(fs * 6.0f, right - ImGui::GetCursorPosX() - sw - moreW - fs);
+        const float startX = ImGui::GetCursorPosX();
+        // Name and the two switches on one row when they fit; in a narrow
+        // editor the switches go to a row of their own under the name (they
+        // were drawn over it).
+        const bool oneRow = right - startX - sw - moreW - fs >= fs * 6.0f;
+        const float nameW = oneRow ? right - startX - sw - moreW - fs : right - startX - moreW - fs * 0.5f;
         char nameBuf[64];
         std::snprintf(nameBuf, sizeof nameBuf, "%s", pr.name.c_str());
         const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float nameRowY = ImGui::GetCursorPosY();
         ImGui::PushClipRect(p, ImVec2(p.x + nameW, p.y + fs * 2.5f), true);
         ImGui::SetNextItemWidth(nameW);
         ImGui::PushFont(ui::boldFont(), fs * 1.3f);
@@ -1051,13 +1126,16 @@ void App::drawVuLook(int li) {
         ImGui::PopFont();
         ImGui::PopClipRect();
         if (nameDone) commitChange();
-        ImGui::SameLine(right - sw - moreW);
+        if (oneRow) ImGui::SameLine(right - sw - moreW);
+        else ImGui::AlignTextToFramePadding();
         bool en = pr.enabled;
         if (ui::Switch("Build into the game", &en)) {
             pr.enabled = en;
             commitChange();
         }
-        ImGui::SameLine(0.0f, fs);
+        // A third row for the second switch when even its own row is too narrow.
+        if (oneRow || lastItemEndX() + fs + ImGui::CalcTextSize("Active at boot").x + fs * 3.0f <= right - moreW)
+            ImGui::SameLine(0.0f, fs);
         // Which look the game boots into. Every built look is in the ELF and
         // vuprog::activate(i) swaps them at run time, so this is only the
         // starting one - a switch that can be turned ON (one look is always
@@ -1073,8 +1151,21 @@ void App::drawVuLook(int li) {
             ImGui::SetTooltip(pr.enabled ? "The look install() activates. The game can swap to any other\n"
                                            "with vuprog::activate(i) - see docs/vu-authoring.md."
                                          : "Turn on Build into the game first.");
-        ImGui::SameLine(right - moreW);
+        ImVec2 afterRow;
+        if (oneRow) {
+            ImGui::SameLine(right - moreW);
+        } else {
+            // Two rows: "..." stays at the end of the NAME row.
+            ImGui::SameLine();
+            afterRow = ImGui::GetCursorPos();
+            ImGui::SetCursorPos(ImVec2(right - moreW, nameRowY));
+        }
         if (ui::MoreButton("Look menu", moreW)) ImGui::OpenPopup("##lookmenu");
+        if (!oneRow) {
+            ImGui::SetCursorPos(afterRow);
+            ImGui::NewLine();
+            ImGui::Dummy(ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y));
+        }
         if (ImGui::BeginPopup("##lookmenu")) {
             if (ImGui::MenuItem("Duplicate")) {
                 VuProgram copy = pr;
