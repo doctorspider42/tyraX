@@ -896,7 +896,10 @@ bool rowSlider(const char* label, ImGuiSliderFlags flags, W&& widget, S&& show, 
     if (!typing) {
         ImGui::PopStyleColor(7);
         show(buf, &t);
-        const ImRect bb(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        // The item rect includes the (clipped) label: the frame is the
+        // width set above.
+        const ImVec2 bmin = ImGui::GetItemRectMin();
+        const ImRect bb(bmin, ImVec2(bmin.x + ImMax(1.0f, r.fieldW - valueW), ImGui::GetItemRectMax().y));
         const theme::Semantics& sem = theme::semantics();
         ImDrawList* dl = w->DrawList;
         const float grab = st.GrabMinSize;

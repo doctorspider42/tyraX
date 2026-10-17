@@ -6055,7 +6055,11 @@ void App::dockToolWindows(unsigned int dockspace) {
                             break;
                         }
             if (!target && vpNode) {
-                if (vpNode->Size.x >= scaled(900)) {
+                // Two ~420 pt halves are still usable: both visual tools
+                // have a narrow layout (AmbienceSimpleFixed board, 440 wide),
+                // and at 900 the default 1600 pt window (viewport ~886)
+                // tabbed the tool OVER the picture it previews.
+                if (vpNode->Size.x >= scaled(820)) {
                     ImGuiID rest = 0;
                     target = ImGui::DockBuilderSplitNode(vpNode->ID, ImGuiDir_Right, 0.5f, nullptr, &rest);
                 } else {
