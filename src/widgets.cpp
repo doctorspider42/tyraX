@@ -122,11 +122,19 @@ static bool axisDrag3Body(const char* label, float v[3], float speed, float vmin
             // typed-in text keep full precision.
             const float room = r.Max.x - style.FramePadding.x * 0.5f - vt.x;
             const char* dot = std::strstr(fmt, "%.");
-            if (dot && dot[2] >= '1' && dot[2] <= '9' && dot[3] == 'f') {
+            if (dot && dot[2] >= '0' && dot[2] <= '9' && dot[3] == 'f') {
                 for (int prec = dot[2] - '0' - 1;
                      prec >= 0 && ImGui::CalcTextSize(buf).x > room; --prec) {
                     std::string f(fmt);
                     f[dot - fmt + 2] = (char)('0' + prec);
+                    ImGui::DataTypeFormatString(buf, IM_ARRAYSIZE(buf), ImGuiDataType_Float, &v[i],
+                                                f.c_str());
+                }
+                // Still too wide: drop the unit suffix (" deg") - the row's
+                // caption says what the numbers are.
+                if (ImGui::CalcTextSize(buf).x > room) {
+                    std::string f(fmt, (size_t)(dot - fmt) + 4);
+                    f[dot - fmt + 2] = '0';
                     ImGui::DataTypeFormatString(buf, IM_ARRAYSIZE(buf), ImGuiDataType_Float, &v[i],
                                                 f.c_str());
                 }
