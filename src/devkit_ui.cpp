@@ -1924,23 +1924,30 @@ void App::dbgDrawRail(bool compact, bool horizontal) {
                 soonest = t.second;
                 soonestKey = t.first;
             }
-        const float cardH = ImGui::GetTextLineHeightWithSpacing() * 3.6f;
+        std::string who = "Delay";
+        if (const livedbg::NodeSym* n = dbgSyms_.find(soonestKey)) who = dbgNodeLabel(*n);
+        char line[256];
+        std::snprintf(line, sizeof(line), "%s fires in %.1f s.%s", who.c_str(), soonest / fps,
+                      dbgState_ == DbgState::Halted ? " Frozen - Continue to let it count." : "");
+        // Sized to its text (the card's padding is 0.9 / 0.8 font sizes): a
+        // fixed three lines clipped the halted state's "Frozen - Continue"
+        // behind a scrollbar.
+        const float fs = ImGui::GetFontSize();
+        const float wrapW = ImMax(fs * 4.0f, ImGui::GetContentRegionAvail().x - fs * 1.8f);
+        const float cardH = ImGui::GetTextLineHeightWithSpacing() +
+                            ImGui::CalcTextSize(line, nullptr, false, wrapW).y + fs * 1.6f + scaled(2);
         const float y = ImGui::GetWindowHeight() - cardH - ImGui::GetStyle().WindowPadding.y;
         if (y > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(y);
         ui::BeginCard("##dbgtimers", ImVec2(0, cardH));
         const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float fs = ImGui::GetFontSize();
         ui::DrawRtIcon(ImGui::GetWindowDrawList(), ui::RtIcon::Timer,
                        ImVec2(p.x + fs * 0.5f, p.y + ImGui::GetTextLineHeight() * 0.5f), fs * 0.85f,
                        dbgCol(sem.warn));
         ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 1.3f, p.y));
         ImGui::Text("%d armed timer%s", (int)dbgSnap_.timers.size(),
                     dbgSnap_.timers.size() == 1 ? "" : "s");
-        std::string who = "Delay";
-        if (const livedbg::NodeSym* n = dbgSyms_.find(soonestKey)) who = dbgNodeLabel(*n);
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextColored(sem.textDim, "%s fires in %.1f s.%s", who.c_str(), soonest / fps,
-                           dbgState_ == DbgState::Halted ? " Frozen - Continue to let it count." : "");
+        ImGui::TextColored(sem.textDim, "%s", line);
         ImGui::PopTextWrapPos();
         ui::EndCard();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
