@@ -3841,10 +3841,12 @@ void App::drawBlssImagesTab() {
     if (ImGui::SmallButton("Reload")) blssImagesDirty_ = true;
 
     if (blssImages_.empty()) {
+        // An empty state, not the full temp-folder path (it ran past the
+        // card's edge); the folder is in the tooltip.
         ImGui::Spacing();
-        ImGui::TextDisabled(
-            "No images in %s.\nRun Evaluate with 'Write the comparison images' ticked.",
-            blssDumpDir_.c_str());
+        ui::EmptyState(ui::Glyph::Camera, "No comparison images yet",
+                       "Run Evaluate with 'Write the comparison images' ticked.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Looked in %s", blssDumpDir_.c_str());
         return;
     }
 

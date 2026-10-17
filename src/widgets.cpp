@@ -890,7 +890,10 @@ bool rowSlider(const char* label, ImGuiSliderFlags flags, W&& widget, S&& show, 
     float valueW;
     {
         FontScope mono(gMono);
-        valueW = ImMax(ImMax(ImGui::CalcTextSize(lo).x, ImGui::CalcTextSize(hi).x), ImGui::CalcTextSize(buf).x);
+        // A common minimum keeps the tracks of a stack of sliders the same
+        // length (ragged right ends otherwise).
+        valueW = ImMax(ImMax(ImGui::CalcTextSize(lo).x, ImGui::CalcTextSize(hi).x),
+                       ImMax(ImGui::CalcTextSize(buf).x, ImGui::CalcTextSize("0.000 u").x));
     }
     valueW = ImMin(valueW + ImGui::GetFontSize(), r.fieldW * 0.45f);
     if (!typing) {
