@@ -918,6 +918,13 @@ private:
     // "Baked shadows" - the fourth section (docs/shadows.md): the project-wide
     // quality, the per-scene staleness + budget readout and the bake itself.
     void drawShadowBakeSection();
+    // The bakes those tabs start, shared with the Build menu's Bake items (and so
+    // the command palette): one starter per button, never a second mechanism.
+    void startGiBake(bool allScenes);
+    void startShadowBake(bool allScenes);
+    void startModelAoBake();
+    void startPrelitBake(bool onlyStale);
+    int prelitPendingCount();  // the "Bake pending (N)" count of the active scene
     // Pushes the CACHED shadow bake into the viewport (never bakes), and
     // drains shadowBaker_ so a finished one becomes visible.
     void updateShadowDecals();
@@ -1204,6 +1211,7 @@ private:
     // so the ordinary interaction is a checkbox, a mode and one line to read.
     enum class BlssDetail { Essentials, Everything };
     bool drawBlssSettings(ProjectSettings& s, BlssDetail detail = BlssDetail::Everything);
+    bool drawBlssNetworkTuning(ProjectSettings& s);  // sharpen/temporal/jitter/debug view
     // The speed estimate priced for `s` rather than for the committed project.
     // One function, because the Preferences dialog must re-price live when the
     // reader flips the reconstruction (the two modes' break-evens are more than

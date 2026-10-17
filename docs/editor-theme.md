@@ -168,7 +168,12 @@ A few things worth knowing because they are decisions rather than defaults:
   its menu path and shortcut - the palette reads the menus themselves, so it
   never misses one), the top bar's Run / Stop / build profile, New scene, an
   object of the active scene (Enter selects it and centres the camera on it),
-  a scene or a documentation page (opened on GitHub). Arrows move,
+  a scene or a documentation page (opened on GitHub). Typing **bake** lists every
+  bake the editor can start - they are items of the **Build** menu (global
+  illumination for this scene / all scenes, model ambient occlusion, pending
+  pre-lit models, shadow decals for this scene / all scenes, stale procedural
+  volumes), each running the same code as the button in its tab, with a hint
+  that says what it bakes; a bake that is off or already running is not listed. Arrows move,
   Enter runs, Esc closes; Ctrl+Enter (Cmd+Return) opens the AI Assistant with
   the query as its draft.
 - **The Outliner** filters by single-select chips (All, Models, Primitives,

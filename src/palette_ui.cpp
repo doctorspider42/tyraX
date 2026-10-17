@@ -202,7 +202,7 @@ void App::drawCommandPalette() {
     harvestMainMenus(&menuItems);
     for (const menuact::Item& it : menuItems) {
         if (!it.enabled || it.label.empty()) continue;
-        std::string hint = it.path;
+        std::string hint = it.hint.empty() ? it.path : it.hint;
         if (it.selected) hint += hint.empty() ? "on" : " - on";
         std::string bare = it.label;
         if (bare.size() > 3 && bare.compare(bare.size() - 3, 3, "...") == 0) bare.resize(bare.size() - 3);

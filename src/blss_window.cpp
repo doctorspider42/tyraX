@@ -84,8 +84,7 @@ enum BlssTab {
     kTabCv,
     kTabCompare,
     kTabInputs,
-    kTabProbe,
-    kTabSettings
+    kTabProbe
 };
 
 struct DumpImage {
@@ -1165,7 +1164,15 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // window never sees it. Four knobs and a debug view that are meaningless
     // without a training run behind them: the Essentials layer stops here.
     if (!full) return changed;
+    changed |= drawBlssNetworkTuning(s);
+    return changed;
+}
 
+// The network's four knobs (sharpen, temporal, jitter, debug view). Project
+// Preferences > Display > Frame delivery draws them under the Essentials, so
+// they have one home now that the upscaler window has no settings tab.
+bool App::drawBlssNetworkTuning(ProjectSettings& s) {
+    bool changed = false;
     ImGui::SeparatorText("Tuning the network");
     ImGui::BeginDisabled(!s.blssEnabled);
     {
@@ -1178,8 +1185,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
                 "    NEURAL mode would be worth on this scene.");
 
         ImGui::BeginDisabled(!s.blssNetwork);
-        ImGui::SetNextItemWidth(scaled(120));
-        ImGui::DragFloat("Sharpen strength", &s.blssSharpen, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Label-left rows like the Essentials above (Preferences' InspectorRows).
+        ui::SliderFloat("Sharpen strength", &s.blssSharpen, 0.0f, 1.0f, "%.2f");
         // Asked BEFORE prefHelp: a tooltip is a window and ImGui's "last item"
         // is context-global, so a prefHelp between the widget and this query
         // silently answers about the tooltip. One undo entry per drag, not one
@@ -1195,7 +1202,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "charges for the sharpen passes at THIS strength - so the Train\n"
             "and Evaluate tabs pass it through.");
 
-        if (ImGui::Checkbox("Temporal reuse (reproject the previous frame)", &s.blssTemporal))
+        if (ui::Switch("Temporal reuse (reproject the previous frame)", &s.blssTemporal))
             changed = true;
         prefHelp(
             "Lets the network blend in the previously presented frame,\n"
@@ -1213,8 +1220,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "temporal kernel available, so turning it off does not need and\n"
             "does not get a different network.");
 
-        if (ImGui::Checkbox("Sub-pixel jitter (the samples temporal reuse averages)",
-                            &s.blssJitter))
+        if (ui::Switch("Sub-pixel jitter (the samples temporal reuse averages)", &s.blssJitter))
             changed = true;
         prefHelp(
             "STABILITY AGAINST RECONSTRUCTION, and both sides are measured.\n"
@@ -1270,8 +1276,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* debugNames[] = {
             "Off", "Tint by winning kernel (red = point, green = temporal, blue = sharpen)",
             "Log the feature spread to bin/log.txt (no tint)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Debug view", &debug, debugNames, 3)) {
+        if (ui::Combo("Debug view", &debug, debugNames, 3)) {
             s.blssDebugView = debug;
             changed = true;
         }
@@ -1938,10 +1943,22 @@ void App::drawBlssWindow() {
         };
         static const T kTabs[] = {{kTabShots, "Training shots"}, {kTabTrain, "Train"},
                                   {kTabEval, "Evaluate"},        {kTabCv, "Cross-validate"},
-                                  {kTabInputs, "Inputs"},        {kTabProbe, "Console probe"},
-                                  {kTabSettings, "Project settings"}};
+                                  {kTabInputs, "Inputs"},        {kTabProbe, "Console probe"}};
         for (const T& t : kTabs)
             if (ui::QuietTab(t.label, blssTab_ == t.id, flag(t.id))) blssTab_ = t.id;
+        // The project's upscaler settings are not a tab of this window: they
+        // live in Project Preferences > Display > Frame delivery (the network
+        // knobs under "Tuning the network" there). This is the way to them.
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().accent);
+        if (ImGui::TabItemButton("Settings in Project Preferences", ImGuiTabItemFlags_Trailing)) {
+            openProjectPreferences();
+            prefsFocusTab_ = "Display/Frame delivery";
+        }
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Use the upscaler, Mode, Render scale, frame extrapolation and the\n"
+                              "network's tuning (sharpen, temporal, jitter, debug view) - Project\n"
+                              "Preferences > Display > Frame delivery.");
         ui::EndQuietTabBar();
     }
     ImGui::BeginChild("blsstabs", ImVec2(0, 0));
@@ -1951,12 +1968,6 @@ void App::drawBlssWindow() {
         case kTabCv: drawBlssCvTab(); break;
         case kTabInputs: drawBlssFeaturesTab(); break;
         case kTabProbe: drawBlssProbeTab(); break;
-        case kTabSettings:
-            ImGui::Spacing();
-            // EVERYTHING, because this is the advanced layer. Project >
-            // Preferences draws the same block at BlssDetail::Essentials.
-            if (drawBlssSettings(project_.settings, BlssDetail::Everything)) commitChange();
-            break;
         default: drawBlssShotsTab(); break;
     }
     ImGui::EndChild();
@@ -2158,8 +2169,8 @@ void App::drawBlssVerdictBanner() {
     if (s.blssEnabled) {
         ui::GhostButton("In use", useW, false);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("The project uses the upscaler. Turn it off in Project settings or\n"
-                              "Project Preferences > Display.");
+            ImGui::SetTooltip("The project uses the upscaler. Turn it off in Project Preferences >\n"
+                              "Display > Frame delivery.");
     } else {
         if (ui::PrimaryButton("Use in this project", useW, !blocked)) {
             s.blssEnabled = true;
@@ -3015,13 +3026,13 @@ void App::drawBlssTrainTab() {
                            "    A third of the corpus is withheld - this is a measurement "
                            "net, not the one to ship.");
 
-    ImGui::Text("Sharpen k: %.2f, render scale %s (both from Project settings)",
+    ImGui::Text("Sharpen k: %.2f, render scale %s (both from Project Preferences)",
                 project_.settings.blssSharpen,
                 project_.settings.blssScale == 1 ? "1x2" : "2x2");
     prefHelp(
         "The oracle charges for the two sharpen passes at the project's own\n"
         "k, so the labels depend on it - and the corpus renders at the\n"
-        "project's own scale. Change either on the Project settings tab;\n"
+        "project's own scale. Change either in Project Preferences > Display;\n"
         "training follows them rather than offering a second value that could\n"
         "disagree with what the game ships.");
 
@@ -4688,7 +4699,8 @@ void App::drawBlssProbeTab() {
             statusMessage_ = "BLSS: debug view 2 on - rebuild and run the game";
         }
         prefHelp(
-            "Sets the project's own 'Debug view' to 2 (Project settings tab). It\n"
+            "Sets the project's own 'Debug view' to 2 (Project Preferences >\n"
+            "Display > Frame delivery > Tuning the network). It\n"
             "does not tint the picture - it logs BLSSGRID / BLSSFEAT / BLSSOUT /\n"
             "BLSSFILL / BLSSWORST once a second. It IS compiled into the build, so\n"
             "set it back to Off before handing the game to anyone.");

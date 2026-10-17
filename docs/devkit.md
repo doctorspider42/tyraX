@@ -18,9 +18,11 @@ Time Machine when not rewinding, and Remote Pad when using a physical pad.
 Keep Live Debugger for frame statistics, watches, breakpoints and captures.
 The input recorder remains a separate opt-in channel.
 
-Under the switches, in the same **Devkit channels** section, five independent
-interval overrides sit next to the channels they tune (each greyed out while
-its channel is off):
+The **Devkit channels** section is one table: each channel's row has its
+switch, a line saying what it does, and an **Every** column with its interval
+override (greyed out while the channel is off; Live Debugger has two, commands
+and reports; Remote Pad and the input recorder keep their own cadence, shown as
+`-`). The five fields keep these names:
 
 | Setting | Work scheduled |
 |---|---|

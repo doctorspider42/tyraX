@@ -1896,6 +1896,47 @@ void App::drawMainMenus() {
                 "editor\nnever writes snapshots. Needs the \"debug\" build "
                 "profile (Project >\nPreferences > Build). Also toggled by "
                 "clicking the LIVE chip in the toolbar.");
+        // The bakes, as the tabs that own them start them (startGiBake & co.
+        // in hud_ui.cpp): listed here so the command palette finds every bake
+        // by typing "bake". Disabled while that bake runs or is switched off.
+        ImGui::Separator();
+        {
+            const ProjectSettings& bs = project_.settings;
+            const std::string scn = project_.scenes.empty() ? std::string() : project_.active().name;
+            if (menuact::MenuItem("Bake global illumination", nullptr, false,
+                                  bs.giEnabled && !giBaker_.running()))
+                startGiBake(false);
+            menuact::Hint("Lighting \xc2\xb7 probes and lightmaps for scene " + scn);
+            if (menuact::MenuItem("Bake global illumination for all scenes", nullptr, false,
+                                  bs.giEnabled && !giBaker_.running()))
+                startGiBake(true);
+            menuact::Hint("Lighting \xc2\xb7 probes and lightmaps for every scene");
+            if (menuact::MenuItem("Bake ambient occlusion", nullptr, false, !modelAoBaker_.running()))
+                startModelAoBake();
+            menuact::Hint("Lighting \xc2\xb7 model AO baked into each model's texture");
+            const int prelitPending = litBaker_.running() ? 0 : prelitPendingCount();
+            if (menuact::MenuItem("Bake pre-lit models", nullptr, false, prelitPending > 0))
+                startPrelitBake(true);
+            menuact::Hint("Lighting \xc2\xb7 " + std::to_string(prelitPending) + " pending in scene " + scn);
+            if (menuact::MenuItem("Bake shadow decals", nullptr, false,
+                                  bs.bakedShadows && !shadowBaker_.running()))
+                startShadowBake(false);
+            menuact::Hint("Lighting \xc2\xb7 projected shadows for scene " + scn);
+            if (menuact::MenuItem("Bake shadow decals for all scenes", nullptr, false,
+                                  bs.bakedShadows && !shadowBaker_.running()))
+                startShadowBake(true);
+            menuact::Hint("Lighting \xc2\xb7 projected shadows for every scene");
+            if (menuact::MenuItem("Bake stale procedural volumes", nullptr, false,
+                                  !busy && procbake::anyStale(project_))) {
+                // What a build does first (projectForBuild), on its own.
+                const procbake::Report rep = bakeStaleProcVolumes();
+                statusMessage_ = rep.error.empty()
+                                     ? "Baked " + std::to_string(rep.instances) + " procedural instances into " +
+                                           std::to_string(rep.chunks) + " chunk meshes"
+                                     : "Procedural bake failed: " + rep.error;
+            }
+            menuact::Hint("Build \xc2\xb7 chunk meshes for every out-of-date volume");
+        }
         ImGui::Separator();
         if (menuact::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
         if (menuact::MenuItem("Clean", nullptr, false, !busy))
@@ -18879,9 +18920,49 @@ void App::drawPreferencesWindow() {
     }
     prefsSections_.clear();
     ui::InspectorRows rows(scaled(140), scaled(260));
+    // Each row's help also writes its first sentence under the caption.
+    ui::RowMeanings meanings;
+    // Each section's rows sit in a CARD (the design's sections). The card is
+    // drawn BEHIND its rows once their height is known: the rows go to channel
+    // 1 of a splitter of our own (it nests with the tables' splitters), the card
+    // to channel 0 when the next section or the category ends. Its padding is
+    // an indent plus the content region pulled in on the right, so every row
+    // helper (InspectorRows, segRow, switches) lays out inside it unchanged.
+    ImDrawListSplitter cardSplit;
+    bool cardOpen = false;
+    ImVec2 cardMin;
+    const float cardPadX = fs * 0.9f, cardPadY = fs * 0.55f;
+    auto closeCard = [&] {
+        if (!cardOpen) return;
+        cardOpen = false;
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        ImGui::Dummy(ImVec2(1.0f, cardPadY - ImGui::GetStyle().ItemSpacing.y));
+        ImGui::Unindent(cardPadX);
+        w->ContentRegionRect.Max.x += cardPadX;
+        w->WorkRect.Max.x += cardPadX;
+        const ImVec2 cardMax(w->ContentRegionRect.Max.x, ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y);
+        ImDrawList* dl = w->DrawList;
+        cardSplit.SetCurrentChannel(dl, 0);
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+        dl->AddRectFilled(cardMin, cardMax, ImGui::GetColorU32(sem.surface), r);
+        dl->AddRect(cardMin, cardMax, IM_COL32(255, 255, 255, 15), r);
+        cardSplit.Merge(dl);
+    };
+    auto openCard = [&] {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        cardMin = ImVec2(w->DC.CursorPos.x, w->DC.CursorPos.y);
+        cardSplit.Split(w->DrawList, 2);
+        cardSplit.SetCurrentChannel(w->DrawList, 1);
+        cardOpen = true;
+        ImGui::Dummy(ImVec2(1.0f, cardPadY - ImGui::GetStyle().ItemSpacing.y));
+        ImGui::Indent(cardPadX);
+        w->ContentRegionRect.Max.x -= cardPadX;
+        w->WorkRect.Max.x -= cardPadX;
+    };
     // A section heading: the title in the heading cut, "(...)" as its dim
     // subtitle. Also the sidebar's index (next frame) and a scroll target.
     auto prefSection = [&](const char* text) {
+        closeCard();
         std::string title = text, sub;
         const size_t lp = title.find(" (");
         if (lp != std::string::npos && title.back() == ')') {
@@ -18895,6 +18976,7 @@ void App::drawPreferencesWindow() {
             prefsScrollTo_.clear();
         }
         ui::Heading(title.c_str(), sub.empty() ? nullptr : sub.c_str());
+        openCard();
     };
     // A 2-3 option choice as a segmented control on a label-left row (the
     // caption column is the same width InspectorRows uses for this window).
@@ -18912,7 +18994,11 @@ void App::drawPreferencesWindow() {
             ImGui::SetCursorScreenPos(ImVec2(p.x + cw, p.y));
         }
         const std::string id = std::string("##seg_") + label;
-        return ui::Segmented(id.c_str(), opts, n, sel, below ? avail : avail - cw);
+        const bool r = ui::Segmented(id.c_str(), opts, n, sel, below ? avail : avail - cw);
+        // A row like the InspectorRows ones, so prefHelp gives it the dotted
+        // caption and its meaning line instead of a trailing "(?)".
+        ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(label).x);
+        return r;
     };
     // ImGui::InputInt on a label-left row (no ui:: wrapper exists): the caption
     // drawn here, the widget keeps its full label (ID, script name) with its
@@ -18929,10 +19015,11 @@ void App::drawPreferencesWindow() {
         ImGui::PushClipRect(ImVec2(p.x + cw, p.y), ImVec2(p.x + avail, p.y + ImGui::GetFrameHeight()), true);
         const bool r = ImGui::InputInt(label, v);
         ImGui::PopClipRect();
+        ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(label).x);
         return r;
     };
     auto beginTab = [&](const char* name) { return prefsCat_ == name; };
-    auto endTab = [&]() {};
+    auto endTab = [&]() { closeCard(); };
 
     if (beginTab("Display")) {
     prefSection("Video signal");
@@ -19227,6 +19314,9 @@ void App::drawPreferencesWindow() {
     // signal, the presentation and the reconstruction in one place.
     prefSection("Frame delivery (upscaler, extrapolation)");
     drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    // The network's own knobs - the Neural Upscaler window's old "Project
+    // settings" tab drew them; this is their only home now.
+    drawBlssNetworkTuning(prefSettings_);
     if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
         showBlss_ = true;
     prefHelp(
@@ -20035,102 +20125,133 @@ void App::drawPreferencesWindow() {
     // markers in a row and two of the toggles carried none. A help marker
     // belongs to the widget it follows - that is the whole idiom.
     prefSection("Devkit channels (debug builds only)");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Live Link", &prefSettings_.liveLink);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
-        "stream scene edits into the running game (docs/live-link.md). Turn\n"
-        "off if you don't want your game patched from outside; release\n"
-        "builds never carry the poller. Also toggled by the LIVE chip in\n"
-        "the toolbar and Build > Live Link.");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Live Debugger", &prefSettings_.liveDebug);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds report what their flow graphs run - every trigger and\n"
-        "action, the flow variables, the save values - so the editor can show\n"
-        "the graph executing live, set breakpoints, stop and step the game,\n"
-        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
-        "counter bump per fired node plus one small file write every few\n"
-        "frames; release builds carry none of it. Tools > Debugger (F9).");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Live Logic", &prefSettings_.liveLogic);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
-        "changes the RUNNING game with no rebuild: the editor compiles the\n"
-        "graph itself and streams the instructions next to the ELF\n"
-        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
-        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
-        "build - the Debugger's Logic tab names them. Release builds compile\n"
-        "every graph to native C++ and carry no interpreter.");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Time machine", &prefSettings_.timeMachine);
-    ImGui::EndDisabled();
-    prefHelp(
-        "The game captures everything it mutates - object transforms,\n"
-        "physics, animation, flow variables, save values, where the player\n"
-        "stands - a few times a second, and the editor keeps a history of\n"
-        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
-        "game back into any of them, with no rebuild and no reboot; with Live\n"
-        "Logic on you can fix a graph first and watch the new logic play out\n"
-        "on the situation that just broke. Costs one small file written next\n"
-        "to the ELF every few frames, and nothing at all in a release build.\n"
-        "See docs/time-machine.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Remote Pad", &prefSettings_.remotePad);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
-        "you can click (or drive with the editor's own keyboard), and the game\n"
-        "reads it out of one small file next to the ELF. Nothing needs the\n"
-        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
-        "channel is scriptable from the command line\n"
-        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
-        "an unattended input test possible. Works on real hardware over\n"
-        "ps2link too (polled less often - it is a network round-trip there).\n"
-        "Release builds carry none of it. See docs/remote-pad.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ui::Switch("Input recorder", &prefSettings_.inputRecorder);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Records every frame's input - both pads, the USB keyboard and mouse,\n"
-        "and the frame's own dt - into a file next to the ELF, and plays one\n"
-        "back over the top of whatever a real controller is doing. So a bug\n"
-        "somebody hit once can be reproduced on demand, with the Live Debugger\n"
-        "and the time machine open beside it. Only the INPUT travels, which is\n"
-        "what keeps ten minutes at about a megabyte; a saved recording lives in\n"
-        "the project's recordings/ folder and is meant to be committed next to\n"
-        "the bug it reproduces. Off by default - a recording is a file that\n"
-        "grows while the game runs. Debugger > Replay, or the command line\n"
-        "(tyrax-editor --record / --replay). See docs/input-replay.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::EndDisabled();
     {
-        // Each channel's interval sits on its own row, not in a separate
-        // section of unlabeled fields; dimmed while the channel is off.
+        // ONE TABLE: each channel's switch, what it does, and how often the game
+        // services it ("Every", game updates between polls, 0 = auto) on the
+        // SAME row, the interval dimmed while its channel is off. The fields
+        // keep their labels ("Live Link every", ...) as IDs and script names;
+        // their right-hand captions are clipped away.
+        const float trackW = IM_TRUNC(IM_TRUNC(fs * 1.05f) * 1.8f);
+        const float everyW = fs * 7.0f, everyGap = fs * 0.9f;
+        {
+            // Column heads, over the caption and the Every column.
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float right = p.x + ImGui::GetContentRegionAvail().x;
+            ui::Caption("Channel");
+            ImGui::SameLine();
+            ImGui::SetCursorScreenPos(ImVec2(right - trackW - everyGap - everyW, p.y));
+            ui::Caption("Every");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Game updates between polls, 0 = auto. Rebuild to apply.\n"
+                                  "At 50 FPS, 50 updates take one second; at 16 FPS about three. Longer\n"
+                                  "intervals delay edits and reports. Paused debugger commands stay\n"
+                                  "responsive; Remote Pad and replay input keep their own cadence.\n"
+                                  "Turn unused channels off to remove their work entirely.");
+        }
+        struct Every {
+            const char* label;
+            int* frames;
+            const char* tip;
+        };
+        auto channel = [&](const char* label, bool* on, const char* help, std::initializer_list<Every> every) {
+            ImGui::BeginDisabled(profile == 0);
+            ImGui::SetNextItemAllowOverlap();  // the Every field sits on the row
+            ui::Switch(label, on);
+            const ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax();
+            ImGui::EndDisabled();
+            prefHelp(help);
+            const ImVec2 back = ImGui::GetCursorScreenPos();
+            const float x0 = rmax.x - trackW - everyGap - everyW;
+            if (every.size() == 0) {
+                ImGui::SetCursorScreenPos(ImVec2(x0 + fs * 0.5f, rmin.y));
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("-");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keeps its own cadence.");
+            }
+            const float gap = fs * 0.3f;
+            const float w = (everyW - gap * (float)(every.size() - 1)) / (float)ImMax<size_t>(1, every.size());
+            float x = x0;
+            for (const Every& e : every) {
+                ImGui::BeginDisabled(profile == 0 || !*on);
+                ImGui::SetCursorScreenPos(ImVec2(x, rmin.y));
+                ImGui::SetNextItemWidth(w);
+                ImGui::PushClipRect(ImVec2(x, rmin.y), ImVec2(x + w, rmin.y + ImGui::GetFrameHeight()), true);
+                if (ImGui::DragInt(e.label, e.frames, 0.2f, 0, 120, *e.frames == 0 ? "auto" : "%d"))
+                    *e.frames = std::clamp(*e.frames, 0, 120);
+                ImGui::PopClipRect();
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s - every %s game update(s); 0 = auto. Rebuild to apply.", e.tip,
+                                      *e.frames == 0 ? "auto" : std::to_string(*e.frames).c_str());
+                x += w + gap;
+            }
+            ImGui::SetCursorScreenPos(back);
+        };
+        channel("Live Link", &prefSettings_.liveLink,
+                "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+                        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+                        "off if you don't want your game patched from outside; release\n"
+                        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+                        "the toolbar and Build > Live Link.",
+                {{"Live Link every", &prefSettings_.liveLinkPollFrames, "Scene-edit and painted-texture command reads"}});
+        channel("Live Debugger", &prefSettings_.liveDebug,
+                "Debug builds report what their flow graphs run - every trigger and\n"
+                        "action, the flow variables, the save values - so the editor can show\n"
+                        "the graph executing live, set breakpoints, stop and step the game,\n"
+                        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
+                        "counter bump per fired node plus one small file write every few\n"
+                        "frames; release builds carry none of it. Tools > Debugger (F9).",
+                {{"Debugger commands every", &prefSettings_.liveDebugPollFrames, "Debugger commands: breakpoints, stop/step and capture request reads"}, {"Debugger reports every", &prefSettings_.liveDebugSnapshotFrames, "Debugger reports: snapshot writes with statistics and watched history"}});
+        channel("Live Logic", &prefSettings_.liveLogic,
+                "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+                        "changes the RUNNING game with no rebuild: the editor compiles the\n"
+                        "graph itself and streams the instructions next to the ELF\n"
+                        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
+                        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
+                        "build - the Debugger's Logic tab names them. Release builds compile\n"
+                        "every graph to native C++ and carry no interpreter.",
+                {{"Live Logic every", &prefSettings_.liveLogicPollFrames, "Graph patch reads; graph execution still runs every update"}});
+        channel("Time machine", &prefSettings_.timeMachine,
+                "The game captures everything it mutates - object transforms,\n"
+                        "physics, animation, flow variables, save values, where the player\n"
+                        "stands - a few times a second, and the editor keeps a history of\n"
+                        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+                        "game back into any of them, with no rebuild and no reboot; with Live\n"
+                        "Logic on you can fix a graph first and watch the new logic play out\n"
+                        "on the situation that just broke. Costs one small file written next\n"
+                        "to the ELF every few frames, and nothing at all in a release build.\n"
+                        "See docs/time-machine.md.",
+                {{"Time machine every", &prefSettings_.timeMachineFrames, "Restore request reads and state capture writes"}});
+        channel("Remote Pad", &prefSettings_.remotePad,
+                "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+                        "you can click (or drive with the editor's own keyboard), and the game\n"
+                        "reads it out of one small file next to the ELF. Nothing needs the\n"
+                        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+                        "channel is scriptable from the command line\n"
+                        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+                        "an unattended input test possible. Works on real hardware over\n"
+                        "ps2link too (polled less often - it is a network round-trip there).\n"
+                        "Release builds carry none of it. See docs/remote-pad.md.",
+                {});
+        channel("Input recorder", &prefSettings_.inputRecorder,
+                "Records every frame's input - both pads, the USB keyboard and mouse,\n"
+                        "and the frame's own dt - into a file next to the ELF, and plays one\n"
+                        "back over the top of whatever a real controller is doing. So a bug\n"
+                        "somebody hit once can be reproduced on demand, with the Live Debugger\n"
+                        "and the time machine open beside it. Only the INPUT travels, which is\n"
+                        "what keeps ten minutes at about a megabyte; a saved recording lives in\n"
+                        "the project's recordings/ folder and is meant to be committed next to\n"
+                        "the bug it reproduces. Off by default - a recording is a file that\n"
+                        "grows while the game runs. Debugger > Replay, or the command line\n"
+                        "(tyrax-editor --record / --replay). See docs/input-replay.md.",
+                {});
         ImGui::BeginDisabled(profile == 0);
         ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
         ImGui::TextWrapped("Every = game updates between polls, 0 = auto. Rebuild to apply.");
         ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("At 50 FPS, 50 updates take one second; at 16 FPS about three. Longer\n"
-                              "intervals delay edits and reports. Paused debugger commands stay\n"
-                              "responsive; Remote Pad and replay input keep their own cadence.\n"
-                              "Turn unused channels off to remove their work entirely.");
-        auto every = [&](const char* label, int& frames, bool enabled) {
-            ImGui::BeginDisabled(!enabled);
-            if (ui::DragInt(label, &frames, 0.2f, 0, 120, frames == 0 ? "auto" : "every %d"))
-                frames = std::clamp(frames, 0, 120);
-            ImGui::EndDisabled();
-        };
-        every("Live Link every", prefSettings_.liveLinkPollFrames, prefSettings_.liveLink);
-        every("Live Logic every", prefSettings_.liveLogicPollFrames, prefSettings_.liveLogic);
-        every("Debugger commands every", prefSettings_.liveDebugPollFrames, prefSettings_.liveDebug);
-        every("Debugger reports every", prefSettings_.liveDebugSnapshotFrames, prefSettings_.liveDebug);
-        every("Time machine every", prefSettings_.timeMachineFrames, prefSettings_.timeMachine);
+        ImGui::EndDisabled();
     }
+    ImGui::BeginDisabled(profile == 0);
     ImGui::Separator();
     ui::Switch("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();

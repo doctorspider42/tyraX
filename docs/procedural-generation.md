@@ -15,7 +15,8 @@ recipe reads without opening a node and the filter that thins the forest is the
 one where the number drops. The canvas frames the graph whenever a volume is
 opened; its toolbar has *Add node* (Tab, or right-click), *Frame all* (F) and
 *Auto-arrange*, which lays the graph out left to right in rows that fit the
-canvas. The **inspector** on the right holds the volume - *Baked at build* /
+canvas, plus *Procedural layout* while another layout is active - one click to
+the docked desk with the graph under the viewport. The **inspector** on the right holds the volume - *Baked at build* /
 *Runtime on PS2*, the bake state card, the labelled triangle budget - then the
 parameters of the selected node with its description and *In → out* count
 (`245 → 235, -4%`), then the seed and the preview switches.
@@ -82,7 +83,8 @@ The window lets you:
 
 Graphs pass three data types: **points**, **masks** (0–1 fields over the region)
 and **curves**. Pins only accept their own type, and cycles are refused.
-Pins are coloured by type (the legend is on the canvas); a node with more than
+Pins are coloured by type - points blue, masks pink, curves green, from the
+theme's accent / special / ok colours (the legend is on the canvas); a node with more than
 one input or output labels the extra ones beside their pins.
 
 ## Node cheat sheet
