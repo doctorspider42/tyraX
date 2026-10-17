@@ -18,7 +18,9 @@ Every graph belongs to one object; the window always shows one of them.
 - **Graphs in** *scene* (left column, when the window is wide enough)
   lists only objects that have logic, with their trigger and node count, and a
   filter. *List objects without logic* adds the rest. Opening a graph frames
-  all of its nodes.
+  all of its nodes. A long name keeps its place and ends in "..."; the
+  trigger steps aside for it. When the window is narrow the list and the
+  node inspector give way before the canvas does.
 
 The header also counts nodes and links and carries two status pills:
 

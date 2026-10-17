@@ -743,16 +743,30 @@ void App::drawFlowGraphWindow() {
     const float thick = ImMax(6.0f, ImGui::GetFontSize() * 0.45f);  // the toolkit splitter's
     const float bodyH = ImMax(1.0f, ImGui::GetContentRegionAvail().y);
     const float totalW = ImGui::GetContentRegionAvail().x;
-    if (flowListW_ <= 0.0f) flowListW_ = scaled(190.0f);
+    if (flowListW_ <= 0.0f) flowListW_ = scaled(220.0f);
     if (flowInspW_ <= 0.0f) flowInspW_ = scaled(270.0f);
-    flowInspW_ = ImClamp(flowInspW_, scaled(220.0f), ImMax(scaled(220.0f), totalW * 0.4f));
-    flowListW_ = ImClamp(flowListW_, scaled(150.0f), ImMax(scaled(150.0f), totalW * 0.3f));
-    // The canvas comes first: the graph list folds away before it gets cramped.
-    const bool showList = totalW - flowListW_ - flowInspW_ - 2.0f * thick >= scaled(300.0f);
+    // Clamp what this frame draws, not the stored widths: a docked window's
+    // first frames are only a few px wide, and writing the clamp back crushed
+    // both columns to their minimum for good (names cut to "instrument").
+    float inspW = ImClamp(flowInspW_, scaled(220.0f), ImMax(scaled(220.0f), totalW * 0.4f));
+    float listW = ImClamp(flowListW_, scaled(150.0f), ImMax(scaled(150.0f), totalW * 0.3f));
+    // The canvas comes first: when it would get under half the window (or
+    // 300 px) the list and then the inspector give way down to their minimums,
+    // and only under 300 px does the graph list fold away.
+    {
+        float short_ = ImMax(scaled(300.0f), totalW * 0.5f) - (totalW - listW - inspW - 2.0f * thick);
+        if (short_ > 0.0f) {
+            const float l = ImMin(short_, listW - scaled(150.0f));
+            listW -= l;
+            short_ -= l;
+        }
+        if (short_ > 0.0f) inspW -= ImMin(short_, inspW - scaled(220.0f));
+    }
+    const bool showList = totalW - listW - inspW - 2.0f * thick >= scaled(300.0f);
 
     // --- left: the scene's graphs ----------------------------------------------
     if (showList) {
-        ImGui::BeginChild("##fg_graphs", ImVec2(flowListW_, bodyH));
+        ImGui::BeginChild("##fg_graphs", ImVec2(listW, bodyH));
         {
             char cnt[32];
             std::snprintf(cnt, sizeof(cnt), "%d of %d", (int)graphRows.size(), objCount);
@@ -819,17 +833,24 @@ void App::drawFlowGraphWindow() {
                 }
                 if (!sub.empty()) {
                     const float sw = ImGui::CalcTextSize(sub.c_str()).x;
-                    if (rx - sw > p.x + fs * 5.0f) {
+                    // The trigger yields to the name: "instrument-console" over
+                    // "instrument  On Used".
+                    const float nameEnd = p.x + fs * 1.1f + ImGui::CalcTextSize(o.name.c_str()).x;
+                    if (rx - sw - fs * 0.5f >= nameEnd) {
                         rx -= sw;
                         dl->AddText(ImVec2(rx, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
                                     ImGui::GetColorU32(sem.textDim), sub.c_str());
                         rx -= fs * 0.5f;
                     }
                 }
-                dl->PushClipRect(p, ImVec2(rx, q.y), true);
-                dl->AddText(ImVec2(p.x + fs * 1.1f, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
-                            ImGui::GetColorU32(dim ? sem.textDim : sem.text), o.name.c_str());
-                dl->PopClipRect();
+                {
+                    const float ty = p.y + (h - ImGui::GetTextLineHeight()) * 0.5f;
+                    ImGui::PushStyleColor(ImGuiCol_Text, dim ? sem.textDim : sem.text);
+                    ImGui::RenderTextEllipsis(dl, ImVec2(p.x + fs * 1.1f, ty),
+                                              ImVec2(rx, ty + ImGui::GetTextLineHeight()), rx,
+                                              o.name.c_str(), nullptr, nullptr);
+                    ImGui::PopStyleColor();
+                }
             };
             for (const GraphRow& r : graphRows) {
                 if (!matches(project_.objects()[r.index].name)) continue;
@@ -867,10 +888,11 @@ void App::drawFlowGraphWindow() {
         }
         ImGui::EndChild();
         ImGui::SameLine(0.0f, 0.0f);
-        ui::VSplitter("##fg_split_list", &flowListW_, scaled(150.0f), scaled(420.0f), bodyH);
+        if (ui::VSplitter("##fg_split_list", &listW, scaled(150.0f), scaled(420.0f), bodyH))
+            flowListW_ = listW;
     }
-    const float canvasW = ImMax(scaled(200.0f), totalW - (showList ? flowListW_ + thick : 0.0f) -
-                                                     flowInspW_ - thick);
+    const float canvasW = ImMax(scaled(200.0f), totalW - (showList ? listW + thick : 0.0f) -
+                                                     inspW - thick);
     std::vector<int> selNodes;  // filled after the canvas draws; read by the inspector
 
     // --- centre: the canvas ------------------------------------------------------
@@ -3621,7 +3643,7 @@ void App::drawFlowGraphWindow() {
     {
         float cw = canvasW;
         ui::VSplitter("##fg_split_insp", &cw, scaled(200.0f), scaled(220.0f), bodyH);
-        flowInspW_ += canvasW - cw;  // dragging the strip right narrows the inspector
+        if (cw != canvasW) flowInspW_ = inspW + (canvasW - cw);  // dragging right narrows the inspector
     }
     ImGui::BeginChild("##fg_inspector", ImVec2(0, bodyH), ImGuiChildFlags_AlwaysUseWindowPadding);
     {
@@ -3848,8 +3870,15 @@ void App::drawFlowGraphWindow() {
                             ImGui::GetColorU32(sem.text), txt.c_str());
                 dl->AddCircleFilled(c, fs * 0.22f, ImGui::GetColorU32(sem.accent));
                 dl->PopClipRect();
-                ImGui::TextDisabled("Centred on %.2f, %.2f \xc2\xb7 %.0f px \xc2\xb7 %s", n.num[0], n.num[1],
-                                    n.num[2], n.num[3] > 0.0f ? "hides after a while" : "stays");
+                // Wrapped: at the inspector's default width the line ran off its edge.
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                if (n.num[3] > 0.0f)
+                    ImGui::TextWrapped("Centred on %.2f, %.2f \xc2\xb7 %.0f px \xc2\xb7 hides after %.1f s",
+                                       n.num[0], n.num[1], n.num[2], n.num[3]);
+                else
+                    ImGui::TextWrapped("Centred on %.2f, %.2f \xc2\xb7 %.0f px \xc2\xb7 stays", n.num[0],
+                                       n.num[1], n.num[2]);
+                ImGui::PopStyleColor();
             }
 
             // Wiring, both ways; each end is a link to that node.
