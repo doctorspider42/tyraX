@@ -27,6 +27,9 @@ where a phone move is recorded into the sequence) and imports a take.
   will composite and a label naming the camera, its FOV and shake. *Shot*
   leaves the main viewport to you; *Also drive the viewport* makes it film
   through the sequence camera too (what the Director always did before).
+  Opening the Director, or picking another sequence, parks the playhead at
+  the end of the fade-in - the first frame with something to see - instead of
+  the black 0:00 (the saved sequence is not touched; rewind still goes to 0).
 - **The timeline** shows the camera lane as **clips** — one per shot, named
   and coloured by camera, as long as it holds; a Smooth or Linear blend fades
   into the next shot's colour, a Cut is a hard edge. Click a clip to select
