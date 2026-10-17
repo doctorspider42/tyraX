@@ -428,15 +428,26 @@ void App::drawParticleEditorWindow() {
         }
         // The honest pill.
         {
-            const char* pill = "2D approximation - exact motion runs on a placed emitter";
-            const ImVec2 ts = ImGui::CalcTextSize(pill);
+            // The whole sentence when it fits beside the toolbar, else the
+            // short form with the sentence on hover - never silently gone
+            // (at the default window size the long one never fitted).
+            const char* full = "2D approximation - exact motion runs on a placed emitter";
+            const float room = sz.x - (c1.x - q0.x) - pad * 2.0f;
+            const char* pill = full;
+            ImVec2 ts = ImGui::CalcTextSize(pill);
+            if (ts.x + scaled(20) >= room) {
+                pill = "2D approximation";
+                ts = ImGui::CalcTextSize(pill);
+            }
             const float pw = ts.x + scaled(20);
-            if (pw < sz.x - (c1.x - q0.x) - pad * 2.0f) {
+            if (pw < room) {
                 const ImVec2 p0(q1.x - pad - pw, q0.y + pad);
                 const ImVec2 p1(q1.x - pad, p0.y + oh + ui::OverlayPad() * 2.0f);
                 ui::OverlayPanel(dl, p0, p1);
                 dl->AddText(ImVec2(p0.x + scaled(10), (p0.y + p1.y - ts.y) * 0.5f),
                             ImGui::GetColorU32(sem.textDim), pill);
+                if (pill != full && ImGui::IsMouseHoveringRect(p0, p1) && ImGui::IsWindowHovered())
+                    ImGui::SetTooltip("%s", full);
             }
         }
         // The selected layer's generated texture and its cost.
