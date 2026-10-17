@@ -4408,10 +4408,22 @@ void App::drawRemotePadWindow() {
     // widget only draws and reports (toolkit.hpp "pad"); the latching, the
     // spring-back and the keyboard stay here.
     const float availW = ImGui::GetContentRegionAvail().x;
-    const float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
-    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
     const float lineH = ImGui::GetTextLineHeight();
     const float readH = lineH * 2.0f + scaled(4);
+    // The drawing grows with the width but never pushes the two switches and
+    // the Release all footer out of the window: cap it by the height left.
+    float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
+    {
+        const ImGuiStyle& gs = ImGui::GetStyle();
+        const float frameH = ImGui::GetFrameHeight();
+        const float cardFixed = scaled(26) + scaled(8) + readH + scaled(6) + frameH + scaled(10);
+        const float below = scaled(8) + 2.0f * (frameH + lineH + gs.ItemSpacing.y * 2.0f) +
+                            gs.ItemSpacing.y * 2.0f + scaled(4) + frameH + gs.ItemSpacing.y;
+        const float roomH = ImGui::GetContentRegionAvail().y - cardFixed - below;
+        const float perW = ui::PadDiagramHeight(ui::PadMode::Interactive, 1000.0f) / 1000.0f;
+        if (perW > 0.0f && roomH > 0.0f) padW = ImMax(scaled(160), ImMin(padW, roomH / perW));
+    }
+    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
     const float cardH = scaled(26) + padH + scaled(8) + readH + scaled(6) + ImGui::GetFrameHeight() + scaled(10);
     const ImVec2 o = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
