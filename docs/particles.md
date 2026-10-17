@@ -49,7 +49,10 @@ The window is three columns: the **library**, the **preview** in the middle
   - **Placement**: an extra layer's name, *Offset* and *Area*, and **Remove
     layer** (also on the layer's right-click menu).
 - The footer: **Duplicate** and the primary **Place in scene** (an emitter
-  linked to the effect, inserted where objects are inserted).
+  linked to the effect, inserted where objects are inserted). In a narrow
+  window the footer keeps only *Place in scene* (Duplicate stays on the
+  library row's right-click menu), the preview toolbar shortens to *All* /
+  *Solo*, and a layer row drops its motion word before it cuts the name.
 
 Renaming an effect retargets every emitter and vehicle that names it.
 
