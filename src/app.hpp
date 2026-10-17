@@ -1709,6 +1709,7 @@ private:
     std::thread projectLoadThread_;
     std::atomic<bool> projectLoadAbort_{false};
     std::atomic<bool> projectLoadReady_{false};
+    project::LoadProgress projectLoadProgress_;  // the phase list's live state (written by the thread)
     bool projectLoadResultTaken_ = true;
     std::unique_ptr<Project> projectLoadResult_;  // written by the thread
     std::string projectLoadResultErr_;            // written by the thread

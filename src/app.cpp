@@ -6714,8 +6714,12 @@ void App::projectLoadTick() {
             projectLoadReady_ = false;
             projectLoadResultTaken_ = false;
             projectLoadResult_ = std::make_unique<Project>();
+            projectLoadProgress_.phase = 0;
+            projectLoadProgress_.objectsDone = 0;
+            projectLoadProgress_.objectsTotal = 0;
             projectLoadThread_ = std::thread([this, dir = projectLoadDir_] {
-                projectLoadResultErr_ = project::load(*projectLoadResult_, dir, &projectLoadAbort_);
+                projectLoadResultErr_ =
+                    project::load(*projectLoadResult_, dir, &projectLoadAbort_, &projectLoadProgress_);
                 projectLoadReady_ = true;
             });
             return;
@@ -6901,9 +6905,17 @@ void App::drawProjectLoadingScreen() {
             }
         }
     } else {
-        // Progress: indeterminate inside a stage - the loader has no honest
-        // fraction - but the bar stands at the stage boundary it has passed.
-        const float frac = projectLoadStage_ == 0 ? 0.0f : 0.6f;
+        // Progress: the bar stands at the boundary the loader has passed -
+        // through the object files it moves file by file (LoadProgress) -
+        // and the sweep says "still working" inside a step.
+        float frac = 0.6f;
+        if (projectLoadStage_ == 0) {
+            const int ph = projectLoadProgress_.phase.load();
+            const int tot = projectLoadProgress_.objectsTotal.load();
+            frac = ph <= 0 ? 0.0f
+                   : ph == 1 ? 0.05f + 0.4f * (tot > 0 ? ImClamp((float)projectLoadProgress_.objectsDone.load() / (float)tot, 0.0f, 1.0f) : 0.0f)
+                             : 0.5f;
+        }
         {
             const float w = ImGui::GetContentRegionAvail().x;
             const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -6927,10 +6939,20 @@ void App::drawProjectLoadingScreen() {
             std::string count;
         };
         const bool s1 = projectLoadStage_ >= 1;
+        // Stage 0's reader reports its phase (project::LoadProgress): the
+        // manifest, then the object files (done / total), then heightmaps.
+        const int ph0 = s1 ? 3 : projectLoadProgress_.phase.load();
+        auto stateOf = [&](int phase) { return ph0 > phase ? 2 : ph0 == phase ? 1 : 0; };
+        std::string objCount;
+        if (s1)
+            objCount = std::to_string(projectLoadObjects_);
+        else if (ph0 == 1 && projectLoadProgress_.objectsTotal.load() > 0)
+            objCount = std::to_string(projectLoadProgress_.objectsDone.load()) + " / " +
+                       std::to_string(projectLoadProgress_.objectsTotal.load());
         const Phase phases[] = {
-            {"Project file", s1 ? 2 : 1, ""},
-            {"Objects", s1 ? 2 : 1, s1 ? std::to_string(projectLoadObjects_) : std::string()},
-            {"Terrain", s1 ? 2 : 1,
+            {"Project file", stateOf(0), ""},
+            {"Objects", stateOf(1), objCount},
+            {"Terrain", stateOf(2),
              s1 ? (projectLoadTerrains_ == 0 ? std::string("none")
                    : std::to_string(projectLoadTerrains_) + (projectLoadTerrains_ == 1 ? " heightmap" : " heightmaps"))
                 : std::string()},
@@ -6947,7 +6969,7 @@ void App::drawProjectLoadingScreen() {
             } else if (ph.state == 1) {
                 ui::Spinner(dl, c, fs * 0.42f);
             } else {
-                dl->AddCircle(c, fs * 0.45f, ImGui::GetColorU32(sem.border), 20, 1.5f);
+                dl->AddCircle(c, fs * 0.45f, ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, 0.45f)), 20, 1.5f);
             }
             ImVec4 cv = ph.state == 1 ? sem.text : sem.textDim;
             if (ph.state == 0) cv.w *= 0.7f;
