@@ -19241,6 +19241,9 @@ void App::drawPreferencesWindow() {
     // signal, the presentation and the reconstruction in one place.
     prefSection("Frame delivery (upscaler, extrapolation)");
     drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    // The network's own knobs - the Neural Upscaler window's old "Project
+    // settings" tab drew them; this is their only home now.
+    drawBlssNetworkTuning(prefSettings_);
     if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
         showBlss_ = true;
     prefHelp(
