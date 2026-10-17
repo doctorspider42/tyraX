@@ -12319,8 +12319,12 @@ void App::drawSaveDataSection() {
         ImGui::AlignTextToFramePadding();
         if (s.empty())
             ImGui::TextColored(sem.warn, "nothing uses it");
-        else
-            ImGui::TextDisabled("%s", s.c_str());
+        else {
+            // Wrapped, as the design draws it: one line cut "commit-pedestal, huc".
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::TextWrapped("%s", s.c_str());
+            ImGui::PopStyleColor();
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", s.empty() ? "No flow node or menu row reads or writes it." : useTooltip(u).c_str());
     };
