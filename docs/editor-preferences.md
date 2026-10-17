@@ -27,7 +27,7 @@ every page by name and description (try `ip`, `docker`, `model`).
 
 | Page | Settings |
 |---|---|
-| **Appearance** | The theme as cards with their colours (applies on click - see [the editor's look](editor-theme.md)); *Use the native title bar* (macOS and Windows; a *Restart TyraX to apply* badge until the next start); the interface font and scale in use. |
+| **Appearance** | The theme as cards with their colours (applies on click - see [the editor's look](editor-theme.md)); *Use the native title bar* (macOS and Windows; a *Restart TyraX to apply* badge until the next start); *Windows can leave the main window* (a panel dragged out of the editor becomes its own OS window - [details](editor-theme.md#windows-outside-the-main-window); applies at once, on by default except in a Wayland session, where it is unavailable); the interface font and scale in use. |
 | **Projects** | *Default folder* for New Project and for opened examples (empty = `~/TyraProjects`, shown in the field). |
 | **Running games** | *PCSX2*: empty means auto-detect, and the field shows what was found ("Auto-detected: ...") or that nothing was; a configured path that does not exist is flagged. *ps2link IP* for Run on PS2 (F6) - [setup](ps2link-setup.md) - with **Test connection**, which says whether ps2link listens at that address (answered in N ms / no answer within 2 s / refused - not ps2link) without deploying anything. *Console log*: lines per session file and how many files to keep. |
 | **Build** | *Build backend*: Native (default) or Docker fallback. The Docker-only *Compiler image* and *Image name* appear only when the fallback is picked ([toolchain image](toolchain-image.md)). |

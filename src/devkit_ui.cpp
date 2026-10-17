@@ -37,6 +37,7 @@
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "multiviewport.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -4179,6 +4180,18 @@ void App::uiScriptTick() {
             // capture holds the UI the script has built up to here.
             uiShotPath_ = s.arg;
             finishStep();
+            break;
+        case uiscript::Step::Undock:  // multiviewport.cpp; settles over a few frames
+        case uiscript::Step::Dock:
+        case uiscript::Step::MainWindow:
+            if (uiStepPhase_ == 0) {
+                const std::string why = mvp::scriptStep(s);
+                if (!why.empty()) {
+                    failStep(s, why);
+                    break;
+                }
+            }
+            if (++uiStepPhase_ > 4) finishStep();
             break;
         case uiscript::Step::Dump:
             std::printf("%s", uiscript::dumpText().c_str());

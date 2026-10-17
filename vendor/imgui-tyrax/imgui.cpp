@@ -1406,6 +1406,7 @@ static const char*      Platform_GetClipboardTextFn_DefaultImpl(ImGuiContext* ct
 static void             Platform_SetClipboardTextFn_DefaultImpl(ImGuiContext* ctx, const char* text);
 static void             Platform_SetImeDataFn_DefaultImpl(ImGuiContext* ctx, ImGuiViewport* viewport, ImGuiPlatformImeData* data);
 static bool             Platform_OpenInShellFn_DefaultImpl(ImGuiContext* ctx, const char* path);
+static bool             IsViewportAbove(ImGuiViewportP* potential_above, ImGuiViewportP* potential_below); // TYRAX: forward, used in Begin
 
 namespace ImGui
 {
@@ -8351,8 +8352,16 @@ bool ImGui::Begin(const char* name, bool* p_open, ImGuiWindowFlags flags)
             window->Pos = FindBestWindowPosForPopup(window);
 
         // Late create viewport if we don't fit within our current host viewport.
+        // TYRAX: ...or when it is a popup / menu / tooltip that a platform window above its host viewport would cover
+        // (a panel's own OS window over the main window hid the menus opened under it).
+        bool tyrax_popup_obstructed = false;
+        if ((flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) && !window->ViewportOwned && (g.ConfigFlagsCurrFrame & ImGuiConfigFlags_ViewportsEnable))
+            for (ImGuiViewportP* other : g.Viewports)
+                if (other != window->Viewport && other->PlatformWindowCreated && !(other->Flags & (ImGuiViewportFlags_IsMinimized | ImGuiViewportFlags_NoInputs)) &&
+                    other->GetMainRect().Overlaps(window->Rect()) && IsViewportAbove(other, window->Viewport))
+                    tyrax_popup_obstructed = true;
         if (window->ViewportAllowPlatformMonitorExtend >= 0 && !window->ViewportOwned && !(window->Viewport->Flags & ImGuiViewportFlags_IsMinimized))
-            if (!window->Viewport->GetMainRect().Contains(window->Rect()))
+            if (!window->Viewport->GetMainRect().Contains(window->Rect()) || tyrax_popup_obstructed) // TYRAX: || obstructed
             {
                 // This is based on the assumption that the DPI will be known ahead (same as the DPI of the selection done in UpdateSelectWindowViewport)
                 //ImGuiViewport* old_viewport = window->Viewport;
@@ -17536,6 +17545,8 @@ static void ImGui::WindowSelectViewport(ImGuiWindow* window)
         // We cannot test window->ViewportOwned as it set lower in the function.
         // Testing (g.ActiveId == 0 || g.ActiveIdAllowOverlap) to avoid merging during a short-term widget interaction. Main intent was to avoid during resize (see #4212)
         bool try_to_merge_into_host_viewport = (window->Viewport && window == window->Viewport->Window && (g.ActiveId == 0 || g.ActiveIdAllowOverlap));
+        if (flags & ImGuiWindowFlags_Popup) // TYRAX: an open popup keeps the OS window it was given (re-decided when it next appears) - merging it back flip-flopped against the obstruction rule in Begin
+            try_to_merge_into_host_viewport = false;
         if (try_to_merge_into_host_viewport)
             UpdateTryMergeWindowIntoHostViewports(window);
     }

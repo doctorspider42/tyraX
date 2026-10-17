@@ -70,11 +70,14 @@ split point of `Window/Label` is tried, longest window prefix first.
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
 | `text <string>` | type into whatever has keyboard focus |
 | `wait <seconds>` / `frames <n>` | let the editor run |
-| `shot <file.png>` | write the editor's own framebuffer (works with no display permissions, and survives the AMD present quirk) |
+| `shot <file.png>` | write the editor's own framebuffer (works with no display permissions, and survives the AMD present quirk); every panel in an OS window of its own is written beside it as `<file>-<window>.png` (see *Windows outside the main window* below) |
 | `expect <target>` / `expect-not <target>` | assert it is / is not on screen |
 | `expect-checked` / `expect-unchecked` | assert a checkbox's or menu item's tick |
 | `dump` | print every widget on screen, with its rect and state |
 | `log <text>` | a line in the output |
+| `undock <window> <x>,<y> [<w>,<h>]` | take a window (by its exact ImGui name: `Properties`, `Asset Browser`) out of its dock node and put it at x,y from the main window's top-left; outside the main window it becomes an OS window of its own |
+| `dock <window> <docked window>` | dock it back, as a tab of the node that holds the second window (`dock Properties Project`) |
+| `mainwindow <x>,<y> <w>,<h>` | un-maximize the editor window and place it (desktop coordinates) - on one screen, the room a panel needs to live outside it |
 | `quit` | close the editor (added implicitly at the end) |
 
 **Every step that names a target waits for it** (up to 5 s) instead of sleeping.
@@ -173,6 +176,31 @@ asserts what the game is being sent (a Shift-click latch, a `--pad` script, the
 AI's `press_pad`). The Input Map's diagram has the same names (`"Input
 Map/Cross"`; checked = the selected action's button), and a pad-button combo's
 popup has them too, next to its list rows named `Cross`, `DpadUp`...
+
+## Windows outside the main window
+
+With *Windows can leave the main window* on ([preferences](editor-preferences.md)),
+ImGui positions are desktop coordinates and a panel can be an OS window of its
+own. Scripts keep working: every item's rect is in the same desktop space, and
+the runner tells ImGui which OS window is under the scripted cursor (the real
+cursor is elsewhere, and the backend only reports real ones), so `click
+'Properties/Open the graph'` lands in the Properties window wherever it is. A
+real drag works too - `drag 'WindowOverViewport_11111111/DockSpace_08BD597D/Flow Graph' 700 100`
+tears the Flow Graph tab out - but `undock` is the dependable form:
+
+```
+mainwindow 0,40 1000,760          # leave room beside the editor on one screen
+undock Properties 1010,0 470,420  # its own OS window, right of the editor
+click 'Project/the-cube  (scatter)'
+expect 'Properties/Open the graph'
+shot /tmp/out.png                 # out.png + out-Properties.png
+dock Properties Project
+```
+
+macOS: the screen must be awake. GLFW lists no monitors while the display
+sleeps, and without a monitor ImGui never creates a platform window - an
+unattended run then silently keeps everything in the main window. Run the
+editor under `caffeinate -d -u`.
 
 ## Limits
 

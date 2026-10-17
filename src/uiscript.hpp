@@ -147,10 +147,20 @@ struct Step {
         Log,   // arg = message
         Quit,  // close the editor
         Drop,  // arg = target, path = file, dx/dy = offset: an OS file drop
+        // Windows outside the main window (multiviewport.hpp). A real drag of
+        // a tab out of the OS window is not something injected input can do
+        // reliably, so these two move a window by name instead.
+        Undock,  // arg = window name, dx/dy = position from the main window's
+                 // top-left (outside it = its own OS window), w/h = size or 0
+        Dock,    // arg = window name, path = a docked window to join
+        MainWindow,  // dx/dy = the editor window's desktop position, w/h = its
+                     // size: un-maximized, so a panel has room outside it on
+                     // a single screen
     };
     Kind kind = Click;
     std::string arg;
     float dx = 0, dy = 0;
+    float w = 0, h = 0;  // Undock: the window's size (0 = keep)
     bool shiftClick = false;
     double seconds = 0;
     int n = 0;
