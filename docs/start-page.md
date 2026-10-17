@@ -78,6 +78,7 @@ On the right:
   are a meter - [world scale](world-scale.md)).
 - **AI coding assistants** - *Claude Code*, *Codex*, *GitHub Copilot*: guidance
   files for an assistant opened in the project ([AI support](ai-support.md)).
+  *Claude Code* starts selected; click it to leave its files out.
 - The **summary** card says what Create makes: the scene, its ground and
   player, and that it builds in the debug profile with Live Link on. A player
   with no ground gets a warning - it would start in mid-air.

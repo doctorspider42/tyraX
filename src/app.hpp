@@ -3831,7 +3831,7 @@ private:
     float newUnitsPerMeter_ = 1.0f;
     // "Add AI support": install the assistant skill files (aisupport.hpp)
     // into the fresh project. Also available later in Project Preferences.
-    bool newAiClaude_ = false;
+    bool newAiClaude_ = true;  // pre-selected, as designed (NewProject.dc.html)
     bool newAiCopilot_ = false;
     bool newAiCodex_ = false;
     std::string newProjectError_;
