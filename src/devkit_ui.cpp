@@ -2795,8 +2795,12 @@ void App::dbgDrawStatsPage() {
         ImGui::TextDisabled("largest free block %u KB \xc2\xb7 %d textures resident (peak %d)", st.vramLargestKB,
                             st.vramResident, st.vramPeak);
         ui::FontScope mono(ui::monoFont());
+        // Wrapped: beside the Stopped at aside the half-width card is narrower
+        // than this line, which then lost its last word to the card's edge.
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextDisabled("%u binds \xc2\xb7 %u hits \xc2\xb7 %u uploads \xc2\xb7 %u evictions", st.vramBinds,
                             st.vramHits, st.vramUploads, st.vramEvictions);
+        ImGui::PopTextWrapPos();
         if (st.vramEvictions) {
             ImGui::TextColored(sem.warn, "Evictions: the working set does not fit, textures re-upload.");
         }
