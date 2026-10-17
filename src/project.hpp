@@ -4919,6 +4919,17 @@ std::string load(Project& out, const std::string& projectDir);
 // Cancel can be pressed mid-load (App::projectLoadTick).
 inline constexpr const char* kLoadCancelled = "Opening cancelled";
 std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel);
+// Where a load() on another thread has got to, for the Opening Project
+// screen's phase list. Written by the loading thread, read by the UI thread
+// (atomics only). phase: 0 reading the manifest, 1 object files
+// (objectsDone of objectsTotal), 2 terrain heightmaps, 3 finished.
+struct LoadProgress {
+    std::atomic<int> phase{0};
+    std::atomic<int> objectsDone{0};
+    std::atomic<int> objectsTotal{0};
+};
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel,
+                 LoadProgress* progress);
 
 // Writes the single <name>.tyra project file. Editor-side state (selection,
 // gizmo, view mode) and the window layout are taken from the Project fields.

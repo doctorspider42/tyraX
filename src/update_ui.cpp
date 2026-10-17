@@ -12,8 +12,11 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <sstream>
+#include <string>
 
 #include "app.hpp"
 #include "app_internal.hpp"
@@ -280,6 +283,42 @@ void drawReleaseNotes(const std::string& md) {
     flushPara();
 }
 
+// The release asset in words, the way the header names it: what kind of
+// package for which machine, then its size - "macOS app, Apple silicon ·
+// 188 MB" - instead of the file name the release workflow stamped.
+std::string describeAsset(const std::string& name, long long bytes) {
+    auto ends = [&](const char* suf) {
+        const size_t n = std::strlen(suf);
+        if (name.size() < n) return false;
+        for (size_t i = 0; i < n; ++i)
+            if (std::tolower((unsigned char)name[name.size() - n + i]) != suf[i]) return false;
+        return true;
+    };
+    std::string what;
+    if (ends("-macos-arm64.dmg")) what = "macOS app, Apple silicon";
+    else if (ends("-macos-x86_64.dmg")) what = "macOS app, Intel";
+    else if (ends(".dmg")) what = "macOS app";
+    else if (ends(".exe")) what = "Windows installer";
+    else if (ends("-linux-x86_64.tar.gz")) what = "Linux, x86-64";
+    else if (ends(".tar.gz")) what = "Linux";
+    else what = name;
+    if (bytes > 0) {
+        char mb[32];
+        std::snprintf(mb, sizeof(mb), "%.0f MB", (double)bytes / 1048576.0);
+        what += what.empty() ? std::string(mb) : std::string(" \xC2\xB7 ") + mb;
+    }
+    return what;
+}
+
+// "2026-10-16" -> "Oct 16"; anything else as it came.
+std::string shortDate(const std::string& iso) {
+    static const char* const kMon[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    int y = 0, m = 0, d = 0;
+    if (std::sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3 || m < 1 || m > 12) return iso;
+    return std::string(kMon[m - 1]) + " " + std::to_string(d);
+}
+
 }  // namespace
 
 void App::drawUpdateModal() {
@@ -341,11 +380,13 @@ void App::drawUpdateModal() {
             ImGui::TextUnformatted(updateRelease_.version.c_str());
             ImGui::PopStyleColor();
             std::string meta;
-            if (!updateRelease_.published.empty()) meta += updateRelease_.published;
+            if (!updateRelease_.published.empty()) meta += "\xC2\xB7 " + shortDate(updateRelease_.published);
             if (!updateRelease_.assetName.empty())
-                meta += (meta.empty() ? "" : "  ") + updateRelease_.assetName;
+                meta += (meta.empty() ? "\xC2\xB7 " : " \xC2\xB7 ") +
+                        describeAsset(updateRelease_.assetName, updateRelease_.assetBytes);
             if (!meta.empty()) {
                 ImGui::SameLine();
+                ui::FontScope words(ImGui::GetDefaultFont());  // words, not numbers: the UI face
                 ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
                 ImGui::TextUnformatted(meta.c_str());
                 ImGui::PopStyleColor();

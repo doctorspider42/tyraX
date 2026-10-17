@@ -92,8 +92,11 @@ command line) shows a card with the project's name - the one in its `.tyra`
 file, not just the folder's - where it is and how many scenes it has, and the
 steps of loading: **Project file**, **Objects** (with the count), **Terrain**
 (heightmaps) and **Workspace** (the viewport's meshes and textures). Finished
-steps get a tick, the running one a spinner; the bar does not pretend to know
-a percentage inside a step. The time so far is in the corner.
+steps get a tick, the running one a spinner, the ones still to come an empty
+ring - the steps follow the reader as it goes, and while it reads the object
+files *Objects* counts them (`245 / 489`) and the bar moves with it. Inside the
+other steps the bar does not pretend to know a percentage. The time so far is
+in the corner.
 
 ![The Opening card: project name and folder, the four loading steps and
 Cancel.](img/opening-project.png)

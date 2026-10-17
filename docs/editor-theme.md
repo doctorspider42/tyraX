@@ -101,6 +101,14 @@ A few things worth knowing because they are decisions rather than defaults:
   buttons hover lighter rather than bluer — sweeping the cursor over a row of
   controls should not flash the accent at each one. The accent is for a press,
   a selection and an active edit.
+- **Sliders are a thin track, not a field.** Every slider (a range: volume,
+  brightness, a count) is a 4 px track filled in the accent up to a round
+  white knob, with the value in the mono face at the right end of the row -
+  the look of the tool designs. A click on the value, a double-click anywhere
+  or Ctrl+click types a number into a field over the whole row. Numeric drag
+  fields (positions, sizes) keep the inset-field look: they are numbers, not
+  ranges. This is another small ImGui patch (`ImGuiStyle::SliderThinTrack`),
+  so it applies to every `ImGui::SliderFloat` / `SliderInt` in the editor.
 - **X, Y and Z are named inside the field** (`ui::AxisDrag3`) in the move
   gizmo's colours, which are the same in every theme: a red X is a
   convention, not a palette choice.

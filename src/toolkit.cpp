@@ -1673,11 +1673,13 @@ bool TrackSlider(const char* id, float* v, float lo, float hi, const std::string
         dl->AddRectFilledMultiColor(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), fade(fromCol), fade(toCol), fade(toCol),
                                     fade(fromCol));
     } else {
-        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), ImGui::GetColorU32(ImGuiCol_FrameBg), 2.0f);
+        // The same track and knob as every stock slider (ImGuiStyle::SliderThinTrack).
+        dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(x1, cy + 2), ImGui::GetColorU32(ImGuiCol_Border, alpha), 2.0f);
         dl->AddRectFilled(ImVec2(x0, cy - 2), ImVec2(kx, cy + 2), c32(sem.accent, alpha), 2.0f);
     }
     const bool hot = enabled && (ImGui::IsItemHovered() || ImGui::IsItemActive());
-    dl->AddCircleFilled(ImVec2(kx, cy), hot ? 8.0f : 7.0f, c32(sem.text, 0.96f * alpha), 20);
+    dl->AddCircleFilled(ImVec2(kx, cy), hot ? 8.0f : 7.0f, ImGui::GetColorU32(ImGuiCol_Border, alpha), 24);
+    dl->AddCircleFilled(ImVec2(kx, cy), hot ? 7.0f : 6.0f, IM_COL32(255, 255, 255, (int)(255 * alpha)), 24);
     if (detail) {
         const float right = p.x + w;
         if (detailW > 0.0f) {

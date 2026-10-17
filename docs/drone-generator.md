@@ -29,7 +29,9 @@ saved field - every control reads its value back from the patch and writes by
 rescaling the fields the Detailed knobs edit, so a `.drone` file is the same
 whichever view made it.
 
-- **Track bar**: the track picker (the project's `.drone` files, *New track*,
+- **Track bar**: a small swatch of the track's sky (its mood's colours, lit
+  by *Brightness*; a night blue for a track from no mood), the track picker
+  (the project's `.drone` files, *New track*,
   *Open file...*; the same unsaved-changes question as the rail), "Plays in
   scene X" when a scene plays it (click = jump to *In the game*), the state
   (*Not saved* / *Changed since last save* / *Saved*) and `...` (new, open,

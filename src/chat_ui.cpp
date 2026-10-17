@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
+#include <cstring>
 #include <chrono>
 #include <limits>
 #include <filesystem>
@@ -1705,6 +1706,34 @@ bool chatChangeRow(const aichat::ToolCall& c, ChangeRow& r) {
         r.title = n == "press_pad" ? aichat::argStr(c, "script") : n;
         r.detail = firstLine(c.result);
         if (n == "press_pad") r.padScript = aichat::argStr(c, "script");
+        // A parked command (pad script, build) answers "... Waiting..." first
+        // and gets its outcome APPENDED when it settles (aiChatTick): once it
+        // is there, the card says how it ended instead of still waiting.
+        const size_t nl = c.result.find('\n');
+        const bool settled = nl != std::string::npos ||
+                             c.result.find("The game is up") != std::string::npos ||
+                             c.result.find("never reported") != std::string::npos;
+        if (settled && (n == "press_pad" || n == "build_game")) {
+            std::string head = c.result.substr(0, nl);
+            for (const char* w : {" Waiting for it...", " Waiting..."}) {
+                const size_t at = head.rfind(w);
+                if (at != std::string::npos && at + std::strlen(w) == head.size()) head.erase(at);
+            }
+            if (n == "press_pad") {
+                const std::string pre = "Driving the pad: ";
+                if (head.rfind(pre, 0) == 0) head = "Played " + head.substr(pre.size());
+                if (!head.empty() && head.back() == '.') head.pop_back();
+                const bool logged = c.result.find("The game logged while it ran") != std::string::npos;
+                r.detail = firstLine(head + (logged ? " - the game logged while it ran" : " - the game logged nothing"));
+            } else {
+                const bool ok = c.result.find("The build SUCCEEDED") != std::string::npos;
+                const bool failed = c.result.find("The build FAILED") != std::string::npos;
+                if (ok || failed) r.detail = ok ? "Build succeeded" : "Build failed";
+                if (ok && c.result.find("The game is up") != std::string::npos) r.detail += " - the game is up";
+                else if (ok && c.result.find("never reported") != std::string::npos)
+                    r.detail += " - the game never reported";
+            }
+        }
     }
     return true;
 }

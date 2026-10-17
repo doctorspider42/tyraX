@@ -342,6 +342,11 @@ void applyMetrics(ImGuiStyle& s) {
     s.TabBarBorderSize = 0.0f;
     s.TabBarOverlineSize = 0.0f;
     s.TabPillInset = 3.0f;
+    // Sliders are a 4 px track filled in the accent up to a round white knob,
+    // the value as mono text at the row's right end (style.SliderThinTrack,
+    // an in-tree ImGui patch) - the look of the tool designs' sliders.
+    // DragFloat fields keep the framed look: they are numbers, not ranges.
+    s.SliderThinTrack = 4.0f;
     s.MenuItemRounding = 5.0f;
     // The gap between docked panels. Wide enough to read as a gap (the panels
     // become separate cards on the ground colour - pushDockspaceColors) and to

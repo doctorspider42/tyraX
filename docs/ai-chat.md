@@ -50,6 +50,9 @@ Pad. It is a separate step because builds are slow and not undone by `Ctrl+Z`. A
 `press_pad` row in the change card draws what it pressed: one small
 controller per moment of the pad script, the held buttons lit, with the
 buttons and how long they were held under it (`Cross + L stick · 0.3 s`).
+Its line says *Waiting...* while the script plays and how it ended once it has
+(`Played 6 step(s), 1.3 s - the game logged while it ran`); a build row the
+same way (*Build succeeded - the game is up*).
 
 It cannot import files, sculpt or paint terrain, edit arbitrary source files or
 touch anything outside the project model.

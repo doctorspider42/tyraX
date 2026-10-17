@@ -24,7 +24,10 @@ ImFont* gMono = nullptr;
 }  // namespace
 
 void setBoldFont(ImFont* f) { gBold = f; }
-void setMonoFont(ImFont* f) { gMono = f; }
+void setMonoFont(ImFont* f) {
+    gMono = f;
+    ImGui::GetIO().SliderValueFont = f;  // a thin-track slider's value text (vendor/imgui-tyrax patch)
+}
 ImFont* boldFont() { return gBold; }
 ImFont* monoFont() { return gMono; }
 
@@ -860,121 +863,20 @@ bool DragFloat2(const char* label, float v[2], float speed, float vmin, float vm
 bool DragInt(const char* label, int* v, float speed, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
     return rowWidget(label, [&] { return ImGui::DragInt(label, v, speed, vmin, vmax, fmt, flags); });
 }
-static ImU32 gNextSliderFrom = 0, gNextSliderTo = 0;
+// The next slider paints its track as a gradient: the in-tree ImGui patch
+// (style.SliderThinTrack, vendor/imgui-tyrax/TYRAX-PATCHES.md) draws every
+// slider - inspector row or not - so the cue rides along on the context.
 void SetNextSliderGradient(ImU32 from, ImU32 to) {
-    gNextSliderFrom = from;
-    gNextSliderTo = to;
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    g.SliderNextTrackFrom = from;
+    g.SliderNextTrackTo = to;
 }
-
-namespace {
-
-// (verify-world) An inspector-row slider drawn the way every redesigned panel
-// shows one: a thin track with a knob, the value in the mono face at the
-// row's right end. ImGui's stock slider centred the value ON the grab, so a
-// knob near the middle covered the number ("24 u" under the knob). The stock
-// widget still does the work (same ID, ctrl-click typing, --ui-script drag,
-// IsItemDeactivatedAfterEdit) with its frame, grab and text made transparent
-// and its width cut short by the value column; while it is being typed into
-// it is drawn stock. `show(buf, t)` formats the current value and its 0..1
-// position; `widthOf` measures a value string for the column.
-template <class W, class S>
-bool rowSlider(const char* label, ImGuiSliderFlags flags, W&& widget, S&& show, const char* lo,
-               const char* hi) {
-    const ImU32 gradFrom = gNextSliderFrom, gradTo = gNextSliderTo;
-    gNextSliderFrom = gNextSliderTo = 0;
-    Row r;
-    const bool row = beginRow(label, r);
-    if (!row) {
-        const bool res = widget();
-        endRow(r);
-        return res;
-    }
-    ImGuiWindow* w = ImGui::GetCurrentWindow();
-    const ImGuiStyle& st = ImGui::GetStyle();
-    const bool typing = ImGui::TempInputIsActive(w->GetID(label));
-    char buf[64];
-    float t = 0.0f;
-    show(buf, &t);
-    float valueW;
-    {
-        FontScope mono(gMono);
-        // A common minimum keeps the tracks of a stack of sliders the same
-        // length (ragged right ends otherwise).
-        valueW = ImMax(ImMax(ImGui::CalcTextSize(lo).x, ImGui::CalcTextSize(hi).x),
-                       ImMax(ImGui::CalcTextSize(buf).x, ImGui::CalcTextSize("0.000 u").x));
-    }
-    valueW = ImMin(valueW + ImGui::GetFontSize(), r.fieldW * 0.45f);
-    if (!typing) {
-        ImGui::SetNextItemWidth(ImMax(1.0f, r.fieldW - valueW));
-        const ImVec4 clear(0, 0, 0, 0);
-        for (ImGuiCol c : {ImGuiCol_FrameBg, ImGuiCol_FrameBgHovered, ImGuiCol_FrameBgActive, ImGuiCol_SliderGrab,
-                           ImGuiCol_SliderGrabActive, ImGuiCol_Text, ImGuiCol_Border})
-            ImGui::PushStyleColor(c, clear);
-    }
-    const bool res = widget();
-    if (!typing) {
-        ImGui::PopStyleColor(7);
-        show(buf, &t);
-        // The item rect includes the (clipped) label: the frame is the
-        // width set above.
-        const ImVec2 bmin = ImGui::GetItemRectMin();
-        const ImRect bb(bmin, ImVec2(bmin.x + ImMax(1.0f, r.fieldW - valueW), ImGui::GetItemRectMax().y));
-        const theme::Semantics& sem = theme::semantics();
-        ImDrawList* dl = w->DrawList;
-        const float grab = st.GrabMinSize;
-        const float x0 = bb.Min.x + 2.0f + grab * 0.5f, x1 = ImMax(x0, bb.Max.x - 2.0f - grab * 0.5f);
-        const float cy = IM_TRUNC((bb.Min.y + bb.Max.y) * 0.5f);
-        const float th = ImMax(2.0f, IM_TRUNC(bb.GetHeight() * 0.14f));
-        const float kx = x0 + (x1 - x0) * ImClamp(t, 0.0f, 1.0f);
-        const bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
-        dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), ImGui::GetColorU32(ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, sem.textDim.w * 0.28f)),
-                          th);
-        if (gradFrom || gradTo)
-            dl->AddRectFilledMultiColor(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f),
-                                        ImGui::GetColorU32(gradFrom), ImGui::GetColorU32(gradTo),
-                                        ImGui::GetColorU32(gradTo), ImGui::GetColorU32(gradFrom));
-        else
-            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(kx, cy + th * 0.5f),
-                              ImGui::GetColorU32(sem.accent), th);
-        dl->AddCircleFilled(ImVec2(kx, cy), bb.GetHeight() * (hot ? 0.30f : 0.26f), ImGui::GetColorU32(sem.text),
-                            20);
-        FontScope mono(gMono);
-        const ImVec2 ts = ImGui::CalcTextSize(buf);
-        dl->AddText(ImVec2(r.fieldX + r.fieldW - ts.x, cy - ts.y * 0.5f), ImGui::GetColorU32(sem.text), buf);
-    }
-    endRow(r);
-    return res;
-}
-
-}  // namespace
 
 bool SliderFloat(const char* label, float* v, float vmin, float vmax, const char* fmt, ImGuiSliderFlags flags) {
-    char lo[64], hi[64];
-    ImGui::DataTypeFormatString(lo, IM_ARRAYSIZE(lo), ImGuiDataType_Float, &vmin, fmt);
-    ImGui::DataTypeFormatString(hi, IM_ARRAYSIZE(hi), ImGuiDataType_Float, &vmax, fmt);
-    return rowSlider(
-        label, flags, [&] { return ImGui::SliderFloat(label, v, vmin, vmax, fmt, flags); },
-        [&](char* buf, float* t) {
-            ImGui::DataTypeFormatString(buf, 64, ImGuiDataType_Float, v, fmt);
-            // Same mapping as ImGui's for a positive logarithmic range.
-            if ((flags & ImGuiSliderFlags_Logarithmic) && vmin > 0.0f && vmax > vmin)
-                *t = std::log(ImMax(*v, vmin) / vmin) / std::log(vmax / vmin);
-            else
-                *t = vmax != vmin ? (*v - vmin) / (vmax - vmin) : 0.0f;
-        },
-        lo, hi);
+    return rowWidget(label, [&] { return ImGui::SliderFloat(label, v, vmin, vmax, fmt, flags); });
 }
 bool SliderInt(const char* label, int* v, int vmin, int vmax, const char* fmt, ImGuiSliderFlags flags) {
-    char lo[64], hi[64];
-    ImGui::DataTypeFormatString(lo, IM_ARRAYSIZE(lo), ImGuiDataType_S32, &vmin, fmt);
-    ImGui::DataTypeFormatString(hi, IM_ARRAYSIZE(hi), ImGuiDataType_S32, &vmax, fmt);
-    return rowSlider(
-        label, flags, [&] { return ImGui::SliderInt(label, v, vmin, vmax, fmt, flags); },
-        [&](char* buf, float* t) {
-            ImGui::DataTypeFormatString(buf, 64, ImGuiDataType_S32, v, fmt);
-            *t = vmax != vmin ? (float)(*v - vmin) / (float)(vmax - vmin) : 0.0f;
-        },
-        lo, hi);
+    return rowWidget(label, [&] { return ImGui::SliderInt(label, v, vmin, vmax, fmt, flags); });
 }
 
 bool ColorHex(const char* label, float col[3]) {

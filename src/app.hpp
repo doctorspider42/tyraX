@@ -1709,6 +1709,7 @@ private:
     std::thread projectLoadThread_;
     std::atomic<bool> projectLoadAbort_{false};
     std::atomic<bool> projectLoadReady_{false};
+    project::LoadProgress projectLoadProgress_;  // the phase list's live state (written by the thread)
     bool projectLoadResultTaken_ = true;
     std::unique_ptr<Project> projectLoadResult_;  // written by the thread
     std::string projectLoadResultErr_;            // written by the thread
@@ -3277,6 +3278,11 @@ private:
                                   // (-1 = camera lane, >= 0 = object track)
     int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
+    // Opening the Director (or picking a sequence) parks the playhead on the
+    // first frame with something to see - t = 0 is black inside the fade-in.
+    // Display only: the saved sequence is untouched.
+    bool seqOpenSeek_ = true;
+    bool seqWasOpen_ = false;
     // The sequence camera (and its bars/fade) also drives the main viewport.
     // Off by default: the Director shows the shot in its own preview.
     bool seqPreview_ = false;

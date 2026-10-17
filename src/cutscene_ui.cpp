@@ -1355,7 +1355,14 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
 // shows camera shots as clips, the fades and bars as ramps, and one lane per
 // animated object.
 void App::drawCutsceneWindow() {
-    if (!showCutsceneEditor_ || !hasProject_) return;
+    if (!showCutsceneEditor_ || !hasProject_) {
+        seqWasOpen_ = false;
+        return;
+    }
+    if (!seqWasOpen_) {
+        seqWasOpen_ = true;
+        seqOpenSeek_ = true;
+    }
 
     ImGui::SetNextWindowSize(ImVec2(scaled(1080), scaled(720)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Cutscene Director", &showCutsceneEditor_)) {
@@ -1391,6 +1398,7 @@ void App::drawCutsceneWindow() {
         selectedSeqTrack_ = -1;
         selectedSeqKey_ = -1;
         seqPlayhead_ = 0.0f;
+        seqOpenSeek_ = true;
     };
     auto newSequence = [&]() {
         Sequence s;
@@ -1637,6 +1645,12 @@ void App::drawCutsceneWindow() {
         !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
         ImGui::IsKeyPressed(ImGuiKey_Space, false))
         seqPlaying_ = !seqPlaying_;
+    // Open on content, not on the black first frame of the fade-in (the
+    // Credits preview does the same). Only an untouched playhead moves.
+    if (seqOpenSeek_) {
+        seqOpenSeek_ = false;
+        if (seqPlayhead_ == 0.0f && !seqPlaying_ && s.fadeIn > 0.0f) seqPlayhead_ = std::min(s.fadeIn, s.duration);
+    }
     if (seqPlaying_) {
         seqPlayhead_ += ImGui::GetIO().DeltaTime;
         if (seqPlayhead_ >= s.duration) {

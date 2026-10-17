@@ -6278,6 +6278,11 @@ bool parseObject(const std::string& body, SceneObject& out) {
 // cannot see each other's.
 static thread_local const std::atomic<bool>* tlLoadCancel = nullptr;
 static bool loadCancelled() { return tlLoadCancel && tlLoadCancel->load(); }
+// The progress report of the load() running on THIS thread (null = none).
+static thread_local LoadProgress* tlLoadProgress = nullptr;
+static void loadPhase(int phase) {
+    if (tlLoadProgress) tlLoadProgress->phase.store(phase);
+}
 
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
@@ -6286,6 +6291,7 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
         if (loadCancelled()) return;
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
+        if (tlLoadProgress) tlLoadProgress->objectsDone.fetch_add(1);
         std::ifstream f(objectPath(p, id), std::ios::binary);
         if (!f) continue;
         std::stringstream ss;
@@ -7913,12 +7919,25 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
 }
 
 std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel) {
+    return load(out, projectDir, cancel, nullptr);
+}
+
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel,
+                 LoadProgress* progress) {
     struct Scope {
-        explicit Scope(const std::atomic<bool>* c) { tlLoadCancel = c; }
-        ~Scope() { tlLoadCancel = nullptr; }
-    } scope(cancel);
+        Scope(const std::atomic<bool>* c, LoadProgress* pr) {
+            tlLoadCancel = c;
+            tlLoadProgress = pr;
+        }
+        ~Scope() {
+            tlLoadCancel = nullptr;
+            tlLoadProgress = nullptr;
+        }
+    } scope(cancel, progress);
+    loadPhase(0);
     std::string err = load(out, projectDir);
     if (err.empty() && loadCancelled()) err = kLoadCancelled;
+    loadPhase(3);
     return err;
 }
 
@@ -8009,6 +8028,15 @@ std::string load(Project& out, const std::string& projectDir) {
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
         out.scenes.clear();
+        if (tlLoadProgress) {
+            int total = 0;
+            for (const auto& js : scenes->arr)
+                if (const auto* objs = js.find("objects"); objs && objs->type == json::Value::Type::Array)
+                    total += (int)objs->arr.size();
+            tlLoadProgress->objectsTotal.store(total);
+            tlLoadProgress->objectsDone.store(0);
+        }
+        loadPhase(1);
         for (const auto& js : scenes->arr) {
             SceneData sc;
             if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
@@ -8116,6 +8144,7 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureSaveMenu(out);
 
     if (loadCancelled()) return kLoadCancelled;
+    loadPhase(2);
     loadHeights(out);
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers

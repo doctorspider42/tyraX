@@ -3122,6 +3122,8 @@ bool ImGui::SliderBehaviorT(const ImRect& bb, ImGuiID id, ImGuiDataType data_typ
     float grab_sz = style.GrabMinSize;
     if (!is_floating_point && v_range_f >= 0.0f)                         // v_range_f < 0 may happen on integer overflows
         grab_sz = ImMax(slider_sz / (v_range_f + 1), style.GrabMinSize); // For integer sliders: if possible have the grab size represent 1 unit
+    if (flags & ImGuiSliderFlags_ThinTrack)                              // TYRAX: one round knob, whatever the range
+        grab_sz = ImTrunc(style.SliderThinTrack * 3.5f);
     grab_sz = ImMin(grab_sz, slider_sz);
     const float slider_usable_sz = slider_sz - grab_sz;
     const float slider_usable_pos_min = bb.Min[axis] + grab_padding + grab_sz * 0.5f;
@@ -3322,11 +3324,13 @@ bool ImGui::SliderBehavior(const ImRect& bb, ImGuiID id, ImGuiDataType data_type
 // Read code of e.g. SliderFloat(), SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
 bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags)
 {
+    ImGuiContext& g = *GImGui;
+    const ImU32 track_from = g.SliderNextTrackFrom, track_to = g.SliderNextTrackTo; // TYRAX: consumed even when clipped
+    g.SliderNextTrackFrom = g.SliderNextTrackTo = 0;
     ImGuiWindow* window = GetCurrentWindow();
     if (window->SkipItems)
         return false;
 
-    ImGuiContext& g = *GImGui;
     const ImGuiStyle& style = g.Style;
     const ImGuiID id = window->GetID(label);
     const float w = CalcItemWidth();
@@ -3346,6 +3350,30 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
     if (format == NULL)
         format = DataTypeGetInfo(data_type)->PrintFmt;
 
+    // TYRAX: style.SliderThinTrack - a thin track + round knob on the left, the
+    // value as text at the right end. The value column is as wide as the widest
+    // of min / max / current (so the track does not jitter) and at least five
+    // digits, at most 45% of the item; SliderBehavior() works on the track only.
+    const bool thin = style.SliderThinTrack > 0.0f && !(flags & ImGuiSliderFlags_Vertical);
+    ImRect track_bb = frame_bb;
+    float value_w = 0.0f;
+    char value_buf[64];
+    const char* value_buf_end = value_buf + DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format);
+    if (thin)
+    {
+        PushFont(g.IO.SliderValueFont ? g.IO.SliderValueFont : g.Font, 0.0f);
+        char tmp[64];
+        DataTypeFormatString(tmp, IM_COUNTOF(tmp), data_type, p_min, format);
+        value_w = CalcTextSize(tmp).x;
+        DataTypeFormatString(tmp, IM_COUNTOF(tmp), data_type, p_max, format);
+        value_w = ImMax(value_w, CalcTextSize(tmp).x);
+        value_w = ImMax(value_w, CalcTextSize(value_buf, value_buf_end).x);
+        value_w = ImMax(value_w, CalcTextSize("00000").x); // a common column, so stacked rows' tracks line up
+        PopFont();
+        value_w = ImMin(value_w, frame_bb.GetWidth() * 0.45f);
+        track_bb.Max.x = ImMax(track_bb.Min.x, frame_bb.Max.x - value_w - style.ItemInnerSpacing.x * 1.5f);
+    }
+
     const bool hovered = ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags);
     bool temp_input_is_active = temp_input_allowed && TempInputIsActive(id);
     if (!temp_input_is_active)
@@ -3355,8 +3383,11 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
         const bool make_active = (clicked || g.NavActivateId == id);
         if (make_active && clicked)
             SetKeyOwner(ImGuiKey_MouseLeft, id);
+        // TYRAX: with the thin track, a double-click anywhere or a click on the
+        // value text also types a value (the text is not part of the track).
+        const bool thin_text_click = thin && clicked && (g.IO.MouseClickedCount[0] == 2 || g.IO.MousePos.x >= track_bb.Max.x);
         if (make_active && temp_input_allowed)
-            if ((clicked && g.IO.KeyCtrl) || (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_PreferInput)))
+            if ((clicked && g.IO.KeyCtrl) || thin_text_click || (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_PreferInput)))
                 temp_input_is_active = true;
 
         // Store initial value (not used by main lib but available as a convenience but some mods e.g. to revert)
@@ -3379,6 +3410,52 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
         return TempInputScalar(frame_bb, id, label, data_type, p_data, format, clamp_enabled ? p_min : NULL, clamp_enabled ? p_max : NULL);
     }
 
+    // TYRAX: the thin track (see above).
+    if (thin)
+    {
+        RenderNavCursor(frame_bb, id);
+        ImRect grab_bb;
+        const bool value_changed = SliderBehavior(track_bb, id, data_type, p_data, p_min, p_max, format, flags | ImGuiSliderFlags_ThinTrack, &grab_bb);
+        if (value_changed)
+        {
+            MarkItemEdited(id);
+            value_buf_end = value_buf + DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format);
+        }
+        ImDrawList* dl = window->DrawList;
+        const float cy = IM_TRUNC(frame_bb.GetCenter().y) + 0.5f;
+        const float th = ImMax(1.0f, style.SliderThinTrack);
+        const float knob_r = ImTrunc(style.SliderThinTrack * 3.5f) * 0.5f;
+        const float x0 = track_bb.Min.x + 2.0f, x1 = ImMax(x0, track_bb.Max.x - 2.0f);
+        const bool has_grab = grab_bb.Max.x > grab_bb.Min.x;
+        const float kx = has_grab ? grab_bb.GetCenter().x : x0;
+        if (track_from != 0 || track_to != 0)
+        {
+            // A colour cue (Color Grading's temperature): the whole track is the gradient, no fill.
+            dl->AddRectFilledMultiColor(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), GetColorU32(track_from), GetColorU32(track_to), GetColorU32(track_to), GetColorU32(track_from));
+        }
+        else
+            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x1, cy + th * 0.5f), GetColorU32(ImGuiCol_Border), th * 0.5f); // Border, not FrameBg: a field colour can sit too close to a panel's to read
+        if (color_marker != 0)
+            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(x0 + th, cy + th * 0.5f), GetColorU32(color_marker), th * 0.5f);
+        if (kx > x0 && track_from == 0 && track_to == 0)
+            dl->AddRectFilled(ImVec2(x0, cy - th * 0.5f), ImVec2(kx, cy + th * 0.5f), GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), th * 0.5f);
+        if (has_grab)
+        {
+            const float r = (hovered || g.ActiveId == id) ? knob_r + 1.0f : knob_r;
+            dl->AddCircleFilled(ImVec2(kx, cy), r, GetColorU32(ImGuiCol_Border), 24); // an edge, for the light themes
+            dl->AddCircleFilled(ImVec2(kx, cy), r - 1.0f, GetColorU32(IM_COL32_WHITE), 24);
+        }
+        if (g.LogEnabled)
+            LogSetNextTextDecoration("{", "}");
+        PushFont(g.IO.SliderValueFont ? g.IO.SliderValueFont : g.Font, 0.0f);
+        RenderTextClipped(ImVec2(frame_bb.Max.x - value_w, frame_bb.Min.y), frame_bb.Max, value_buf, value_buf_end, NULL, ImVec2(1.0f, 0.5f));
+        PopFont();
+        if (label_size.x > 0.0f)
+            RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label, label_end, false);
+        IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | (temp_input_allowed ? ImGuiItemStatusFlags_Inputable : 0));
+        return value_changed;
+    }
+
     // Draw frame
     const ImU32 frame_col = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
     RenderNavCursor(frame_bb, id);
@@ -3398,8 +3475,7 @@ bool ImGui::SliderScalar(const char* label, ImGuiDataType data_type, void* p_dat
         window->DrawList->AddRectFilled(grab_bb.Min, grab_bb.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
 
     // Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
-    char value_buf[64];
-    const char* value_buf_end = value_buf + DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format);
+    value_buf_end = value_buf + DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format); // TYRAX: buffer declared above
     if (g.LogEnabled)
         LogSetNextTextDecoration("{", "}");
     RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, value_buf_end, NULL, ImVec2(0.5f, 0.5f));

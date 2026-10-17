@@ -1106,6 +1106,7 @@ enum ImGuiSliderFlagsPrivate_
 {
     ImGuiSliderFlags_Vertical               = 1 << 20,  // Should this slider be orientated vertically?
     ImGuiSliderFlags_ReadOnly               = 1 << 21,  // Consider using g.NextItemData.ItemFlags |= ImGuiItemFlags_ReadOnly instead.
+    ImGuiSliderFlags_ThinTrack              = 1 << 22,  // TYRAX: SliderBehavior() sizes the grab as style.SliderThinTrack's round knob (SliderScalar sets it).
 };
 
 // Extend ImGuiSelectableFlags_
@@ -2751,6 +2752,7 @@ struct ImGuiContext
     short                   ScrollbarSeekMode;                  // 0: scroll to clicked location, -1/+1: prev/next page.
     float                   ScrollbarClickDeltaToGrabCenter;    // When scrolling to mouse location: distance between mouse and center of grab box, normalized in parent space.
     float                   SliderGrabClickOffset;
+    ImU32                   SliderNextTrackFrom, SliderNextTrackTo; // TYRAX: != 0 = the next thin-track SliderScalar paints its track as this gradient instead of the accent fill (consumed by it)
     float                   SliderCurrentAccum;                 // Accumulated slider delta when using navigation controls.
     bool                    SliderCurrentAccumDirty;            // Has the accumulated slider delta changed since last time we tried to apply it?
     bool                    DragCurrentAccumDirty;

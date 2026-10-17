@@ -2461,6 +2461,7 @@ struct ImGuiStyle
     bool        DockingNodeHasCloseButton;  // Docking node has their own CloseButton() to close all docked windows.
     float       DockingSeparatorSize;       // Thickness of resizing border between docked windows
     float       TabPillInset;               // TYRAX: >0 = tabs are drawn as fully rounded pills inset this far from the tab bar's top and bottom, and an unselected, unhovered tab's label uses ImGuiCol_TextDisabled. 0 = upstream tab shape.
+    float       SliderThinTrack;            // TYRAX: >0 = SliderScalar()/SliderFloat()/SliderInt() draw a thin track this thick (Border colour), filled with SliderGrab up to a round knob (3.5x this), and the value as text at the right end of the item (io.SliderValueFont) instead of a frame with a block grab and the value centred. 0 = upstream look.
     float       DockNodeRounding;           // TYRAX: >0 = every dock node is drawn as its own rounded card (tab bar rounded on top, window background at the bottom) instead of only the corners touching the host. 0 = upstream behaviour.
     float       MouseCursorScale;           // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). We apply per-monitor DPI scaling over this scale. May be removed later.
     bool        AntiAliasedLines;           // Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU. Latched at the beginning of the frame (copied to ImDrawList).
@@ -2536,6 +2537,7 @@ struct ImGuiIO
     ImFontAtlas*Fonts;                          // <auto>           // Font atlas: load, rasterize and pack one or more fonts into a single texture.
     ImFont*     FontDefault;                    // = NULL           // Font to use on NewFrame(). Use NULL to uses Fonts->Fonts[0].
     bool        FontAllowUserScaling;           // = false          // Allow user scaling text of individual window with Ctrl+Wheel.
+    ImFont*     SliderValueFont;                // = NULL           // TYRAX: face for a slider's value text when style.SliderThinTrack > 0 (NULL = the current font).
 
     // Keyboard/Gamepad Navigation options
     bool        ConfigNavSwapGamepadButtons;    // = false          // Swap Activate<>Cancel (A<>B) buttons, matching typical "Nintendo/Japanese style" gamepad layout.
