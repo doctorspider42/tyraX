@@ -3734,7 +3734,7 @@ void App::drawDebuggerWindow() {
         case DbgPage::Screen: dbgDrawScreenPage(); break;
         case DbgPage::Stats: dbgDrawStatsPage(); break;
         case DbgPage::RenderCost: dbgDrawRenderCostPage(); break;
-        case DbgPage::Hardware: hardware_timeline::draw(project_.dir); break;
+        case DbgPage::Hardware: hardware_timeline::draw(project_.dir, scaled(1.0f)); break;
         case DbgPage::Vu: dbgDrawVuPage(); break;
     }
     ImGui::EndChild();
