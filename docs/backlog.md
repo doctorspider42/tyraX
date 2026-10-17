@@ -35,6 +35,10 @@ driven on macOS only. Open:
   - Drone Generator Simple view: in a short window the mood tiles' captions
     clip at the bottom of the left column; the narrow one-column layout was
     only seen through a temporary threshold build;
+  - Controller widget (`ui::PadDiagram`): the Vehicle Editor's controls-card
+    preview does not use it yet; Remote Pad with no game stays clickable and
+    writes `livepad.bin` (scripts and a game booted later read it) - the design
+    said disabled, decide; the lit LED and a running game's view are unseen.
   - Properties: the Player's Walk/Run/Sprint rows draw their caption right of
     the field (clipped); AxisDrag3 tags touch their values in a narrow panel.
 
