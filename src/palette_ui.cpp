@@ -280,7 +280,7 @@ void App::drawCommandPalette() {
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f, vp->WorkPos.y + scaled(70.0f)));
     ImGui::SetNextWindowSize(ImVec2(w, 0.0f));
     // Always over the main window, even when the focused panel is in an OS
-    // window of its own (its dim covers only the main window).
+    // window of its own (every other OS window is dimmed below).
     ImGui::SetNextWindowViewport(vp->ID);
     ImGui::SetNextWindowFocus();
     ImGui::PushStyleColor(ImGuiCol_WindowBg, sem.surface);
@@ -301,6 +301,14 @@ void App::drawCommandPalette() {
         ImDrawList* wdl = ImGui::GetWindowDrawList();
         wdl->PushClipRect(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), false);
         wdl->AddRectFilled(vp->Pos, ImVec2(vp->Pos.x + vp->Size.x, vp->Pos.y + vp->Size.y), IM_COL32(4, 5, 8, 150));
+        // Panels in OS windows of their own are dimmed too, on their own
+        // foreground lists (the palette never draws on them).
+        const ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+        for (ImGuiViewport* other : pio.Viewports)
+            if (other != vp)
+                ImGui::GetForegroundDrawList(other)->AddRectFilled(
+                    other->Pos, ImVec2(other->Pos.x + other->Size.x, other->Pos.y + other->Size.y),
+                    IM_COL32(4, 5, 8, 150));
         const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
         wdl->AddRectFilled(ImVec2(wp.x, wp.y + scaled(10.0f)), ImVec2(wp.x + ws.x, wp.y + ws.y + scaled(18.0f)),
                            IM_COL32(0, 0, 0, 90), scaled(14.0f));

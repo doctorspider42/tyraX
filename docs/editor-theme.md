@@ -307,12 +307,14 @@ it there).
   position. When it is loaded, anything that would land off every screen (a
   monitor that is gone) or, with the preference off, outside the main window,
   is moved back in first.
-- **Layout > Bring all windows back** moves every floating window and floating
-  group that sits in its own OS window or reaches past the editor's edge back
-  inside it (they stay floating - drag a tab onto a panel to dock it). Turning
-  the preference off does the same.
-- The command palette always opens over the main window and dims only that one;
-  a modal dialog dims every window.
+- **Layout > Bring all windows back** brings back every window that sits in
+  an OS window of its own or reaches past the editor's edge: a panel that was
+  docked in the editor this session docks where it was (its old place - and
+  when dragging it out had merged that place away, the same side of the same
+  split, recreated); a window that was never docked (a tool opened floating)
+  comes back inside, floating. Turning the preference off does the same.
+- The command palette always opens over the main window and dims every window,
+  the panels in OS windows of their own included; so does a modal dialog.
 
 UNVERIFIED on Windows and Linux X11 (built and driven on macOS only); real
 mouse dragging between OS windows was not tested by a human either.

@@ -943,6 +943,7 @@ void App::captureFrameIfRequested(int w, int h) {
     char path[512];
     std::snprintf(path, sizeof(path), "%s/shot%02d.png", dir, shotNo++);
     captureFrameTo(path, w, h);
+    mvp::requestPlatformShots(path);  // + shotNN-<panel>.png per panel in its own OS window
 }
 
 // The read-back itself, also used by a UI script's `shot` step.
@@ -6321,13 +6322,13 @@ void App::drawLayoutMenu() {
     if (menuact::MenuItem("Bring all windows back")) {
         const int n = mvp::bringWindowsBack();
         statusMessage_ = n == 0   ? std::string("Every window is already inside the main window")
-                         : n == 1 ? std::string("Moved 1 window back into the main window")
-                                  : "Moved " + std::to_string(n) + " windows back into the main window";
+                         : n == 1 ? std::string("Brought 1 window back")
+                                  : "Brought " + std::to_string(n) + " windows back";
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Move every floating window that is in its own OS window or out of\n"
-                          "sight back into the main window (they stay floating - drag a\n"
-                          "tab onto a panel to dock it).");
+        ImGui::SetTooltip("Bring every window that is in its own OS window or out of sight\n"
+                          "back: panels dock where they were, windows that were never\n"
+                          "docked come back inside the editor, floating.");
 
     ImGui::Separator();
     if (menuact::MenuItem("New layout...")) {

@@ -64,9 +64,12 @@ void requestPlatformShots(const std::string& mainShotPath);
 void newFrame();
 
 /** Layout > "Bring all windows back": every floating window and floating dock
- * node that lives in its own OS window or reaches outside the main window is
- * moved (and if needed shrunk) into the main window, where ImGui merges it
- * back. Returns how many were moved. */
+ * node that lives in its own OS window or reaches outside the main window
+ * comes back. A panel that was docked in the main window this session is
+ * docked where it was (its node, or - when dragging it out merged that node
+ * away - the same side of the same split, recreated); one that never was is
+ * moved (and if needed shrunk) into the main window and stays floating.
+ * Returns how many were brought back. */
 int bringWindowsBack();
 
 /** A saved ImGui layout (SaveIniSettingsToMemory text) with every floating

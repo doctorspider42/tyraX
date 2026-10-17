@@ -17,6 +17,7 @@
 #include <cstring>
 #include <filesystem>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace mvp {
@@ -39,6 +40,72 @@ struct PendingUndock {
     int frames = 0;
 };
 std::vector<PendingUndock> gUndock;
+
+// Where each panel was last docked in the main window's dock tree, so "Bring
+// all windows back" can put it back there instead of leaving it floating. A
+// lone panel dragged out takes its node with it (ImGui merges the emptied
+// split away), so the split it lived in is remembered too: the parent node,
+// which side, the axis and the share - the parent survives the merge, holding
+// the sibling, and can be split again the same way.
+struct Home {
+    ImGuiID node = 0;
+    ImGuiID parent = 0;
+    int side = 0;  // 0 = first child (left / top), 1 = second
+    ImGuiAxis axis = ImGuiAxis_X;
+    float ratio = 0.5f;
+};
+std::unordered_map<ImGuiID, Home> gHome;
+
+// The root of `node`'s tree, when that tree is the main window's dockspace.
+ImGuiDockNode* mainTreeRoot(ImGuiDockNode* node) {
+    if (!node) return nullptr;
+    ImGuiDockNode* root = ImGui::DockNodeGetRootNode(node);
+    if (!root || !root->IsDockSpace()) return nullptr;
+    if (root->HostWindow && root->HostWindow->Viewport != ImGui::GetMainViewport()) return nullptr;
+    return root;
+}
+
+void trackHomes() {
+    ImGuiContext& g = *GImGui;
+    for (ImGuiWindow* w : g.Windows) {
+        if (w->RootWindow != w || !w->DockNode || (w->Flags & ImGuiWindowFlags_DockNodeHost)) continue;
+        ImGuiDockNode* node = w->DockNode;
+        if (!mainTreeRoot(node)) continue;
+        Home h;
+        h.node = node->ID;
+        if (ImGuiDockNode* parent = node->ParentNode) {
+            h.parent = parent->ID;
+            h.side = parent->ChildNodes[1] == node ? 1 : 0;
+            h.axis = parent->SplitAxis;
+            const float total = parent->Size[h.axis];
+            h.ratio = total > 0.0f ? ImClamp(node->Size[h.axis] / total, 0.1f, 0.9f) : 0.5f;
+        }
+        gHome[w->ID] = h;
+    }
+}
+
+// The node a window goes back to, or 0 (no home: it has never been docked in
+// the main window this session, or its whole neighbourhood is gone).
+ImGuiID homeNodeFor(ImGuiWindow* w) {
+    auto it = gHome.find(w->ID);
+    if (it == gHome.end()) return 0;
+    const Home& h = it->second;
+    if (ImGuiDockNode* n = ImGui::DockBuilderGetNode(h.node))
+        if (mainTreeRoot(n) && n->IsLeafNode()) return n->ID;
+    // Its node merged away: split the parent again on the same side.
+    if (ImGuiDockNode* parent = ImGui::DockBuilderGetNode(h.parent)) {
+        if (!mainTreeRoot(parent) || !parent->IsLeafNode()) return 0;
+        const ImGuiDir dir = h.axis == ImGuiAxis_X ? (h.side ? ImGuiDir_Right : ImGuiDir_Left)
+                                                   : (h.side ? ImGuiDir_Down : ImGuiDir_Up);
+        ImGuiID atDir = 0, rest = 0;
+        ImGui::DockBuilderSplitNode(parent->ID, dir, h.ratio, &atDir, &rest);
+        // The next panel with the same old home joins this new node.
+        for (auto& [id, other] : gHome)
+            if (other.node == h.node) other.node = atDir;
+        return atDir;
+    }
+    return 0;
+}
 
 void createWindow(ImGuiViewport* vp) {
     gBackendCreate(vp);
@@ -152,6 +219,7 @@ void renderPlatformWindows(GLFWwindow* mainWindow) {
 void requestPlatformShots(const std::string& mainShotPath) { gShotBase = mainShotPath; }
 
 void newFrame() {
+    trackHomes();
     if (gBringBackPending) {
         gBringBackPending = false;
         bringWindowsBack();
@@ -190,13 +258,32 @@ int bringWindowsBack() {
         if (!inMain) pos = work.Min + ImVec2(cascade * (float)(moved + 1), cascade * (float)(moved + 1));
         outPos = ImClamp(pos, work.Min, work.Max - outSize);
     };
-    // Floating dock nodes (two or more panels in one floating card): the node
-    // owns the position, its host window follows.
+    // A panel that has a home in the main window's dock tree is docked back
+    // there; one that never had one (a tool window opened floating) is moved
+    // inside and stays floating.
+    auto redock = [&](ImGuiWindow* w) {
+        const ImGuiID target = homeNodeFor(w);
+        if (!target) return false;
+        ImGui::DockBuilderDockWindow(w->Name, target);
+        return true;
+    };
+    // Floating dock nodes (two or more panels in one floating card): each
+    // panel goes home; the rest of the card keeps the node, which owns the
+    // position (its host window follows).
     for (int n = 0; n < g.DockContext.Nodes.Data.Size; n++) {
         ImGuiDockNode* node = (ImGuiDockNode*)g.DockContext.Nodes.Data[n].val_p;
         if (!node || !node->IsFloatingNode() || !node->HostWindow || !node->IsVisible) continue;
         const bool inMain = node->HostWindow->Viewport == mainVp;
         if (inMain && work.Contains(ImRect(node->Pos, node->Pos + node->Size))) continue;
+        std::vector<ImGuiWindow*> panels;
+        for (ImGuiWindow* w : g.Windows)
+            if (w->RootWindow == w && w->DockNode && ImGui::DockNodeGetRootNode(w->DockNode) == node &&
+                !(w->Flags & ImGuiWindowFlags_DockNodeHost))
+                panels.push_back(w);
+        int home = 0;
+        for (ImGuiWindow* w : panels) home += redock(w) ? 1 : 0;
+        moved += home;
+        if (home == (int)panels.size() && home > 0) continue;
         ImVec2 p, s;
         place(node->Pos, node->Size, inMain, p, s);
         ImGui::DockBuilderSetNodePos(node->ID, p);
@@ -213,6 +300,10 @@ int bringWindowsBack() {
         if (!w->WasActive || w->Hidden) continue;
         const bool inMain = w->Viewport == mainVp;
         if (inMain && work.Contains(w->Rect())) continue;
+        if (redock(w)) {
+            ++moved;
+            continue;
+        }
         ImVec2 p, s;
         place(w->Pos, w->SizeFull, inMain, p, s);
         ImGui::SetWindowPos(w, p);
