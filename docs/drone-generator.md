@@ -113,7 +113,7 @@ what `AudioSong::load` documents. The Music list's per-track *PS2 build* options
 
 Drag a dial vertically to turn it, **Shift** for fine and **Ctrl** for coarse,
 **double-click** to put it back to its default. Whole-number dials — *Octave*,
-*Semi*, *Unison*, *Root*, *Beats*, the bell octave and range — step, and a step
+*Semi*, *Unison*, *Root* (shown as a note, `B1`), *Beats*, the bell octave and range — step, and a step
 is about 30 pixels of travel regardless of how few steps the dial has. (They
 step because the drag position is kept apart from the value: a stepped dial that
 only accumulated within one frame would need half a step of movement in a single
