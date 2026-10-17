@@ -1602,6 +1602,7 @@ ImGuiStyle::ImGuiStyle()
     DockingSeparatorSize        = 2.0f;             // Thickness of resizing border between docked windows
     DockNodeRounding            = 0.0f;             // TYRAX: 0 = upstream (round only where a node touches its host)
     TabPillInset                = 0.0f;             // TYRAX: 0 = upstream tab shape
+    SliderThinTrack             = 0.0f;             // TYRAX: 0 = upstream slider look
     MouseCursorScale            = 1.0f;             // Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). May be removed later.
     AntiAliasedLines            = true;             // Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU.
     AntiAliasedLinesUseTex      = true;             // Enable anti-aliased lines/borders using textures where possible. Require backend to render with bilinear filtering (NOT point/nearest filtering).
@@ -1680,6 +1681,7 @@ void ImGuiStyle::ScaleAllSizes(float scale_factor)
     DockingSeparatorSize = ImTrunc(DockingSeparatorSize * scale_factor);
     DockNodeRounding = ImTrunc(DockNodeRounding * scale_factor); // TYRAX
     TabPillInset = ImTrunc(TabPillInset * scale_factor); // TYRAX
+    SliderThinTrack = ImTrunc(SliderThinTrack * scale_factor); // TYRAX
     DisplayWindowPadding = ImTrunc(DisplayWindowPadding * scale_factor);
     DisplaySafeAreaPadding = ImTrunc(DisplaySafeAreaPadding * scale_factor);
     MouseCursorScale = ImTrunc(MouseCursorScale * scale_factor);
@@ -1704,6 +1706,7 @@ ImGuiIO::ImGuiIO()
     Fonts = NULL;
     FontDefault = NULL;
     FontAllowUserScaling = false;
+    SliderValueFont = NULL; // TYRAX
 #ifndef IMGUI_DISABLE_OBSOLETE_FUNCTIONS
     FontGlobalScale = 1.0f; // Use style.FontScaleMain instead!
 #endif
@@ -4473,6 +4476,7 @@ ImGuiContext::ImGuiContext(ImFontAtlas* shared_font_atlas)
     ScrollbarSeekMode = 0;
     ScrollbarClickDeltaToGrabCenter = 0.0f;
     SliderGrabClickOffset = 0.0f;
+    SliderThinTrackRect = ImRect(); // TYRAX
     SliderCurrentAccum = 0.0f;
     SliderCurrentAccumDirty = false;
     DragCurrentAccumDirty = false;

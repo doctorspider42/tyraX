@@ -22,7 +22,10 @@ ImFont* gMono = nullptr;
 }  // namespace
 
 void setBoldFont(ImFont* f) { gBold = f; }
-void setMonoFont(ImFont* f) { gMono = f; }
+void setMonoFont(ImFont* f) {
+    gMono = f;
+    ImGui::GetIO().SliderValueFont = f;  // a thin-track slider's value text (vendor/imgui-tyrax patch)
+}
 ImFont* boldFont() { return gBold; }
 ImFont* monoFont() { return gMono; }
 

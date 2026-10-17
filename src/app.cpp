@@ -13051,17 +13051,36 @@ void App::drawGradingWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         prefHelp("An approximation: the GS has no per-pixel luma, so desaturating mixes\n"
                  "toward mid-grey (it flattens a little too).");
-        ui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%+.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
         {
-            // The temperature track's colour cue: blue -> neutral -> orange.
-            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-            const float y = b.y - 2.0f, mx = (a.x + b.x) * 0.5f;
+            // The temperature track IS the colour cue: blue -> the track colour
+            // -> orange, painted under the knob (a splitter of our own: the
+            // row may sit in a table, which owns the window's splitter).
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilledMultiColor(ImVec2(a.x + 2, y), ImVec2(mx, b.y), IM_COL32(90, 140, 255, 255),
-                                        IM_COL32(200, 200, 200, 255), IM_COL32(200, 200, 200, 255), IM_COL32(90, 140, 255, 255));
-            dl->AddRectFilledMultiColor(ImVec2(mx, y), ImVec2(b.x - 2, b.y), IM_COL32(200, 200, 200, 255),
-                                        IM_COL32(255, 150, 60, 255), IM_COL32(255, 150, 60, 255), IM_COL32(200, 200, 200, 255));
+            ImDrawListSplitter split;
+            split.Split(dl, 2);
+            split.SetCurrentChannel(dl, 1);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_SliderGrab, IM_COL32(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, IM_COL32(0, 0, 0, 0));
+            ui::SliderFloat("Temperature", &g.temperature, -1.0f, 1.0f, "%+.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            // The track rect is the LAST thin slider's: only ours when it lies
+            // in this item (not while typing a value, not when clipped).
+            ImRect t = ImGui::GetCurrentContext()->SliderThinTrackRect;
+            const ImRect item(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+            if (ImGui::TempInputIsActive(ImGui::GetItemID()) || !ImGui::IsItemVisible() || !item.Contains(t))
+                t = ImRect();
+            ImGui::PopStyleColor(4);
+            split.SetCurrentChannel(dl, 0);
+            const ImVec2 a = t.Min, b = t.Max;
+            const float mx = (a.x + b.x) * 0.5f;
+            const ImU32 mid = ImGui::GetColorU32(ImGuiCol_FrameBg);
+            dl->AddRectFilledMultiColor(a, ImVec2(mx, b.y), IM_COL32(76, 127, 216, 255), mid, mid,
+                                        IM_COL32(76, 127, 216, 255));
+            dl->AddRectFilledMultiColor(ImVec2(mx, a.y), b, mid, IM_COL32(231, 154, 76, 255),
+                                        IM_COL32(231, 154, 76, 255), mid);
+            split.Merge(dl);
         }
         ui::ColorHex("Tint", g.tint);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
