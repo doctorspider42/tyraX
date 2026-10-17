@@ -116,6 +116,23 @@ void App::harvestMainMenus(std::vector<menuact::Item>* out, int invoke) {
     // An item-less child: every plain ImGui call in the menu code (headings,
     // separators, tooltips) is skipped, and the menuact calls record instead
     // of drawing. NoInputs keeps IsItemHovered false in there.
+    // The palette harvests BEFORE its own window begins; at top level a child
+    // would land in ImGui's implicit "Debug##Default" window, which then shows
+    // as an empty "Debug" window over the Outliner. Host it in an invisible
+    // 1x1 window instead.
+    ImGuiWindow* cur = ImGui::GetCurrentContext()->CurrentWindow;
+    const bool topLevel = cur == nullptr || cur->IsFallbackWindow;
+    if (topLevel) {
+        ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(vp->Pos);
+        ImGui::SetNextWindowSize(ImVec2(1.0f, 1.0f));
+        ImGui::SetNextWindowViewport(vp->ID);
+        ImGui::Begin("##menu_harvest_host", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                         ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing |
+                         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    }
     ImGui::BeginChild("##menu_harvest", ImVec2(1.0f, 1.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground |
                           ImGuiWindowFlags_NoScrollbar);
@@ -127,6 +144,7 @@ void App::harvestMainMenus(std::vector<menuact::Item>* out, int invoke) {
     menuact::endHarvest();
     w->SkipItems = skip;
     ImGui::EndChild();
+    if (topLevel) ImGui::End();
 }
 
 void App::drawCommandPalette() {
