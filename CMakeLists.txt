@@ -360,6 +360,7 @@ add_executable(tyrax-editor
     src/shell_ui.cpp
     src/palette_ui.cpp
     src/menu_actions.cpp
+    src/multiviewport.cpp
     src/toolkit.cpp
     src/tmdl.cpp
     src/treegen.cpp

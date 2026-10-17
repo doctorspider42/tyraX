@@ -1617,7 +1617,40 @@ float titleBarInsetLeft(GLFWwindow* window) {
     (void)window;  // Windows: the caption buttons are App's, on the RIGHT end
     return 0.0f;
 }
+
+void ownToolWindow(GLFWwindow* owner, GLFWwindow* tool) {
+#ifdef _WIN32
+    // UNVERIFIED ON WINDOWS. An owned window stays above its owner, hides
+    // when the owner is minimized and gets no Alt+Tab entry of its own.
+    // GWLP_HWNDPARENT sets the OWNER of a top-level window (not a parent).
+    const HWND o = owner ? glfwGetWin32Window(owner) : nullptr;
+    const HWND t = tool ? glfwGetWin32Window(tool) : nullptr;
+    if (o && t) SetWindowLongPtrW(t, GWLP_HWNDPARENT, (LONG_PTR)o);
+#else
+    // Linux: the GLFW backend types the window _NET_WM_WINDOW_TYPE_DIALOG,
+    // which most window managers keep above the application's other windows.
+    // (A transient-for hint would need the X11 headers here.)
+    (void)owner;
+    (void)tool;
+#endif
+}
 #endif  // !__APPLE__
+
+bool multiViewportsByDefault() {
+#ifdef _WIN32
+    return true;
+#else
+#ifdef __APPLE__
+    return true;
+#else
+    const char* display = getenv("WAYLAND_DISPLAY");
+    const char* session = getenv("XDG_SESSION_TYPE");
+    if (display && *display) return false;
+    if (session && std::strcmp(session, "wayland") == 0) return false;
+    return true;  // X11
+#endif
+#endif
+}
 
 std::string pickFile(const std::string& title, const std::vector<FileFilter>& filters) {
 #ifdef _WIN32

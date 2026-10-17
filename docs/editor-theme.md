@@ -269,6 +269,42 @@ and stroke icons that never depend on the font (`ui::TransportBar`,
 `ThumbTileEx`), notes (`NoteCard`, `Callout`, `Note`), meters and the
 `RecordButton`.
 
+## Windows outside the main window
+
+Drag a panel's tab (or a lone panel's header strip) out of the editor and it
+becomes a window of its own - onto a second monitor, say. Drag its tab onto a
+dock target in the editor to dock it back; dropped anywhere over the editor
+without docking, it simply floats inside the main window again. *Edit >
+Preferences > Appearance > Windows can leave the main window* turns this off
+(editor.ini `multiViewports`, applied at once; on by default on Windows, macOS
+and Linux X11, off and unavailable in a Wayland session - Wayland gives an app
+no say over where its windows go, and ImGui's GLFW backend does not support
+it there).
+
+- **They belong to the editor**: no taskbar / Dock icon of their own, and they
+  stay above the main window (an owned window on Windows, a child window on
+  macOS - which also means it follows the editor when you move the editor).
+  Popups and menus opened over one get an OS window of their own on top.
+- **They look like the panels**: square corners and an opaque background (ImGui
+  does that for any window that owns an OS window), the theme's colours, the
+  same title strip. A viewport moved out keeps its frosted overlay cards - the
+  blur reads the viewport's own image, not the main window. Previews (Prefabs,
+  Asset Browser, Cutscene shots...) render as before: all GL work happens on
+  the main context, whose textures every window shares.
+- **Layouts remember them**: a saved layout stores a floating window's desktop
+  position. When it is loaded, anything that would land off every screen (a
+  monitor that is gone) or, with the preference off, outside the main window,
+  is moved back in first.
+- **Layout > Bring all windows back** moves every floating window and floating
+  group that sits in its own OS window or reaches past the editor's edge back
+  inside it (they stay floating - drag a tab onto a panel to dock it). Turning
+  the preference off does the same.
+- The command palette always opens over the main window and dims only that one;
+  a modal dialog dims every window.
+
+UNVERIFIED on Windows and Linux X11 (built and driven on macOS only); real
+mouse dragging between OS windows was not tested by a human either.
+
 ## For developers: adding a colour, adding a theme
 
 `src/theme.hpp` is the whole interface. The rule that keeps the themes honest:

@@ -57,6 +57,8 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - Hiding an object with the Outliner's eye is saved with the project and can be undone (editor only - the game still draws it).
 - Menus and popups are fully opaque in the Graphite, Boot screen and Memory card themes.
 - UI scripting: a `drop <target> <file> [dx,dy]` step simulates a file dropped from the OS.
+- **Windows can leave the main window**: drag a panel's tab out of the editor and it becomes its own window (onto another monitor, for example); drag it back onto a panel to dock it. Turn it off in *Edit > Preferences > Appearance* (on by default; unavailable under Wayland). *Layout > Bring all windows back* gathers floating windows into the main window, and a layout saved with a window on a monitor that is gone opens with that window inside the editor.
+- UI scripting: `undock`, `dock` and `mainwindow` steps, and `shot` also writes every panel that is in a window of its own.
 - **Run** in the top bar reads "Running 00:42" while your game is up in PCSX2 or on the PS2; hover it to Stop.
 - The Debugger no longer says the game "stopped reporting" after you close it, relaunch it, or open a project whose game ran earlier.
 - **Live session**: Host and Join keep separate port and join-code fields; the Session panel can **Follow** a participant's camera.

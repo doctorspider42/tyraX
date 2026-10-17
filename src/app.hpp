@@ -1919,6 +1919,10 @@ private:
     // preference changes nothing until the next start.
     bool nativeTitleBar_ = false;
     bool titleBarMerged_ = false;
+    // "Windows can leave the main window" (editor.ini multiViewports, Edit >
+    // Preferences > Appearance; multiviewport.hpp). Applied live, between
+    // frames, by run().
+    bool multiViewports_ = true;
     // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
     // consoleLogFiles, and their Preferences working copies.
     int globalConsoleLogLines_ = 20000;

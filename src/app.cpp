@@ -30,6 +30,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "migrations.hpp"
+#include "multiviewport.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -231,6 +232,10 @@ struct EditorConfig {
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
     std::vector<std::string> recentProjects;
+    // "Windows can leave the main window" (Dear ImGui multi-viewports,
+    // multiviewport.hpp): a panel dragged out of the editor becomes its own OS
+    // window. Off by default only in a Wayland session.
+    bool multiViewports = platform::multiViewportsByDefault();
 };
 
 // How many entries the recent-projects list keeps. Ten fills the welcome
@@ -342,6 +347,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("nativeTitleBar", v)) cfg.nativeTitleBar = toI(v, 0) != 0;
         else if (match("ambienceDetailed", v)) cfg.ambienceDetailed = toI(v, 0) != 0;
         else if (match("droneDetailed", v)) cfg.droneDetailed = toI(v, 0) != 0;
+        else if (match("multiViewports", v)) cfg.multiViewports = toI(v, 1) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -425,7 +431,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "updateSkipVersion=" << cfg.updateSkipVersion << "\n"
       << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n"
       << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n"
-      << "droneDetailed=" << (cfg.droneDetailed ? 1 : 0) << "\n";
+      << "droneDetailed=" << (cfg.droneDetailed ? 1 : 0) << "\n"
+      << "multiViewports=" << (cfg.multiViewports ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -607,6 +614,10 @@ int App::run(const std::string& initialProjectDir) {
         return 1;
     }
     applyWindowIcon(window_);
+    // The hints stay set for every later glfwCreateWindow - including the OS
+    // windows ImGui's backend makes for panels dragged out of this one, which
+    // must not open maximized.
+    glfwWindowHint(GLFW_MAXIMIZED, GLFW_FALSE);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
 
@@ -631,6 +642,14 @@ int App::run(const std::string& initialProjectDir) {
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
+    // Panels in their own OS windows (multiviewport.hpp). No taskbar / Dock
+    // entry per panel: they are parts of this window, owned by it
+    // (platform::ownToolWindow), not documents. Auto-merge stays ON
+    // (ConfigViewportsNoAutoMerge false): a window dropped back over the
+    // editor becomes part of it again instead of an OS window floating there.
+    io.ConfigViewportsNoTaskBarIcon = true;
+    io.ConfigViewportsNoAutoMerge = false;
+    io.ConfigViewportsNoDefaultParent = false;  // parented to the main window
     ImNodes::CreateContext();
     // One EDITOR context per canvas. imnodes keeps panning/zoom/selection in
     // the editor context, so the Flow Graph and the Procedural graph would
@@ -700,6 +719,10 @@ int App::run(const std::string& initialProjectDir) {
         ambienceDetailed_ = cfg.ambienceDetailed;
         droneDetailed_ = cfg.droneDetailed;
         titleBarMerged_ = !nativeTitleBar_ && platform::mergeTitleBar(window_);
+        // Before the first NewFrame (ImGui asserts on a flag that appears at
+        // frame 1); later flips are applied between frames in the loop below.
+        multiViewports_ = cfg.multiViewports;
+        mvp::setEnabled(multiViewports_);
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -715,13 +738,22 @@ int App::run(const std::string& initialProjectDir) {
 
     // Drag & drop from Explorer: the dialog-free import path (PNGs land in
     // res/hud and attach to the selected menu when the Menu Editor is open).
+    // Also installed on every panel's own OS window (mvp::install).
     glfwSetWindowUserPointer(window_, this);
-    glfwSetDropCallback(window_, [](GLFWwindow* w, int count, const char** paths) {
+    const GLFWdropfun onDrop = [](GLFWwindow* w, int count, const char** paths) {
         double cx = -1.0, cy = -1.0;
-        glfwGetCursorPos(w, &cx, &cy);  // window coords = ImGui's (no multi-viewport)
+        glfwGetCursorPos(w, &cx, &cy);  // window coords
+        if (mvp::enabled()) {           // ImGui's are desktop coords then
+            int wx = 0, wy = 0;
+            glfwGetWindowPos(w, &wx, &wy);
+            cx += wx;
+            cy += wy;
+        }
         static_cast<App*>(glfwGetWindowUserPointer(w))->handleFileDrop(count, paths, (float)cx,
                                                                        (float)cy);
-    });
+    };
+    glfwSetDropCallback(window_, onDrop);
+    mvp::install(window_, onDrop);
 
     if (!viewport_.init()) {
         std::fprintf(stderr, "Failed to init viewport renderer\n");
@@ -777,12 +809,22 @@ int App::run(const std::string& initialProjectDir) {
         // Deferred from attachProject()/switchLayout(): a saved layout dump can
         // only be (re)applied between frames - existing windows get re-docked
         // here. Recipe-built layouts take the drawUI path instead.
+        // The Preferences switch, applied between frames.
+        if (mvp::enabled() != (multiViewports_ && mvp::supported())) mvp::setEnabled(multiViewports_);
+
         if (layoutLoadPending_) {
             layoutLoadPending_ = false;
-            const std::string& ini =
+            // Floating windows saved on a screen that is gone (or in their own
+            // OS windows, read with the preference now off) come back into
+            // the main window instead of opening out of reach.
+            int wx = 0, wy = 0, ww = 0, wh = 0;
+            glfwGetWindowPos(window_, &wx, &wy);
+            glfwGetWindowSize(window_, &ww, &wh);
+            const std::string ini = mvp::fitLayoutIni(
                 (hasProject_ && !project_.windowLayouts.empty())
                     ? project_.windowLayouts[project_.activeLayout].ini
-                    : std::string();
+                    : std::string(),
+                (float)wx, (float)wy, (float)ww, (float)wh);
             ImGui::LoadIniSettingsFromMemory(ini.c_str(), ini.size());
         }
 
@@ -792,7 +834,9 @@ int App::run(const std::string& initialProjectDir) {
         // map the last frame built and queues this frame's input, and a later
         // event overrides whatever the backend just fed from a real cursor.
         uiScriptTick();
+        if (uiScriptActive_) mvp::routeInjectedMouse();  // the OS window under the script's cursor
         ImGui::NewFrame();
+        mvp::newFrame();
 
         drawUI();
 
@@ -813,9 +857,13 @@ int App::run(const std::string& initialProjectDir) {
         captureFrameIfRequested(w, h);
         if (!uiShotPath_.empty()) {  // a script's shot step, after its frame drew
             captureFrameTo(uiShotPath_, w, h);
+            mvp::requestPlatformShots(uiShotPath_);  // + every panel in its own OS window
             uiShotPath_.clear();
         }
 
+        // Panels in their own OS windows: drawn and swapped here, main GL
+        // context current again afterwards.
+        mvp::renderPlatformWindows(window_);
         glfwSwapBuffers(window_);
     }
 
@@ -1266,7 +1314,7 @@ void App::saveGlobalConfig() {
                       giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
                       nativeTitleBar_, ambienceDetailed_, droneDetailed_,
-                      std::move(recent)});
+                      std::move(recent), multiViewports_});
 }
 
 void App::setUiScale(float userScale) {
@@ -6016,6 +6064,11 @@ void App::dockToolWindows(unsigned int dockspace) {
         }
         if (!target) continue;  // nothing docked to stand beside: it floats
         ImGui::DockBuilderDockWindow(t.name, target);
+        // The Viewport / Properties may sit in a floating node, in the main
+        // window or in an OS window of their own: finish THAT tree.
+        if (ImGuiDockNode* n = ImGui::DockBuilderGetNode(target))
+            if (ImGuiDockNode* root = ImGui::DockNodeGetRootNode(n))
+                if (root->ID != dockspace) ImGui::DockBuilderFinish(root->ID);
         docked = true;
     }
     if (docked) ImGui::DockBuilderFinish(dockspace);
@@ -6265,6 +6318,16 @@ void App::drawLayoutMenu() {
     if (hasRecipe && ImGui::IsItemHovered())
         ImGui::SetTooltip("Discard manual changes and rebuild the built-in "
                           "arrangement for '%s'.", L.name.c_str());
+    if (menuact::MenuItem("Bring all windows back")) {
+        const int n = mvp::bringWindowsBack();
+        statusMessage_ = n == 0   ? std::string("Every window is already inside the main window")
+                         : n == 1 ? std::string("Moved 1 window back into the main window")
+                                  : "Moved " + std::to_string(n) + " windows back into the main window";
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Move every floating window that is in its own OS window or out of\n"
+                          "sight back into the main window (they stay floating - drag a\n"
+                          "tab onto a panel to dock it).");
 
     ImGui::Separator();
     if (menuact::MenuItem("New layout...")) {
@@ -20373,6 +20436,20 @@ void App::drawEditorPreferencesModal() {
         rowDesc(platform::titleBarMergeSupported()
                     ? "Off: the system title bar is part of the editor's top bar. On: the OS draws its own."
                     : "Linux always uses the desktop's own title bar.");
+    }
+    if (show(0, "Windows can leave the main window", "multi viewport undock floating os window monitor drag out panel")) {
+        rowStart("Panels");
+        const bool can = mvp::supported();
+        bool on = multiViewports_ && can;
+        ImGui::BeginDisabled(!can);
+        if (ui::Switch("Windows can leave the main window", &on)) {
+            multiViewports_ = on;
+            saveGlobalConfig();  // applied between frames by run(), no restart
+        }
+        ImGui::EndDisabled();
+        rowDesc(can ? "On: drag a panel's tab out of the editor and it becomes its own window "
+                      "(another monitor, say). Layout > Bring all windows back."
+                    : "Not available here: Wayland gives an app no say over where its windows go.");
     }
     if (show(0, "Interface font", "font Geist scale zoom")) {
         rowStart("Interface");

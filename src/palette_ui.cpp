@@ -279,6 +279,9 @@ void App::drawCommandPalette() {
     const float w = ImMin(scaled(640.0f), vp->WorkSize.x - scaled(40.0f));
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + (vp->WorkSize.x - w) * 0.5f, vp->WorkPos.y + scaled(70.0f)));
     ImGui::SetNextWindowSize(ImVec2(w, 0.0f));
+    // Always over the main window, even when the focused panel is in an OS
+    // window of its own (its dim covers only the main window).
+    ImGui::SetNextWindowViewport(vp->ID);
     ImGui::SetNextWindowFocus();
     ImGui::PushStyleColor(ImGuiCol_WindowBg, sem.surface);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, scaled(12.0f));

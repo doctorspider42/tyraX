@@ -19,6 +19,18 @@ driven on macOS only. Open:
   and the other menus in the top ~28 pt (the enlarged title-bar container must
   not swallow them) - synthetic events could not test this.
 - **PS2 budget meters** in the status bar need a scene VRAM/RAM estimate first.
+- **Panels in their own OS windows** (multi-viewports, docs/editor-theme.md
+  "Windows outside the main window") - built and script-driven on macOS only:
+  - Windows (owned HWND, the backend's WndProc next to the merged-title-bar
+    subclass, DPI changes between monitors) and Linux X11 (no transient-for
+    hint yet - only the backend's DIALOG type keeps a panel above the editor);
+  - a human dragging tabs out and back between real monitors, the macOS child
+    windows when the editor goes full screen, dropping files from Finder onto a
+    panel in its own window;
+  - the TYRAX_SHOT periodic capture still reads only the main framebuffer;
+  - the command palette dims only the main window;
+  - Bring all windows back leaves the windows floating (re-docking them where a
+    layout recipe would put them is not done).
 - **Tool windows - what the redesign round left** (each tool's commit says why):
   - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
     download/install, a second editor joining a session and the phone camera

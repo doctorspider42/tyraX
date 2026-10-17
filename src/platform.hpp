@@ -399,4 +399,24 @@ float titleBarInsetLeft(GLFWwindow* window);
 // draw minimize / maximize / close itself (Windows).
 bool titleBarHasCaptionButtons();
 
+// --- windows that leave the main window (Dear ImGui multi-viewports) --------
+// A docked panel dragged out of the editor becomes its own OS window
+// (Edit > Preferences > Appearance > "Windows can leave the main window",
+// editor.ini multiViewports; docs/editor-theme.md "Windows outside the main
+// window"). ImGui's GLFW backend creates those windows; these two cover what
+// it leaves to the application.
+
+// The preference's default on this machine: on for Windows, macOS and Linux
+// X11, off in a Wayland session (WAYLAND_DISPLAY set or XDG_SESSION_TYPE
+// "wayland") - Wayland gives a client no say over where its windows go, and
+// ImGui's GLFW backend refuses multi-viewports there anyway.
+bool multiViewportsByDefault();
+// Keep a panel's OS window above the main window, the way a tool palette
+// stays above its document: an owned HWND on Windows (also minimized with the
+// owner), an NSWindow child on macOS (ordered above, moves with the main
+// window). No-op on Linux, where the backend already types the window
+// _NET_WM_WINDOW_TYPE_DIALOG. Called once per window, right after the backend
+// created it.
+void ownToolWindow(GLFWwindow* owner, GLFWwindow* tool);
+
 }  // namespace platform

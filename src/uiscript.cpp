@@ -540,6 +540,33 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
                 s.dx = (float)dx;
                 s.dy = (float)dy;
             }
+        } else if (cmd == "undock" || cmd == "mainwindow") {
+            // undock <window> <x>,<y> [<w>,<h>] - x,y from the main window's
+            // top-left; a spot outside the main window gives the panel its own
+            // OS window (when Windows can leave the main window is on).
+            // mainwindow <x>,<y> <w>,<h> - the editor window itself, desktop
+            // coordinates, un-maximized.
+            const bool main = cmd == "mainwindow";
+            if (main ? tok.size() != 3 : (tok.size() != 3 && tok.size() != 4))
+                return fail(main ? "mainwindow needs <x>,<y> <w>,<h>"
+                                 : "undock needs a window name, <x>,<y> and an optional <w>,<h>");
+            s.kind = main ? Step::MainWindow : Step::Undock;
+            if (!main) s.arg = tok[1];
+            for (size_t k = main ? 1 : 2; k < tok.size(); ++k) {
+                const size_t comma = tok[k].find(',');
+                double a = 0, b = 0;
+                if (comma == std::string::npos || !toNumber(tok[k].substr(0, comma), a) ||
+                    !toNumber(tok[k].substr(comma + 1), b))
+                    return fail(cmd + " position and size must be <x>,<y> and <w>,<h>");
+                (k == (main ? 1u : 2u) ? s.dx : s.w) = (float)a;
+                (k == (main ? 1u : 2u) ? s.dy : s.h) = (float)b;
+            }
+        } else if (cmd == "dock") {
+            // dock <window> <docked window> - joins that window's dock node.
+            if (!needArg(3)) return fail("dock needs a window name and the docked window to join");
+            s.kind = Step::Dock;
+            s.arg = tok[1];
+            s.path = tok[2];
         } else if (cmd == "quit" || cmd == "exit") {
             s.kind = Step::Quit;
         } else {

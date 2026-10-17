@@ -1,7 +1,8 @@
 // The macOS half of platform.hpp's merged title bar - the only Objective-C in
 // the editor, because NSWindow has no C API. Everything else macOS-specific
 // stays in platform.cpp's __APPLE__ branches; this file holds exactly the
-// three title-bar functions platform.cpp leaves out on Apple.
+// three title-bar functions platform.cpp leaves out on Apple, plus
+// ownToolWindow (a panel's own OS window as a child of the main NSWindow).
 //
 // What it does to GLFW's NSWindow (docs/editor-theme.md, "Title bar"):
 //   - titlebarAppearsTransparent + titleVisibility hidden + a full-size
@@ -166,6 +167,18 @@ float titleBarInsetLeft(GLFWwindow* window) {
     NSButton* close = [w standardWindowButton:NSWindowCloseButton];
     const CGFloat gap = close ? [close convertRect:close.bounds toView:nil].origin.x : 8.0;
     return (float)(NSMaxX(r) + gap);
+}
+
+void ownToolWindow(GLFWwindow* owner, GLFWwindow* tool) {
+    NSWindow* o = owner ? glfwGetCocoaWindow(owner) : nil;
+    NSWindow* t = tool ? glfwGetCocoaWindow(tool) : nil;
+    if (!o || !t || t.parentWindow == o) return;
+    // A child window stays ordered above its parent while attached, so a
+    // click on the main window no longer buries the panel behind it; it also
+    // follows the main window when that one moves, as an attached palette
+    // does on macOS. The window is still hidden here (ImGui shows it next);
+    // attaching orders it in, which ImGui's ShowWindow then repeats.
+    [o addChildWindow:t ordered:NSWindowAbove];
 }
 
 }  // namespace platform
