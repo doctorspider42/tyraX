@@ -264,6 +264,27 @@ void App::modelImportPlace(const modelimport::Result& res) {
         animated ? res.animatedModel
                  : (res.staticModels.empty() ? std::string() : res.staticModels.front());
 
+    if (why == ModelImportFor::Borrow) {
+        // the clips join the model the Animation Editor had open (one row, the
+        // mapper opened when names do not all match - as picking the file
+        // from the Borrow list does); commitChange() follows in the caller
+        const std::string target = modelImportBorrowFor_;
+        modelImportBorrowFor_.clear();
+        if (res.animatedModel.empty() || target.empty() || res.animatedModel == target) {
+            statusMessage_ += " - no skeleton and clips to borrow";
+            return;
+        }
+        AnimImport a;
+        a.model = target;
+        a.source = res.animatedModel;
+        project_.animImports.push_back(std::move(a));
+        const int row = (int)project_.animImports.size() - 1;
+        if (animEdModel_ == target) animEdImport_ = row;
+        invalidateAnimCaches(target);
+        const AnimImportProbe& probe = animImportProbe(target, res.animatedModel, {});
+        if (probe.ok && probe.bonesMapped < probe.bonesTotal) openAnimBoneMap(row);
+        return;
+    }
     if (why == ModelImportFor::Retarget) {
         for (int i = 0; i < (int)project_.objects().size(); ++i)
             if (project_.objects()[i].id == modelPickObjectId_ && !first.empty()) {
