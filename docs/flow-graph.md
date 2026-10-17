@@ -62,7 +62,9 @@ what it does, a problem if it has one, every setting with its tip on the
 caption, the wiring of every pin (each end is a link that selects that node),
 and whether Live Logic can patch it. Display Text adds a **placement
 preview** — the 512x448 screen with the text where it will appear; drag in it
-to move the text. *Delete node* removes it (Delete on the canvas does too).
+to move the text. *Delete node* removes it (Delete on the canvas does too). A pad-button setting (On
+Button's *Button*) is the editor's controller picker: the button's glyph in the
+field, and a small DualShock 2 to click above the 16 names.
 
 ## Moving around
 

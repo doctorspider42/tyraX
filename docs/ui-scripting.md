@@ -166,6 +166,14 @@ quit
 While that runs, `bin/livepad.bin` shows the Cross bit set for 3.9 s of a 4.0 s
 hold, and clears when the editor exits. Neither window was ever focused.
 
+Every element of the drawn controller is an item named after its button —
+`L2 L1 R1 R2 Up Left Right Down Triangle Square Circle Cross Select Start L3 R3`
+— and reports *pressed* as checked, so `expect-checked "Remote Pad/Cross"`
+asserts what the game is being sent (a Shift-click latch, a `--pad` script, the
+AI's `press_pad`). The Input Map's diagram has the same names (`"Input
+Map/Cross"`; checked = the selected action's button), and a pad-button combo's
+popup has them too, next to its list rows named `Cross`, `DpadUp`...
+
 ## Limits
 
 - **The 3D viewport is not made of ImGui widgets.** Its image is one big item

@@ -46,7 +46,10 @@ each reply is stamped with the mode it was asked in. In *Edit project* it can:
 - regenerate sources and save when asked.
 
 *+ Build & run* also lets it build the game, launch it and drive the Remote
-Pad. It is a separate step because builds are slow and not undone by `Ctrl+Z`.
+Pad. It is a separate step because builds are slow and not undone by `Ctrl+Z`. A
+`press_pad` row in the change card draws what it pressed: one small
+controller per moment of the pad script, the held buttons lit, with the
+buttons and how long they were held under it (`Cross + L stick · 0.3 s`).
 
 It cannot import files, sculpt or paint terrain, edit arbitrary source files or
 touch anything outside the project model.

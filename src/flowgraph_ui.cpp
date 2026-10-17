@@ -1102,21 +1102,12 @@ void App::drawFlowGraphWindow() {
                 }
             }
         } else if (t->strKind == FlowParamKind::Button) {
-            // every PadButtons field (pad.hpp) - the codegen uses the name as-is
-            const char* buttons[] = {"Cross",    "Circle",   "Square", "Triangle",
-                                     "DpadUp",   "DpadDown", "DpadLeft",
-                                     "DpadRight", "L1",      "L2",     "L3",
-                                     "R1",       "R2",       "R3",     "Start",
-                                     "Select"};
-            if (beginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str(),
-                                     t->strTip)) {
-                for (const char* b : buttons) {
-                    if (ImGui::Selectable(b, n.str == b)) {
-                        n.str = b;
-                        changed = true;
-                    }
-                }
-                endCombo();
+            // every PadButtons field (pad.hpp, kPadButtonNames) - the codegen
+            // uses the name as-is. The picker is the shared controller one.
+            std::string v = n.str.empty() ? "Cross" : n.str;
+            if (ui::PadButtonCombo("Button", &v, false, t->strTip, nullptr, uiFontSize)) {
+                n.str = v;
+                changed = true;
             }
         } else if (t->strKind == FlowParamKind::InputActionName) {
             // Configurable input (Tools > Input Map): the action, not a button.

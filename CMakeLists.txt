@@ -361,6 +361,7 @@ add_executable(tyrax-editor
     src/palette_ui.cpp
     src/menu_actions.cpp
     src/toolkit.cpp
+    src/pad_widget.cpp
     src/tmdl.cpp
     src/treegen.cpp
     src/treeimpostor.cpp

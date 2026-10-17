@@ -4282,7 +4282,7 @@ void App::remotePadTick() {
 // --pad script line.
 void App::drawRemotePadWindow() {
     if (!showRemotePad_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(600), scaled(590)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(720), scaled(800)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Remote Pad", &showRemotePad_)) {
         ImGui::End();
         return;
@@ -4333,8 +4333,9 @@ void App::drawRemotePadWindow() {
     const bool shift = ImGui::GetIO().KeyShift;
 
     // --- header: is anyone listening, and which port
+    const bool listening = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    const bool noGame = padStatus_.empty() && !listening && project_.settings.liveDebug;
     {
-        const bool listening = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
         char pill[96];
         int kind = 4;
         if (!padStatus_.empty()) {
@@ -4362,13 +4363,11 @@ void App::drawRemotePadWindow() {
             ImGui::SameLine();
             if (ui::GhostButton("Run (F5)")) dbgBuildAndRun();
         }
-        const char* ports[2] = {"Pad 1", "Pad 2"};
-        const float segW = scaled(130);
+        // Pad 1 / Pad 2, each with its port colour (the P1/P2 badge on the pad).
+        const float segW = scaled(150);
         ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - segW));
-        ImGui::BeginDisabled(single);
         int port = pi;
-        if (ui::Segmented("##padport", ports, 2, &port, segW)) padTarget_ = port;
-        ImGui::EndDisabled();
+        if (ui::PadPortSegmented("##padport", &port, segW, !single)) padTarget_ = port;
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(single ? "Single player - turn on Multiplayer in Project Preferences\n"
                                        "to open the second port."
@@ -4392,210 +4391,175 @@ void App::drawRemotePadWindow() {
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     const bool capturing = padKeyboard_ && focused;
 
-    // --- the controller canvas, in the 560 x 330 design space
+    // --- the controller: ui::PadDiagram in Interactive mode on a card. The
+    // widget only draws and reports (toolkit.hpp "pad"); the latching, the
+    // spring-back and the keyboard stay here.
     const float availW = ImGui::GetContentRegionAvail().x;
-    const float k = ImMin(availW / 560.0f, scaled(1.25f));
-    const float cw = 560.0f * k, ch = 330.0f * k;
+    const float padW = ImMax(scaled(160), ImMin(availW - scaled(28), scaled(760)));
+    const float padH = ui::PadDiagramHeight(ui::PadMode::Interactive, padW);
+    const float lineH = ImGui::GetTextLineHeight();
+    const float readH = lineH * 2.0f + scaled(4);
+    const float cardH = scaled(26) + padH + scaled(8) + readH + scaled(6) + ImGui::GetFrameHeight() + scaled(10);
     const ImVec2 o = ImGui::GetCursorScreenPos();
-    auto P = [&](float x, float y) { return ImVec2(o.x + x * k, o.y + y * k); };
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.field), scaled(12));
-    if (capturing) {
-        dl->AddRect(ImVec2(o.x - 2, o.y - 2), ImVec2(o.x + cw + 2, o.y + ch + 2), dbgCol(sem.accent, 0.18f),
-                    scaled(13), 0, 5.0f);
-        dl->AddRect(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.accent, 0.6f), scaled(12), 0, 1.5f);
-    } else {
-        dl->AddRect(o, ImVec2(o.x + cw, o.y + ch), dbgCol(sem.border), scaled(12));
+    {
+        const ImVec2 z(o.x + availW, o.y + cardH);
+        dl->AddRectFilled(o, z, dbgCol(sem.field), scaled(12));
+        if (capturing) {
+            dl->AddRect(ImVec2(o.x - 2, o.y - 2), ImVec2(z.x + 2, z.y + 2), dbgCol(sem.accent, 0.14f), scaled(13), 0,
+                        3.0f);
+            dl->AddRect(o, z, dbgCol(sem.accent, 0.55f), scaled(12), 0, 1.0f);
+        } else {
+            dl->AddRect(o, z, dbgCol(sem.border), scaled(12));
+        }
     }
-    // The silhouette.
-    dl->PathLineTo(P(150, 70));
-    dl->PathBezierCubicCurveTo(P(210, 58), P(350, 58), P(410, 70));
-    dl->PathBezierCubicCurveTo(P(470, 80), P(505, 110), P(520, 170));
-    dl->PathBezierCubicCurveTo(P(538, 240), P(528, 300), P(488, 306));
-    dl->PathBezierCubicCurveTo(P(452, 311), P(432, 270), P(404, 236));
-    dl->PathBezierCubicCurveTo(P(380, 210), P(180, 210), P(156, 236));
-    dl->PathBezierCubicCurveTo(P(128, 270), P(108, 311), P(72, 306));
-    dl->PathBezierCubicCurveTo(P(32, 300), P(22, 240), P(40, 170));
-    dl->PathBezierCubicCurveTo(P(55, 110), P(90, 80), P(150, 70));
-    dl->PathFillConcave(dbgCol(sem.surface));
-    dl->PathLineTo(P(150, 70));
-    dl->PathBezierCubicCurveTo(P(210, 58), P(350, 58), P(410, 70));
-    dl->PathBezierCubicCurveTo(P(470, 80), P(505, 110), P(520, 170));
-    dl->PathBezierCubicCurveTo(P(538, 240), P(528, 300), P(488, 306));
-    dl->PathBezierCubicCurveTo(P(452, 311), P(432, 270), P(404, 236));
-    dl->PathBezierCubicCurveTo(P(380, 210), P(180, 210), P(156, 236));
-    dl->PathBezierCubicCurveTo(P(128, 270), P(108, 311), P(72, 306));
-    dl->PathBezierCubicCurveTo(P(32, 300), P(22, 240), P(40, 170));
-    dl->PathBezierCubicCurveTo(P(55, 110), P(90, 80), P(150, 70));
-    dl->PathStroke(dbgCol(sem.border), ImDrawFlags_Closed, 1.5f);
-
-    enum Shape { Text, Arrow, Tri, Sq, Circ, Cross };
-    // One pad button: an InvisibleButton named `label` (the --ui-script name,
-    // "Remote Pad/Cross"), held while the mouse holds it.
-    auto padButton = [&](const char* label, const char* name, float x, float y, float w, float h,
-                         Shape shape, float dir, const char* key, bool round) {
-        const int idx = livepad::buttonByName(name);
-        const uint32_t m = livepad::buttonBit(idx);
-        ImGui::SetCursorScreenPos(P(x, y));
-        ImGui::InvisibleButton(label, ImVec2(w * k, h * k));
-        const bool active = ImGui::IsItemActive();
-        if (padShiftHold_ && shift && ImGui::IsItemClicked() && idx >= 0) {
-            padSticky_[pi][idx] = !padSticky_[pi][idx];
-        } else if (ImGui::IsItemClicked() && idx >= 0 && padSticky_[pi][idx]) {
-            padSticky_[pi][idx] = false;  // a plain click lets a latched button go
-        }
-        held(idx, active && !(padShiftHold_ && shift));
-        const bool on = (st.buttons[pi] & m) != 0;
-        const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
-        const ImVec2 a = P(x, y), b = P(x + w, y + h);
-        const float r = round ? (b.x - a.x) * 0.5f : scaled(7) * k;
-        if (on) dl->AddRectFilled(ImVec2(a.x - 3, a.y - 3), ImVec2(b.x + 3, b.y + 3), dbgCol(sem.accent, 0.18f), r + 3);
-        dl->AddRectFilled(a, b, on ? dbgCol(sem.accent, 0.28f) : dbgCol(t > 0 ? sem.border : sem.field, 1.0f), r);
-        dl->AddRect(a, b, on ? dbgCol(sem.accent) : dbgCol(sem.border, 1.5f), r, 0, on ? 1.5f : 1.0f);
-        const ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
-        const float s = (b.y - a.y) * 0.24f;
-        const float th = ImMax(1.5f, 2.2f * k);
-        switch (shape) {
-            case Text: {
-                const char* end = ImGui::FindRenderedTextEnd(label);
-                const ImVec2 ts = ImGui::CalcTextSize(label, end);
-                dl->AddText(ImVec2(c.x - ts.x * 0.5f - (key && padKeyboard_ ? scaled(7) : 0), c.y - ts.y * 0.5f),
-                            dbgCol(on ? sem.text : sem.textDim, on ? 1.0f : 0.95f), label, end);
-                break;
-            }
-            case Arrow: {
-                const float cs = std::cos(dir), sn = std::sin(dir);
-                auto R = [&](float px, float py) { return ImVec2(c.x + px * cs - py * sn, c.y + px * sn + py * cs); };
-                dl->AddTriangleFilled(R(s, 0), R(-s * 0.7f, -s * 0.8f), R(-s * 0.7f, s * 0.8f),
-                                      dbgCol(on ? sem.text : sem.textDim));
-                break;
-            }
-            case Tri:
-                dl->AddTriangle(ImVec2(c.x, c.y - s * 1.1f), ImVec2(c.x + s * 1.1f, c.y + s * 0.8f),
-                                ImVec2(c.x - s * 1.1f, c.y + s * 0.8f), dbgCol(sem.ok), th);
-                break;
-            case Sq:
-                dl->AddRect(ImVec2(c.x - s * 0.9f, c.y - s * 0.9f), ImVec2(c.x + s * 0.9f, c.y + s * 0.9f),
-                            dbgCol(sem.special), 1.0f, 0, th);
-                break;
-            case Circ: dl->AddCircle(c, s, dbgCol(sem.danger), 20, th); break;
-            case Cross:
-                dl->AddLine(ImVec2(c.x - s * 0.85f, c.y - s * 0.85f), ImVec2(c.x + s * 0.85f, c.y + s * 0.85f),
-                            dbgCol(on ? sem.text : sem.accent), th);
-                dl->AddLine(ImVec2(c.x + s * 0.85f, c.y - s * 0.85f), ImVec2(c.x - s * 0.85f, c.y + s * 0.85f),
-                            dbgCol(on ? sem.text : sem.accent), th);
-                break;
-        }
-        if (idx >= 0 && padSticky_[pi][idx])
-            dl->AddCircleFilled(ImVec2(b.x - scaled(5) * k, a.y + scaled(5) * k), scaled(2.5f), dbgCol(sem.warn), 8);
-        // The key that drives it, printed small so the map is learnable.
-        if (key && padKeyboard_) {
-            const float fs = ImGui::GetFontSize() * 0.72f;
-            ImFont* f = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
-            const ImVec2 ks = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, key);
-            const ImVec2 kp = shape == Text ? ImVec2(b.x - ks.x - scaled(6) * k, c.y - ks.y * 0.5f)
-                                            : ImVec2(c.x - ks.x * 0.5f, b.y + scaled(3));
-            dl->AddText(f, fs, kp, dbgCol(sem.textDim, 0.85f), key);
-        }
-    };
-    // shoulders
-    padButton("L2", "L2", 56, 14, 64, 28, Text, 0, "2", false);
-    padButton("L1", "L1", 126, 14, 64, 28, Text, 0, "1", false);
-    padButton("R1", "R1", 370, 14, 64, 28, Text, 0, "3", false);
-    padButton("R2", "R2", 440, 14, 64, 28, Text, 0, "4", false);
-    // d-pad
-    const float pi_ = 3.14159265f;
-    padButton("Up", "DpadUp", 106, 92, 36, 36, Arrow, -pi_ * 0.5f, nullptr, false);
-    padButton("Left", "DpadLeft", 70, 128, 36, 36, Arrow, pi_, nullptr, false);
-    padButton("Right", "DpadRight", 142, 128, 36, 36, Arrow, 0.0f, nullptr, false);
-    padButton("Down", "DpadDown", 106, 164, 36, 36, Arrow, pi_ * 0.5f, nullptr, false);
-    // face buttons
-    padButton("Triangle", "Triangle", 413, 88, 38, 38, Tri, 0, "R", true);
-    padButton("Square", "Square", 374, 127, 38, 38, Sq, 0, "Q", true);
-    padButton("Circle", "Circle", 452, 127, 38, 38, Circ, 0, "E", true);
-    padButton("Cross", "Cross", 413, 166, 38, 38, Cross, 0, "Spc", true);
-    // middle
-    padButton("Select", "Select", 202, 128, 70, 24, Text, 0, nullptr, false);
-    padButton("Start", "Start", 288, 128, 70, 24, Text, 0, nullptr, false);
-
-    // The sticks: drag in 2-D, the value shown as -1..1. Released, a stick
-    // springs back like a real one - unless Shift is held, which leaves it
-    // there (a player that keeps walking while you watch PCSX2). A click
-    // without a drag is L3 / R3; a double-click centres a parked stick.
-    auto stick = [&](const char* label, int side, float cx, float cy, const char* keys) {
-        const int base = side * 2;
-        const float R = 40.0f * k;
-        const ImVec2 c = P(cx, cy);
-        dl->AddCircleFilled(c, R, dbgCol(sem.field), 32);
-        dl->AddCircle(c, R, dbgCol(sem.border), 32);
-        dl->AddLine(ImVec2(c.x, c.y - R * 0.8f), ImVec2(c.x, c.y + R * 0.8f), dbgCol(sem.border, 0.6f));
-        dl->AddLine(ImVec2(c.x - R * 0.8f, c.y), ImVec2(c.x + R * 0.8f, c.y), dbgCol(sem.border, 0.6f));
-        ImGui::SetCursorScreenPos(ImVec2(c.x - R, c.y - R));
-        ImGui::InvisibleButton(label, ImVec2(R * 2, R * 2));
-        const int idx = livepad::buttonByName(label);
-        if (ImGui::IsItemActive()) {
-            const ImVec2 d(ImGui::GetMousePos().x - c.x, ImGui::GetMousePos().y - c.y);
-            const ImVec2 drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
-            if (std::fabs(drag.x) + std::fabs(drag.y) > 3.0f) padStickDragged_[side] = true;
-            if (padStickDragged_[side]) {
-                float x = d.x / (R * 0.75f), y = d.y / (R * 0.75f);
-                const float len = std::sqrt(x * x + y * y);
-                if (len > 1.0f) {
-                    x /= len;
-                    y /= len;
-                }
-                st.axes[pi][base] = (int8_t)lroundf(x * 127.0f);
-                st.axes[pi][base + 1] = (int8_t)lroundf(y * 127.0f);
-            }
-        }
-        if (ImGui::IsItemDeactivated()) {
-            if (!padStickDragged_[side]) held(idx, true);  // a click: tap L3 / R3
-            else if (!shift) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
-            padStickDragged_[side] = false;
-        } else if (!ImGui::IsItemActive()) {
-            held(idx, false);
-        }
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-            st.axes[pi][base] = st.axes[pi][base + 1] = 0;
-        const float vx = st.axes[pi][base] / 127.0f, vy = st.axes[pi][base + 1] / 127.0f;
-        const bool moved = st.axes[pi][base] != 0 || st.axes[pi][base + 1] != 0;
-        const bool pressed = idx >= 0 && (st.buttons[pi] & livepad::buttonBit(idx)) != 0;
-        const ImVec2 kn(c.x + vx * R * 0.58f, c.y + vy * R * 0.58f);
-        if (moved) dl->AddLine(c, kn, dbgCol(sem.accent), 2.0f);
-        dl->AddCircleFilled(kn, 13.0f * k, moved || pressed ? dbgCol(sem.accent, 0.35f) : dbgCol(sem.surface), 24);
-        dl->AddCircle(kn, 13.0f * k, moved || pressed ? dbgCol(sem.accent) : dbgCol(sem.border, 2.0f), 24, 1.5f);
-        char v[48];
-        std::snprintf(v, sizeof(v), "%c  %.2f, %.2f", side ? 'R' : 'L', vx, vy);
-        ImFont* f = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
-        const float fs = ImGui::GetFontSize() * 0.85f;
-        const ImVec2 vs = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, v);
-        dl->AddText(f, fs, ImVec2(c.x - vs.x * 0.5f, c.y + R + scaled(6)), dbgCol(moved ? sem.accent : sem.textDim), v);
-        char hint[48];
-        std::snprintf(hint, sizeof(hint), "%s%sclick = %s", padKeyboard_ ? keys : "", padKeyboard_ ? " \xc2\xb7 " : "",
-                      label);
-        const float hs = ImGui::GetFontSize() * 0.8f;
-        const ImVec2 hz = ImGui::GetFont()->CalcTextSizeA(hs, FLT_MAX, 0.0f, hint);
-        dl->AddText(ImGui::GetFont(), hs, ImVec2(c.x - hz.x * 0.5f, c.y + R + scaled(6) + vs.y + 2.0f),
-                    dbgCol(sem.textDim, 0.8f), hint);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !ImGui::IsItemActive())
-            ImGui::SetTooltip("Drag to push the stick; it springs back on release.\n"
-                              "Shift while releasing leaves it there; double-click centres it.\n"
-                              "A click without a drag presses %s.", label);
-    };
-    stick("L3", 0, 210, 232, "WASD");
-    stick("R3", 1, 350, 232, "IJKL");
-
-    if (capturing) {
-        const float fs = ImGui::GetFontSize() * 0.85f;
-        const ImVec2 p = P(12, 330 - 22);
-        ui::DrawRtIcon(dl, ui::RtIcon::Keyboard, ImVec2(p.x + fs * 0.5f, p.y + fs * 0.55f), fs, dbgCol(sem.accent));
-        dl->AddText(ImGui::GetFont(), fs, ImVec2(p.x + fs * 1.4f, p.y), dbgCol(sem.accent), "Keys go to the game");
-        const char* esc = "Esc releases";
-        const float ew = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, esc).x;
-        dl->AddText(ImGui::GetFont(), fs, ImVec2(o.x + cw - ew - 12 * k, p.y), dbgCol(sem.textDim), esc);
+    ui::PadState ps;
+    ps.pressed = st.buttons[pi] & 0xFFFFu;
+    for (int b = 0; b < 16; ++b)
+        if (padSticky_[pi][b]) ps.latched |= 1u << b;
+    ps.stick[0] = ImVec2(st.axes[pi][0] / 127.0f, st.axes[pi][1] / 127.0f);
+    ps.stick[1] = ImVec2(st.axes[pi][2] / 127.0f, st.axes[pi][3] / 127.0f);
+    ps.deadzone[0] = project_.settings.stickDeadzoneL;
+    ps.deadzone[1] = project_.settings.stickDeadzoneR;
+    ps.port = pi + 1;
+    ps.led = listening;
+    // No game reporting (the Live Debugger would know): the pad dims and its
+    // LED goes out, but every element stays an item - a script may press ahead
+    // of the boot, and bin/livepad.bin is still written for the game to come.
+    ps.disabled = noGame;
+    ps.backdrop = sem.field;  // the card
+    if (padKeyboard_) {
+        // Select / Start show the Backspace / Return signs when the face has them.
+        ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const bool signs = mono->IsGlyphInFont(0x232B) && mono->IsGlyphInFont(0x21B5);
+        ps.keycaps[0] = "Spc";
+        ps.keycaps[3] = "E";
+        ps.keycaps[1] = "Q";
+        ps.keycaps[2] = "R";
+        ps.keycaps[8] = "1";
+        ps.keycaps[9] = "2";
+        ps.keycaps[11] = "3";
+        ps.keycaps[12] = "4";
+        ps.keycaps[15] = signs ? "\xe2\x8c\xab" : "Bk";
+        ps.keycaps[14] = signs ? "\xe2\x86\xb5" : "Ent";
     }
-    ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + ch));
-    ImGui::Dummy(ImVec2(cw, scaled(8)));
+    ImGui::SetCursorScreenPos(ImVec2(o.x + (availW - padW) * 0.5f, o.y + scaled(26)));
+    ui::PadDiagramOut po;
+    ui::PadDiagram("##remotepad", ui::PadMode::Interactive, padW, ps, &po);
+
+    // Buttons. While a script plays it owns the pad: the panel only shows it.
+    const bool shiftHold = padShiftHold_ && shift;
+    if (!padScriptRunning_) {
+        for (int b = 0; b < 16; ++b) {
+            if (b == 10 || b == 13) continue;  // L3 / R3: the sticks, below
+            if (po.clicked == b) {
+                if (padShiftHold_ && po.shiftClicked)
+                    padSticky_[pi][b] = !padSticky_[pi][b];
+                else if (padSticky_[pi][b])
+                    padSticky_[pi][b] = false;  // a plain click lets a latched button go
+            }
+            held(b, po.held == b && !shiftHold);
+        }
+    }
+    // The sticks: drag in 2-D. Released, a stick springs back like a real one -
+    // unless Shift is held, which leaves it there (a player that keeps walking
+    // while you watch PCSX2). A click without a drag is L3 / R3; a
+    // double-click centres a parked stick.
+    for (int side = 0; side < 2; ++side) {
+        const int base = side * 2, idx = side ? 13 : 10;
+        padStickDragged_[side] = po.stickActive == side;
+        if (padScriptRunning_) continue;
+        if (po.stickActive == side) {
+            st.axes[pi][base] = (int8_t)lroundf(po.stickValue[side].x * 127.0f);
+            st.axes[pi][base + 1] = (int8_t)lroundf(po.stickValue[side].y * 127.0f);
+        }
+        if (po.stickReleased[side] && !shift) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+        if (po.stickClicked[side]) held(idx, true);  // a click: tap L3 / R3
+        else if (po.stickActive != side) held(idx, false);
+        if (po.stickDoubleClicked[side]) st.axes[pi][base] = st.axes[pi][base + 1] = 0;
+    }
+    if ((po.hovered == 10 || po.hovered == 13) && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        ImGui::SetTooltip("Drag to push the stick; it springs back on release.\n"
+                          "Shift while releasing leaves it there; double-click centres it.\n"
+                          "A click without a drag presses %s.", po.hovered == 10 ? "L3" : "R3");
+
+    // The numbers live under the pad, aligned to each stick, never in it.
+    {
+        const float pw = po.rectMax.x - po.rectMin.x;
+        const float y0 = po.rectMax.y + scaled(8);
+        ImFont* mono = ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+        const float mfs = ImGui::GetFontSize() * 0.85f, hfs = ImGui::GetFontSize() * 0.78f;
+        for (int side = 0; side < 2; ++side) {
+            const float cx = po.rectMin.x + pw * (side ? 0.65f : 0.35f);
+            const float vx = st.axes[pi][side * 2] / 127.0f, vy = st.axes[pi][side * 2 + 1] / 127.0f;
+            const bool moved = vx != 0.0f || vy != 0.0f;
+            char v[48];
+            std::snprintf(v, sizeof(v), "%c  %.2f, %.2f", side ? 'R' : 'L', vx, vy);
+            const ImVec2 vs = mono->CalcTextSizeA(mfs, FLT_MAX, 0.0f, v);
+            dl->AddText(mono, mfs, ImVec2(IM_ROUND(cx - vs.x * 0.5f), y0), dbgCol(moved ? sem.accent : sem.textDim), v);
+            char hint[48];
+            std::snprintf(hint, sizeof(hint), "%s%sclick = %s", padKeyboard_ ? (side ? "IJKL" : "WASD") : "",
+                          padKeyboard_ ? " \xc2\xb7 " : "", side ? "R3" : "L3");
+            const ImVec2 hz = ImGui::GetFont()->CalcTextSizeA(hfs, FLT_MAX, 0.0f, hint);
+            dl->AddText(ImGui::GetFont(), hfs, ImVec2(IM_ROUND(cx - hz.x * 0.5f), y0 + vs.y + 2.0f),
+                        dbgCol(sem.textDim, 0.8f), hint);
+        }
+    }
+    // The card's footer: where the keys go, what is held, how to let go.
+    {
+        const float fs = ImGui::GetFontSize() * 0.85f;
+        const float rowH = ImGui::GetFrameHeight();
+        const float y = o.y + cardH - scaled(10) - rowH;
+        const float cy = y + rowH * 0.5f;
+        const float x = o.x + scaled(14);
+        if (capturing) {
+            ui::DrawRtIcon(dl, ui::RtIcon::Keyboard, ImVec2(x + fs * 0.5f, cy), fs, dbgCol(sem.accent));
+            dl->AddText(ImGui::GetFont(), fs, ImVec2(x + fs * 1.4f, cy - fs * 0.5f), dbgCol(sem.accent),
+                        "Keys go to the game");
+        }
+        float rx = o.x + availW - scaled(14);
+        if (capturing) {
+            const char* esc = "Esc releases";
+            const float ew = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, esc).x;
+            rx -= ew;
+            dl->AddText(ImGui::GetFont(), fs, ImVec2(rx, cy - fs * 0.5f), dbgCol(sem.textDim, 0.7f), esc);
+            rx -= scaled(12);
+        }
+        // What is held right now, as chips: the buttons, then the sticks.
+        std::vector<std::pair<int, std::string>> chips;
+        for (int b = 0; b < 16; ++b)
+            if (st.buttons[pi] & livepad::buttonBit(b)) chips.push_back({b, ui::PadItemName(b)});
+        for (int side = 0; side < 2; ++side)
+            if (st.axes[pi][side * 2] || st.axes[pi][side * 2 + 1]) chips.push_back({-1, side ? "R stick" : "L stick"});
+        const float ch = rowH * 0.86f, gh = ch * 0.62f;
+        const float minX = x + (capturing ? scaled(170) : 0.0f);
+        for (int i = (int)chips.size() - 1; i >= 0; --i) {
+            const bool isStick = chips[i].first < 0;
+            ImFont* f = isStick && ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float tw = f->CalcTextSizeA(fs, FLT_MAX, 0.0f, chips[i].second.c_str()).x;
+            const float gw = isStick ? 0.0f : ui::PadButtonGlyphAt(nullptr, ImVec2(), chips[i].first, gh);
+            const float w = tw + gw + (gw > 0 ? scaled(5) : 0.0f) + scaled(14);
+            if (rx - w < minX) break;
+            const ImVec2 a(rx - w, cy - ch * 0.5f), z(rx, cy + ch * 0.5f);
+            dl->AddRectFilled(a, z, dbgCol(sem.surface), scaled(6));
+            dl->AddRect(a, z, dbgCol(sem.border), scaled(6));
+            float tx = a.x + scaled(7);
+            if (gw > 0) {
+                ui::PadButtonGlyphAt(dl, ImVec2(tx, cy - gh * 0.5f), chips[i].first, gh);
+                tx += gw + scaled(5);
+            }
+            dl->AddText(f, fs, ImVec2(tx, cy - fs * 0.5f), dbgCol(isStick ? sem.accent : sem.text),
+                        chips[i].second.c_str());
+            rx -= w + scaled(6);
+            if (i == 0) {
+                const float hw = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, "Held").x;
+                if (rx - hw >= minX)
+                    dl->AddText(ImGui::GetFont(), fs, ImVec2(rx - hw, cy - fs * 0.5f), dbgCol(sem.textDim), "Held");
+            }
+        }
+    }
+    ImGui::SetCursorScreenPos(ImVec2(o.x, o.y + cardH));
+    ImGui::Dummy(ImVec2(availW, scaled(8)));
 
     // --- the keyboard: reaches the GAME while THIS window has focus, so PCSX2
     // never needs it. Nothing is read while you type anywhere else.

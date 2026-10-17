@@ -269,6 +269,18 @@ and stroke icons that never depend on the font (`ui::TransportBar`,
 `ThumbTileEx`), notes (`NoteCard`, `Callout`, `Note`), meters and the
 `RecordButton`.
 
+**Controller.** Every place that shows or picks a pad button draws the same
+DualShock 2 (`ui::PadDiagram`, the kit's `pad` section, `src/pad_widget.cpp`):
+Remote Pad drives it (*Interactive*), the Input Map labels it (*Annotated*:
+callout pills in fixed slots, leaders that never cross), pickers and AI cards
+use a small one (*Compact*), and table cells and combo previews an inline
+button token (`PadButtonGlyph`; `PadButtonCombo` is the picker). Pressed looks
+the same whatever pressed it; the body follows the theme
+(`theme::padColors()`: Graphite and light pages have their own tables, the
+other themes derive theirs), but the four face symbols keep the real pad's
+colours in every theme. Each element is an item named after its button (`L2`
+... `R3`), so scripts click and assert it by name.
+
 ## For developers: adding a colour, adding a theme
 
 `src/theme.hpp` is the whole interface. The rule that keeps the themes honest:

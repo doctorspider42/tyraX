@@ -103,6 +103,82 @@ Semantics semanticsOf(const Palette& p) {
 
 Semantics gSemantics = semanticsOf(kFaceButtons);
 
+// --- the controller's colours (PadColors) ---------------------------------
+// Graphite and the light page have hand-picked tables (the approved pad
+// sheet); the other themes derive theirs from what they already are, so a new
+// theme never has to know the pad exists.
+constexpr ImVec4 hexa(unsigned rgbHex, float a = 1.0f) {
+    return ImVec4(((rgbHex >> 16) & 0xFF) / 255.0f, ((rgbHex >> 8) & 0xFF) / 255.0f,
+                  (rgbHex & 0xFF) / 255.0f, a);
+}
+
+constexpr PadColors kPadGraphite = {
+    /*body*/ hexa(0x232831), /*bodyLow*/ hexa(0x15181E), /*bodyEdge*/ hexa(0x323947),
+    /*bodyHi*/ ImVec4(1, 1, 1, 0.07f), /*well*/ hexa(0x14171D), /*wellLow*/ hexa(0x0A0C10),
+    /*plate*/ ImVec4(0, 0, 0, 0.10f), /*base*/ hexa(0x262B34), /*baseEdge*/ hexa(0x3A414D),
+    /*shadow*/ ImVec4(0, 0, 0, 0.45f), /*key*/ hexa(0x2A2F38), /*keyHover*/ hexa(0x323947),
+    /*keyEdge*/ hexa(0x3A4250), /*glyph*/ hexa(0xAEB5C2), /*label*/ hexa(0x6F7787),
+    /*cap*/ hexa(0x2A303A), /*capLow*/ hexa(0x1A1E25), /*capRing*/ hexa(0x3B4350),
+    /*triangle*/ hexa(0x3DD68C), /*circle*/ hexa(0xFF6B6B), /*cross*/ hexa(0x7FB0FF),
+    /*square*/ hexa(0xF28AD2), /*led*/ hexa(0xFF5A5A), /*ledOff*/ hexa(0x3A2427),
+    /*port1*/ hexa(0x7AA2FF), /*port2*/ hexa(0x4FD1C5), /*callBg*/ hexa(0x14171E),
+    /*callEdge*/ ImVec4(1, 1, 1, 0.12f), /*lead*/ hexa(0xE8EAF0, 0.32f),
+};
+
+constexpr PadColors kPadLight = {
+    /*body*/ hexa(0xE3E7EE), /*bodyLow*/ hexa(0xD3D9E2), /*bodyEdge*/ hexa(0xAEB7C4),
+    /*bodyHi*/ ImVec4(1, 1, 1, 0.70f), /*well*/ hexa(0xD2D8E1), /*wellLow*/ hexa(0xB5BECA),
+    /*plate*/ ImVec4(1, 1, 1, 0.35f), /*base*/ hexa(0xEEF1F5), /*baseEdge*/ hexa(0xA9B2BF),
+    /*shadow*/ hexa(0x141E32, 0.16f), /*key*/ hexa(0xF7F8FA), /*keyHover*/ hexa(0xFFFFFF),
+    /*keyEdge*/ hexa(0xA9B2BF), /*glyph*/ hexa(0x3F4756), /*label*/ hexa(0x6B7382),
+    /*cap*/ hexa(0xEEF1F5), /*capLow*/ hexa(0xD3D9E1), /*capRing*/ hexa(0xB6BFCB),
+    /*triangle*/ hexa(0x139660), /*circle*/ hexa(0xD63B3B), /*cross*/ hexa(0x2F6FE0),
+    /*square*/ hexa(0xC0429D), /*led*/ hexa(0xE03A3A), /*ledOff*/ hexa(0xD9C4C6),
+    /*port1*/ hexa(0x3366E0), /*port2*/ hexa(0x138F86), /*callBg*/ hexa(0xFFFFFF),
+    /*callEdge*/ ImVec4(0, 0, 0, 0.14f), /*lead*/ hexa(0x161A22, 0.35f),
+};
+
+ImVec4 scaleRgb(const ImVec4& c, float k) { return ImVec4(c.x * k, c.y * k, c.z * k, c.w); }
+// A possibly translucent colour as it shows on `bg` (stock ImGui's frame and
+// border colours are half transparent; a pad body must not be).
+ImVec4 over(const ImVec4& c, const ImVec4& bg) {
+    return ImVec4(bg.x + (c.x - bg.x) * c.w, bg.y + (c.y - bg.y) * c.w, bg.z + (c.z - bg.z) * c.w, 1.0f);
+}
+
+PadColors padOf(const ImVec4& bgIn, const Semantics& s) {
+    const ImVec4 bg = ImVec4(bgIn.x, bgIn.y, bgIn.z, 1.0f);
+    const float lum = 0.2126f * bg.x + 0.7152f * bg.y + 0.0722f * bg.z;
+    if (lum > 0.5f) {  // a light page: the light table, the theme's accent
+        PadColors p = kPadLight;
+        p.port1 = s.accent;
+        return p;
+    }
+    const ImVec4 surface = over(s.surface, bg), border = over(s.border, bg), field = over(s.field, bg);
+    const ImVec4 text = over(s.text, bg), dim = over(s.textDim, bg);
+    PadColors p = kPadGraphite;  // symbols, LED, shadows and highlights stay
+    p.body = surface;
+    p.bodyLow = scaleRgb(surface, 0.8f);
+    p.bodyEdge = mix(border, text, 0.10f);
+    p.well = field;
+    p.wellLow = scaleRgb(field, 0.7f);
+    p.base = mix(surface, text, 0.05f);
+    p.baseEdge = mix(border, text, 0.14f);
+    p.key = mix(surface, text, 0.05f);
+    p.keyHover = mix(surface, text, 0.10f);
+    p.keyEdge = mix(border, text, 0.12f);
+    p.glyph = mix(dim, text, 0.45f);
+    p.label = mix(dim, bg, 0.25f);
+    p.cap = mix(surface, text, 0.04f);
+    p.capLow = scaleRgb(surface, 0.7f);
+    p.capRing = mix(border, text, 0.12f);
+    p.port1 = over(s.accent, bg);
+    p.callBg = mix(field, surface, 0.3f);
+    p.lead = fade(text, 0.32f);
+    return p;
+}
+
+PadColors gPad = kPadGraphite;
+
 // Stock ImGui's own dark colours, read back after StyleColorsDark() - so the
 // escape-hatch theme's chips are still driven by semantics() rather than
 // falling back to whatever the last theme left behind.
@@ -313,6 +389,8 @@ Id fromKey(const std::string& key) {
 
 const Semantics& semantics() { return gSemantics; }
 
+const PadColors& padColors() { return gPad; }
+
 void apply(Id id, ImGuiStyle& style) {
     if (id == Id::ImGuiDark) {
         ImGui::StyleColorsDark();
@@ -322,12 +400,14 @@ void apply(Id id, ImGuiStyle& style) {
         for (int i = 0; i < ImGuiCol_COUNT; ++i) style.Colors[i] = ctx.Colors[i];
         applyMetrics(style);
         gSemantics = stockSemantics(style);
+        gPad = padOf(style.Colors[ImGuiCol_WindowBg], gSemantics);
         return;
     }
     const Palette& p = paletteOf(id);
     applyColors(p, style);
     applyMetrics(style);
     gSemantics = semanticsOf(p);
+    gPad = id == Id::FaceButtons ? kPadGraphite : padOf(p.bg, gSemantics);
 }
 
 void applyImNodes() {
