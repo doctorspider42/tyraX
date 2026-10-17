@@ -2254,15 +2254,9 @@ void App::drawGiBakeSection() {
             ImGui::Spacing();
             ImGui::BeginDisabled(!st.giEnabled);
             const float bw = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-            if (ui::PrimaryButton("Bake this scene", bw)) {
-                saveProject();  // the bake reads the project from disk-backed state
-                giBaker_.start(project_, {project_.activeScene}, useGpu);
-            }
+            if (ui::PrimaryButton("Bake this scene", bw)) startGiBake(false);
             ImGui::SameLine(0.0f, gap);
-            if (ui::GhostButton("Bake all scenes", bw)) {
-                saveProject();
-                giBaker_.start(project_, {}, useGpu);
-            }
+            if (ui::GhostButton("Bake all scenes", bw)) startGiBake(true);
             ImGui::EndDisabled();
             if (st.giEnabled && staleCount > 0) ImGui::TextDisabled("%d scene(s) need a bake", staleCount);
         }
@@ -2399,6 +2393,51 @@ void App::modelAoPoll() {
     if (modelAoSeen_ == modelAoBaker_.version()) return;
     modelAoSeen_ = modelAoBaker_.version();
     viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+}
+
+// The bake starters. The tabs' buttons and the Build menu's Bake items (and so
+// the command palette) call these, so a bake started from anywhere is the same
+// bake. Each reads the project from disk-backed state, hence the save first.
+void App::startGiBake(bool allScenes) {
+    if (giBaker_.running() || !project_.settings.giEnabled) return;
+    const bool useGpu = giGpuBake_ && gigpu::available(nullptr);
+    saveProject();
+    giBaker_.start(project_, allScenes ? std::vector<int>{} : std::vector<int>{project_.activeScene},
+                   useGpu);
+}
+
+void App::startShadowBake(bool allScenes) {
+    if (shadowBaker_.running() || !project_.settings.bakedShadows) return;
+    saveProject();
+    shadowBaker_.start(project_, allScenes ? std::vector<int>{} : std::vector<int>{project_.activeScene});
+}
+
+void App::startModelAoBake() {
+    if (modelAoBaker_.running()) return;
+    modelAoBaker_.start(project_, modelao::paramsOf(project_.settings));
+}
+
+int App::prelitPendingCount() {
+    if (!hasProject_ || project_.scenes.empty()) return 0;
+    const SceneData& sc = project_.active();
+    int n = 0;
+    for (const PrelitStatus& r : prelitStatuses())
+        if (sc.objects[r.index].prelitWanted && !(r.prelit && r.fresh)) ++n;
+    return n;
+}
+
+void App::startPrelitBake(bool onlyStale) {
+    if (litBaker_.running() || !hasProject_ || project_.scenes.empty()) return;
+    const SceneData& sc = project_.active();
+    std::vector<int> objs;
+    for (const PrelitStatus& r : prelitStatuses()) {
+        if (!sc.objects[r.index].prelitWanted) continue;
+        if (onlyStale && r.prelit && r.fresh) continue;
+        objs.push_back(r.index);
+    }
+    if (objs.empty()) return;
+    saveProject();  // the bake reads the models off disk
+    litBaker_.start(project_, project_.activeScene, objs, litBakeParams_);
 }
 
 // The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow):
@@ -2614,15 +2653,11 @@ void App::drawShadowBakeSection() {
             shadowBaker_.cancel();
     } else {
         ImGui::BeginDisabled(!st.bakedShadows);
-        if (ImGui::Button("Bake this scene##shadow", ImVec2(scaled(140.0f), 0))) {
-            saveProject();  // the bake reads the project from disk-backed state
-            shadowBaker_.start(project_, {project_.activeScene});
-        }
+        if (ImGui::Button("Bake this scene##shadow", ImVec2(scaled(140.0f), 0)))
+            startShadowBake(false);
         ImGui::SameLine();
-        if (ImGui::Button("Bake all scenes##shadow", ImVec2(scaled(140.0f), 0))) {
-            saveProject();
-            shadowBaker_.start(project_, {});
-        }
+        if (ImGui::Button("Bake all scenes##shadow", ImVec2(scaled(140.0f), 0)))
+            startShadowBake(true);
         ImGui::EndDisabled();
         if (st.bakedShadows && staleCount > 0) {
             ImGui::SameLine();
@@ -2763,7 +2798,7 @@ void App::drawModelAoSection() {
         if (ImGui::Button("Cancel##modelao", ImVec2(scaled(140.0f), 0)))
             modelAoBaker_.cancel();
     } else if (ImGui::Button("Re-scan##modelao", ImVec2(scaled(140.0f), 0))) {
-        modelAoBaker_.start(project_, modelao::paramsOf(st));
+        startModelAoBake();
     }
 
     const modelao::Report rep = modelAoBaker_.report();
@@ -3070,18 +3105,7 @@ void App::drawPrelitSection() {
         if (ImGui::Button("Cancel##prelitbatch", ImVec2(scaled(140.0f), 0)))
             litBaker_.cancel();
     } else {
-        auto startBatch = [&](bool onlyStale) {
-            std::vector<int> objs;
-            for (const PrelitStatus& r : rows) {
-                if (!sc.objects[r.index].prelitWanted) continue;
-                if (onlyStale && r.prelit && r.fresh) continue;
-                objs.push_back(r.index);
-            }
-            if (objs.empty()) return;
-            saveProject();  // the bake reads the models off disk
-            litBaker_.start(project_, project_.activeScene, objs,
-                            litBakeParams_);
-        };
+        auto startBatch = [&](bool onlyStale) { startPrelitBake(onlyStale); };
         char lbl[64];
         std::snprintf(lbl, sizeof lbl, "Bake pending (%d)###prelitpending",
                       pending);

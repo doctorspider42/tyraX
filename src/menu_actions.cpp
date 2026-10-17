@@ -72,4 +72,8 @@ bool MenuItem(const char* label, const char* shortcut, bool selected, bool enabl
     return run;
 }
 
+void Hint(const std::string& text) {
+    if (g.out && !g.out->empty()) g.out->back().hint = text;
+}
+
 }  // namespace menuact

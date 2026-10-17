@@ -27,7 +27,9 @@ progress, the stage - bounce *n* of *m*, lightmap, probes - the elapsed time and
 **Cancel**), every scene with a *baked / stale / not baked* badge and what its
 cache holds, and the two options pinned at the bottom. A stale scene also marks
 the window's **Global illumination** tab, so it shows from the Sky & time tab
-too. In a narrow dock the Bake card comes first and the settings follow it. Two example projects:
+too. In a narrow dock the Bake card comes first and the settings follow it. The same two
+bakes are **Build > Bake global illumination** (and *... for all scenes*), so the command
+palette (Ctrl+K, type "bake") starts them without opening the window. Two example projects:
 [global-illumination](../examples/global-illumination) is the one-room proof (a
 red wall and a green wall, and nothing else coloured);
 [gi-showcase](../examples/gi-showcase) is the guided walk with one station per

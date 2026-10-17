@@ -1896,6 +1896,47 @@ void App::drawMainMenus() {
                 "editor\nnever writes snapshots. Needs the \"debug\" build "
                 "profile (Project >\nPreferences > Build). Also toggled by "
                 "clicking the LIVE chip in the toolbar.");
+        // The bakes, as the tabs that own them start them (startGiBake & co.
+        // in hud_ui.cpp): listed here so the command palette finds every bake
+        // by typing "bake". Disabled while that bake runs or is switched off.
+        ImGui::Separator();
+        {
+            const ProjectSettings& bs = project_.settings;
+            const std::string scn = project_.scenes.empty() ? std::string() : project_.active().name;
+            if (menuact::MenuItem("Bake global illumination", nullptr, false,
+                                  bs.giEnabled && !giBaker_.running()))
+                startGiBake(false);
+            menuact::Hint("Lighting \xc2\xb7 probes and lightmaps for scene " + scn);
+            if (menuact::MenuItem("Bake global illumination for all scenes", nullptr, false,
+                                  bs.giEnabled && !giBaker_.running()))
+                startGiBake(true);
+            menuact::Hint("Lighting \xc2\xb7 probes and lightmaps for every scene");
+            if (menuact::MenuItem("Bake ambient occlusion", nullptr, false, !modelAoBaker_.running()))
+                startModelAoBake();
+            menuact::Hint("Lighting \xc2\xb7 model AO baked into each model's texture");
+            const int prelitPending = litBaker_.running() ? 0 : prelitPendingCount();
+            if (menuact::MenuItem("Bake pre-lit models", nullptr, false, prelitPending > 0))
+                startPrelitBake(true);
+            menuact::Hint("Lighting \xc2\xb7 " + std::to_string(prelitPending) + " pending in scene " + scn);
+            if (menuact::MenuItem("Bake shadow decals", nullptr, false,
+                                  bs.bakedShadows && !shadowBaker_.running()))
+                startShadowBake(false);
+            menuact::Hint("Lighting \xc2\xb7 projected shadows for scene " + scn);
+            if (menuact::MenuItem("Bake shadow decals for all scenes", nullptr, false,
+                                  bs.bakedShadows && !shadowBaker_.running()))
+                startShadowBake(true);
+            menuact::Hint("Lighting \xc2\xb7 projected shadows for every scene");
+            if (menuact::MenuItem("Bake stale procedural volumes", nullptr, false,
+                                  !busy && procbake::anyStale(project_))) {
+                // What a build does first (projectForBuild), on its own.
+                const procbake::Report rep = bakeStaleProcVolumes();
+                statusMessage_ = rep.error.empty()
+                                     ? "Baked " + std::to_string(rep.instances) + " procedural instances into " +
+                                           std::to_string(rep.chunks) + " chunk meshes"
+                                     : "Procedural bake failed: " + rep.error;
+            }
+            menuact::Hint("Build \xc2\xb7 chunk meshes for every out-of-date volume");
+        }
         ImGui::Separator();
         if (menuact::MenuItem("Cancel Build", nullptr, false, busy)) runner_.cancel();
         if (menuact::MenuItem("Clean", nullptr, false, !busy))

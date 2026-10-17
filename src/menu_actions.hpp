@@ -30,6 +30,7 @@ struct Item {
     bool enabled = true;
     bool selected = false;  // a checked toggle / the current radio choice
     int ordinal = 0;        // position in the harvest; what invoke() takes
+    std::string hint;       // what the palette shows instead of the path ("" = path)
 };
 
 // Harvest mode. `out` collects every item; with invoke >= 0 the item with that
@@ -47,5 +48,10 @@ bool BeginMenu(const char* label, bool enabled = true);
 void EndMenu();
 bool MenuItem(const char* label, const char* shortcut = nullptr, bool selected = false,
               bool enabled = true);
+
+// The command palette's dim line for the item just declared, when its menu path
+// says too little ("Lighting · probes and lightmaps for scene main"). Recorded
+// while harvesting, a no-op when drawing (the menu shows only the label).
+void Hint(const std::string& text);
 
 }  // namespace menuact
