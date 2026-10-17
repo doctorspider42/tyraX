@@ -884,7 +884,11 @@ void App::drawFlowGraphWindow() {
                                    objCount - (int)graphRows.size() == 1 ? " has" : "s have");
             ImGui::PopStyleColor();
             ImGui::PopTextWrapPos();
-            ui::Switch("List objects without logic", &flowListAll_);
+            // Short enough for the list's 150 px minimum (the long wording
+            // clipped there); the tooltip keeps the full meaning.
+            ui::Switch("Show all objects", &flowListAll_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Also list the objects without logic, under \"Without logic\".");
         }
         ImGui::EndChild();
         ImGui::SameLine(0.0f, 0.0f);
