@@ -1080,10 +1080,14 @@ void App::drawPropertiesWindow() {
             float size[3];
             if (objectWorldSize(o, size)) {
                 const float ups = project_.settings.unitsPerMeter;
-                ImGui::TextDisabled("Size: %.2f x %.2f x %.2f units  =  "
-                                    "%.2f x %.2f x %.2f m",
-                                    size[0], size[1], size[2], size[0] / ups,
-                                    size[1] / ups, size[2] / ups);
+                // Wrapped: at the docked column width the one-liner ran past
+                // the panel's right edge.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextWrapped("Size: %.2f x %.2f x %.2f units  =  "
+                                   "%.2f x %.2f x %.2f m",
+                                   size[0], size[1], size[2], size[0] / ups,
+                                   size[1] / ups, size[2] / ups);
+                ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
                         "The object's real size, from its unit shape (or the\n"
@@ -2981,7 +2985,12 @@ void App::drawPropertiesWindow() {
                 ++i;
             }
         }
-        ImGui::SetNextItemWidth(ImGui::CalcItemWidth());
+        // The combo takes what the "New script..." button leaves of the row
+        // (a fixed item width pushed the button past the panel's edge).
+        const float newScriptW = ImGui::CalcTextSize("New script...").x +
+                                 ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SetNextItemWidth(ImMax(scaled(80.0f), ImGui::GetContentRegionAvail().x - newScriptW -
+                                                         ImGui::GetStyle().ItemSpacing.x));
         if (ui::BeginCombo("##attach_script", "Attach script...")) {
             bool any = false;
             for (const std::string& r : registered) {
@@ -3056,9 +3065,17 @@ void App::drawMultiProperties() {
         }
         if (ImGui::Button("Ungroup objects")) { ungroupSelection(); return; }
     }
-    ImGui::SameLine();
+    // The action row wraps instead of running past the panel's right edge at
+    // the docked column width.
+    auto sameLineIfFits = [](const char* nextLabel) {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        const float w = ImGui::CalcTextSize(nextLabel).x + st.FramePadding.x * 2.0f;
+        const float right = ImGui::GetItemRectMax().x + st.ItemSpacing.x + w;
+        if (right <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine();
+    };
+    sameLineIfFits("Copy objects");
     if (ImGui::Button("Copy objects")) copyObject();
-    ImGui::SameLine();
+    sameLineIfFits("Delete objects");
     if (ImGui::Button("Delete objects")) { deleteSelectedObjects(); return; }
     SceneObject& primary = *objs.back();  // anchor: seeds the transform values
     bool committed = false;
@@ -3272,7 +3289,9 @@ void App::drawMultiProperties() {
             for (float& s : p->scale)
                 if (s < 0.01f) s = 0.01f;  // additive delta must not go non-positive
     }
-    ImGui::TextDisabled("Transforms apply to all - the arrangement is kept.");
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Transforms apply to all - the arrangement is kept.");
+    ImGui::PopStyleColor();
 
     // --- color ---
     if (allColor) {
@@ -3399,8 +3418,10 @@ void App::drawMultiProperties() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("Name, model, materials, sounds and scripts are edited\n"
-                        "one object at a time - select a single object for those.");
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("Name, model, materials, sounds and scripts are edited "
+                       "one object at a time - select a single object for those.");
+    ImGui::PopStyleColor();
     ImGui::Separator();
     const std::string delLabel =
         "Delete " + std::to_string((int)objs.size()) + " objects";
