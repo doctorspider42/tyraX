@@ -30,6 +30,11 @@ driven on macOS only. Open:
   - Bring all windows back re-docks a panel where it was docked THIS session;
     a panel restored floating from a saved layout (no home seen yet) comes back
     floating.
+- **Design check (1.173) - what is still not in the board's state**: Flow
+  Graph live mode, Debugger with a real game, Session peers (needs a second
+  editor), Phone Camera live, Disc Layout populated (needs a PS2 build), the
+  Neural Upscaler answered state; the palette's design shows a "did" line on the
+  Stopped-at card that needs fact events from a real game.
 - **Tool windows - what the redesign round left** (each tool's commit says why):
   - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
     download/install, a second editor joining a session and the phone camera

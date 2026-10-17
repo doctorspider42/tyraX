@@ -71,6 +71,19 @@ Each tool now shows what it makes as the hero, puts its one main action in plain
 - **Input Map**: the controller labels every bound button in tidy columns (leaders never cross), rings the selected action's button and marks two actions on one button in amber; click a button to select its action. *Press to set* makes the pad pulse - click the button on the drawing when no controller is connected. The Pad column shows each button's symbol.
 - **Pad-button pickers** (Input Map, the Flow Graph's On Button, the flashlight's Toggle button) show the button's symbol and open over a small pad you can click.
 - **AI Assistant**: a `press_pad` step shows small controllers with what the assistant pressed and for how long.
+
+### Checked against the designs
+
+Every tool and the main window were opened next to their approved designs; what differed is fixed.
+
+- **Sliders** everywhere are a thin track with a round knob and the value at the row's end; click the value or double-click to type a number. Color Grading's Temperature track runs blue to orange.
+- **Main window**: Properties keeps X/Y/Z values readable in the docked column and wraps long lines and button rows; the command palette no longer opens an empty "Debug" window; the examples open on the redesigned default layout.
+- **Ambience Editor** and **Color Grading** open beside the viewport at a normal window size instead of on top of it. **Project Preferences > Frame delivery**: *Use the upscaler* is a switch with the reason a build would refuse it right under it. **World Facts** keeps fact names readable when docked. **Neural Upscaler**: the Compare card has an empty state instead of a temp-folder path.
+- **Flow Graph**: the graph list keeps its width when docked, long names end in "..." and the footer switch is *Show all objects*. **Input Map**: *Press to set* sits beside its field. **Save Editor**: "Used by" wraps; the card-space meter lines up with its label. **Phone Camera**: no stray "P" past the window edge. **Cutscene Director** opens on the first visible frame instead of the black start of the fade-in.
+- **Animation Editor**: *Borrow clips from a file > Import a file...* adds the file's clips (and opens Map bones, now in front) instead of stopping after the import. **Material Editor**: "used by" counts models that use their own .mtl; the preview readout no longer clips. **Particle Editor**: the "2D approximation" note shows at the default size. **Drone Generator**: the Root dial names the note (B1); the Simple view's Track swatch shows the track's sky.
+- **Import model** opens framed on the model whatever its size; the VU1 cost line wraps. **Vehicle Editor**: *Drive it* is the green go button; opening a project with baked vehicles no longer marks it Unsaved.
+- **Debugger**: the Hardware timeline is one card (what is loaded, a chip per frame, Load capture, *Arm next boot...*, an empty state, lanes coloured by meaning); the Watch Kind column shows chips; *Fire & continue* works on actions too (it fires the trigger that reaches them) and *Remove breakpoint* moved into the card's "..." menu; the armed-timer and VRAM lines no longer clip. **Remote Pad**: in a short window the pad shrinks so *Release all* stays visible.
+- **Opening a project** shows which step is running and counts object files as they load. **Start page**: the Recent filter shows from two projects; New project / Open folder show their shortcuts. **New Project**: Claude Code starts selected. **AI Assistant**: pad-script and build rows say how they ended. **Update dialog**: names the package in words with its size.
 ## 1.172.2 - 2026-10-16
 
 ### Releases
