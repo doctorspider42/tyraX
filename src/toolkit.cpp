@@ -1749,3 +1749,41 @@ bool SegmentedApprox(const char* id, const char* const* labels, int count, int* 
 
 }  // namespace ui
 // --- end screens-c ---
+
+// --- verify-polish-2 ---------------------------------------------------------
+namespace ui {
+
+bool GoButton(const char* label, float width, bool enabled) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    ImFont* bf = boldFont() ? boldFont() : ImGui::GetFont();
+    const float fsz = ImGui::GetFontSize();
+    const ImVec2 ts = bf->CalcTextSizeA(fsz, FLT_MAX, 0.0f, label, end);
+    const float icon = IM_TRUNC(fsz * 0.62f), gap = IM_TRUNC(fsz * 0.4f);
+    const float h = ImGui::GetFrameHeight();
+    const float w = width > 0.0f ? width : ts.x + icon + gap + st.FramePadding.x * 2.6f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    ImGui::EndDisabled();
+    const bool hov = enabled && ImGui::IsItemHovered();
+    const bool held = enabled && ImGui::IsItemActive();
+    const float t = theme::hoverAnim(ImGui::GetItemID(), hov, 12.0f);
+    ImVec4 f = enabled ? sem.ok : sem.surface;
+    if (enabled) f = mixv(f, ImVec4(1, 1, 1, 1), 0.10f * t);
+    if (held) f = mixv(f, ImVec4(0, 0, 0, 1), 0.15f);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), c32(f), st.FrameRounding);
+    const ImU32 ink = enabled ? c32(sem.ground) : c32(sem.textDim, 0.6f);
+    // the play triangle, then the label, centred as one group
+    const float gx = p.x + (w - (icon + gap + ts.x)) * 0.5f;
+    const float cy = p.y + h * 0.5f;
+    dl->AddTriangleFilled(ImVec2(gx, cy - icon * 0.5f), ImVec2(gx, cy + icon * 0.5f),
+                          ImVec2(gx + icon * 0.85f, cy), ink);
+    dl->AddText(bf, fsz, ImVec2(gx + icon + gap, p.y + (h - ts.y) * 0.5f), ink, label, end);
+    return pressed && enabled;
+}
+
+}  // namespace ui
+// --- end verify-polish-2 -----------------------------------------------------
