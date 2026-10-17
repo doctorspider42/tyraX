@@ -2066,6 +2066,19 @@ void App::dbgDrawStoppedAt(bool showPath) {
         }
         ImGui::EndGroup();
         if (n) {
+            // "..." at the card's top right: the breakpoint's own actions,
+            // so the two buttons below stay Reveal + Fire & continue.
+            const float ib = ImGui::GetFrameHeight();
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - ib);
+            ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, p.y));
+            if (ui::IconButton("Breakpoint options", ui::RtIcon::More, ib))
+                ImGui::OpenPopup("##stopped_more");
+            if (ImGui::BeginPopup("##stopped_more")) {
+                if (ImGui::MenuItem("Remove breakpoint")) dbgToggleBreakpoint(n->objectId, n->nodeId);
+                ImGui::EndPopup();
+            }
+        }
+        if (n) {
             // What the node DID, when the game said so: a World Fact write
             // carries the node that made it (FactEvent::src), so a Set Fact
             // breakpoint reads as "name <- value", not as a node title.
@@ -2100,14 +2113,62 @@ void App::dbgDrawStoppedAt(bool showPath) {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 ImGui::SetTooltip("Open this node's graph in the Flow Graph window.");
             ImGui::SameLine();
+            // Fire & continue fires a TRIGGER (codegen emits only a trigger's
+            // branch under livedbg::forced). An action stopped on is fired
+            // through the trigger whose exec chain reaches it - the branch it
+            // is on - found by walking the exec links backwards.
+            int fireKey = -1;
+            const char* fireTitle = nullptr;
             const FlowNodeType* t = flowNodeType(n->type);
             if (t && t->trigger) {
-                if (ImGui::Button("Fire & continue", ImVec2(half, 0))) dbgFireNode(dbgSnap_.breakKey, true);
+                fireKey = dbgSnap_.breakKey;
+            } else if (n->scene >= 0 && n->scene < (int)project_.scenes.size()) {
+                const FlowGraph* g = nullptr;
+                for (const SceneObject& o : project_.scenes[(size_t)n->scene].objects)
+                    if (o.id == n->objectId) g = &o.flowGraph;
+                if (g) {
+                    std::vector<int> todo = {n->nodeId}, seen;
+                    while (!todo.empty() && fireKey < 0) {
+                        const int id = todo.back();
+                        todo.pop_back();
+                        if (std::find(seen.begin(), seen.end(), id) != seen.end()) continue;
+                        seen.push_back(id);
+                        for (const FlowLink& l : g->links) {
+                            if (l.kind != FlowLinkExec || l.toNode != id) continue;
+                            const FlowNode* from = nullptr;
+                            for (const FlowNode& fn : g->nodes)
+                                if (fn.id == l.fromNode) from = &fn;
+                            if (!from) continue;
+                            const FlowNodeType* ft = flowNodeType(from->type);
+                            if (ft && ft->trigger) {
+                                fireKey = dbgKeyFor(n->scene, n->objectId, from->id);
+                                fireTitle = ft->title;
+                                if (fireKey >= 0) break;
+                            } else {
+                                todo.push_back(from->id);
+                            }
+                        }
+                    }
+                }
+            }
+            if (fireKey >= 0) {
+                if (ImGui::Button("Fire & continue", ImVec2(half, 0))) dbgFireNode(fireKey, true);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    if (fireTitle)
+                        ImGui::SetTooltip("Fire %s again - the branch this node is on - and let\n"
+                                          "the game run, so a Delay in it gets frames to finish.",
+                                          fireTitle);
+                    else
+                        ImGui::SetTooltip("Fire this trigger once more and let the game run,\n"
+                                          "so a Delay in its branch gets frames to finish.");
+                }
+            } else {
+                // Nothing upstream to fire (an action no trigger reaches):
+                // the card's second action is plain Continue.
+                if (ImGui::Button("Continue##stopped", ImVec2(half, 0))) dbgSetTransport(0);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                    ImGui::SetTooltip("Fire this trigger once more and let the game run,\n"
-                                      "so a Delay in its branch gets frames to finish.");
-            } else if (ImGui::Button("Remove breakpoint", ImVec2(half, 0))) {
-                dbgToggleBreakpoint(n->objectId, n->nodeId);
+                    ImGui::SetTooltip("No trigger reaches this node, so there is nothing to fire.\n"
+                                      "Lets the game run on (F10).");
             }
         }
         ImGui::EndChild();
@@ -2346,7 +2407,11 @@ void App::dbgDrawWatchPage() {
                 ImGui::TextUnformatted(v.name.c_str());
             }
             ImGui::TableSetColumnIndex(1);
-            ImGui::TextColored(sem.textDim, "%s", dbgKindText(v.kind));
+            // The kind as a chip (Debugger-Halted design), in the UI face:
+            // the row's mono is for names and values.
+            ImGui::PushFont(ImGui::GetDefaultFont(), 0.0f);
+            ui::Badge(dbgKindText(v.kind), 4);
+            ImGui::PopFont();
             ImGui::TableSetColumnIndex(2);
             int tone = 0;
             const std::string val = live || dbgScrub_ >= 0 ? dbgValueText(project_, v, *vals, i, &tone) : "-";
