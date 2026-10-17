@@ -1095,7 +1095,10 @@ void App::drawVehicleWindow() {
         ImGui::TextDisabled("%d vehicle%s", (int)defs.size(), defs.size() == 1 ? "" : "s");
         const bool driving = vehicleDriveObj_ >= 0;
         const char* label = driving ? "Stop driving" : "Drive it";
-        const float bw = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 3.0f;
+        // Drive it = the design's green "go" primary (Run's colour) with a
+        // play triangle; room for the triangle in both states keeps it still.
+        const float bw = ImGui::CalcTextSize(label).x + ImGui::GetFontSize() * 1.1f +
+                         ImGui::GetStyle().FramePadding.x * 3.0f;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - bw - rowH - ImGui::GetStyle().ItemSpacing.x);
         ImGui::SetCursorPosY(y0);
         if (driving) {
@@ -1104,7 +1107,7 @@ void App::drawVehicleWindow() {
             // The reason vehiclesim is host-only: the same step() the console
             // runs, driven from the keyboard against the real scene's terrain,
             // so grip is tuned in a "slider, feel, slider" loop.
-            if (ui::PrimaryButton(label, bw, inst >= 0)) {
+            if (ui::GoButton(label, bw, inst >= 0)) {
                 vehicleDriveHoldThrottle_ = false;
                 vehicleDriveSteer_ = 0.0f;
                 vehicleDriveStart(inst);

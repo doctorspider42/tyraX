@@ -242,7 +242,9 @@ Every tool window follows the same few rules, and is built from the same kit
   first (Texture Atlas, Static Batches, Neural Upscaler, VU Programs), then
   list | detail.
 - **One primary action**, filled, visible, with its progress where the work
-  happens (`ui::PrimaryButton`, `ui::ProgressInline`). Destructive actions are
+  happens (`ui::PrimaryButton`, `ui::ProgressInline`). An action that STARTS
+  something live (Run, the Vehicle Editor's *Drive it*) is the green "go"
+  primary with a play triangle (`ui::GoButton`). Destructive actions are
   quiet until hovered (`ui::DangerButton`), usually behind a "..." menu.
 - **Say what will happen.** Footers state exactly what a click writes
   ("writes res/models/cat.glb + cat.mtl"); an option states its consequence on

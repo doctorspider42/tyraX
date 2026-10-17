@@ -14,11 +14,12 @@ bottom.](img/start-page.png)
 
 **New project** opens the [New Project](#new-project) dialog (Ctrl+N, Cmd+N on
 a Mac); **Open folder...** picks a folder holding a `.tyra` file (Ctrl+O).
+Each button shows its shortcut inside it.
 
 Below them, the projects you opened, most recent first, each with its folder
 (your home folder shown as `~`) and when it was last saved. Click a row to open
-it. With more than four entries a **Filter** field narrows the list by name or
-folder. The **...** on a hovered row offers *Open*, *Locate...*, *Reveal in
+it. As soon as there are two, a **Filter** field beside *Recent* narrows the
+list by name or folder. The **...** on a hovered row offers *Open*, *Locate...*, *Reveal in
 folder* and *Forget* - forgetting only drops the entry, the project stays on
 disk.
 
@@ -77,6 +78,7 @@ On the right:
   are a meter - [world scale](world-scale.md)).
 - **AI coding assistants** - *Claude Code*, *Codex*, *GitHub Copilot*: guidance
   files for an assistant opened in the project ([AI support](ai-support.md)).
+  *Claude Code* starts selected; click it to leave its files out.
 - The **summary** card says what Create makes: the scene, its ground and
   player, and that it builds in the debug profile with Live Link on. A player
   with no ground gets a warning - it would start in mid-air.

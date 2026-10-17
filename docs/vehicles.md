@@ -78,7 +78,7 @@ preview, **Speed**, **Steering** and **Revs** scrub the pose and the engine;
 **Listen to engine** auditions the current sound tuning without driving the
 game. The Damage tab can apply test hits and repair the preview.
 
-**Drive it** (top right) drives the first placed instance of the vehicle in the
+**Drive it** (the green button, top right) drives the first placed instance of the vehicle in the
 active scene with the same simulation the console runs (W/S/A/D, Space, E);
 the card under the preview then shows the telemetry, and *Stop driving* puts
 the car back where it was. With no instance placed the button is disabled and

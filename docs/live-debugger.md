@@ -159,8 +159,11 @@ ticked or with its fix next to it (*Switch to debug*, the Live Debugger switch)
 
 **Halted** shows a *Stopped at* card: the node, its object and scene, what the
 node did when the game says so (a *Set Fact* reads `world.generator.partA ←
-true`), *Reveal* (open its graph), and *Fire & continue* for a trigger or
-*Remove breakpoint* otherwise. Under it, **This frame's path** — the nodes that
+true`), *Reveal* (open its graph), and *Fire & continue*: a trigger fires
+itself; an action fires the trigger whose chain reaches it (the branch it is
+on - the tooltip names it), and the game runs on. An action no trigger
+reaches gets plain *Continue* there instead. *Remove breakpoint* is in the
+card's **...** menu. Under it, **This frame's path** — the nodes that
 ran in that frame, in order, with their hit counts, the stopping one in amber —
 and the breakpoint list with the one that was hit marked.
 
@@ -177,7 +180,8 @@ The pages:
   one). Values are printed the way the thing is **declared**: a position is
   three coordinates, a yes/no fact is `true`/`false`, a one-of-several fact is
   its option's name. Inspecting a past frame on the time strip shows the values
-  as of that frame. On a narrow dock the *Kind* column is dropped.
+  as of that frame. The *Kind* column shows each row's kind as a chip
+  (`fact`, `int`, `save`...); on a narrow dock it is dropped.
 - **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire,
   and the frames left on an armed `Delay`.
 - **Breakpoints** — the whole project's list with hit counts; click one to jump

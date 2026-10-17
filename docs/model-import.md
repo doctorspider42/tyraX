@@ -15,7 +15,8 @@ triangles, objects, textures) and offers **Choose another file**.
 
 - **Preview** — the model, large: right drag to orbit, middle drag to pan,
   mouse wheel to zoom; **Shaded / Wireframe** and **Reset view** float over
-  its top left. A green **height ruler** stands beside the model with the
+  its top left. It opens framed on the model's bounds, with room to spare,
+  whatever the model's size; **Reset view** returns there. A green **height ruler** stands beside the model with the
   number the *Real height* field edits. Missing textures show as plain white
   surfaces, so a broken import is visible before it reaches the project.
   Selecting a row of the model list outlines that model in orange, and in a
