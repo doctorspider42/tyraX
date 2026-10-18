@@ -3,7 +3,7 @@
 Interleaved passes are a draw-order option of the generated game. The static
 batch and road bags are fed into the object loop instead of being drawn before
 it, so the EE's work on the objects overlaps VU1's work on the batches and
-roads. It is set in **Preferences > Rendering > Interleave batches and roads
+roads. It is set in **Preferences > Graphics > Interleave batches and roads
 with objects** (`settings.interleavePasses`):
 
 | value | what the game does |

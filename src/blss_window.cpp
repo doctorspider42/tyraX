@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +26,8 @@
 
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
 #include "blss.hpp"  // kFillWeight/kFlickerWeight defaults, readPng - read-only
 #include "blss_ui.hpp"
 #include "gl_loader.h"
@@ -81,8 +84,7 @@ enum BlssTab {
     kTabCv,
     kTabCompare,
     kTabInputs,
-    kTabProbe,
-    kTabSettings
+    kTabProbe
 };
 
 struct DumpImage {
@@ -412,8 +414,58 @@ void App::blssSelectClash(const BlssClashRef& r) {
     navFocusedIndex_ = r.object;  // keep orbit-around-selection in sync
 }
 
-void App::drawBlssClashWarning(const BlssClash& c, bool informational) {
+void App::drawBlssClashWarning(const BlssClash& c, bool informational, bool compact) {
     if (!c.any()) return;
+    if (compact) {
+        // Project Preferences (ProjectPreferences board): the block-in-place
+        // note under the switch - one sentence naming the causes, the long
+        // reasons on hover, then one row per cause with its jump. The full
+        // wording below stays for Tools > Neural Upscaler.
+        std::string causes;
+        auto add = [&](bool on, const char* what) {
+            if (!on) return;
+            if (!causes.empty()) causes += ", ";
+            causes += what;
+        };
+        add(!c.dof.empty(), "depth of field");
+        add(!c.dofNode.empty(), "a Set Depth Of Field node");
+        add(!c.portals.empty(), "portals");
+        add(!c.split.empty(), "split-screen");
+        add(!c.extrapolation.empty(), "frame extrapolation");
+        const std::string text =
+            informational ? "Can't be turned on in this project yet - the build would refuse it: " +
+                                causes + " need display-resolution rendering."
+                          : "The build will refuse this project: the upscaler is on together with " +
+                                causes + ". Turn one of the two off.";
+        ImGui::PushID("##blss_clash_note");
+        ui::Note(2, text.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Depth of field composites its blur through the GS depth test at\n"
+                "display resolution; with the upscaler the depth buffer is only as\n"
+                "big as the reduced render. Portals want the same display-resolution\n"
+                "depth. Split-screen frames are never reduced. Frame extrapolation\n"
+                "reprojects the previous frame too and tears the picture with it.\n"
+                "Tools > Neural Upscaler (BLSS) has the whole story.");
+        int row = 0;
+        auto rows = [&](const std::vector<BlssClashRef>& refs) {
+            for (const BlssClashRef& r : refs) {
+                ImGui::PushID(row++);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", r.label.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton(r.object >= 0 ? "Select it" : "Go to the scene")) blssSelectClash(r);
+                ImGui::PopID();
+            }
+        };
+        rows(c.dof);
+        rows(c.dofNode);
+        rows(c.portals);
+        rows(c.split);
+        rows(c.extrapolation);
+        ImGui::PopID();
+        return;
+    }
     // WARNING when the feature is on (the build will refuse this project),
     // INFORMATIONAL when it is off - because the reader most in need of this
     // block is the one deciding whether to switch the feature on, and until now
@@ -730,7 +782,12 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     const bool blockExtrapolation = upscalerOn && !s.frameExtrapolation;
 
     ImGui::BeginDisabled(blockUpscaler);
-    if (ImGui::Checkbox("Use the upscaler", &s.blssEnabled)) changed = true;
+    // Preferences: a switch row with its one-line meaning (the board's shape);
+    // the window keeps its checkbox. Same "Use the upscaler" ID prefix either way.
+    if (full ? ImGui::Checkbox("Use the upscaler", &s.blssEnabled)
+             : ui::Switch("Use the upscaler (render the 3D scene smaller and reconstruct it - pays off on fill-heavy scenes)",
+                          &s.blssEnabled))
+        changed = true;
     ImGui::EndDisabled();
     help(
         "Renders the 3D SCENE smaller and blows it back up to fill the display\n"
@@ -800,6 +857,13 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "    combined - both rebuild a frame by reprojecting the previous one,\n"
             "    and in motion the pair tears the picture into cells that\n"
             "    disagree. Untick frame extrapolation and this frees up.");
+    // Preferences: the clash note sits directly under the switch it is about
+    // (blocked in place); the window draws the long form further down.
+    if (!full) {
+        BlssClash clash = blssClashesFor(s, /*assumeProjectDefaultOn=*/!upscalerOn);
+        if (blockUpscaler) clash.extrapolation.clear();
+        drawBlssClashWarning(clash, !upscalerOn, true);
+    }
 
     ImGui::BeginDisabled(!s.blssEnabled);
     {
@@ -811,8 +875,10 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* modeNames[] = {
             "Plain - one bilinear pass, no network (far cheaper)",
             "Neural - a network picks a reconstruction per 32x32 tile"};
-        ImGui::SetNextItemWidth(scaled(520));
-        if (ImGui::Combo("Mode", &mode, modeNames, 2)) {
+        // Preferences: a label-left row (the InspectorRows scope draws the
+        // caption); the window keeps its sized, right-labelled combo.
+        if (full) ImGui::SetNextItemWidth(scaled(520));
+        if (full ? ImGui::Combo("Mode", &mode, modeNames, 2) : ui::Combo("Mode", &mode, modeNames, 2)) {
             s.blssNetwork = mode == 1;
             if (s.blssNetwork) s.blssAdaptive = false;
             changed = true;
@@ -855,7 +921,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "else.");
 
         ImGui::BeginDisabled(s.blssNetwork);
-        if (ImGui::Checkbox("Adapt resolution to frame budget", &s.blssAdaptive))
+        if (full ? ImGui::Checkbox("Adapt resolution to frame budget", &s.blssAdaptive)
+                 : ui::Switch("Adapt resolution to frame budget", &s.blssAdaptive))
             changed = true;
         ImGui::EndDisabled();
         help(
@@ -879,8 +946,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* names[] = {
             "2x2 - quarter the pixels",
             "1x2 - half height only (keeps horizontal detail; cheaper to reconstruct)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Render scale", &scale, names, 2)) {
+        if (full) ImGui::SetNextItemWidth(scaled(420));
+        if (full ? ImGui::Combo("Render scale", &scale, names, 2) : ui::Combo("Render scale", &scale, names, 2)) {
             s.blssScale = scale;
             changed = true;
         }
@@ -977,7 +1044,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         // The other four stay - a portal is not something this dialog can
         // prevent.
         if (blockUpscaler) clash.extrapolation.clear();
-        drawBlssClashWarning(clash, !upscalerOn);
+        if (full) drawBlssClashWarning(clash, !upscalerOn);
     }
 
     // FRAME EXTRAPOLATION LIVES HERE, next to the upscaler, because it is the
@@ -990,8 +1057,9 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // why the exclusion at the top of this function has to ask every scene.
     ImGui::SeparatorText("Frame extrapolation");
     ImGui::BeginDisabled(blockExtrapolation);
-    if (ImGui::Checkbox("Present a synthesised frame between rendered ones",
-                        &s.frameExtrapolation))
+    if ((full ? ImGui::Checkbox("Present a synthesised frame between rendered ones",
+                        &s.frameExtrapolation) : ui::Switch("Present a synthesised frame between rendered ones",
+                        &s.frameExtrapolation)))
         changed = true;
     ImGui::EndDisabled();
     // The exclusion, ON the greyed checkbox, so hovering the thing that will not
@@ -1054,7 +1122,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // distance) is a knob for guessing at a number the ground plane derives
     // properly. The drag is gone and the distance is pinned to zero: ticked =
     // the ground plane, unticked = rotation only.
-    if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround)) {
+    if ((full ? ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround) : ui::Switch("Ground plane (recommended)", &s.frameExtrapolationGround))) {
         // Normalised on the first touch of this box, NOT on load: a project
         // saved with a positive distance keeps rendering exactly as it did
         // until someone changes this setting, because silently re-rendering
@@ -1077,8 +1145,9 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         "previous frame EXACTLY - the synthesised frame is a duplicate, which\n"
         "reads as judder. Which is why this is the recommended state.",
         "");
-    if (ImGui::Checkbox("Always synthesise (ignore the gate)",
-                        &s.frameExtrapolationForce))
+    if ((full ? ImGui::Checkbox("Always synthesise (ignore the gate)",
+                        &s.frameExtrapolationForce) : ui::Switch("Always synthesise (ignore the gate)",
+                        &s.frameExtrapolationForce)))
         changed = true;
     help(
         "Skip the per-frame decision and always present a synthesised frame.\n"
@@ -1095,7 +1164,15 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // window never sees it. Four knobs and a debug view that are meaningless
     // without a training run behind them: the Essentials layer stops here.
     if (!full) return changed;
+    changed |= drawBlssNetworkTuning(s);
+    return changed;
+}
 
+// The network's four knobs (sharpen, temporal, jitter, debug view). Project
+// Preferences > Graphics > Advanced draws them under the Essentials, so
+// they have one home now that the upscaler window has no settings tab.
+bool App::drawBlssNetworkTuning(ProjectSettings& s) {
+    bool changed = false;
     ImGui::SeparatorText("Tuning the network");
     ImGui::BeginDisabled(!s.blssEnabled);
     {
@@ -1108,8 +1185,8 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
                 "    NEURAL mode would be worth on this scene.");
 
         ImGui::BeginDisabled(!s.blssNetwork);
-        ImGui::SetNextItemWidth(scaled(120));
-        ImGui::DragFloat("Sharpen strength", &s.blssSharpen, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Label-left rows like the Essentials above (Preferences' InspectorRows).
+        ui::SliderFloat("Sharpen strength", &s.blssSharpen, 0.0f, 1.0f, "%.2f");
         // Asked BEFORE prefHelp: a tooltip is a window and ImGui's "last item"
         // is context-global, so a prefHelp between the widget and this query
         // silently answers about the tooltip. One undo entry per drag, not one
@@ -1125,7 +1202,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "charges for the sharpen passes at THIS strength - so the Train\n"
             "and Evaluate tabs pass it through.");
 
-        if (ImGui::Checkbox("Temporal reuse (reproject the previous frame)", &s.blssTemporal))
+        if (ui::Switch("Temporal reuse (reproject the previous frame)", &s.blssTemporal))
             changed = true;
         prefHelp(
             "Lets the network blend in the previously presented frame,\n"
@@ -1143,8 +1220,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "temporal kernel available, so turning it off does not need and\n"
             "does not get a different network.");
 
-        if (ImGui::Checkbox("Sub-pixel jitter (the samples temporal reuse averages)",
-                            &s.blssJitter))
+        if (ui::Switch("Sub-pixel jitter (the samples temporal reuse averages)", &s.blssJitter))
             changed = true;
         prefHelp(
             "STABILITY AGAINST RECONSTRUCTION, and both sides are measured.\n"
@@ -1200,8 +1276,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         const char* debugNames[] = {
             "Off", "Tint by winning kernel (red = point, green = temporal, blue = sharpen)",
             "Log the feature spread to bin/log.txt (no tint)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Debug view", &debug, debugNames, 3)) {
+        if (ui::Combo("Debug view", &debug, debugNames, 3)) {
             s.blssDebugView = debug;
             changed = true;
         }
@@ -1763,6 +1838,29 @@ void App::blssReloadImages() {
 
 // ---------------------------------------------------------------- the window ---
 
+namespace {
+
+ImU32 bcol(const ImVec4& c, float a = 1.0f) {
+    return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * a));
+}
+
+ImVec4 vmixC(const ImVec4& a, const ImVec4& b) {
+    return ImVec4((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f, (a.w + b.w) * 0.5f);
+}
+
+// "answered 3 min ago" - how old an answer is decides whether to trust it.
+std::string blssAgo(double at) {
+    if (at < 0.0) return "";
+    const double s = ImGui::GetTime() - at;
+    char b[48];
+    if (s < 60.0) std::snprintf(b, sizeof b, "answered %d s ago", (int)s);
+    else if (s < 3600.0) std::snprintf(b, sizeof b, "answered %d min ago", (int)(s / 60.0));
+    else std::snprintf(b, sizeof b, "answered %d h ago", (int)(s / 3600.0));
+    return b;
+}
+
+}  // namespace
+
 void App::drawBlssWindow() {
     if (!showBlss_ || !hasProject_) {
         // GIVE THE CAMERA BACK when the window goes away. "Look through this
@@ -1773,13 +1871,10 @@ void App::drawBlssWindow() {
         return;
     }
     // CLAMPED TO THE SCREEN, and that is not cosmetic: `scaled()` multiplies by
-    // the UI scale, so at the 250 % a 4K laptop runs this window's nominal
-    // 1060x820 asks for 2650x2050 and opens TALLER THAN THE FRAMEBUFFER. The
-    // bottom of it - the output pane every table in here is parsed out of, and
-    // now the shot plan - is then simply unreachable, and it is invisible from
-    // the code because the literals look modest.
+    // the UI scale, so at 250 % the nominal size asks for more than the
+    // framebuffer and the bottom of the window is unreachable.
     const ImVec2 room = ImGui::GetMainViewport()->WorkSize;
-    ImGui::SetNextWindowSize(ImVec2(std::min(scaled(1060.0f), room.x * 0.95f),
+    ImGui::SetNextWindowSize(ImVec2(std::min(scaled(1200.0f), room.x * 0.95f),
                                     std::min(scaled(820.0f), room.y * 0.95f)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Neural Upscaler (BLSS)", &showBlss_)) {
@@ -1797,207 +1892,615 @@ void App::drawBlssWindow() {
         blssStatusChecked_ = now;
         blssRefreshNetStatus();
     }
+    // When each answer landed: an answer changes, its clock restarts.
+    {
+        const double q = blssSummary_.ok ? blssSummary_.oracle * 7.0 + blssSummary_.net : -1.0;
+        const double s = blssCov_.ok ? blssCov_.mean : -1.0;
+        const double h = blssHealth_.ok ? (double)std::hash<std::string>{}(blssHealth_.headline) : -1.0;
+        if (q != blssSeenQ_) blssSeenQ_ = q, blssAnsweredAt_[0] = blssSummary_.ok ? now : -1.0;
+        if (s != blssSeenS_) blssSeenS_ = s, blssAnsweredAt_[1] = blssCov_.ok ? now : -1.0;
+        if (h != blssSeenH_) blssSeenH_ = h, blssAnsweredAt_[2] = blssHealth_.ok ? now : -1.0;
+    }
 
-    // THE THREE BANDS, AND WHICH OF THEM MAY GROW. This window is a header, a
-    // tab strip and the tool's raw output, and until now the tabs got whatever
-    // the other two left - which is the wrong way round, because the tabs are
-    // where the TABLES are and reading them is the entire point of the window.
-    //
-    // Measured at a 1600x900 window (791 px of body, i.e. TIGHTER than the
-    // 1017 px work area of a 1080p screen): the header is 514 px once a
-    // coverage answer renders, the output pane takes its 150, and the tab child
-    // came out **111 px**. At that height the Evaluate tab's own controls - the
-    // Network field, Frames, the deadzone, *Run the evaluation* - are submitted
-    // BELOW the child's bottom edge, so they are neither visible nor clickable
-    // (`--ui-script` reports rects outside the child and a click on one lands on
-    // whatever is really there, which is how this survived a scripted check).
-    //
-    // So both of the other bands are now bounded and the tabs get a FLOOR.
+    drawBlssTitleRow();
+    drawBlssVerdictBanner();
+    drawBlssQuestionCards();
+    if (blssShowDetails_) {
+        // The long story behind the banner: every caveat the old header
+        // printed, kept - it is where the published numbers are explained.
+        ImGui::BeginChild("blssdetails", ImVec2(0, std::min(scaled(260.0f), ImGui::GetContentRegionAvail().y * 0.4f)),
+                          ImGuiChildFlags_Borders);
+        drawBlssAnswer();
+        ImGui::EndChild();
+    }
+
+    // THE WORK AREA: the authoring path in tabs on the left, the picture
+    // (Compare) as a permanent card on the right, the job strip at the bottom.
+    // The output pane is the raw stdout every table is parsed out of; it is a
+    // one-line strip until asked for, then a bounded pane.
     const float body = ImGui::GetContentRegionAvail().y;
-    const float outGap = scaled(14.0f);  // the splitter plus its two spacings
-    // The output pane is the raw stdout every table is parsed out of - worth
-    // having on screen, never worth two thirds of the window. It was 70 % of
-    // what the header left over.
+    const float stripH = ImGui::GetFrameHeight() + ImGui::GetStyle().WindowPadding.y * 2.0f + scaled(4.0f);
     const float outMax = std::max(scaled(60.0f), body * 0.35f);
-    const float outH = std::clamp(blssOutputH_, scaled(60.0f), outMax);
-    const float rest = std::max(scaled(120.0f), body - outH - outGap);
-    // What is left is split header/tabs, tabs first. The header's own content
-    // grows by a screenful the moment an answer renders, so it is CAPPED and
-    // scrolls past the cap; its top - the net source, the corpus switch and the
-    // three question buttons - stays where it was.
-    const float tabsMin = std::min(scaled(420.0f), rest * 0.60f);
-    const float headMax = std::max(scaled(90.0f), rest - tabsMin);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, headMax));
-    ImGui::BeginChild("blsshdr", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
-    drawBlssHeader();
-    ImGui::EndChild();
+    const float outH = blssShowOutput_ ? std::clamp(blssOutputH_, scaled(60.0f), outMax) : 0.0f;
+    const float workH = std::max(scaled(160.0f), body - stripH - outH - (blssShowOutput_ ? scaled(14.0f) : 0.0f) -
+                                                     ImGui::GetStyle().ItemSpacing.y);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float compareW = std::max(scaled(300.0f), ImGui::GetContentRegionAvail().x * 0.32f);
 
-    ImGui::BeginChild("blsstabs", ImVec2(0, -(outH + outGap)), false);
-    if (ImGui::BeginTabBar("blsstabbar")) {
-        // A click on a verdict thumbnail (or on "Train the network" under the
-        // headroom answer) has to be able to take the reader to the tab that
-        // shows it, or the strip is decoration. Consumed here, once.
+    ui::BeginCard("##blsswork", ImVec2(ImGui::GetContentRegionAvail().x - compareW - gap, workH));
+    if (ui::BeginQuietTabBar("blsstabbar")) {
+        // A click on a verdict thumbnail (or on "Train a network" under the
+        // headroom answer) takes the reader to the tab that shows it.
         const int want = blssTabSelect_;
         blssTabSelect_ = -1;
+        if (want >= 0 && want != kTabCompare) blssTab_ = want;
         const auto flag = [&](int i) {
             return want == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
         };
-        if (ImGui::BeginTabItem("Training shots", nullptr, flag(kTabShots))) {
-            drawBlssShotsTab();
-            ImGui::EndTabItem();
+        struct T {
+            int id;
+            const char* label;
+        };
+        static const T kTabs[] = {{kTabShots, "Training shots"}, {kTabTrain, "Train"},
+                                  {kTabEval, "Evaluate"},        {kTabCv, "Cross-validate"},
+                                  {kTabInputs, "Inputs"},        {kTabProbe, "Console probe"}};
+        for (const T& t : kTabs)
+            if (ui::QuietTab(t.label, blssTab_ == t.id, flag(t.id))) blssTab_ = t.id;
+        // The project's upscaler settings are not a tab of this window: they
+        // live in Project Preferences > Graphics > Advanced (the network
+        // knobs under "Tuning the network" there). This is the way to them.
+        ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().accent);
+        if (ImGui::TabItemButton("Settings in Project Preferences", ImGuiTabItemFlags_Trailing)) {
+            openProjectPreferences();
+            prefsFocusTab_ = "Display/Frame delivery";
         }
-        if (ImGui::BeginTabItem("Train", nullptr, flag(kTabTrain))) {
-            drawBlssTrainTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Evaluate", nullptr, flag(kTabEval))) {
-            drawBlssEvalTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Cross-validate", nullptr, flag(kTabCv))) {
-            drawBlssCvTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Compare", nullptr, flag(kTabCompare))) {
-            drawBlssImagesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Inputs", nullptr, flag(kTabInputs))) {
-            drawBlssFeaturesTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Console probe", nullptr, flag(kTabProbe))) {
-            drawBlssProbeTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Project settings", nullptr, flag(kTabSettings))) {
-            ImGui::Spacing();
-            // EVERYTHING, because this is the advanced layer. Project >
-            // Preferences draws the same block at BlssDetail::Essentials - the
-            // three decisions and the verdict, without the network's knobs.
-            if (drawBlssSettings(project_.settings, BlssDetail::Everything)) commitChange();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Use the upscaler, Mode, Render scale, frame extrapolation and the\n"
+                              "network's tuning (sharpen, temporal, jitter, debug view) - Project\n"
+                              "Preferences > Graphics > Advanced.");
+        ui::EndQuietTabBar();
+    }
+    ImGui::BeginChild("blsstabs", ImVec2(0, 0));
+    switch (blssTab_) {
+        case kTabTrain: drawBlssTrainTab(); break;
+        case kTabEval: drawBlssEvalTab(); break;
+        case kTabCv: drawBlssCvTab(); break;
+        case kTabInputs: drawBlssFeaturesTab(); break;
+        case kTabProbe: drawBlssProbeTab(); break;
+        default: drawBlssShotsTab(); break;
     }
     ImGui::EndChild();
+    ui::EndCard();
+    ImGui::SameLine(0.0f, gap);
+    ui::BeginCard("##blsscompare", ImVec2(0.0f, workH));
+    {
+        ui::FontScope bold(ui::boldFont());
+        ImGui::TextUnformatted("Compare");
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("the first held-out frame");
+    ImGui::BeginChild("blsscmp", ImVec2(0, 0));
+    drawBlssImagesTab();
+    ImGui::EndChild();
+    ui::EndCard();
 
-    // The splitter, then the tool's own output. It is always on screen because
-    // every table above is PARSED out of it - a number with its source one
-    // glance away is falsifiable, a number without one is trusted.
-    ImGui::InvisibleButton("##blsssplit", ImVec2(-1, scaled(6.0f)));
-    if (ImGui::IsItemActive()) blssOutputH_ -= ImGui::GetIO().MouseDelta.y;
-    if (ImGui::IsItemHovered() || ImGui::IsItemActive())
-        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
-    drawBlssOutput(outH);
+    drawBlssJobStrip();
+    if (blssShowOutput_) {
+        ImGui::InvisibleButton("##blsssplit", ImVec2(-1, scaled(6.0f)));
+        if (ImGui::IsItemActive()) blssOutputH_ -= ImGui::GetIO().MouseDelta.y;
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+        drawBlssOutput(outH);
+    }
     ImGui::End();
 }
 
-void App::drawBlssHeader() {
-    const ProjectSettings& s = project_.settings;
-    if (!s.blssEnabled)
-        ImGui::TextDisabled(
-            "The upscaler is OFF for this project - nothing here reaches the game until "
-            "it is on (Project settings tab).");
-
-    // WHICH OF THE TWO NETS THIS PROJECT SHIPS. This used to be a status line
-    // whose worst branch read "none - the game will be built with RANDOM
-    // weights"; a trained net now ships with the editor, so that state is
-    // unreachable and the question became a choice.
-    drawBlssNetSource();
-    if (blssNetPresent_) {
-        // WEIGHTS AND TOPOLOGY, not a byte count. "500 bytes" tells a reader
-        // nothing they can use; "123 weights, 6->12->3" is the same file
-        // described in the units the rest of this window and the documentation
-        // are written in. The count is derived from the topology rather than
-        // typed, so it follows kFeatures/kHidden the way every other figure in
-        // this feature does.
-        constexpr int kWeights = blss::kHidden * blss::kFeatures + blss::kHidden +
-                                 blss::kOutputs * blss::kHidden + blss::kOutputs;
-        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s  -  %d weights, %d->%d->%d, %s",
-                           blssNetName_, kWeights, blss::kFeatures, blss::kHidden,
-                           blss::kOutputs, blssNetWhen_.c_str());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "%zu bytes on disk: a four-byte magic, a u32 version and the weights\n"
-                "in declaration order. It carries NO topology, so a file written by a\n"
-                "differently shaped net cannot be told apart by reading it - the\n"
-                "version number is the only guard.",
-                blssNetBytes_);
-        if (blssNetArgs_.empty())
-            ImGui::TextDisabled(
-                "    Trained outside this editor - a blss.net records nothing about how it "
-                "was made.");
-        else if (blssNetArgsStale_)
-            ImGui::TextDisabled(
-                "    Replaced since this editor last trained it; the recorded settings are "
-                "stale.");
-        else {
-            ImGui::TextDisabled("    Trained here with:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", blssNetArgs_.c_str());
-            // A blss.net records nothing about the settings it was fitted
-            // under, so the sidecar is the ONLY place a mismatch can be caught -
-            // and a mismatch is silent everywhere else: the game reconstructs
-            // happily with a net trained for a different sharpen strength or a
-            // different render scale, just worse.
-            drawBlssProvenanceDrift();
-        }
-    }
-    ImGui::Spacing();
-    drawBlssCorpusChoice();
-    ImGui::Spacing();
-    drawBlssHappyPath();
-    ImGui::Spacing();
-    // BAKING IT IN is one button because the build already does it: codegen
-    // reads <project>/blss.net every time and rewrites inc/blss_net.gen.hpp, so
-    // training here IS baking. This runs `--blss-emit` for the case where the
-    // header itself is wanted - to read it, or to refresh it without a build.
-    ImGui::BeginDisabled(blssJob_.running() || !blssNetPresent_);
-    if (ImGui::Button("Write inc/blss_net.gen.hpp", ImVec2(scaled(230.0f), 0))) {
-        std::vector<std::string> a{"--blss-emit", "-i", blssNetName_, "-o",
-                                   (fs::path("inc") / "blss_net.gen.hpp").string()};
-        blssStart(blssui::Kind::Emit, a, 0);
-    }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Exactly `--blss-emit`: the trained weights as a C++ constant table plus\n"
-        "the forward pass, which is what the PS2 compiles. The BUILD does this for\n"
-        "you from the same blss.net every time, so the button is for looking at\n"
-        "the header or refreshing it without a build. It runs the emitter's\n"
-        "self-test first - a weight of exactly zero used to be spelled `0F` and\n"
-        "no compiler accepts that.");
-    ImGui::SameLine();
-    if (ImGui::Button("Reveal the project folder", ImVec2(scaled(200.0f), 0)))
-        platform::revealInFileManager(project_.dir);
-
-    ImGui::Spacing();
-    if (blssJob_.running()) {
-        const float p = blssJob_.progress();
-        if (p >= 0.0f)
-            ImGui::ProgressBar(p, ImVec2(-scaled(160.0f), 0.0f));
-        else
-            ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(), ImVec2(-scaled(160.0f), 0.0f),
-                               "working");
+// The title row: "proof of concept", then the network and the corpus as two
+// chips at the right - each opens what used to be a header row.
+void App::drawBlssTitleRow() {
+    const theme::Semantics& sem = theme::semantics();
+    ImGui::AlignTextToFramePadding();
+    ui::Badge("proof of concept", 1);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A research feature: every number here comes from the tool's own\n"
+                          "measurements, and only the console settles them.");
+    if (!project_.settings.blssEnabled) {
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(scaled(150.0f), 0))) blssJob_.cancel();
-        ImGui::Text("%s %s  -  %.0f s", blssui::kindName(blssJob_.kind()),
-                    blssJob_.status().c_str(), blssJob_.seconds());
+        ImGui::TextDisabled("off for this project");
+    }
+
+    constexpr int kW = blss::kHidden * blss::kFeatures + blss::kHidden + blss::kOutputs * blss::kHidden +
+                       blss::kOutputs;
+    char net[160], corpus[160];
+    std::snprintf(net, sizeof net, "Net: %s \xc2\xb7 %d\xe2\x86\x92%d\xe2\x86\x92%d",
+                  blssNetPresent_ ? "this project's" : "shipped default", blss::kFeatures, blss::kHidden,
+                  blss::kOutputs);
+    {
+        const int shots = blssExpectedShots();
+        std::snprintf(corpus, sizeof corpus, "Corpus: %s \xc2\xb7 %d shots",
+                      blssCorpusProject_ ? "this project" : "the bestiary", shots);
+    }
+    const float wNet = ui::OverlayMenuButtonWidth(net), wCorpus = ui::OverlayMenuButtonWidth(corpus);
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), right - wNet - wCorpus - ImGui::GetStyle().ItemSpacing.x));
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + wNet, p0.y + ui::OverlayRowHeight()), bcol(sem.field), 999.0f);
+    if (ui::OverlayMenuButton("Network", net, false)) ImGui::OpenPopup("##blssnetpop");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%d weights. Which network the build bakes, and how it was made.", kW);
+    ImGui::SameLine();
+    const ImVec2 p1 = ImGui::GetCursorScreenPos();
+    dl->AddRectFilled(p1, ImVec2(p1.x + wCorpus, p1.y + ui::OverlayRowHeight()), bcol(sem.field), 999.0f);
+    if (ui::OverlayMenuButton("Corpus", corpus, false)) ImGui::OpenPopup("##blsscorpuspop");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Which frames every check, the trainer and the evaluator read.");
+
+    if (ImGui::BeginPopup("##blssnetpop")) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+        drawBlssNetSource();
+        if (blssNetPresent_) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.ok);
+            ImGui::Text("%s - %d weights, %d->%d->%d, %s", blssNetName_, kW, blss::kFeatures, blss::kHidden,
+                        blss::kOutputs, blssNetWhen_.c_str());
+            ImGui::PopStyleColor();
+            if (blssNetArgs_.empty())
+                ImGui::TextDisabled("Trained outside this editor - a blss.net records nothing about how "
+                                    "it was made.");
+            else if (blssNetArgsStale_)
+                ImGui::TextDisabled("Replaced since this editor last trained it; the recorded settings "
+                                    "are stale.");
+            else {
+                ImGui::TextDisabled("Trained here with: %s", blssNetArgs_.c_str());
+                drawBlssProvenanceDrift();
+            }
+        }
+        ImGui::Separator();
+        // BAKING IT IN is one button because the build already does it.
+        ImGui::BeginDisabled(blssJob_.running() || !blssNetPresent_);
+        if (ImGui::Button("Write inc/blss_net.gen.hpp")) {
+            std::vector<std::string> a{"--blss-emit", "-i", blssNetName_, "-o",
+                                       (fs::path("inc") / "blss_net.gen.hpp").string()};
+            blssStart(blssui::Kind::Emit, a, 0);
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Exactly `--blss-emit`: the weights as a C++ table plus the forward\n"
+                              "pass. The BUILD does this from the same blss.net every time.");
+        ImGui::SameLine();
+        if (ImGui::Button("Reveal the project folder")) platform::revealInFileManager(project_.dir);
+        ImGui::PopTextWrapPos();
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginPopup("##blsscorpuspop")) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+        drawBlssCorpusChoice();
+        ImGui::PopTextWrapPos();
+        ImGui::EndPopup();
+    }
+    ImGui::Spacing();
+}
+
+// The verdict first, colour-coded, with the action right there: Plain /
+// Neural and "Use in this project" write the same settings as Preferences.
+void App::drawBlssVerdictBanner() {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const bool haveQ = blssSummary_.ok;
+    const bool haveS = blssCov_.ok && blssSpeed_.ok;
+    ProjectSettings& s = project_.settings;
+    const blssui::Recommendation rec = blssui::recommend(blssSummary_, haveQ, blssSpeed_, haveS, s.blssNetwork);
+    ImVec4 c = sem.textDim;
+    switch (rec.verdict) {
+        case blssui::Recommendation::Verdict::Off: c = sem.danger; break;
+        case blssui::Recommendation::Verdict::On:
+        case blssui::Recommendation::Verdict::SpeedOnly: c = sem.ok; break;
+        case blssui::Recommendation::Verdict::Unknown: c = sem.accent; break;
+        // Mixed is amber and never green: half an answer or a margin too
+        // thin to act on, and a green one of those reads as a yes.
+        default: c = sem.warn; break;
+    }
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(c.x, c.y, c.z, 0.07f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(c.x, c.y, c.z, 0.45f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(fs * 0.9f, fs * 0.7f));
+    ImGui::BeginChild("##blssbanner", ImVec2(0, 0),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+
+    const float useW = ImGui::CalcTextSize("Use in this project").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+    const char* modes[2] = {"Plain", "Neural"};
+    const float segW = ImGui::CalcTextSize("Plain").x + ImGui::CalcTextSize("Neural").x + fs * 3.5f;
+    const float textW = ImGui::GetContentRegionAvail().x - useW - segW - fs * 2.0f;
+    ImGui::BeginGroup();
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float r = fs * 1.05f;
+        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + r, p.y + r), r, bcol(c, 0.18f));
+        ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + r, p.y + r), fs * 0.3f, bcol(c));
+        ImGui::Dummy(ImVec2(r * 2.0f, r * 2.0f));
+    }
+    ImGui::SameLine(0.0f, fs * 0.8f);
+    ImGui::BeginGroup();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(fs * 10.0f, textW - fs * 3.0f));
+    {
+        ui::FontScope bold(ui::boldFont());
+        ImGui::PushFont(nullptr, fs * 1.15f);
+        ImGui::TextUnformatted(haveQ || haveS ? rec.headline.c_str() : "Not answered yet");
+        ImGui::PopFont();
+    }
+    if (haveQ || haveS) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted(rec.why.c_str());
+        ImGui::PopStyleColor();
+    } else {
+        ImGui::TextDisabled("Three checks below say whether to turn it on. None needs a trained network.");
+    }
+    {
+        const int answered = (haveQ ? 1 : 0) + (haveS ? 1 : 0) + (blssHealth_.ok ? 1 : 0);
+        ImGui::TextDisabled("%d of three checks answered.", answered);
+        ImGui::SameLine();
+        if (ImGui::SmallButton(blssShowDetails_ ? "Hide the long story" : "The long story"))
+            blssShowDetails_ = !blssShowDetails_;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Every caveat behind the verdict: what the overdraw count cannot see,\n"
+                              "the hardware anchors, the VRAM line, which cameras were counted.");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::EndGroup();
+    ImGui::EndGroup();
+
+    // The action: the mode, and the switch itself.
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    const float y = ImGui::GetWindowContentRegionMin().y + fs * 0.4f;
+    ImGui::SetCursorPos(ImVec2(right - useW - segW - fs * 0.8f, y));
+    int mode = s.blssNetwork ? 1 : 0;
+    if (ui::Segmented("##blssmode", modes, 2, &mode, segW)) {
+        s.blssNetwork = mode == 1;
+        commitChange();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Plain: reduced raster + bilinear composite, 0.52 ms of EE, break-even\n"
+                          "2.6 coverages. Neural: the network chooses per tile, 4.60 ms, 13.1.");
+    ImGui::SetCursorPos(ImVec2(right - useW, y));
+    const bool blocked = s.frameExtrapolation && !s.blssEnabled;
+    if (s.blssEnabled) {
+        ui::GhostButton("In use", useW, false);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("The project uses the upscaler. Turn it off in Project Preferences >\n"
+                              "Display > Frame delivery.");
+    } else {
+        if (ui::PrimaryButton("Use in this project", useW, !blocked)) {
+            s.blssEnabled = true;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(blocked ? "Frame extrapolation is on, and the two refuse each other. Turn\n"
+                                        "it off in Project Preferences > Graphics > Advanced first."
+                                      : "Turns the upscaler on for the project (the same switch as\n"
+                                        "Project Preferences > Graphics > Advanced). Scenes can still opt out.");
+    }
+    ImGui::EndChild();
+    ImGui::Spacing();
+}
+
+// The three questions as cards: answered (dot, the number as the hero, a bar
+// that explains it, one caveat, Run again) or "Not measured" with the run
+// button. Each run button is named by its question (scripts click those).
+void App::drawBlssQuestionCards() {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float w = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
+    const float h = fs * 9.6f;
+
+    auto head = [&](const char* q, bool answered, int idx) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (answered) dl->AddCircleFilled(ImVec2(p.x + fs * 0.3f, p.y + fs * 0.55f), fs * 0.24f, bcol(sem.ok));
+        else dl->AddCircle(ImVec2(p.x + fs * 0.3f, p.y + fs * 0.55f), fs * 0.24f, bcol(sem.textDim), 0, 1.3f);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.9f, p.y));
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::TextUnformatted(q);
+        }
+        if (answered) {
+            const std::string ago = blssAgo(blssAnsweredAt_[idx]);
+            if (!ago.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", ago.c_str());
+            }
+        }
+    };
+    auto hero = [&](const char* big, const ImVec4& col, const char* tail) {
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushFont(nullptr, fs * 1.6f);
+        ImGui::PushStyleColor(ImGuiCol_Text, col);
+        ImGui::TextUnformatted(big);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        if (tail) {
+            ImGui::SameLine(0.0f, fs * 0.5f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.45f);
+            ImGui::TextDisabled("%s", tail);
+        }
+    };
+    // A bar from 0 to `max` with a filled part, an optional marker, and
+    // captions under it.
+    auto bar = [&](float frac, const ImVec4& fillC, float marker, const char* left, const char* right) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float bw = ImGui::GetContentRegionAvail().x, bh = std::max(4.0f, fs * 0.42f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + bh), bcol(sem.field), bh);
+        dl->AddRectFilled(p, ImVec2(p.x + bw * std::clamp(frac, 0.0f, 1.0f), p.y + bh), bcol(fillC), bh);
+        if (marker >= 0.0f) {
+            const float mx = p.x + bw * std::clamp(marker, 0.0f, 1.0f);
+            dl->AddLine(ImVec2(mx, p.y - 3.0f), ImVec2(mx, p.y + bh + 3.0f), bcol(sem.text), 2.0f);
+        }
+        ImGui::Dummy(ImVec2(bw, bh + 3.0f));
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushFont(nullptr, fs * 0.82f);
+        ImGui::TextDisabled("%s", left);
+        if (right) {
+            const float rw = ImGui::CalcTextSize(right).x;
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - rw);
+            ImGui::TextDisabled("%s", right);
+        }
+        ImGui::PopFont();
+    };
+    auto caveat = [&](const char* t) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::PushFont(nullptr, fs * 0.9f);
+        ImGui::TextDisabled("%s", t);
+        ImGui::PopFont();
+        ImGui::PopTextWrapPos();
+    };
+    // The run control at the bottom-right of an answered card / the primary
+    // button of an unanswered one. Labelled with the question: that is its ID.
+    auto runButton = [&](const char* q, bool answered, bool enabled, const std::string& cost) {
+        if (answered) {
+            const char* t = "Run again";
+            const float bw = ImGui::CalcTextSize(t).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            ImGui::SetCursorPos(ImVec2(ImGui::GetWindowContentRegionMax().x - bw, ImGui::GetWindowContentRegionMin().y));
+            char id[96];
+            std::snprintf(id, sizeof id, "Run again##%s", q);
+            const bool hit = ui::GhostButton(id, bw, enabled);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s (%s)", q, cost.c_str());
+            return hit;
+        }
+        ImGui::Spacing();
+        const bool hit = ui::PrimaryButton(q, 0.0f, enabled);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", cost.c_str());
+        return hit;
+    };
+    auto dashedCard = [&](bool answered) {
+        if (answered) return;
+        const ImVec2 a = ImGui::GetWindowPos(), b(a.x + ImGui::GetWindowWidth(), a.y + ImGui::GetWindowHeight());
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float d = 6.0f, g = 4.0f;
+        const ImU32 cc = bcol(sem.textDim, 0.6f);
+        for (float x = a.x + 8; x < b.x - 8; x += d + g) {
+            dl->AddLine(ImVec2(x, a.y + 1), ImVec2(std::min(x + d, b.x - 8), a.y + 1), cc);
+            dl->AddLine(ImVec2(x, b.y - 1), ImVec2(std::min(x + d, b.x - 8), b.y - 1), cc);
+        }
+        for (float y = a.y + 8; y < b.y - 8; y += d + g) {
+            dl->AddLine(ImVec2(a.x + 1, y), ImVec2(a.x + 1, std::min(y + d, b.y - 8)), cc);
+            dl->AddLine(ImVec2(b.x - 1, y), ImVec2(b.x - 1, std::min(y + d, b.y - 8)), cc);
+        }
+    };
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);
+
+    // --- 1. the picture
+    {
+        const bool ans = blssSummary_.ok;
+        ui::BeginCard("##q_picture", ImVec2(w, h));
+        dashedCard(ans);
+        head("Will the picture improve?", ans, 0);
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Headroom, blssEvalFrames_, 0, cores, 1, 0,
+                                                   blssExpectedShots());
+        const std::string costS = blssui::humanDuration(cost.total);
+        if (ans) {
+            const blssui::EvalSummary& q = blssSummary_;
+            const double v = q.haveNet ? q.netMargin : q.oracleMargin;
+            char big[32], right[48], left[48];
+            std::snprintf(big, sizeof big, "%+.2f dB", v);
+            hero(big, v >= blssui::kNoHeadroomDb ? sem.ok : v < 0 ? sem.danger : sem.warn,
+                 q.haveNet ? "over plain bilinear" : "ceiling over bilinear");
+            const double ceil = std::max(0.01, q.oracleMargin);
+            std::snprintf(right, sizeof right, "ceiling %+.2f dB", q.oracleMargin);
+            if (q.haveNet)
+                std::snprintf(left, sizeof left, "net captures %.0f%%", 100.0 * std::max(0.0, q.netMargin) / ceil);
+            else
+                std::snprintf(left, sizeof left, "no network measured");
+            bar(q.haveNet ? (float)(std::max(0.0, q.netMargin) / ceil) : 1.0f,
+                q.haveNet ? sem.ok : vmixC(sem.ok, sem.textDim), 1.0f, left, right);
+            caveat("The ceiling is the oracle: the best any per-tile weighting can do here. Above "
+                   "0.10 dB there is something to learn.");
+        } else {
+            ImGui::PushFont(nullptr, fs * 1.4f);
+            ImGui::TextDisabled("Not measured");
+            ImGui::PopFont();
+            caveat("Reads the scene's own ceiling - is there anything here a network could reconstruct.");
+        }
+        if (runButton("Will the picture improve?", ans, !blssJob_.running(), costS)) blssAskPicture();
+        ui::EndCard();
+    }
+    ImGui::SameLine(0.0f, gap);
+    // --- 2. the frame time
+    {
+        const bool ans = blssCov_.ok && blssSpeed_.ok;
+        ui::BeginCard("##q_speed", ImVec2(w, h));
+        dashedCard(ans);
+        head("Will the frame get faster?", ans, 1);
+        if (ans) {
+            const blssui::SpeedEstimate& sp = blssSpeed_;
+            char big[32], tail[64], left[48], right[48];
+            std::snprintf(big, sizeof big, "%+.1f ms", -sp.savedMs);
+            if (sp.band == blssui::SpeedEstimate::Band::Win)
+                std::snprintf(tail, sizeof tail, "a frame \xc2\xb7 %.2f-%.2fx", sp.lo, sp.hi);
+            else
+                std::snprintf(tail, sizeof tail, "a frame");
+            hero(big, sp.savedMs > 0.5 ? sem.ok : sp.savedMs < -0.5 ? sem.danger : sem.warn, tail);
+            const float maxC = (float)std::max(100.0, sp.coverages * 1.2);
+            std::snprintf(left, sizeof left, "break-even %.1f", sp.breakEven);
+            std::snprintf(right, sizeof right, "%.1f coverages", sp.coverages);
+            bar((float)(sp.coverages / maxC), sp.coverages >= sp.breakEven ? sem.ok : sem.danger,
+                (float)(sp.breakEven / maxC), left, right);
+            char cv[160];
+            std::snprintf(cv, sizeof cv,
+                          "%.2f geometry + %.2f emitters, %s mode. A floor: sky dome, HUD and post "
+                          "effects aren't counted.",
+                          blssCov_.geomMean, blssCov_.emitMean, sp.network ? "neural" : "plain");
+            caveat(cv);
+        } else {
+            ImGui::PushFont(nullptr, fs * 1.4f);
+            ImGui::TextDisabled(blssCovRunning_.load() ? "Counting..." : "Not measured");
+            ImGui::PopFont();
+            caveat("Counts how many times the scenes paint the screen against the measured break-even.");
+        }
+        if (runButton("Will the frame get faster?", ans, !blssCovRunning_.load(), "~1 s"))
+            blssStartCoverage();
+        ui::EndCard();
+    }
+    ImGui::SameLine(0.0f, gap);
+    // --- 3. the corpus
+    {
+        const bool ans = blssHealth_.ok;
+        ui::BeginCard("##q_corpus", ImVec2(0.0f, h));
+        dashedCard(ans);
+        head("Is the corpus good enough?", ans, 2);
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Features, blssFeatFrames_, 0, cores, 1, 0,
+                                                   blssExpectedShots());
+        const std::string costS = blssui::humanDuration(cost.total);
+        if (ans) {
+            ImVec4 col = sem.warn;
+            if (blssHealth_.verdict == blssui::CorpusHealth::Verdict::Unusable) col = sem.danger;
+            if (blssHealth_.verdict == blssui::CorpusHealth::Verdict::Good) col = sem.ok;
+            ImGui::PushTextWrapPos(0.0f);
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::PushStyleColor(ImGuiCol_Text, col);
+                ImGui::TextUnformatted(blssHealth_.headline.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopTextWrapPos();
+            caveat(blssHealth_.why.c_str());
+            if (!blssHealth_.findings.empty() && ImGui::SmallButton("Findings on the Inputs tab"))
+                blssTabSelect_ = kTabInputs;
+        } else {
+            ImGui::PushFont(nullptr, fs * 1.4f);
+            ImGui::TextDisabled("Not measured");
+            ImGui::PopFont();
+            caveat("Says whether a network fitted to these shots can learn anything - checks every input "
+                   "channel against the oracle. Needed before you train a project net; the shipped "
+                   "default doesn't need it.");
+        }
+        if (runButton("Is the corpus good enough?", ans, !blssJob_.running(), costS)) blssAskCorpus();
+        ui::EndCard();
+    }
+    ImGui::PopStyleVar();
+    ImGui::Spacing();
+}
+
+// The output pane, collapsed to one line: the last command, its timings and
+// state, Cancel while running, and Show output.
+void App::drawBlssJobStrip() {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.field);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(fs * 0.7f, fs * 0.25f));
+    ImGui::BeginChild("##blssstrip", ImVec2(0, 0),
+                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+                      ImGuiWindowFlags_NoScrollbar);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    const char* toggle = blssShowOutput_ ? "Hide output" : "Show output";
+    const float tw = ImGui::CalcTextSize(toggle).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+    const float right = ImGui::GetWindowContentRegionMax().x;
+    ImGui::AlignTextToFramePadding();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImVec4 dot = sem.textDim;
+    std::string text;
+    char b[256];
+    if (blssJob_.running()) {
+        dot = sem.accent;
+        std::snprintf(b, sizeof b, "%s %s - %.0f s", blssui::kindName(blssJob_.kind()), blssJob_.status().c_str(),
+                      blssJob_.seconds());
+        text = b;
     } else if (blssJob_.kind() != blssui::Kind::None) {
         const int rc = blssJob_.exitCode();
-        if (rc == 0)
-            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s finished in %.0f s",
-                               blssui::kindName(blssJob_.kind()), blssJob_.seconds());
-        else if (rc == -2)
-            ImGui::TextDisabled("%s cancelled after %.0f s", blssui::kindName(blssJob_.kind()),
-                                blssJob_.seconds());
-        else
-            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s FAILED (exit %d)",
-                               blssui::kindName(blssJob_.kind()), rc);
+        dot = rc == 0 ? sem.ok : rc == -2 ? sem.textDim : sem.danger;
+        if (rc == 0) std::snprintf(b, sizeof b, "%s finished in %.0f s", blssui::kindName(blssJob_.kind()), blssJob_.seconds());
+        else if (rc == -2) std::snprintf(b, sizeof b, "%s cancelled after %.0f s", blssui::kindName(blssJob_.kind()), blssJob_.seconds());
+        else std::snprintf(b, sizeof b, "%s FAILED (exit %d)", blssui::kindName(blssJob_.kind()), rc);
+        text = b;
+    } else {
+        text = "No job yet - every table in this window is parsed out of the tool's output.";
     }
-    if (!blssLastError_.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "%s", blssLastError_.c_str());
-    ImGui::Separator();
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + fs * 0.3f, p.y + ImGui::GetFrameHeight() * 0.5f),
+                                                fs * 0.22f, bcol(dot));
+    ImGui::SetCursorScreenPos(ImVec2(p.x + fs * 0.9f, p.y));
+    ImGui::PushStyleColor(ImGuiCol_Text, blssJob_.running() || blssJob_.kind() == blssui::Kind::None ? sem.textDim : dot);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopStyleColor();
+    if (!blssLastError_.empty()) {
+        // One line here; the whole message on hover and in the output.
+        ImGui::SameLine();
+        const std::string first = blssLastError_.substr(0, blssLastError_.find('\n'));
+        const ImVec2 p2 = ImGui::GetCursorScreenPos();
+        const float room = ImGui::GetWindowPos().x + right - tw - fs * 12.0f - p2.x;
+        ImGui::PushClipRect(p2, ImVec2(p2.x + std::max(0.0f, room), p2.y + ImGui::GetFrameHeight()), true);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+        ImGui::TextUnformatted(first.c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopClipRect();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", blssLastError_.c_str());
+    }
+    float x = right - tw;
+    if (blssJob_.running()) {
+        const float cw = ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        const float pw = fs * 8.0f;
+        x -= cw + pw + fs;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX(), x));
+        const float pr = blssJob_.progress();
+        ImGui::ProgressBar(pr >= 0.0f ? pr : -1.0f * (float)ImGui::GetTime(), ImVec2(pw, 0.0f), "");
+        ImGui::SameLine();
+        if (ui::DangerButton("Cancel", cw)) blssJob_.cancel();
+    }
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), right - tw));
+    if (ui::GhostButton(toggle, tw)) blssShowOutput_ = !blssShowOutput_;
+    ImGui::EndChild();
+}
+
+// "Will the picture improve?": `--blss-eval` with NO `-i` - without a network
+// it measures the SCENE (the oracle row is its own ceiling).
+void App::blssAskPicture() {
+    std::vector<std::string> a{"--blss-eval"};
+    for (const std::string& c : blssCommonArgs()) a.push_back(c);
+    a.push_back("--frames");
+    a.push_back(std::to_string(blssEvalFrames_));
+    a.push_back("--deadzone");
+    a.push_back(numArg(blssEvalDeadzone_));
+    blssStart(blssui::Kind::Headroom, a, 0);
+}
+
+// "Is the corpus good enough?": the six input channels over this corpus,
+// turned into a verdict - the question the other two cannot answer (a channel
+// identically zero over the corpus is one the network does not have).
+void App::blssAskCorpus() {
+    std::vector<std::string> a{"--blss-eval", "--features"};
+    for (const std::string& c : blssCommonArgs()) a.push_back(c);
+    a.push_back("--frames");
+    a.push_back(std::to_string(blssFeatFrames_));
+    a.push_back("--fill-weight");
+    a.push_back(numArg(blssTrainFill_));
+    blssStart(blssui::Kind::Features, a, 0);
 }
 
 // --- the happy path ----------------------------------------------------------
@@ -2216,136 +2719,6 @@ void App::drawBlssCoverageDetail() {
 // feature's actual selling point and the half with a hardware model behind it.
 // So the second button counts the scene's overdraw and the two answers are
 // combined below into one recommendation.
-void App::drawBlssHappyPath() {
-    const int cores = std::max(1, (int)std::thread::hardware_concurrency());
-    const blssui::Cost cost = blssui::estimate(blssui::Kind::Headroom, blssEvalFrames_, 0, cores,
-                                               1, 0, blssExpectedShots());
-    ImGui::BeginDisabled(blssJob_.running());
-    if (ImGui::Button("Will the picture improve?", ImVec2(scaled(230.0f), scaled(30.0f)))) {
-        // NO `-i`. That is the whole feature: with a network the run measures
-        // that network, without one it measures the SCENE.
-        std::vector<std::string> a{"--blss-eval"};
-        for (const std::string& c : blssCommonArgs()) a.push_back(c);
-        a.push_back("--frames");
-        a.push_back(std::to_string(blssEvalFrames_));
-        a.push_back("--deadzone");
-        a.push_back(numArg(blssEvalDeadzone_));
-        blssStart(blssui::Kind::Headroom, a, 0);
-    }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Runs `--blss-eval` on this corpus with NO network and reads the ORACLE\n"
-        "row - the best any per-tile weighting can do under the exact GS\n"
-        "composite. No network can beat it, so it is the SCENE'S OWN CEILING and\n"
-        "it answers 'is there anything here to reconstruct' before you spend an\n"
-        "afternoon training something.\n"
-        "\n"
-        "Some scenes have no ceiling at all: on examples/showcase the oracle\n"
-        "itself scores +0.02 dB over plain bilinear at 1.00 passes - soft ground\n"
-        "texture, low-poly props, nothing that aliases. That is a fact about the\n"
-        "content and no amount of training moves it.\n"
-        "\n"
-        "It renders the whole corpus, which is most of the cost, so the estimate\n"
-        "next to the button is the same corpus render the Train tab pays for.");
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(blssCovRunning_.load());
-    if (ImGui::Button("Will the frame get faster?", ImVec2(scaled(230.0f), scaled(30.0f))))
-        blssStartCoverage();
-    ImGui::EndDisabled();
-    prefHelp(
-        "Counts how many times over this project's own scenes paint the screen,\n"
-        "and puts that against the MEASURED break-even.\n"
-        "\n"
-        "BLSS trades GS fill for EE work at a price both halves of which were\n"
-        "measured on a real PS2: it keeps 24.5 % of the scene's fill (the render\n"
-        "is half in EACH axis, so a quarter of the pixels) and costs 4.60 ms of\n"
-        "EE plus 0.50 ms of composite fill. At the calibrated 0.587 ms per\n"
-        "full-screen blended textured pass that is break-even at 11.5 full-screen\n"
-        "coverages. Above the line it is a large win; below it, a straight loss\n"
-        "of up to ~5.1 ms a frame.\n"
-        "\n"
-        "The retention and the cost are FITTED over five hardware load points\n"
-        "(two runs per arm), not assumed: saved = 0.7548 x fill - 5.10 ms, with\n"
-        "a residual RMS of 0.093 ms.\n"
-        "\n"
-        "It walks the same scenes and the same camera moves the corpus uses and\n"
-        "counts every fragment the rasteriser produces - the GS has no early-z\n"
-        "and no backface culling, so a hidden wall and the far side of a box are\n"
-        "both real fill.\n"
-        "\n"
-        "IT IS A FLOOR, not a measurement. What it cannot see is listed under the\n"
-        "answer; the console is the only thing that settles it.\n"
-        "\n"
-        "AND IT IS AN INDEX, NOT MILLISECONDS. On examples/upscaler-lab - the one\n"
-        "scene whose fill has also been measured on hardware - the count reads\n"
-        "about 1.3x the console's blended-pass equivalents, and it holds that\n"
-        "ratio at 1.5, 20, 47 and 79 coverages, so it tracks the real fill and\n"
-        "over-states its scale. Two things about it are already known: 0.587 ms\n"
-        "was calibrated on a 512x512 buffer while a coverage here is per the\n"
-        "project's own raster (512x448 = 14 % fewer pixels), and a magnified 128\n"
-        "square puff is cheaper per pixel than the probe's 1:1 framebuffer blit.\n"
-        "The headroom above the break-even is what the answer is really about.\n"
-        "\n"
-        "Run it without the GUI with `tyrax-editor --blss-coverage <projectDir>`.\n"
-        "Same function, same numbers, machine-readable [blss] lines.");
-
-    // THE THIRD QUESTION, and the one that catches what the other two cannot
-    // see. "Will the picture improve" reads the oracle and "will the frame get
-    // faster" counts overdraw; NEITHER of them notices that the corpus a net
-    // would be FITTED to is missing a channel entirely - which is how a net
-    // came to measure -0.48 dB on a project whose own ceiling was +0.345.
-    // (Both figures at ONE sampler. The -0.40/+0.06/+0.77 row this comment used
-    // to quote mixed two: the ceiling was measured with jitter ON and the
-    // margins with it off, so no two of those three numbers were comparable.)
-    ImGui::SameLine();
-    ImGui::BeginDisabled(blssJob_.running());
-    if (ImGui::Button("Is the corpus good enough?", ImVec2(scaled(230.0f), scaled(30.0f)))) {
-        std::vector<std::string> a{"--blss-eval", "--features"};
-        for (const std::string& c : blssCommonArgs()) a.push_back(c);
-        a.push_back("--frames");
-        a.push_back(std::to_string(blssFeatFrames_));
-        a.push_back("--fill-weight");
-        a.push_back(numArg(blssTrainFill_));
-        blssStart(blssui::Kind::Features, a, 0);
-    }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Reports the six input channels over this corpus and turns the numbers\n"
-        "into sentences: which channel is constant, which sits against its clamp,\n"
-        "and what that means for a network fitted to these frames.\n"
-        "\n"
-        "It is the question the other two buttons cannot answer. A channel that\n"
-        "is identically zero over the whole corpus is a channel the network does\n"
-        "NOT HAVE - and the console will still feed it a real value. That is the\n"
-        "mechanism behind a bestiary-only net's -0.34 dB average (-1.09 at\n"
-        "worst) over seven real projects: texDetail is identically zero on five\n"
-        "of them while being the bestiary's channel most correlated with the\n"
-        "temporal weight.\n"
-        "\n"
-        "The full per-channel table is on the Inputs tab; what a run says here is\n"
-        "the one-line verdict and the findings behind it.");
-    // ONE caption for the three, in their own order. Three stacked buttons with
-    // a sentence each cost four lines of a header that had already grown taller
-    // than the tabs under it - and the three sentences agreed on the half worth
-    // saying ("no network needed") and repeated it three times.
-    {
-        const blssui::Cost feat = blssui::estimate(blssui::Kind::Features, blssFeatFrames_, 0,
-                                                   cores, 1, 0, blssExpectedShots());
-        // humanDuration() already says "about", so the caption must not say it
-        // again - "About about 45 seconds" is what the first draft printed.
-        ImGui::TextDisabled(
-            "None of the three needs a trained network. In order: %s, about a second, %s "
-            "on this machine (%d cores).",
-            blssui::humanDuration(cost.total).c_str(), blssui::humanDuration(feat.total).c_str(),
-            cores);
-    }
-    if (blssCovRunning_.load())
-        ImGui::TextDisabled("    counting overdraw... %.0f s", blssCovSeconds_);
-    ImGui::Spacing();
-    drawBlssAnswer();
-}
-
 // --- the two verdicts as ONE answer -----------------------------------------
 
 // A reader wants "should I turn this on", and until now this window had two
@@ -2653,13 +3026,13 @@ void App::drawBlssTrainTab() {
                            "    A third of the corpus is withheld - this is a measurement "
                            "net, not the one to ship.");
 
-    ImGui::Text("Sharpen k: %.2f, render scale %s (both from Project settings)",
+    ImGui::Text("Sharpen k: %.2f, render scale %s (both from Project Preferences)",
                 project_.settings.blssSharpen,
                 project_.settings.blssScale == 1 ? "1x2" : "2x2");
     prefHelp(
         "The oracle charges for the two sharpen passes at the project's own\n"
         "k, so the labels depend on it - and the corpus renders at the\n"
-        "project's own scale. Change either on the Project settings tab;\n"
+        "project's own scale. Change either in Project Preferences > Graphics > Advanced;\n"
         "training follows them rather than offering a second value that could\n"
         "disagree with what the game ships.");
 
@@ -3546,10 +3919,12 @@ void App::drawBlssImagesTab() {
     if (ImGui::SmallButton("Reload")) blssImagesDirty_ = true;
 
     if (blssImages_.empty()) {
+        // An empty state, not the full temp-folder path (it ran past the
+        // card's edge); the folder is in the tooltip.
         ImGui::Spacing();
-        ImGui::TextDisabled(
-            "No images in %s.\nRun Evaluate with 'Write the comparison images' ticked.",
-            blssDumpDir_.c_str());
+        ui::EmptyState(ui::Glyph::Camera, "No comparison images yet",
+                       "Run Evaluate with 'Write the comparison images' ticked.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Looked in %s", blssDumpDir_.c_str());
         return;
     }
 
@@ -3814,13 +4189,15 @@ void App::drawBlssFeaturesTab() {
 
 void App::drawBlssShotsTab() {
     ImGui::Spacing();
-    ImGui::TextWrapped(
-        "WHAT THE CORPUS IS ALLOWED TO SEE. The network is fitted to these frames and the "
-        "console runs your game - so a shot list that misses the places a player stands is "
-        "the single most expensive mistake available here. Measured: a net fitted to frames "
-        "the console does not draw averages -0.34 dB over seven real projects and -1.09 at "
-        "worst, i.e. worse than leaving the upscaler off, because the channels it leaned on "
-        "were out of range on the real content.");
+    // One line and the why on hover: the paragraph used to open the tab.
+    ImGui::TextDisabled("What the corpus is allowed to see - aim it where the player stands.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "The network is fitted to these frames and the console runs your game - so a\n"
+            "shot list that misses the places a player stands is the single most expensive\n"
+            "mistake here. Measured: a net fitted to frames the console does not draw\n"
+            "averages -0.34 dB over seven real projects and -1.09 at worst, i.e. worse\n"
+            "than leaving the upscaler off.");
     ImGui::Spacing();
     if (!blssCorpusProject_) {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
@@ -3840,11 +4217,30 @@ void App::drawBlssShotsTab() {
         "centroid of\nits triangles. Turn one off when it shoots content your game never "
         "shows - an empty sky pan is a\nsixth of the corpus spent on frames where bilinear IS "
         "the ground truth.");
-    if (ImGui::BeginTable("blssautomoves", 3,
+    // Each move's own overdraw from the last "Will the frame get faster?" run,
+    // against the break-even: which camera moves pay. Mean over the scenes
+    // that shot it; -1 = not counted.
+    auto moveCoverage = [&](const char* move) {
+        double sum = 0.0;
+        int n = 0;
+        for (const blss::CoverageShot& cs : blssCov_.shots)
+            // Shots are named "<scene> <move>".
+            if (cs.name == move || (cs.name.size() > std::strlen(move) &&
+                                    cs.name.compare(cs.name.size() - std::strlen(move), std::string::npos,
+                                                    move) == 0 &&
+                                    cs.name[cs.name.size() - std::strlen(move) - 1] == ' ')) {
+                sum += cs.geom + cs.emit;
+                ++n;
+            }
+        return n ? sum / n : -1.0;
+    };
+    const bool haveCov = blssCov_.ok && blssSpeed_.ok;
+    if (ImGui::BeginTable("blssautomoves", 4,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("shoot it", ImGuiTableColumnFlags_WidthFixed, scaled(120.0f));
         ImGui::TableSetupColumn("frames", ImGuiTableColumnFlags_WidthFixed, scaled(110.0f));
+        ImGui::TableSetupColumn("coverage", ImGuiTableColumnFlags_WidthFixed, scaled(170.0f));
         ImGui::TableSetupColumn("what it teaches");
         ImGui::TableHeadersRow();
         for (int m = 0; m < kBlssAutoMoveCount; ++m) {
@@ -3866,6 +4262,37 @@ void App::drawBlssShotsTab() {
                                pl.autoFrames[m] > 0 ? "%d" : "share"))
                 changed = true;
             ImGui::EndDisabled();
+            ImGui::TableNextColumn();
+            {
+                const double c = haveCov ? moveCoverage(project::blssAutoMoveName(m)) : -1.0;
+                if (c < 0.0) {
+                    ImGui::TextDisabled("-");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(haveCov ? "Not in the last count (off, or not shot in any scene)."
+                                                  : "Run 'Will the frame get faster?' to count each move.");
+                } else {
+                    const theme::Semantics& sem = theme::semantics();
+                    const float maxC = (float)std::max(100.0, blssSpeed_.coverages * 1.4);
+                    const ImVec2 p = ImGui::GetCursorScreenPos();
+                    const float bw = ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("000.0").x - 6.0f;
+                    const float bh = std::max(3.0f, ImGui::GetFontSize() * 0.3f);
+                    const float y = p.y + (ImGui::GetTextLineHeight() - bh) * 0.5f;
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + bw, y + bh),
+                                      ImGui::GetColorU32(sem.field), bh);
+                    dl->AddRectFilled(ImVec2(p.x, y),
+                                      ImVec2(p.x + bw * std::min(1.0f, (float)c / maxC), y + bh),
+                                      ImGui::GetColorU32(c >= blssSpeed_.breakEven ? sem.ok : sem.danger), bh);
+                    ImGui::Dummy(ImVec2(bw, ImGui::GetTextLineHeight()));
+                    ImGui::SameLine();
+                    ImGui::Text("%.1f", c);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%.1f full-screen coverages over this move (break-even %.1f):\n%s.",
+                                          c, blssSpeed_.breakEven,
+                                          c >= blssSpeed_.breakEven ? "a move where the upscaler pays"
+                                                                    : "below the break-even - it costs here");
+                }
+            }
             ImGui::TableNextColumn();
             ImGui::TextWrapped("%s", project::blssAutoMoveWhy(m));
         }
@@ -4272,7 +4699,8 @@ void App::drawBlssProbeTab() {
             statusMessage_ = "BLSS: debug view 2 on - rebuild and run the game";
         }
         prefHelp(
-            "Sets the project's own 'Debug view' to 2 (Project settings tab). It\n"
+            "Sets the project's own 'Debug view' to 2 (Project Preferences >\n"
+            "Display > Frame delivery > Tuning the network). It\n"
             "does not tint the picture - it logs BLSSGRID / BLSSFEAT / BLSSOUT /\n"
             "BLSSFILL / BLSSWORST once a second. It IS compiled into the build, so\n"
             "set it back to Off before handing the game to anyone.");

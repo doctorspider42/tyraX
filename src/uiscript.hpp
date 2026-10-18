@@ -96,6 +96,23 @@ std::string dumpText();
  * A no-op while collection is off. */
 void markLastItemChecked(bool checked);
 
+/** Reports every item of the CURRENT ImGui window (and the window itself)
+ * under `name` instead of its own. The logo menu's popup is an anonymous
+ * "##Popup_<hash>" window; it reports as "##MainMenuBar", the window the ten
+ * menus sat in before they moved behind the logo, so `'##MainMenuBar/Project'`
+ * still names the Project menu. Call right after the window's Begin. A no-op
+ * while collection is off. */
+void aliasCurrentWindow(const char* name);
+
+/** True when `target` names one of the editor's ten top-level menus, which
+ * live behind the logo button ("TyraX menu"): `'##MainMenuBar/X'`
+ * for any of them, or a bare `File`, `Edit`, `View`, `Layout`, `Build`,
+ * `Session`, `Tools`, `Help`. A bare `Project` / `Scene` is the Project
+ * panel's tab / the Scene workspace, as before. The step runner opens the logo
+ * menu first for such a target, so scripts written against the old menu bar
+ * (`click Tools; click 'Remote Pad'`) keep working. */
+bool namesMainMenu(const std::string& target);
+
 /** Name an already submitted item by id. BeginCombo omits ItemInfo; callers
  * inside PushID scopes must provide its label for scripts to find it. */
 void nameItem(uint32_t id, const char* label);
@@ -129,14 +146,26 @@ struct Step {
         Dump,
         Log,   // arg = message
         Quit,  // close the editor
+        Drop,  // arg = target, path = file, dx/dy = offset: an OS file drop
+        // Windows outside the main window (multiviewport.hpp). A real drag of
+        // a tab out of the OS window is not something injected input can do
+        // reliably, so these two move a window by name instead.
+        Undock,  // arg = window name, dx/dy = position from the main window's
+                 // top-left (outside it = its own OS window), w/h = size or 0
+        Dock,    // arg = window name, path = a docked window to join
+        MainWindow,  // dx/dy = the editor window's desktop position, w/h = its
+                     // size: un-maximized, so a panel has room outside it on
+                     // a single screen
     };
     Kind kind = Click;
     std::string arg;
     float dx = 0, dy = 0;
+    float w = 0, h = 0;  // Undock: the window's size (0 = keep)
     bool shiftClick = false;
     double seconds = 0;
     int n = 0;
     std::string source;  // the line it came from, for the log
+    std::string path;    // Drop: the file being dropped
 };
 
 /** Parses a UI script (docs/ui-scripting.md). Commands are separated by

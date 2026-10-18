@@ -4,7 +4,7 @@
 
 Frame pacing is how a generated game pays for a frame that misses its vsync
 deadline: with double buffering it waits out a whole second field and the frame
-rate halves, and with triple buffering (*Project > Preferences > Display > Triple
+rate halves, and with triple buffering (*Project > Preferences > Picture > Triple
 buffering*) it presents that frame one field late instead and keeps the EE
 working. This page covers what the cliff is, what the third buffer costs in GS
 VRAM, and the measurements.
@@ -190,7 +190,7 @@ three buffers. It is a request, and the grant is decided per **display mode**,
 at runtime, every time the mode changes:
 
 - `ProjectSettings::supportedModes` declares the scan modes a player can switch
-  into (Preferences > Display > *Supported resolutions*), and a menu row or the
+  into (Preferences > Picture > *Supported resolutions*), and a menu row or the
   `Set Display Mode` flow node can make that switch mid-game.
 - `RendererCore::setDisplayOutput` answers a mode change with `gs.reinit()`,
   which re-runs `allocateVramBuffers` over the new framebuffer size — so the

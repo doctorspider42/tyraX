@@ -13,8 +13,9 @@ Two ways of looking at the same scene:
   television shows it: fitted into a 4:3 or 16:9 picture, point sampled, with
   everything outside that picture black.
 
-Switch in the **gear in the viewport's bottom-left corner** or *View >
-Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
+Switch with the **Editor | As PS2** switch in the viewport's bottom-right
+corner (it also shows the GS framebuffer size), the **gear in the
+bottom-left corner** or *View > Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
 safe areas — a way of looking, not project data, so it never dirties the
 `.tyra` and never travels to a collaboration peer.
 
@@ -70,7 +71,7 @@ does.
 The host twin of Tyra's `RendererSettings::updateGeometry` (see
 `App::ps2ViewportOutput`):
 
-| *Preferences > Display mode* | GS framebuffer | Notes |
+| *Preferences > Picture mode* | GS framebuffer | Notes |
 |---|---|---|
 | `interlaced` | 512×448 | the stock signal; flicker filter on |
 | `interlaced-field` | 512×**224** | true field rendering — half the lines |
@@ -214,7 +215,7 @@ look.
 
 ## GS colour (16-bit + dithering)
 
-*Preferences > Display > Colour depth* can put the game's framebuffer in
+*Preferences > Picture > Colour depth* can put the game's framebuffer in
 PSMCT16 — 5 bits per channel, half the GS memory, and the GS's 4×4 ordered
 dither (`DTHE` + the `DIMX` matrix) to break the banding up
 ([gs-vram.md](gs-vram.md)). The viewport can now show it: the picture is

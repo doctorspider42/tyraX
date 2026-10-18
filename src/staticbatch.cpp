@@ -156,7 +156,7 @@ const char* reasonDetail(Reason r) {
                    "batch).";
         case Reason::BatchingDisabled:
             return "Static batching is off for the whole project (Project "
-                   "Preferences > Rendering).";
+                   "Preferences > Graphics).";
         case Reason::ModelNotBaked:
             return "No baked .tmdl for this model yet - build the project, or "
                    "run Build > Refresh generated files.";

@@ -70,7 +70,7 @@ The file NAME is the node's identity (`custom:<stem>` in graph JSON); copying
 the file into another project's `flow-nodes/` ports the node. The full format
 reference is docs/custom-flow-nodes.md (`--search-docs "<terms>"
 custom-flow-nodes`); the editor can also
-scaffold a commented starter (`Flow Graph window → Custom nodes... → New
+scaffold a commented starter (`Flow Graph window → </> (Custom nodes) → New
 starter node`).
 
 ## 3. Custom screen effects (`.screenfx`)

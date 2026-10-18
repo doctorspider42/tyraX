@@ -672,8 +672,8 @@ z-fighting, and it will re-shuffle any that a scene already has.
 - **Nothing to configure.** There is no switch: a static model referenced by
   a scene object is compiled.
 - **An `.obj` carries no unit**, so the importer asks for one (the import
-  window's **Source units**, and the **Size...** button in the Asset Browser
-  afterwards). It records how many meters one unit of the file measures;
+  window's unit next to **Real height**, and the **Real size** row of the Asset
+  Browser's Build settings afterwards). It records how many meters one unit of the file measures;
   combined with the project's world scale that is the scale objects made from
   the model are inserted at. The file itself is never rewritten - see
   docs/world-scale.md.
@@ -683,7 +683,7 @@ z-fighting, and it will re-shuffle any that a scene already has.
 
 ## Mesh LOD: fewer triangles far away
 
-**Project > Preferences > Rendering > Mesh LOD distance** turns distance
+**Project > Preferences > Graphics > Mesh LOD distance** turns distance
 levels on for the whole project (`off` = no levels at all). An object farther
 from the camera than the distance renders a reduced mesh, and past twice the
 distance a further reduced one. This used to apply only to animated models,
@@ -722,7 +722,8 @@ anything - which also means some models barely shrink. When you want control,
 model the levels yourself.
 
 In the **Asset Browser** (*Tools > Asset Browser*), a selected model has a
-**LOD...** button in the inspector:
+**LOD** row in the inspector's Build settings (*Automatic* or the number of
+custom levels; click it to change them):
 
 - **Level 1** shows past the mesh LOD distance, **Level 2** past twice it.
 - Pick any other `.obj` in the project (the list shows each candidate's

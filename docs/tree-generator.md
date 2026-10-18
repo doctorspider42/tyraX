@@ -1,14 +1,14 @@
 # Tree Generator
 
-![Tree Generator preview and controls](img/tree-generator.png)
-
 *Tools > Tree Generator* authors low-poly trees procedurally and bakes them into
 the project as ordinary assets. Inspired by [EZ-Tree](https://github.com/dgreenheck/ez-tree)
 (MIT), reimplemented host-side in `src/treegen.cpp`.
 
-The generator exports ordinary OBJ/MTL/PNG assets. **Bake distant impostor** also
-captures 4, 8 or 16 views (select **Tree capture views**) for a two-triangle camera-facing card and assigns that far model
-to the inserted object. See [Distant foliage impostors](impostors.md) for distance
+![The Tree Generator: preset gallery and seed, the framed tree with its triangle budget, the parameter tabs, and the footer that states what a save writes.](img/tree-generator.png)
+
+The generator exports ordinary OBJ/MTL/PNG assets. **Distant impostor** also
+captures 4, 8 or 16 views (the segmented control beside it) for a two-triangle
+camera-facing card and assigns that far model to the inserted object. See [Distant foliage impostors](impostors.md) for distance
 controls, approximation limits and runtime costs.
 
 ## Why it costs nothing on the PS2
@@ -66,9 +66,27 @@ has a draw bag; dense forests must budget both draw calls and alpha overdraw.
 
 ## What the UI gives you
 
-A parameter panel on the left, a live turntable preview on the right (drag to
-orbit, wheel to zoom, *Spin* runs the turntable, *Wireframe* shows the
-tessellation), a triangle readout, a name field and **Add to scene**.
+Three columns and a footer:
+
+- **Start from** (left): the six presets as silhouette tiles in their own
+  colours, then the **Seed** with a dice button (**Roll**). Below them, **In
+  this project** lists the trees the generator already saved; clicking one
+  loads its parameters back (see *Re-opening a tree*).
+- **The tree** (centre), framed to its own height so the crown fills the view:
+  drag to orbit, wheel to zoom, double-click to reset. The pill top-left holds
+  **Spin** (the turntable), **Wireframe** (the tessellation) and **Near** /
+  **Impostor**: Impostor shows the distant card the bake would make (captured
+  on the CPU, the view the turntable faces, 128 px) - what players see past
+  six tree heights. The card top-right is the budget: triangles against 1800,
+  split into bark and leaves.
+- **Parameters** (right) on five tabs: **Trunk**, **Branches**, **Leaves**,
+  **Look** and **Detail**. Each tab ends in *Reset <tab> to <preset>*, which
+  puts only that tab's values back to the preset the tree started from.
+- **Footer**: the **Name** (it follows the preset - `oak`, `birch` - until you
+  type one), the files a save writes (`res/models/trees/oak.obj + .mtl + 2 png
+  + impostor`; a name already taken becomes `oak-2`), the **Distant impostor**
+  switch with its view count, **Save to project** (write the asset without
+  placing it) and **Add to scene** (write it and place a Model object).
 
 The preview renders from the **in-memory** mesh and textures — nothing touches
 disk or the shared asset caches until you add — so slider drags stay instant.
@@ -79,11 +97,21 @@ Parameter groups: **Trunk** (height, thickness, root flare, taper,
 gnarliness, upward pull), **Branches** (crown architecture, levels 1–4,
 children per level, tilt + jitter, length/radius ratios, spawn start),
 **Leaves** (count, size, aspect, how many outer levels get them, foliage
-style), **Appearance** (bark style, four colors) and **Detail** (the
+style), **Look** (bark style, four colors) and **Detail** (the
 poly-budget levers above).
 
 Presets: **Oak**, **Birch**, **Spruce**, **Poplar**, **Dead tree** (no leaves),
 **Bush**.
+
+### Re-opening a tree
+
+Every save also writes `<name>.tree` beside the `.obj`: the generator's
+parameters (seed, preset and every slider) as JSON. It is editor-only - the
+build never ships it - and it travels with its model when the Asset Browser
+moves or renames it. **In this project** in the left rail lists these trees;
+clicking one loads its parameters and name back. Saving again writes a new
+variant (`oak-2`) rather than replacing the old files, so copies already placed
+in a scene never change under you.
 
 ### Height is the tree's size
 
@@ -178,11 +206,12 @@ rather than handing pixels to `glTexImage2D` — see PROGRESS entry 101.
 | File | Role |
 |---|---|
 | `src/treegen.hpp/.cpp` | `Params`, `generate()`, the two texture bakers, `writeAssets()`, `presets()` — host-only, no GL |
-| `src/app.cpp` | `drawTreeGeneratorWindow()` (the tool), `rebuildTreePreview()`, `addTreeToScene()` |
+| `src/hud_ui.cpp` | `drawTreeGeneratorWindow()` (the tool), `rebuildTreePreview()`, `addTreeToScene()`, `openTreeInGenerator()`, the `.tree` sidecar |
+| `src/treeimpostor.cpp` | `writeImpostor()` and `captureImpostor()` (the same capture, in memory, for the preview) |
 | `src/viewport.cpp` | `renderTreePreview()` + its own framebuffer |
 
 `addTreeToScene()` hands off to the existing `addModelObject()`, so naming,
 selection and `commitChange()` behave exactly like any other model import.
 
-**Bake distant impostor** uses offscreen GPU capture, with automatic CPU fallback. The
+**Distant impostor** uses offscreen GPU capture, with automatic CPU fallback. The
 result status names the backend. See [impostors](impostors.md) for memory costs.

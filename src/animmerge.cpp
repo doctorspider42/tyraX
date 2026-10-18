@@ -1950,6 +1950,20 @@ bool skelToBaked(const Skel& skel, float fps, Baked& out, std::string& error) {
     int motionRoot = -1;
     for (size_t i = 0; i < skel.nodes.size() && motionRoot < 0; ++i)
         if (isRootBone[i]) motionRoot = (int)i;
+    // Skeleton overlay bones (host preview only), as the parsers' bakes.
+    std::vector<int> boneNodes, boneOf(skel.nodes.size(), -1);
+    for (size_t i = 0; i < skel.nodes.size(); ++i)
+        if (isBone[i]) {
+            boneOf[i] = (int)boneNodes.size();
+            boneNodes.push_back((int)i);
+        }
+    for (int bn : boneNodes) {
+        int pn = skel.nodes[(size_t)bn].parent;
+        while (pn >= 0 && pn < (int)skel.nodes.size() && boneOf[(size_t)pn] < 0 &&
+               skel.nodes[(size_t)pn].parent != pn)
+            pn = skel.nodes[(size_t)pn].parent;
+        out.boneParent.push_back(pn >= 0 && pn < (int)skel.nodes.size() ? boneOf[(size_t)pn] : -1);
+    }
 
     std::vector<M4> globals;
     std::vector<M4> palette(skel.palette.size());
@@ -1989,6 +2003,12 @@ bool skelToBaked(const Skel& skel, float fps, Baked& out, std::string& error) {
                 rm.z = globals[(size_t)motionRoot].m[14];
             }
             out.rootMotion.push_back(rm);
+            for (int bn : boneNodes) {
+                const bool have = bn < (int)globals.size();
+                out.bonePos.push_back(have ? globals[(size_t)bn].m[12] : 0.0f);
+                out.bonePos.push_back(have ? globals[(size_t)bn].m[13] : 0.0f);
+                out.bonePos.push_back(have ? globals[(size_t)bn].m[14] : 0.0f);
+            }
 
             for (size_t pi = 0; pi < skel.parts.size(); ++pi) {
                 const SkelPart& sp = skel.parts[pi];

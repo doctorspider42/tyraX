@@ -35,7 +35,7 @@ automatically.)
 ## Quick start
 
 1. Select an object and click **New script...** in **Properties > Scripts**
-   (also in the Project panel's *Scripts* section). The editor writes
+   (also on the Project panel's *Scripts* page, the `</>` icon on the left rail). The editor writes
    `src/scripts/<name>.cpp` from an attachable stub and attaches the class
    to the selected object.
 2. Click **Open in VS Code** (Project panel > Scripts) - the generated

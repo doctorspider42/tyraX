@@ -3,7 +3,7 @@
 ![A UI script can open and operate panels such as Remote Pad](img/remote-pad.png)
 
 ```
-tyrax-editor --ui-script [projectDir] "click Tools; click 'Remote Pad'; shot pad.png"
+tyrax-editor --ui-script [projectDir] "click 'TyraX menu'; click Tools; click 'Remote Pad'; shot pad.png"
 tyrax-editor --ui-script [projectDir] --file check.ui
 ```
 
@@ -66,14 +66,18 @@ split point of `Window/Label` is tried, longest window prefix first.
 | `hover <target> [dx,dy]` | move the cursor onto it and leave it there |
 | `drag <target> <dx> <dy> [left\|right\|middle]` | press on it and slide by that many pixels (left button unless named) |
 | `wheel <target> <notches>` | scroll over it, one notch per frame (negative = down/out) |
+| `drop <target> <file> [dx,dy]` | an OS file drop (Finder / Explorer) landing on it: calls the editor's drop handler with that point, e.g. `drop 'HUD preview canvas' /tmp/star.png -100,-80` |
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
 | `text <string>` | type into whatever has keyboard focus |
 | `wait <seconds>` / `frames <n>` | let the editor run |
-| `shot <file.png>` | write the editor's own framebuffer (works with no display permissions, and survives the AMD present quirk) |
+| `shot <file.png>` | write the editor's own framebuffer (works with no display permissions, and survives the AMD present quirk); every panel in an OS window of its own is written beside it as `<file>-<window>.png` (see *Windows outside the main window* below) |
 | `expect <target>` / `expect-not <target>` | assert it is / is not on screen |
 | `expect-checked` / `expect-unchecked` | assert a checkbox's or menu item's tick |
 | `dump` | print every widget on screen, with its rect and state |
 | `log <text>` | a line in the output |
+| `undock <window> <x>,<y> [<w>,<h>]` | take a window (by its exact ImGui name: `Properties`, `Asset Browser`) out of its dock node and put it at x,y from the main window's top-left; outside the main window it becomes an OS window of its own |
+| `dock <window> <docked window>` | dock it back, as a tab of the node that holds the second window (`dock Properties Project`) |
+| `mainwindow <x>,<y> <w>,<h>` | un-maximize the editor window and place it (desktop coordinates) - on one screen, the room a panel needs to live outside it |
 | `quit` | close the editor (added implicitly at the end) |
 
 **Every step that names a target waits for it** (up to 5 s) instead of sleeping.
@@ -81,6 +85,42 @@ That is what makes menus scriptable: a popup only exists a frame after the click
 that opened it, and `click "Remote Pad"` simply waits for it to appear. A step
 that times out fails the run and prints **what was on screen instead** — the
 expensive part of UI automation is otherwise a blank "not found".
+
+## The menus: behind the logo
+
+The editor's ten menus (File, Edit, View, Layout, Scene, Project, Build,
+Session, Tools, Help) are not on the top bar: the TyraX logo in its left corner
+is one button, **`TyraX menu`**, and its popup holds them as submenus. So the
+full path to a menu entry is three clicks:
+
+```
+click "TyraX menu"
+click Tools
+click "Remote Pad"
+```
+
+Two things keep scripts written for the old menu bar working:
+
+- **A step naming a top-level menu opens the logo menu first** when it is
+  closed. Bare `File`, `Edit`, `View`, `Layout`, `Build`, `Session`, `Tools`
+  and `Help` count, and so does any of the ten qualified as
+  `"##MainMenuBar/<menu>"` — so `click Tools; click "Remote Pad"` still works
+  as written. A bare `Project` is still the Project panel's dock tab and a bare
+  `Scene` the Scene workspace button on the top bar; the menus are
+  `"##MainMenuBar/Project"` and `"##MainMenuBar/Scene"`.
+- **The top bar's run controls** are `"##MainMenuBar/Run"` (the Run button;
+  `expect-checked` on it = this project's game is running, the *Running 00:42*
+  state, and a click then stops it), `"Run options"` (its caret menu) and
+  `"##MainMenuBar/Stop"`.
+- **The popup reports its items under `##MainMenuBar`**, the window the menus
+  used to sit in (it is really an anonymous `##Popup_<hash>` window), so
+  `dump` lists `[##MainMenuBar] File` while it is open and the qualified names
+  above resolve. A submenu's entries are in its own window, named after it
+  (`[Tools###Menu_00] Remote Pad...`).
+- A popup closes when another window takes the focus, and the project's
+  window layout is still settling for a moment after it opens: start a
+  script with `frames 30; wait 1` before the first menu click, or the menu can
+  close under it.
 
 Procedural node parameter combos announce their labels explicitly, including
 controls inside each node's ID scope. Use `click "Roads"`, `click "Road"` or
@@ -97,12 +137,12 @@ tyrax-editor --ui-script ~/TyraProjects/mygame "frames 20; dump"
 
 ```
 135 item(s) on screen
-  [##MainMenuBar] File  @ 12,3 132x51  [closed]
-  [##MainMenuBar] Tools  @ 1278,3 153x51  [closed]
+  [##MainMenuBar] TyraX menu  @ 12,6 91x27
+  [##MainMenuBar] Search  @ 657,6 420x27
   [New Project] Project name  @ 1383,511 624x57  [input]
   [New Project] Claude Code  @ 1383,1201 300x57  [unchecked]
-  [New Project] Create  @ 1383,1438 360x57
-  [Remote Pad] Drive with the editor's keyboard  @ 84,942 741x57  [checked]
+  [New Project] Create project  @ 1383,1438 360x57
+  [Remote Pad] Drive with the keyboard (While this window has focus. PCSX2 never needs the focus.)  @ 72,489 288x40  [checked]
 ```
 
 That is the labels a script can use, the state it can assert, and the answer to
@@ -117,6 +157,7 @@ outside:
 
 ```
 frames 20
+click "TyraX menu"
 click Tools
 click "Remote Pad"
 expect "Remote Pad/Cross"
@@ -127,6 +168,39 @@ quit
 
 While that runs, `bin/livepad.bin` shows the Cross bit set for 3.9 s of a 4.0 s
 hold, and clears when the editor exits. Neither window was ever focused.
+
+Every element of the drawn controller is an item named after its button —
+`L2 L1 R1 R2 Up Left Right Down Triangle Square Circle Cross Select Start L3 R3`
+— and reports *pressed* as checked, so `expect-checked "Remote Pad/Cross"`
+asserts what the game is being sent (a Shift-click latch, a `--pad` script, the
+AI's `press_pad`). The Input Map's diagram has the same names (`"Input
+Map/Cross"`; checked = the selected action's button), and a pad-button combo's
+popup has them too, next to its list rows named `Cross`, `DpadUp`...
+
+## Windows outside the main window
+
+With *Windows can leave the main window* on ([preferences](editor-preferences.md)),
+ImGui positions are desktop coordinates and a panel can be an OS window of its
+own. Scripts keep working: every item's rect is in the same desktop space, and
+the runner tells ImGui which OS window is under the scripted cursor (the real
+cursor is elsewhere, and the backend only reports real ones), so `click
+'Properties/Open the graph'` lands in the Properties window wherever it is. A
+real drag works too - `drag 'WindowOverViewport_11111111/DockSpace_08BD597D/Flow Graph' 700 100`
+tears the Flow Graph tab out - but `undock` is the dependable form:
+
+```
+mainwindow 0,40 1000,760          # leave room beside the editor on one screen
+undock Properties 1010,0 470,420  # its own OS window, right of the editor
+click 'Project/the-cube  (scatter)'
+expect 'Properties/Open the graph'
+shot /tmp/out.png                 # out.png + out-Properties.png
+dock Properties Project
+```
+
+macOS: the screen must be awake. GLFW lists no monitors while the display
+sleeps, and without a monitor ImGui never creates a platform window - an
+unattended run then silently keeps everything in the main window. Run the
+editor under `caffeinate -d -u`.
 
 ## Limits
 
@@ -178,6 +252,17 @@ hold, and clears when the editor exits. Neither window was ever focused.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
+- **A panel alone in its dock node has no tab** (it draws its own header -
+  [editor-theme.md](editor-theme.md)), so a dock tab is only there to click
+  when the node holds several windows; a bare `click Project` reaches the
+  menu-bar *Project* menu unless the Project panel is tabbed with another.
+  The header row is nameable as `"<Window>/Move panel"`: `drag
+  "Project/Move panel" <dx> <dy>` undocks the panel and, dropped on another
+  node's centre, docks it there as a tab. The Outliner's chips (`All`,
+  `Models`, `Lights`...), its layer chips (the layer's name) and each row's eye
+  (`"Visible: <name>"`) report a checked state, so they pair with
+  `expect-checked`; qualify the chips with `Project/` - the left rail has an
+  `Audio` button too.
 - **A widget inside an unselected tab does not exist. Select the tab first.**
   `BeginTabItem` returns false for every tab but the front one and its body is
   never submitted, so nothing in it reaches the registry: `dump` does not list
@@ -187,14 +272,15 @@ hold, and clears when the editor exits. Neither window was ever focused.
   what made tabs targetable at all — so the fix is one step:
 
   ```
-  click "Project Preferences/Display"
+  click "Project Preferences/Graphics"
+  click "Project Preferences/Advanced"
   frames 5
   click "Project Preferences/Use the upscaler"
   ```
 
   Two things that go with it. **Qualify the tab with its window**: a tab label
-  is a short common word, and *Project Preferences* has a `Build` tab while the
-  menu bar has a `Build` menu — `find` takes the first match, so a bare
+  is a short common word, and *Project Preferences* has a `World` page while the
+  World Facts window has a `World` tab — `find` takes the first match, so a bare
   `click Build` opens the menu. And **a tab changes what the id-hash fallback
   can reach** (the bullet below): `BeginTabItem` pushes the tab's own id, so a
   widget submitted *directly* inside a tab is seeded by that id and not by the
@@ -204,12 +290,37 @@ hold, and clears when the editor exits. Neither window was ever focused.
   Preferences/Mode"` still opens a combo four levels in. A tab body submitted
   without one needs real labels on anything a script has to name.
 
-  The dialogs with tabs today are *Project Preferences* (Display / World /
-  Rendering / Player / Build), the Neural Upscaler window, the Menu Editor, the
-  Material Editor and the World Facts window.
+  The dialogs with tabs today are the Neural Upscaler window, the Menu Editor,
+  the Material Editor and the World Facts window. *Project Preferences* has the
+  same rule without tabs: its pages (Game / Picture / World / Graphics /
+  Build & debug) are sidebar rows with those names, only the selected one is
+  drawn, and its content is one child window - so the step is the same
+  `click "Project Preferences/Picture"`, and the hash fallback reaches
+  everything on a page. Each page's **Advanced** fold is a second gate: closed,
+  nothing in it exists - `click "Project Preferences/Advanced"` opens it
+  (`expect-checked` while open). A changed setting's reset dot is
+  `"Reset <setting>"` (`click "Project Preferences/Reset Torch shadows"`);
+  `Show what I changed###prefs_changed` toggles the list of changed settings;
+  the search field is `##prefs_search`; **Close** is at the bottom of the
+  sidebar.
+
+  The **Properties panel** has tabs too, for a solid object (box, sphere,
+  cylinder, cone, plane, model, save point): **Object** (type, detail, Model,
+  Transform, Gameplay, Distance and LOD, Performance, Scripts), **Material**
+  (Color, Material, Texture feed, Lighting and shadows, VU program) and
+  **Physics** (Rigid body, Player collision). Other object types have no tabs.
+  The tab bar there is only a selector - the content is drawn after it, so
+  every field keeps its old id and the hash fallback still reaches its combos -
+  and the tab ids carry `##ptab` (`Object##ptab`...) so they never collide with
+  the *Material* section or combo. The tabs are submitted first, so the exact
+  label resolves to the tab: `click "Properties/Physics"; frames 5; click
+  "Properties/Physics (rigid body)"`. The chosen tab is kept for the session
+  across selections. The object's *Duplicate* and *Delete object* live in the
+  header's `...` menu: `click "Properties/Object actions"; click "Delete
+  object"`.
 
   **Project Preferences is a WINDOW, not a modal, since 1.20.0**, which changes
-  three things for a script. Its footer button is `Close` and there is no `OK`
+  three things for a script. Its `Close` button (bottom of the sidebar) is the only one: there is no `OK`
   or `Cancel` — the window applies every edit as it is made, so a run asserts by
   reading the model back (`--dump`, or `key ctrl+s` then grep the `.tyra`)
   rather than by pressing a confirm button. Nothing is blocked behind it, so a

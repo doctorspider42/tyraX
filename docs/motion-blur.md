@@ -105,13 +105,13 @@ Two conditions on that, and both are easy to miss because the LIVE chip stays
 green through either (it streams *object* edits and has never carried graph
 logic — see [Live Logic](live-logic.md)):
 
-- **Live Logic has to be ON** (*Project Preferences > Build*). With it off, a
-  graph edit reaches nothing until the next build; the toolbar says so with an
+- **Live Logic has to be ON** (*Project Preferences > Build & debug*). With it off, a
+  graph edit reaches nothing until the next build; the status bar says so with an
   amber **LOGIC (off)**.
 - **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
   in the same graph puts it out of reach of the interpreter, whatever the Set
   Motion Blur node itself supports — the chip goes amber **LOGIC (rebuild)** and
-  the Debugger's *Logic* tab names the node.
+  the Debugger's *Hot patches* page names the node.
 
 Scene changes re-apply the scene's authored amount, so a graph that raised the
 blur does not leak it into the next scene. The idle clear is a one-frame override
@@ -164,7 +164,7 @@ re-arm the invalid combination behind the drawing environment.
 
 ## 16-bit colour
 
-A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
+A 16-bit frame buffer (*Project Preferences > Picture > Colour depth*) stores 5
 bits per channel, and an accumulator is the one effect that really cares, because
 it feeds its own output back in at a loop gain of `1/(1-f)` — about ten at the
 top of the slider. Quantization is a real hardware limit, but it is not a reason

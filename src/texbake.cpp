@@ -321,6 +321,9 @@ std::string bake(const Project& p,
         // "<track>.drone" patches (Drone Generator) describe how a WAV was
         // generated; the game only ever streams the WAV.
         if (lowerExt(rel) == ".drone") return true;
+        // "<tree>.tree" - the Tree Generator's parameters beside the .obj
+        // they made (docs/tree-generator.md); the game loads the .obj.
+        if (lowerExt(rel) == ".tree") return true;
         const std::string top = rel.begin()->generic_string();
         // res/sky/ holds the painted skies' SOURCE panoramas; the game loads
         // only the crop baked into .res-baked/sky/ (docs/sky-texture.md).

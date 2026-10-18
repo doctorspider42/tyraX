@@ -31,12 +31,13 @@ Read when you need to find which file owns something, or before adding a file. L
 | `update_ui.cpp` | 260 | Update check UI (`updateTick`) | build-platform-release |
 | `blss_window.cpp` | 4.5k | Neural Upscaler window + shared BLSS settings block | blss |
 | `droneui.cpp` | 1.9k | Drone Generator window | audio |
+| `drone_simple_ui.cpp` | 1.3k | Drone Generator, Simple view: moods, six sliders, Feeling, Over the track, In the game (writes through `dronegen::simple`) | audio |
 | `assetbrowser.cpp` | 2.2k | Asset Browser, `retargetAssetPath`, `rebuildAssetUsage` | assets-import-animation |
 | `save_assets.cpp` | 540 | Built-in save-menu HUD sprites (embedded PNGs) | game-screens-menus-text |
 | `project.cpp` / `project.hpp` | 9.8k / 5.1k | Data model, (de)serialization, sections, `refreshGenerated` | project-model-and-serialization |
 | `version.hpp` | 6.1k | Editor semver macros + `kFormatVersion` (94) + `kMinFormatVersion`; mostly the per-version change log | project-model-and-serialization |
 | `migrations.cpp/.hpp` | 260 | Format migration registry, backup | project-model-and-serialization |
-| `history.hpp` | 60 | Undo/redo snapshot stack | project-model-and-serialization |
+| `history.hpp` | 90 | Undo/redo snapshot stack + distance from the saved state (`stepsFromSaved`) | project-model-and-serialization |
 | `json.cpp/.hpp` | 330 | Small JSON parser/writer | project-model-and-serialization |
 | `editorcfg.hpp` | 30 | editor.ini path / recent projects for non-GUI code | editor-ui-and-conventions |
 | `input.hpp` | 270 | Input actions/bindings/presets, `inputCodes()` (append-only) | flow-graph-input-player |
@@ -46,10 +47,18 @@ Read when you need to find which file owns something, or before adding a file. L
 | `facts.cpp/.hpp` | 1.3k | World Facts model/evaluator/validator | flow-graph-input-player |
 | `sequence.hpp` | 430 | Cutscene model + shared camera math | scene-objects-and-gameplay |
 | `ambience.cpp/.hpp` | 660 | Ambience presets, day/night `evaluate` | lighting-and-bakes |
+| `ambience_simple_ui.cpp` | 900 | Ambience Editor > Sky & time, Simple view: looks, time strip, plain-word rows (reads/writes the preset's own fields) | lighting-and-bakes |
 | `grading.hpp` | 80 | Colour grading presets -> GS integers | lighting-and-bakes |
 | `hudanim.hpp` | 130 | Host twin of HUD animation math | game-screens-menus-text |
 | `theme.cpp/.hpp` | 430 | Editor themes / semantic colours | editor-ui-and-conventions |
 | `logview.cpp/.hpp` | 290 | Log severity classification | editor-ui-and-conventions |
+| `shell_ui.cpp` | 1000 | Window frame: the logo menu (`drawLogoMenu`, opens `drawMainMenus`), top-bar breadcrumb + unsaved count + workspaces + search + run controls (`drawToolbar`), merged-title-bar controls (`drawTitleBarControls`), status bar (`drawStatusBar`), `selectScene` | editor-ui-and-conventions |
+| `menu_actions.cpp/.hpp` | 126 | `menuact::BeginMenu/EndMenu/MenuItem` - plain ImGui when drawing, a harvest pass for the command palette (every main-menu item must use them) | editor-ui-and-conventions |
+| `multiviewport.cpp/.hpp` | 499 | `mvp`: ImGui multi-viewports - platform-window render pass, `multiViewports` preference, `fitLayoutIni` (off-screen / pref-off layouts), Bring all windows back | editor-ui-and-conventions |
+| `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
+| `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
+| `pad_widget.cpp` | 1.2k | The toolkit's `pad` section: `ui::PadDiagram` (the one DualShock 2 - geometry table, Interactive/Annotated/Compact, callout slots), `PadButtonGlyph`, `PadButtonCombo`, `PadPortSegmented` | editor-ui-and-conventions |
+| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
 | `gl_loader.h/.cpp` | 215 | Hand-rolled GL loader, `glUploadTexRgba` | viewport |
@@ -80,7 +89,8 @@ Read when you need to find which file owns something, or before adding a file. L
 | `decalproj.cpp/.hpp` | 580 | Projected-decal geometry | lighting-and-bakes |
 | `aobake.cpp/.hpp` | 2.5k | AO, lightmap atlas, analytic shapes | lighting-and-bakes |
 | `gibake.cpp/.hpp` | 1.85k | Global illumination + probes | lighting-and-bakes |
-| `gigpu.cpp/.hpp` | 775 | GI gather on GL 4.3 compute | lighting-and-bakes |
+| `gigpu.cpp/.hpp` | 775 | GI gather on GL 4.3 compute (not macOS) | lighting-and-bakes |
+| `gigpu_metal.mm` | 454 | the same gather on Metal (macOS) | lighting-and-bakes |
 | `bakegl.hpp` | 25 | Hidden GL context for GPU bakers | lighting-and-bakes |
 | `bakepar.hpp` | 70 | Bakers' parallel-for | lighting-and-bakes |
 | `bvh.cpp/.hpp` | 280 | Shared BVH | lighting-and-bakes |
@@ -147,4 +157,5 @@ Read when you need to find which file owns something, or before adding a file. L
 | `session.cpp/.hpp` | 1.55k | Live collaboration session | devkit-runner-and-network |
 | `wire.cpp/.hpp` | 970 | Sockets, frame codec, TCP + WebSocket transports, file hashing | devkit-runner-and-network |
 | `platform.cpp/.hpp` | 1.66k | All OS differences | build-platform-release |
+| `platform_mac.mm` | 170 | macOS half of the merged title bar (NSWindow, the only Objective-C++) | build-platform-release |
 | `update.cpp/.hpp` | 520 | Update check | build-platform-release |

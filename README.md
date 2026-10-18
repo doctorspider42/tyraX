@@ -7,7 +7,7 @@
   <a href="https://github.com/doctorspider42/tyraX/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/doctorspider42/tyraX/release.yml?branch=main&style=for-the-badge&label=release%20build&labelColor=0b1220" alt="Release build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/doctorspider42/tyraX?style=for-the-badge&color=26d9ff&labelColor=0b1220" alt="Apache-2.0 license"></a>
   <br>
-  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&logo=playstation&logoColor=white&labelColor=0b1220" alt="Target: PlayStation 2">
+  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&labelColor=0b1220" alt="Target: PlayStation 2">
   <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux%20%7C%20macOS-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white&labelColor=0b1220" alt="C++20">
   <img src="https://img.shields.io/badge/runs%20on-PCSX2%20%2B%20real%20hardware-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Runs on PCSX2 and real hardware">
@@ -64,6 +64,9 @@ walls.
 
 The editor is C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3, one source tree
 for **Windows, Linux and macOS**.
+
+> [!NOTE]
+> *PlayStation* and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.
 
 > [!TIP]
 > This file is the map. Every feature has a guide in **[docs/](docs/README.md)** —
@@ -252,9 +255,11 @@ settings at the scoop MinGW kit, or just use `build.ps1`.
 
 Then, in the editor:
 
-1. **`File > New Project`** (`Ctrl+N`) — name, location, world scale, terrain
-   size and one of three presets (FPP / third person / empty). The preset is
-   fixed for the project's life; everything else is editable later.
+1. **New project** on the [start page](docs/start-page.md) (or `File > New
+   Project`, `Ctrl+N`) — what it starts as (first person / third person /
+   empty), name, location, ground, size and world scale. The start type is
+   fixed for the project's life; everything else is editable later. Or open a
+   copy of one of the bundled examples from the same page.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
 3. **Build & Run** (`F5`) — the first build downloads the pinned official
    PS2DEV archive, compiles the in-tree OpenVCL tools and then the whole
@@ -368,7 +373,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   automatic per-model self-AO multiplied into each model's own texture, for no
   extra VRAM — [pre-lit models](docs/prelit-models.md) for per-pixel static
   light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
-  the whole bake follows, under a [painted sky](docs/sky-texture.md) if you want one.
+  the whole bake follows, under a [painted sky](docs/sky-texture.md) if you want one,
+  graded with full-screen [colour looks](docs/color-grading.md).
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md) that mirrors the whole town
   as [boxes](docs/reflective-materials.md#static-scenery-in-the-probe-11610) over a
@@ -388,7 +394,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **Gameplay & logic**
 
-- **Flow graph** — visual logic (triggers → actions), extensible with your own
+- **[Flow graph](docs/flow-graph.md)** — visual logic (triggers → actions), extensible with your own
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
@@ -614,9 +620,9 @@ image with Sony's unlicensed `vcl` remains only for compiler A/B work. See
 licensing, and [the toolchain research](docs/toolchain-image.md) for the measured
 OpenVCL migration and the seventeen miscompiles it found.
 
-While the build runs, a spinning **BUILDING** chip appears at the end of the menu
-bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
-either brings the *Output* panel forward; the toolbar's Stop button (or
+While the build runs, a spinning **BUILDING** chip appears at the left of the
+status bar, and turns into a red **BUILD FAILED** when a build did not make it.
+Clicking either brings the *Output* panel forward; the top bar's Stop button (or
 **Build > Cancel Build**) cancels a build in progress.
 
 ## Run on a real PS2
@@ -626,7 +632,7 @@ PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served fr
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
 *Output* as `[ps2]` lines, and into a bounded, crash-safe
 [`logs/` file](docs/ps2link-setup.md#the-session-log) per session. Set the IP in
-`Edit > Preferences > Real PS2`.
+`Edit > Preferences > Running games`.
 **Stop on PS2** ends the session and hands the console back to ps2link;
 **Power Off PS2** switches the console itself off, without leaving the desk.
 

@@ -170,6 +170,7 @@ bool parseRelease(const std::string& body, Release& out, std::string& error,
         out.version.erase(0, 1);
     if (const json::Value* v = root.find("body")) out.notes = v->stringOr("");
     if (const json::Value* v = root.find("html_url")) out.pageUrl = v->stringOr("");
+    if (const json::Value* v = root.find("published_at")) out.published = v->stringOr("").substr(0, 10);
     // This platform's package among the several a release carries, picked by
     // suffix - see platformAssetSuffix() for why it is a suffix and not a name.
     if (const json::Value* assets = root.find("assets");

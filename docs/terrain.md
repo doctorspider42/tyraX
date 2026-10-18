@@ -20,23 +20,23 @@ scene**, and removing it removes it completely — not just its picture.
 
 ## Creating a scene with or without a terrain
 
-- **New project** (*File > New Project*): the **Create terrain** checkbox, on
-  by default. Width and depth stay meaningful either way — they are the
+- **New project** (*File > New Project*): the **Ground** row's *Create
+  terrain* switch, on by default. Width and depth stay meaningful either way — they are the
   scene's **world bounds**, the rectangle every walker is clamped to.
-- **New scene** (*Project panel > + Scene*): the same checkbox.
+- **New scene** (the scene picker in the top bar > *New scene...*): the same checkbox.
 - Headless: `tyrax-editor --new <name> <dir> [w] [d] [preset] [unitsPerMeter]
   --no-terrain`.
 
 ## Removing (or creating) the terrain later
 
-*Tools > Terrain Editor* opens with a **Terrain in this scene** checkbox.
+*Tools > Terrain Editor* opens with a **Terrain in this scene** switch.
 Turning it off removes the ground; turning it on brings it back. Both are one
 undo step.
 
 Nothing is destroyed: the heightmap you sculpted, the painted layer weights
 and the layer list stay in the project, so the terrain you had comes back
 exactly as it was. While it's off, the rest of the Terrain Editor is hidden —
-there is nothing to sculpt, paint or bake.
+there is nothing to sculpt or paint.
 
 ## What "removed" means
 

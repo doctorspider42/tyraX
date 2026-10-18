@@ -4,6 +4,60 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Main-window redesign: what is left (2026-10-16)
+
+1.173.0 shipped the redesigned main window (docs/editor-theme.md) - built and
+driven on macOS only. Open:
+
+- **Windows and Linux.** Build (`build.ps1` compiles the two in-tree ImGui
+  patches and the new WndProc subclass for the first time) and drive each.
+  Windows merged title bar, by hand: drag, Aero Snap, double-click maximize,
+  every resize edge incl. the top one, a maximized window's top row, a DPI
+  change between monitors, the caption buttons. Also the font picks (Segoe UI
+  Semibold, Inter SemiBold, the mono chains).
+- **macOS title bar by hand**: drag the empty bar, double-click it, click File
+  and the other menus in the top ~28 pt (the enlarged title-bar container must
+  not swallow them) - synthetic events could not test this.
+- **PS2 budget meters** in the status bar need a scene VRAM/RAM estimate first.
+- **Panels in their own OS windows** (multi-viewports, docs/editor-theme.md
+  "Windows outside the main window") - built and script-driven on macOS only:
+  - Windows (owned HWND, the backend's WndProc next to the merged-title-bar
+    subclass, DPI changes between monitors) and Linux X11 (no transient-for
+    hint yet - only the backend's DIALOG type keeps a panel above the editor);
+  - a human dragging tabs out and back between real monitors, the macOS child
+    windows when the editor goes full screen, dropping files from Finder onto a
+    panel in its own window;
+  - Bring all windows back re-docks a panel where it was docked THIS session;
+    a panel restored floating from a saved layout (no home seen yet) comes back
+    floating.
+- **Design check (1.173) - what is still not in the board's state**: Flow
+  Graph live mode, Debugger with a real game, Session peers (needs a second
+  editor), Phone Camera live, Disc Layout populated (needs a PS2 build), the
+  Neural Upscaler answered state; the palette's design shows a "did" line on the
+  Stopped-at card that needs fact events from a real game.
+- **Tool windows - what the redesign round left** (each tool's commit says why):
+  - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
+    download/install, a second editor joining a session and the phone camera
+    with a real phone - built from code + docs, not seen end to end here;
+  - Run's "Running" state, session Follow and ps2link *Test connection* were
+    driven with a fake emulator, two editors on loopback and a Python
+    listener - not a real PCSX2 boot, a second machine or a console; cancelling
+    a load while another project is open is untested;
+  - `docs/img/hardware-timeline.png` is still on the old chrome (needs a
+    `bin/hardware-trace.csv` captured on a console); `vehicle-live-preview.png`
+    and `asset-browser.png` predate the Near | Far and orbit controls;
+  - the import preview and the Animation Editor share one anim-preview
+    framebuffer (both visible while a clip plays = the same pose);
+  - Drone Generator Simple view: in a short window the mood tiles' captions
+    clip at the bottom of the left column; the narrow one-column layout was
+    only seen through a temporary threshold build;
+  - Controller widget (`ui::PadDiagram`): the Vehicle Editor's controls-card
+    preview does not use it yet; Remote Pad with no game stays clickable and
+    writes `livepad.bin` (scripts and a game booted later read it) - the design
+    said disabled, decide; the lit LED and a running game's view are unseen.
+  - Properties: the Player's Walk/Run/Sprint rows draw their caption right of
+    the field (clipped); AxisDrag3 tags touch their values in a narrow panel.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.

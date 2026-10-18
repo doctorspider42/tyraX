@@ -7,6 +7,12 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+A menu path in these guides, like *Tools > Remote Pad*, starts at the TyraX
+logo in the top bar's left corner: it opens the editor's menus (File, Edit,
+View, Layout, Scene, Project, Build, Session, Tools, Help), and so do F10 and
+a lone tap of Alt. The search field in the middle of the bar (Ctrl+K, Cmd+K on
+a Mac) finds any command, object or window by name.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
@@ -118,6 +124,9 @@ for people building games with it. Internals live in code comments, the git log
   bake follows, sun and moon arcs, the runtime clock.
 - [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
   by the day/night cycle and reflected in car paint.
+- [Color grading](color-grading.md) — full-screen looks the GS applies with a
+  few sprites; the window's before/after preview, quick looks and what the GS
+  can and cannot do.
 - [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
   one full-screen blend and no VRAM; what the amount means, why it belongs under
   the HUD, and the Set Motion Blur node.
@@ -131,6 +140,9 @@ for people building games with it. Internals live in code comments, the git log
 
 - [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
   objects: lifecycle, ScriptContext reference, globals, performance.
+- [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
+  graph that follows the selection, the add-node search, compact nodes with an
+  inspector, problems, Frame all / Tidy, and the live-debugging view.
 - [Custom flow-graph nodes](custom-flow-nodes.md) — your own action nodes in
   `.flownode` text files: inline C++ or a real function with typed pins.
 - [Streaming layers](streaming-layers.md) — GTA3-style interior streaming:
@@ -156,6 +168,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
+- [Font Manager](font-manager.md) — the project's typefaces: a specimen over
+  a scene, on black or drawn from the baked glyph atlas, the atlas itself with
+  its VRAM cost, and the Display Text look (colour, shadow, palette depth).
 - [Text icons (button glyphs in text)](text-icons.md) — `{{cross}}` /
   `{{action:jump}}` placeholders that draw pad glyphs inside any text.
 - [Keyboard & mouse](keyboard-mouse.md) — USB keyboard and mouse on the
@@ -178,7 +193,8 @@ for people building games with it. Internals live in code comments, the git log
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
   generator: signal chain, gliding chords, timeline automation, seamless loops.
-- [Cutscenes](cutscenes.md) — the Cutscene Director's sequence options: hiding
+- [Cutscenes](cutscenes.md) — the Cutscene Director (the shot as the hero, shots
+  as clips on the timeline, the key / sequence inspector) and its options: hiding
   the HUD (and the USE prompt with it), widescreen bars and fades, and skipping
   — instantly or through an authored confirmation screen.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) — importing a
@@ -239,6 +255,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Running and debugging on a real PS2](ps2link-setup.md) — the one-time
   console setup for F6: our patched ps2link, flashing, ports, and a table of
   every failure message.
+- [Disc layout](disc-layout.md) — what goes on the PS2 disc in which order,
+  grouped by load stage, drag-to-reorder, the disc map, whether it fits a CD-R
+  or DVD-5, and Export ISO.
 
 **Team, AI & housekeeping**
 
@@ -254,6 +273,13 @@ for people building games with it. Internals live in code comments, the git log
   installed into generated projects, and their ownership rule.
 - [The VS Code extension](vscode-extension.md) — highlighting, snippets and
   validation for `.flownode` / `.screenfx`.
+- [The start page, New Project and opening a project](start-page.md) — what
+  the editor shows with nothing open: recent projects, the bundled examples
+  opened as a copy, the setup checks, the New Project dialog and the loading
+  card.
+- [Editor Preferences](editor-preferences.md) — the machine-wide settings
+  (theme, projects folder, PCSX2, ps2link IP, build backend, session name, AI
+  backend, updates): seven pages, search, applied as you change them.
 - [The editor's look: themes and the interface font](editor-theme.md) — the
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens

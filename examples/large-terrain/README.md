@@ -35,7 +35,7 @@ visible (top-left). Walk with the left stick, look with the right.
   when a streaming **layer** loads or unloads — see
   [layer-streaming](../layer-streaming) for that.
 - If the FPS/MEM overlay freezes the first frame on your PCSX2 build (a
-  known emulator-only quirk), turn it off in Project > Preferences > Build;
+  known emulator-only quirk), turn it off in Project > Preferences > Build & debug;
   it renders fine on real hardware.
 - [docs/animated-models.md](../../docs/animated-models.md) covers the
   skeletal models and their LOD chain.

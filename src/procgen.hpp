@@ -143,6 +143,11 @@ public:
     std::map<int, std::shared_ptr<Entry>> nodes_;
 };
 
+/** Points a node produced in the last evaluation that used `cache`, or -1
+ * (not evaluated yet, or a mask/curve node). The Procedural window's per-node
+ * counts: the evaluator already keeps every node's output in the cache. */
+int cachedPointCount(const Cache& cache, int nodeId);
+
 // Evaluates `volume`'s graph. `volume` is the Scatter object: its transform is
 // the region (position = center, scale = box size, rotation Y = yaw of the
 // footprint). Never throws; problems land in Result::warnings.

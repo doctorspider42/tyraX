@@ -44,8 +44,9 @@ setting in `editor.ini`, like the navigation scheme).
 
 Same setting, all four stay in sync:
 
-- The **`Proj:`** button in the bottom-left corner of the viewport.
-- **View > Projection** in the menu bar.
+- The **projection** control (shows *Perspective*, *Top (-Y)*...; scripts name
+  it `Proj: <name>`) in the view pill at the top centre of the viewport.
+- **View > Projection** in the menu (the TyraX logo, top left).
 - The **numpad**, with the viewport hovered (CAD/Blender muscle memory):
 
 | Key | View |
@@ -92,7 +93,8 @@ they build their ray from the same camera the image was drawn with.
 - The zoom (wheel) still moves the camera distance, and the ortho framing is
   derived from it, so switching between perspective and ortho keeps roughly
   the same amount of world on screen.
-- Looking **through a Camera entity** (the `View:` control next to `Proj:`,
+- Looking **through a Camera entity** (the camera control next to the projection in the view pill - *Free camera* or
+  the camera's name, script name `View: <name>` -
   or a Cutscene Director camera preview) always renders in perspective with
   that camera's FOV — it's the game's picture, and the game has no ortho mode.
 - The choice is editor state, stored per project in `<name>.tyra`

@@ -2,7 +2,7 @@
 
 TyraX can reject whole objects, static batches and procedural chunks that are
 completely hidden behind solid scene geometry. Enable it in
-**Project > Preferences > Rendering > Conservative occlusion culling**. It is
+**Project > Preferences > Graphics > Conservative occlusion culling**. It is
 off by default: the result depends on the map's layout, while every enabled
 project pays a small EE cost to build the visibility buffer each camera pass.
 

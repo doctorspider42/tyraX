@@ -365,7 +365,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "press and the hold."},
         {.key = "OnKey", .title = "On Key", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::KeyName,
-         .strTip = "A USB keyboard key by label. Needs Preferences > Build > "
+         .strTip = "A USB keyboard key by label. Needs Preferences > Build & debug > "
                    "Keyboard & mouse; without it the trigger never fires.",
          .boolOut = true,
          .desc = "Fires the frame a keyboard key goes down. It bypasses the "

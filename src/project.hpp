@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -875,7 +876,7 @@ struct SceneObject {
     float animSpeed = 1.0f;     // playback speed multiplier
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
-    // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
+    // -1 = use the project preference (Preferences > Graphics), 0 = LOD off
     // for this object, > 0 = custom distance in world units.
     float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
     float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
@@ -948,6 +949,12 @@ struct SceneObject {
     std::string prefabSource;
     // Scene-local, editor-only rigid selection group; empty = independent.
     std::string editorGroup;
+    // Hidden in the EDITOR by its own Outliner eye (docs/streaming-layers.md):
+    // the viewport skips it for drawing and picking, the Outliner dims it.
+    // Editor-only like a layer's editorVisible - codegen, bakes and the game
+    // never read it, so a hidden object is still in the build. Saved (written
+    // only when true) and undoable like any other edit.
+    bool editorHidden = false;
 
     // The note a Comment object carries (docs/comments.md): free text, any
     // length, editor-only. Nothing downstream reads it - not codegen, not a
@@ -1693,7 +1700,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
-           a.commentText == b.commentText;
+           a.editorHidden == b.editorHidden && a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -2512,7 +2519,7 @@ static_assert(sizeof(ProjectSettings) == 864,
 // checkbox that does not work, with nothing in any log.
 //
 // It happened: `textureQuant` and `textureAtlas` were never added when texture
-// atlasing landed, so *Preferences > Rendering > Texture atlasing* and the
+// atlasing landed, so *Preferences > Graphics > Advanced > Texture atlasing* and the
 // texture-quality combo beside it could not be changed from the UI at all -
 // only by editing the .tyra. Reported as "I click it and nothing happens".
 //
@@ -4131,7 +4138,7 @@ struct Project {
     // = the build decimates automatically. A tier must keep the model's
     // material set (same count, same usemtl names) and be smaller than the
     // one before it, or the build warns and falls back to decimation.
-    // Only used when a mesh LOD distance is in play (Preferences > Rendering
+    // Only used when a mesh LOD distance is in play (Preferences > Graphics
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
     // Per-asset override of ProjectSettings::modelAo, keyed by the model's
@@ -4508,6 +4515,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
                    const TerrainConfig& terrain, const std::string& preset = "empty",
                    float unitsPerMeter = 1.0f);
 
+// The settings create() gives a new project at this world scale (an empty
+// preset parks the orbit camera). Project Preferences measures "changed" and
+// "Reset" against it.
+ProjectSettings newProjectSettings(float unitsPerMeter, bool emptyPreset);
+
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
 // activeLayout to 0. Used for a fresh project and for one whose manifest
@@ -4811,7 +4823,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 float playerRunSpeed(const SceneObject& o);
 float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
 // The same pair for the fallback walker of a scene with no Player object,
-// which is driven by ProjectSettings instead (Preferences > Player).
+// which is driven by ProjectSettings instead (Preferences > Game).
 float settingsRunSpeed(const ProjectSettings& st);
 float settingsSprintSpeed(const ProjectSettings& st);
 
@@ -4906,6 +4918,23 @@ std::vector<roadgen::CrossingRoad> crossingRoads(
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).
 std::string load(Project& out, const std::string& projectDir);
+// The same, abandoned between object files (and before the heightmaps) once
+// *cancel turns true: returns kLoadCancelled and `out` is to be discarded.
+// For the Opening Project screen, which runs the load on a worker so its
+// Cancel can be pressed mid-load (App::projectLoadTick).
+inline constexpr const char* kLoadCancelled = "Opening cancelled";
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel);
+// Where a load() on another thread has got to, for the Opening Project
+// screen's phase list. Written by the loading thread, read by the UI thread
+// (atomics only). phase: 0 reading the manifest, 1 object files
+// (objectsDone of objectsTotal), 2 terrain heightmaps, 3 finished.
+struct LoadProgress {
+    std::atomic<int> phase{0};
+    std::atomic<int> objectsDone{0};
+    std::atomic<int> objectsTotal{0};
+};
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel,
+                 LoadProgress* progress);
 
 // Writes the single <name>.tyra project file. Editor-side state (selection,
 // gizmo, view mode) and the window layout are taken from the Project fields.

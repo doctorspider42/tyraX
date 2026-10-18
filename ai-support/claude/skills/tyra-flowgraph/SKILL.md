@@ -180,7 +180,7 @@ node's description, and prefer the catalog over this file.
 ## AI generation
 
 The editor can generate or edit a graph from a natural-language request, from
-the GUI (Flow Graph window -> "Generate with AI...") or headlessly:
+the GUI (Flow Graph window -> "Generate") or headlessly:
 
 ```
 "{TYRAX_EXE}" --ai-graph <projectDir> <objectName> "open the door when the player uses the lever" \

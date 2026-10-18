@@ -5515,7 +5515,63 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 172
+#define TYRAX_VERSION_MINOR 173
+// 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
+// Face buttons gets a new palette; Palette/Semantics gain ground, field,
+// special and the axis triple; the dockspace host and its splitters draw in the
+// ground colour (theme::pushDockspaceColors) so docked panels read as cards
+// with 6 px gaps; value fields are inset. App::loadUiFont also loads the
+// family's heading cut and a fixed-width face (platform::uiFontFiles/
+// monoFontFiles), exposed through src/widgets.hpp, whose ui::AxisDrag3 replaces
+// DragFloat3 for transforms and collision boxes; the log panels use the mono face.
+// The window frame (src/shell_ui.cpp): a taller main menu bar (FramePadding
+// pushed for BeginMainMenuBar only) with a drawn mark, project / scene
+// breadcrumb (App::selectScene), Unsaved marker, profile pill, PCSX2|PS2
+// segmented target, Build, filled Run + caret, Stop; App::drawStatusBar is a
+// viewport side bar holding the build/live chips (same ##tb_* ids, same labels).
+// Viewport overlays: ui::OverlayPanel cards + OverlayIconButton (ui::Glyph) /
+// OverlayTextButton replace the SmallButton rows, same labels as IDs.
+// Properties: object header (colour tile, borderless "Name", type subtitle),
+// ui::Section for its sections, ui::Switch for all 53 of its checkboxes.
+// Left rail (App::drawRail, ##Rail side bar) picks leftPage_; the Project
+// panel draws one page; Outliner rows hand-draw icon/name/type over a
+// transparent-text Selectable that keeps the "name  (type)" label.
+// Logs: pill level chips, gutter marks for error/warning lines (lines indented
+// by the gutter; the child has no padding), switches in the Debug window.
+// Workspaces (Scene/Logic/Cinema/UI & HUD = layouts by recipe) in the top bar;
+// command palette (palette_ui.cpp, Ctrl/Cmd+K). The Debugger recipe docks
+// Project on the left. --ui-script `key ctrl+X` now sends Super on macOS
+// (ImGui swaps Ctrl/Cmd under ConfigMacOSXBehaviors), so it reaches Ctrl
+// shortcuts there.
+// Dear ImGui moves in-tree (vendor/imgui-tyrax, dropped from deps.sh/deps.ps1)
+// for its first patch, ImGuiStyle::DockNodeRounding: dock nodes as rounded
+// cards. The viewport image is AddImageRounded over a Dummy.
+// Then, merged from parallel branches: the console drawer (Output/Debug/
+// Debugger in one bottom node, time column, tab count badges), viewport glass
+// cards (Viewport::blurBackdrop) with a view pill / selection readout / As PS2
+// switch, the menus behind the logo (drawLogoMenu/drawMainMenus; uiscript
+// opens it for a bare menu name), "N unsaved" (History::stepsFromSaved), the
+// merged OS title bar (platform_mac.mm; Windows WndProc subclass; editor.ini
+// nativeTitleBar), Properties as label-left rows with Object/Material/Physics
+// tabs (ui::InspectorRows), panel headers instead of dock chrome
+// (ui::PanelChromeNewFrame, ImGui patch TabPillInset) and outliner chips/
+// folders/eyes.
+// Geist (v1.7.2, SIL OFL 1.1) is embedded from resources/fonts via
+// embed_binary.cmake (uifonts::kGeist*) and is the interface font; the system
+// chains are merged behind each face as glyph fallbacks.
+// No PlayStation marks in the editor's own chrome: the top-bar mark is the app
+// icon ("Tx", App::appIconTexture), workspaces use descriptive ui::Glyph icons
+// (Box/Nodes/Film/Screen), theme "Face buttons" is shown as "Graphite" (key
+// unchanged); a trademark notice sits in Help, on the welcome screen and in
+// the README. The pad's buttons stay where they ARE buttons (Remote Pad, prompts).
+// Then every tool window redesigned from the tool canvas, built on the
+// tool-window kit (src/toolkit.*: per-agent sections). Notable mechanics:
+// App::dockToolWindows docks tool windows beside the viewport (Side/Visual/
+// Page); Viewport::renderShot (second render for the Cutscene/Phone preview),
+// Viewport::gradingFrames, Viewport::prefabThumb; the HUD selection-id bug
+// (motion blur now uiFxSel_ 10); hudanim::transition (twin of hudTransEval);
+// .tree sidecars for the Tree Generator; staged project loading; the start
+// page (Welcome window over a KeepAliveOnly dockspace); no format change.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto
@@ -6138,7 +6194,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 (docs/streaming-layers.md, the Outliner eye): an object's
+// "editorHidden", written only when true. Missing = shown, as before. Editor
+// only - codegen never reads it. Additive; no migration step.
+inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

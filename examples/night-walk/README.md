@@ -26,7 +26,7 @@ stick, look with the right, and **Circle** switches the torch off and on.
   without blinking.
 
 - **Shadows, both ways.** This project ships with **Flashlight shadow
-  volumes** ON (*Preferences > Rendering*): put the dumpster or the truck in
+  volumes** ON (*Preferences > Graphics*): put the dumpster or the truck in
   the beam and its shadow is CARVED out of the light, per pixel, on the ground
   and on the facade behind — stand behind the truck and the torch genuinely
   does not reach you. Turn the setting off to compare with the silhouette
@@ -56,7 +56,7 @@ stick, look with the right, and **Circle** switches the torch off and on.
 
 ## Things worth trying
 
-- *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;
+- *Preferences > Graphics > Flashlight shadow volumes* — flip it and rebuild;
   same yard, same casters, two philosophies of shadow. In volume mode a model
   caster shadows with its **real mesh** (the street lamp throws a pole-and-arm
   shadow, not a slab), stencil-counted per pixel in a dedicated GS buffer —

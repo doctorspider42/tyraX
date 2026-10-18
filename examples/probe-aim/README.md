@@ -2,7 +2,7 @@
 
 A crystal ball that shows what's behind you. This scene demonstrates the
 **Reflection probe: aim along the reflected ray** preference
-(*Preferences > Rendering*; see "Probe aim" in
+(*Preferences > Graphics*; see "Probe aim" in
 [docs/reflective-materials.md](../../docs/reflective-materials.md)): the
 `@sky` dynamic env map's camera no longer looks level along the player's
 forward — it renders **from the point your view ray hits the reflective

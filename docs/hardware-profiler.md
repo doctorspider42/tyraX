@@ -9,19 +9,25 @@ record the first full-asset Motor District diagnosis.
 
 ## In the editor (1.92+)
 
-![Native hardware timeline](img/hardware-timeline.png)
+![Native hardware timeline: one card with the frame chips, the lanes on a millisecond axis and the inclusive totals (sample capture)](img/hardware-timeline.png)
 
-Open **Debugger > Hardware timeline** (F9). Set the first engine frame, capture
-length (1–32) and optional register snapshots, then **Arm next boot**. This writes
-`bin/hardware-trace.cfg`; it does not reset or interrupt the running console.
-Build the game before arming. After the capture finishes, **Load hardware capture**
-reads `bin/hardware-trace.csv` on demand. The previous file stays available until
-the game replaces it; arming is not evidence of a new capture.
+Open **Debugger > Hardware timeline** (F9). The page is one card: what is
+loaded (`capture of 4 frames from loop 120 · loaded 12:41`), a chip per captured
+frame (a combo past eight frames), **Load hardware capture** and **Arm next
+boot...**. Arm opens a small popup: the first engine frame (*Start frame*),
+capture length (*Capture frames*, 1–32) and *Register snapshots*, then **Arm next
+boot** (or **Disarm next boot**). This writes `bin/hardware-trace.cfg`; it does
+not reset or interrupt the running console. Build the game before arming. After
+the capture finishes, **Load hardware capture** reads `bin/hardware-trace.csv` on
+demand. The previous file stays available until the game replaces it; arming is
+not evidence of a new capture. Until a capture is loaded the card says so.
 
-Select a frame and zoom horizontally (1–16x). Hover blue EE scopes, red waits or
-orange register markers for duration, relative start and raw values. Scroll the
-chart in either direction; expand or undock the Debugger for a wider view. The
-inclusive table contains overlapping scopes, not additive hardware utilization.
+Each lane is one scope on the frame's millisecond axis: blue EE scopes, red
+waits, pink `Live_debug` (the debug runtime's own host I/O), orange register
+markers; hover one for duration, relative start and raw value. *Timeline zoom*
+(1–16x) widens the lanes, which then scroll; expand or undock the Debugger for
+a wider view. The inclusive table under the card contains overlapping scopes,
+not additive hardware utilization.
 The native viewer requires neither Python nor a browser, adds no polling and
 rejects incomplete, overflowing or inconsistent captures. HTML/Perfetto export
 still uses the same CSV and remains available with the command below.

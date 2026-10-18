@@ -61,13 +61,13 @@ even though they are four draw calls.
 
 ## Things worth trying
 
-- Open *Tools > Prefabs*, select **room-red** and read the cost line: 20 merged
-  into 1 draw call, 1 spawned object. In the member table the `-core` row says
-  *own object* and the rest say *merged*.
+- Open *Tools > Prefabs*, select the **room-red** tile and read the chips: 21 members,
+  1 draw call (merged), 1 spawned object. In the member list (*Show 17 more*)
+  hovering the `-core` row says *own object*; the rest say *merged*.
 - Change the weights in the volume's *Pick Prefab* pool and press TRIANGLE.
 - Set *Levels* to 5 on the `Scatter on Grid` node: 45 rooms, still the same
   handful of draw calls.
-- Drop a room prefab into a scene by hand: *Prefabs > Insert into scene*, then
+- Drop a room prefab into a scene by hand: *Prefabs > Place in scene*, then
   click the ground. It stamps ordinary objects you can edit individually.
 
 ## What it is not

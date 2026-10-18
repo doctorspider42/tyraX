@@ -8,6 +8,9 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "widgets.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -457,6 +460,10 @@ void App::phoneCamTick() {
                 // is ten. The tolerance is a world-unit distance, so it follows.
                 phoneMap_.scale = project_.settings.unitsPerMeter;
                 phoneTolerance_ = 0.05f * project_.settings.unitsPerMeter;
+                phoneWalked_ = 0.0f;
+                phonePoseHz_ = 0.0f;
+                phonePoseRateN_ = 0;
+                phonePoseRateAt_ = ImGui::GetTime();
                 break;
             case phonecam::Event::Type::Disconnected:
                 if (phoneRec_) stopPhoneRecording();
@@ -485,6 +492,22 @@ void App::phoneCamTick() {
     }
 
     const std::vector<CamTakeSample> poses = phoneCam_.drainPoses();
+    // Device row figures: pose rate over ~1 s, metres walked (6DoF only - a
+    // rotation-only device never moves).
+    for (const CamTakeSample& smp : poses) {
+        if (phoneHasPose_) {
+            const float dx = smp.pos[0] - phoneLastPos_[0], dy = smp.pos[1] - phoneLastPos_[1],
+                        dz = smp.pos[2] - phoneLastPos_[2];
+            phoneWalked_ += std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        for (int c = 0; c < 3; ++c) phoneLastPos_[c] = smp.pos[c];
+    }
+    phonePoseRateN_ += (int)poses.size();
+    if (ImGui::GetTime() - phonePoseRateAt_ >= 1.0) {
+        phonePoseHz_ = (float)(phonePoseRateN_ / (ImGui::GetTime() - phonePoseRateAt_));
+        phonePoseRateN_ = 0;
+        phonePoseRateAt_ = ImGui::GetTime();
+    }
     if (!poses.empty()) {
         phonePose_ = poses.back();
         phonePoseAt_ = ImGui::GetTime();
@@ -536,274 +559,582 @@ void App::phoneCamTick() {
     }
 }
 
-// Tools > Phone Camera: hosting controls, what the phone has to be told to
-// connect, and the live mapping. Recording lives in the Cutscene Director -
-// this window is the link itself.
+// Tools > Phone Camera: the link and the recorder in one window. Unlinked it is
+// an explanation with ONE action (Start link) and what you need; waiting, it
+// is the address and the pairing code; linked, it is the phone's view, where
+// the shot starts, and Record. Machine-wide stream tuning folds away at the
+// bottom - set once, rarely read.
 void App::drawPhoneCamWindow() {
     if (!showPhoneCamWindow_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(430), scaled(520)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(760)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Phone Camera", &showPhoneCamWindow_)) {
         ImGui::End();
         return;
     }
-
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
     const bool up = phoneCam_.listening();
     const bool live = phoneCam_.connected();
+    const bool failed = phoneCam_.state() == phonecam::Link::State::Error;
     const phonecam::DeviceInfo dev = phoneCam_.device();
 
-    // --- state line ---------------------------------------------------------
-    if (phoneCam_.state() == phonecam::Link::State::Error) {
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
-        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
-    } else if (live) {
-        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
-        ImGui::SameLine();
-        ImGui::Text("- %s", dev.name.c_str());
-    } else if (up) {
-        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
-    } else {
-        ImGui::TextDisabled("Not hosting");
+    std::vector<std::string> cams;  // this scene's Camera entities
+    if (hasProject_)
+        for (const SceneObject& o : project_.objects())
+            if (o.type == PrimitiveType::Camera) cams.push_back(o.name);
+
+    // --- status line ----------------------------------------------------------
+    {
+        char pill[64];
+        int kind = 4;
+        if (failed) {
+            std::snprintf(pill, sizeof(pill), "Link failed###phone_state");
+            kind = 2;
+        } else if (live) {
+            if (phonePoseHz_ > 0.0f)
+                std::snprintf(pill, sizeof(pill), "Live \xc2\xb7 %.0f Hz###phone_state", phonePoseHz_);
+            else
+                std::snprintf(pill, sizeof(pill), "Live###phone_state");
+            kind = phoneRec_ ? 2 : 0;
+        } else if (up) {
+            std::snprintf(pill, sizeof(pill), "Waiting for a phone###phone_state");
+            kind = 1;
+        } else {
+            std::snprintf(pill, sizeof(pill), "Not linked###phone_state");
+        }
+        const float stopW = up ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - ui::StatusPillWidth(pill) - stopW);
+        ui::StatusPill(pill, kind);
+        if (up) {
+            ImGui::SameLine();
+            // A square "stop" mark: ends the link (and a recording with it).
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float h = ImGui::GetFrameHeight();
+            if (ImGui::InvisibleButton("Stop link", ImVec2(h, h))) stopPhoneCam();
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            if (t > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h),
+                                  ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, t)),
+                                  ImGui::GetStyle().FrameRounding);
+            const float s = h * 0.28f;
+            dl->AddRectFilled(ImVec2(p.x + h * 0.5f - s, p.y + h * 0.5f - s),
+                              ImVec2(p.x + h * 0.5f + s, p.y + h * 0.5f + s),
+                              ImGui::GetColorU32(t > 0.0f ? sem.danger : sem.textDim), 2.0f);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Stop link - the phone disconnects%s.",
+                                  phoneRec_ ? " and the recording ends" : "");
+        }
     }
+    if (failed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+
+    // What you need - shown until a phone is linked.
+    auto youWillNeed = [&]() {
+        ui::Caption("You will need");
+        auto step = [&](int n, const std::string& text) {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = fs * 0.62f;
+            dl->AddCircleFilled(ImVec2(p.x + r, p.y + ImGui::GetTextLineHeight() * 0.5f), r,
+                                ImGui::GetColorU32(sem.field));
+            char num[4];
+            std::snprintf(num, sizeof(num), "%d", n);
+            const ImVec2 ns = ImGui::CalcTextSize(num);
+            dl->AddText(ImVec2(p.x + r - ns.x * 0.5f, p.y), ImGui::GetColorU32(sem.textDim), num);
+            ImGui::SetCursorScreenPos(ImVec2(p.x + r * 2.0f + fs * 0.6f, p.y));
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextWrapped("%s", text.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+        };
+        step(1, "The tyrax-cam app on an iPhone with ARKit, or any browser at the address "
+                "shown after Start link (rotation only).");
+        step(2, "Phone and computer on the same Wi-Fi.");
+        std::string shot;
+        if (cams.empty()) {
+            shot = "A shot to start from: frame one in the viewport, or add a Camera to the "
+                   "scene.";
+        } else {
+            shot = "A shot to start from: select a Camera (";
+            for (size_t i = 0; i < cams.size() && i < 2; ++i) shot += (i ? ", " : "") + cams[i];
+            if (cams.size() > 2) shot += " ... " + std::to_string(cams.size()) + " in this scene";
+            shot += ") or frame one in the viewport.";
+        }
+        step(3, shot);
+    };
 
     if (!up) {
-        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(80.0f));
-        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
-            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
-        if (ImGui::IsItemHovered())
+        // --- connect: say what this is, one action -------------------------------
+        const float avail = ImGui::GetContentRegionAvail().x;
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const ImVec2 c(p.x + avail * 0.5f, p.y + fs * 2.0f);
+            // a phone, drawn: a rounded slab with a lens dot
+            dl->AddRect(ImVec2(c.x - fs * 0.75f, c.y - fs * 1.3f), ImVec2(c.x + fs * 0.75f, c.y + fs * 1.3f),
+                        ImGui::GetColorU32(sem.accent), fs * 0.3f, 0, 2.0f);
+            dl->AddCircleFilled(ImVec2(c.x, c.y + fs * 0.95f), fs * 0.12f, ImGui::GetColorU32(sem.accent));
+            ImGui::Dummy(ImVec2(avail, fs * 4.0f));
+        }
+        auto centred = [&](const char* text, bool bold, bool dim) {
+            ui::FontScope f(bold ? ui::boldFont() : nullptr);
+            const float w = ImMin(avail, ImGui::CalcTextSize(text).x);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - w) * 0.5f);
+            if (dim) ImGui::TextDisabled("%s", text);
+            else ImGui::TextUnformatted(text);
+        };
+        centred("Film with your phone", true, false);
+        centred("Move the phone and the editor camera moves with it.", false, true);
+        centred("Record the move into a cutscene from here.", false, true);
+        ImGui::Spacing();
+        {
+            const float bw = ImGui::CalcTextSize("Start link").x + ImGui::GetStyle().FramePadding.x * 5.0f;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - bw) * 0.5f);
+            if (ui::PrimaryButton("Start link", bw)) startPhoneCam();
+        }
+        {
+            char note[96];
+            std::snprintf(note, sizeof(note), "Opens port %d on this machine", phoneCamPort_);
+            centred(note, false, true);
+            centred("The first time, allow it on private networks.", false, true);
+        }
+        ImGui::Spacing();
+        youWillNeed();
+        ImGui::Spacing();
+        ui::InspectorRows rows(scaled(80.0f), scaled(140.0f));
+        if (ui::Switch("Require pairing code (a 6-digit code the phone must type)",
+                       &phoneCamRequireCode_))
+            saveGlobalConfig();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
                               "desk of your own, wrong in a shared office.");
-    } else {
-        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
-        if (live) {
-            ImGui::SameLine();
-            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        // A caption-left row like the switch above (no InputInt row wrapper:
+        // the field fills the row, which clips its own right-hand label).
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Port");
+        ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(140.0f)));
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        {
+            // The field fills the row, so its own "Port" label would land past
+            // the window's edge (a stray "P" over the panel next to it): clip
+            // it to the row. The label stays the widget's ID.
+            const ImVec2 c = ImGui::GetCursorScreenPos();
+            ImGui::PushClipRect(ImVec2(c.x, c.y - 2.0f),
+                                ImVec2(c.x + ImGui::GetContentRegionAvail().x, c.y + ImGui::GetFrameHeight() + 2.0f),
+                                true);
+            if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0)) {
+                phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+                saveGlobalConfig();
+            }
+            ImGui::PopClipRect();
         }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Stream quality and smoothing appear once a phone is connected.");
+        ImGui::End();
+        return;
     }
 
-    // --- what to type into the phone ---------------------------------------
-    if (up) {
-        ImGui::SeparatorText("Connect the phone to");
+    if (!live) {
+        // --- waiting: what to type into the phone, big ------------------------------
+        ui::Caption("Connect the phone to");
         const std::vector<std::string> ips = wire::localIPv4();
-        if (ips.empty()) {
+        if (ips.empty())
             ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
-        }
         for (const std::string& ip : ips) {
             const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
             ImGui::PushID(ip.c_str());
-            ImGui::Text("%s", addr.c_str());
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushFont(nullptr, fs * 1.35f);
+                ImGui::TextUnformatted(addr.c_str());
+                ImGui::PopFont();
+            }
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.2f);
+            if (ui::GhostButton("Copy")) ImGui::SetClipboardText(addr.c_str());
             ImGui::SameLine();
-            if (ImGui::SmallButton("Copy URL"))
-                ImGui::SetClipboardText(("http://" + addr).c_str());
+            if (ui::GhostButton("Copy URL")) ImGui::SetClipboardText(("http://" + addr).c_str());
             ImGui::PopID();
         }
         if (phoneCamRequireCode_) {
-            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::Spacing();
+            ui::Caption("Pairing code");
+            {
+                ui::FontScope mono(ui::monoFont());
+                ImGui::PushFont(nullptr, fs * 1.8f);
+                ImGui::TextUnformatted(phoneCamCode_.c_str());
+                ImGui::PopFont();
+            }
             ImGui::SameLine();
-            if (ImGui::SmallButton("New code")) {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + fs * 0.4f);
+            if (ui::GhostButton("New code")) {
                 phoneCamCode_ = phonecam::newPairCode();
                 saveGlobalConfig();
-                statusMessage_ =
-                    "New pairing code - restart the link for it to take effect";
+                statusMessage_ = "New pairing code - restart the link for it to take effect";
             }
         }
-        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
-                            "(sideloaded). Opening the http:// address in any\n"
-                            "browser gives a test client that shows the same\n"
-                            "stream and can fake a pose.");
+        ImGui::Spacing();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Type the address%s into the tyrax-cam app "
+                            "(github.com/doctorspider42/tyrax-cam). Any browser at the "
+                            "http:// address gets a test client with the same stream.",
+                            phoneCamRequireCode_ ? " and the code" : "");
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        youWillNeed();
+        ImGui::End();
+        return;
     }
 
-    // --- the connected device ----------------------------------------------
-    if (live) {
-        ImGui::SeparatorText("Device");
-        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
-        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
-        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
-        ImGui::Text("Tracking: %s",
-                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
-        if (!dev.sixDof && ImGui::IsItemHovered())
+    // --- live: the device ------------------------------------------------------------
+    {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float h = fs * 2.6f;
+        const float w = ImGui::GetContentRegionAvail().x;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(ImVec2(p.x, p.y), ImVec2(p.x + h, p.y + h), ImGui::GetColorU32(sem.field),
+                          ImGui::GetStyle().FrameRounding + 2.0f);
+        ui::DrawGlyph(dl, ui::Glyph::Camera, ImVec2(p.x + h * 0.5f, p.y + h * 0.5f), h * 0.5f,
+                      ImGui::GetColorU32(sem.accent));
+        const std::string title =
+            dev.name.empty() ? std::string("Phone") : dev.name + (dev.client.empty() ? "" : " \xc2\xb7 " + dev.client);
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(p.x + h + fs * 0.6f, p.y + fs * 0.15f), ImGui::GetColorU32(sem.text),
+                        title.c_str());
+        }
+        const std::string sub = (dev.address.empty() ? std::string() : dev.address + " \xc2\xb7 ") +
+                                (dev.sixDof ? "6DoF tracking" : "rotation only");
+        {
+            ui::FontScope mono(ui::monoFont());
+            dl->AddText(ImVec2(p.x + h + fs * 0.6f, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim),
+                        sub.c_str());
+            if (dev.sixDof) {
+                char walked[32];
+                std::snprintf(walked, sizeof(walked), "%.2f m", phoneWalked_);
+                const float ww = ImGui::CalcTextSize(walked).x;
+                dl->AddText(ImVec2(p.x + w - ww, p.y + fs * 0.15f), ImGui::GetColorU32(sem.textDim), walked);
+                const float lw = ImGui::CalcTextSize("walked").x;
+                dl->AddText(ImVec2(p.x + w - lw, p.y + fs * 1.35f), ImGui::GetColorU32(sem.textDim), "walked");
+            }
+        }
+        ImGui::Dummy(ImVec2(w, h));
+        if (!dev.sixDof && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("This device reports no world position, so the camera\n"
                               "turns in place instead of walking.");
+    }
+    ImGui::Spacing();
+
+    // --- the phone's view (the hero) ----------------------------------------------
+    {
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float aspect = ps2ViewportOutput().tvAspect > 0.1f ? ps2ViewportOutput().tvAspect : 4.0f / 3.0f;
+        const float h = ImMin(w / aspect, scaled(190.0f));
+        const float iw = h * aspect;
+        const ImVec2 p(ImGui::GetCursorScreenPos().x + (w - iw) * 0.5f, ImGui::GetCursorScreenPos().y);
+        const ImVec2 q(p.x + iw, p.y + h);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
         const double age = ImGui::GetTime() - phonePoseAt_;
         if (phoneHasPose_ && age < 1.0) {
-            ImGui::Text("Stream: %llu poses", (unsigned long long)phoneCam_.poseCount());
-            ImGui::Text("Pose: %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
-                        phonePose_.pos[2]);
-            ImGui::Text("Camera: %.1f %.1f %.1f", phoneEye_[0], phoneEye_[1],
-                        phoneEye_[2]);
+            // The camera the phone is driving, rendered here so the window shows
+            // what the phone shows even when the viewport is someone else's.
+            std::vector<std::string> hide;
+            if (!phoneRecTarget_.empty()) hide.push_back(phoneRecTarget_);
+            viewport_.setHiddenCameras(hide);
+            const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+            const uint32_t tex = viewport_.renderShot((int)(iw * sc), (int)(h * sc), project_.objects(),
+                                                      phoneEye_, phoneTarget_, phoneFov_, phoneRoll_,
+                                                      Viewport::GameViewPhone, modelEditSerial_);
+            dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, q, ImVec2(0, 1), ImVec2(1, 0),
+                                IM_COL32_WHITE, r);
         } else {
-            ImGui::TextDisabled(phoneHasPose_ ? "Stream stalled" : "No pose yet");
+            dl->AddRectFilled(p, q, ImGui::GetColorU32(sem.field), r);
+            const char* msg = phoneHasPose_ ? "Stream stalled" : "Waiting for the first pose...";
+            const ImVec2 ms = ImGui::CalcTextSize(msg);
+            dl->AddText(ImVec2((p.x + q.x - ms.x) * 0.5f, (p.y + q.y - ms.y) * 0.5f),
+                        ImGui::GetColorU32(sem.textDim), msg);
         }
+        dl->AddRect(p, q, ImGui::GetColorU32(sem.border), r);
+        // glass labels: what the phone receives, and where it is
+        auto glass = [&](ImVec2 at, const char* text, bool right) {
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(text);
+            const ImVec2 a(right ? at.x - ts.x - fs * 0.8f : at.x, at.y);
+            dl->AddRectFilled(a, ImVec2(a.x + ts.x + fs * 0.8f, a.y + ts.y + fs * 0.4f),
+                              IM_COL32(0, 0, 0, 170), fs * 0.3f);
+            dl->AddText(ImVec2(a.x + fs * 0.4f, a.y + fs * 0.2f), IM_COL32(235, 235, 240, 255), text);
+        };
+        const phonecam::PreviewPrefs pv = phoneCam_.preview();
+        char top[64];
+        std::snprintf(top, sizeof(top), "what the phone shows \xc2\xb7 %d px \xc2\xb7 %d fps", pv.maxWidth, pv.fps);
+        glass(ImVec2(p.x + fs * 0.5f, p.y + fs * 0.5f), top, false);
+        if (phoneHasPose_) {
+            char pos[64];
+            std::snprintf(pos, sizeof(pos), "pos %.2f %.2f %.2f m", phonePose_.pos[0], phonePose_.pos[1],
+                          phonePose_.pos[2]);
+            glass(ImVec2(q.x - fs * 0.5f, q.y - fs * 1.9f), pos, true);
+        }
+        ImGui::Dummy(ImVec2(w, h));
     }
+    ImGui::Spacing();
 
-    // --- mapping ------------------------------------------------------------
-    ImGui::SeparatorText("Camera");
-    // Which Camera entity the phone views from AND records into - one control,
-    // because they are one intent. Picking one jumps the phone to where that
-    // camera was placed, and Recentre returns there.
+    // --- where the shot starts ---------------------------------------------------------
+    ui::Caption("Start from");
     {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        // Which Camera entity the phone views from AND records into - one control,
+        // because they are one intent. Picking one jumps the phone to where that
+        // camera was placed, and Recentre returns there.
         const std::string label =
-            phoneRecTarget_.empty() ? "Free shots (from the editor view)"
-                                    : phoneRecTarget_;
+            phoneRecTarget_.empty() ? "Free shots (from the editor view)" : phoneRecTarget_;
         ImGui::BeginDisabled(phoneRec_);
-        ImGui::SetNextItemWidth(scaled(230.0f));
-        if (ImGui::BeginCombo("View from", label.c_str())) {
-            if (ImGui::Selectable("Free shots (from the editor view)",
-                                  phoneRecTarget_.empty()))
+        if (ui::BeginCombo("View from", label.c_str())) {
+            if (ImGui::Selectable("Free shots (from the editor view)", phoneRecTarget_.empty()))
                 selectPhoneCamera(std::string());
-            bool any = false;
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera) any = true;
-            if (any) ImGui::Separator();
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera)
-                    if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
-                        selectPhoneCamera(o.name);
+            if (!cams.empty()) ImGui::Separator();
+            for (const std::string& c : cams)
+                if (ImGui::Selectable(c.c_str(), phoneRecTarget_ == c)) selectPhoneCamera(c);
             ImGui::EndCombo();
         }
         ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                phoneRec_ ? "Locked while recording."
-                          : "The phone starts from this camera's placed pose -\n"
-                            "position, aim and tilt - and Recentre returns there.\n"
-                            "The recording goes into the same camera's track.\n"
-                            "Also selectable on the phone.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(phoneRec_ ? "Locked while recording."
+                                        : "The phone starts from this camera's placed pose -\n"
+                                          "position, aim and tilt - and Recentre returns there.\n"
+                                          "The recording goes into the same camera's track.\n"
+                                          "Also selectable on the phone.");
         if (!phoneRecTarget_.empty() && !phoneStartCamera())
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
-                               "\"%s\" is not in this scene - using the editor view.",
+            ImGui::TextColored(sem.warn, "\"%s\" is not in this scene - using the editor view.",
                                phoneRecTarget_.c_str());
-    }
-    if (ImGui::Checkbox("Drive the viewport camera", &phoneDrive_)) {
-        if (!phoneDrive_) phoneCamPushed_ = false;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The phone's motion moves the editor camera (and so the\n"
-                          "image it is streaming). Off leaves the viewport under\n"
-                          "your own control while the link stays up.");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Game units per real metre. Seeded from the project's\n"
-                          "world scale when the phone connects; raise it to cover\n"
-                          "more map from the same room.");
-    // Same affordance as the take-import modal: the project's world scale is the
-    // right answer, so hand-tuning it away needs one click back.
-    if (phoneMap_.scale != project_.settings.unitsPerMeter) {
+        const float worldW = ImGui::CalcTextSize("World").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - worldW - ImGui::GetStyle().ItemSpacing.x);
+        ui::DragFloat("Scale", &phoneMap_.scale, 0.02f, 0.01f, 1000.0f, "%.2f u/m");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Game units per real metre. Seeded from the project's\n"
+                              "world scale when the phone connects; raise it to cover\n"
+                              "more map from the same room.");
         ImGui::SameLine();
-        if (ImGui::SmallButton("World scale"))
+        // The project's world scale is the right answer, so hand-tuning it
+        // away needs one click back.
+        if (ui::GhostButton("World", worldW, phoneMap_.scale != project_.settings.unitsPerMeter))
             phoneMap_.scale = project_.settings.unitsPerMeter;
-        if (ImGui::IsItemHovered())
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Back to the project's %.3f units per meter\n"
                               "(Project Preferences > World).",
                               project_.settings.unitsPerMeter);
     }
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Button("Recentre")) phoneCamRecenter();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(phoneRecTarget_.empty()
-                              ? "Back to the editor's own camera, aimed where the\n"
-                                "viewport is looking. Everything the phone does\n"
-                                "is relative to this point."
-                              : "Back to where the selected camera was PLACED -\n"
-                                "its position, aim and tilt. Everything the phone\n"
-                                "does is relative to that pose, and Move only\n"
-                                "offsets from it.");
-    // The start point, editable directly: Recentre snaps it to the viewport
-    // camera, but a shot often wants an exact spot - and the phone can fly it
-    // too (its Move mode), which writes the same three numbers.
-    if (ImGui::DragFloat3("Start point", phoneMap_.origin, 0.1f))
-        phoneMap_.hasAnchor = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
-                          "exactly, or fly it live from the app (its Move button).\n"
-                          "Moving this slides the camera bodily; the phone's own\n"
-                          "motion stays relative to wherever it ends up.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("From view")) {
-        float eye[3], at[3];
-        viewport_.currentCamera(eye, at);
-        for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
-        phoneMap_.hasAnchor = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
-                          "aim alone (Recentre does both).");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
-                          "Recentre sets this from the viewport view.");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, "%.2f");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
-                          "reaches the shot (the Dutch angle). 1 films the lean\n"
-                          "as held, 0 pins the horizon level and throws hand\n"
-                          "tremble away. Recentre makes the way you are holding\n"
-                          "it right now count as level.");
-    ImGui::SameLine();
-    ImGui::Text("roll %.1f deg", phoneRoll_);
-
-    // --- preview stream -----------------------------------------------------
-    ImGui::SeparatorText("Preview stream");
-    bool prefsChanged = false;
-    static const char* kSizes[] = {"256", "320", "480", "640", "960"};
-    static const int kSizeVals[] = {256, 320, 480, 640, 960};
-    int sizeIdx = 2;
-    for (int i = 0; i < 5; ++i)
-        if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
-    ImGui::SetNextItemWidth(scaled(90.0f));
-    if (ImGui::Combo("Max size", &sizeIdx, kSizes, 5)) {
-        phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
-        prefsChanged = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
-                          "for its own value, which then wins.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    if (ImGui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    if (ImGui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90))
-        prefsChanged = true;
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    if (ImGui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0,
-                         phonecam::kMaxSmoothing,
-                         phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
-        prefsChanged = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Frames allowed in flight beyond the one being sent.\n"
-            "0 is the least delay but the most stutter: one hitch in\n"
-            "encoding or on the Wi-Fi costs a whole frame interval,\n"
-            "because the next grab window is missed. 1-2 keeps the\n"
-            "cadence even for that many frames of delay (~%.0f ms each\n"
-            "at %d fps). The oldest frame is dropped when full, so the\n"
-            "delay never grows past this.",
-            1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15),
-            phoneCamPrefs_.fps);
-    if (prefsChanged) {
-        phoneCam_.setPreviewDefaults(phoneCamPrefs_);
-        saveGlobalConfig();
-    }
-
-    ImGui::Separator();
-    if (phoneRec_) {
-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f), "RECORDING");
+    {
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        if (ui::GhostButton("Recentre", half)) phoneCamRecenter();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(phoneRecTarget_.empty()
+                                  ? "Back to the editor's own camera, aimed where the\n"
+                                    "viewport is looking. Everything the phone does\n"
+                                    "is relative to this point."
+                                  : "Back to where the selected camera was PLACED -\n"
+                                    "its position, aim and tilt. Everything the phone\n"
+                                    "does is relative to that pose.");
         ImGui::SameLine();
-        ImGui::Text("%.2f s, %d keys", (float)phoneTake_.duration(),
-                    phoneRecStats_.keyCount);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Stop")) stopPhoneRecording();
-    } else {
-        ImGui::TextDisabled("Record the move into keyframes in\n"
-                            "Tools > Cutscene Director > Phone camera.");
+        // "Drive the viewport camera": the phone's motion moves the editor
+        // camera (and so the image it streams); off keeps the link up while
+        // the viewport is yours again.
+        if (ui::GhostButton(phoneDrive_ ? "Give the viewport back###Drive the viewport camera"
+                                        : "Drive the viewport###Drive the viewport camera",
+                            half)) {
+            phoneDrive_ = !phoneDrive_;
+            if (!phoneDrive_) phoneCamPushed_ = false;
+        }
+        uiscript::markLastItemChecked(phoneDrive_);
+    }
+    {
+        const float room = 3.0f;
+        ImGui::TextDisabled("%.0f m in your room = %.0f units in the scene.", room, room * phoneMap_.scale);
+    }
+    if (ui::Section("Placement")) {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        // The start point, editable directly: Recentre snaps it to the viewport
+        // camera, but a shot often wants an exact spot - and the phone can fly
+        // it too (its Move mode), which writes the same three numbers.
+        if (ui::AxisDrag3("Start point", phoneMap_.origin, 0.1f)) phoneMap_.hasAnchor = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Where the phone's motion starts from. Drag to place it\n"
+                              "exactly, or fly it live from the app (its Move button).");
+        if (ui::GhostButton("From view")) {
+            float eye[3], at[3];
+            viewport_.currentCamera(eye, at);
+            for (int c = 0; c < 3; ++c) phoneMap_.origin[c] = eye[c];
+            phoneMap_.hasAnchor = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Move the start point to the editor camera, leaving the\n"
+                              "aim alone (Recentre does both).");
+        ui::DragFloat("Yaw", &phoneMap_.yawDeg, 1.0f, -360.0f, 360.0f, "%.0f deg");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Which way the phone's forward points in the scene.\n"
+                              "Recentre sets this from the viewport view.");
+        char tiltFmt[48];
+        std::snprintf(tiltFmt, sizeof(tiltFmt), "%%.2f  (roll %.1f deg)", phoneRoll_);
+        ui::SliderFloat("Tilt", &phoneMap_.rollScale, 0.0f, 1.0f, tiltFmt);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("How much of the phone's own tilt about the lens axis\n"
+                              "reaches the shot (the Dutch angle). 1 films the lean\n"
+                              "as held, 0 pins the horizon level. Recentre makes the\n"
+                              "way you are holding it right now count as level.");
+    }
+    ImGui::Spacing();
+
+    // --- record into a cutscene ----------------------------------------------------------
+    // The thing this feature exists for, so it lives here rather than in the
+    // Director: the sequence is the Director's own selection.
+    {
+        ui::Caption("Record into a cutscene");
+        const char* hint = "the phone's REC does this too";
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(hint).x);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - fs * 0.15f);
+        ImGui::TextDisabled("%s", hint);
+    }
+    const bool haveSeq = selectedSequence_ >= 0 && selectedSequence_ < (int)project_.sequences.size();
+    {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        ImGui::BeginDisabled(phoneRec_);
+        if (ui::BeginCombo("Sequence", haveSeq ? project_.sequences[selectedSequence_].name.c_str()
+                                               : "<pick a cutscene>")) {
+            for (int i = 0; i < (int)project_.sequences.size(); ++i) {
+                ImGui::PushID(i);
+                if (ImGui::Selectable(project_.sequences[i].name.c_str(), i == selectedSequence_)) {
+                    selectedSequence_ = i;
+                    selectedSeqTrack_ = -1;
+                    selectedSeqKey_ = -1;
+                }
+                ImGui::PopID();
+            }
+            if (project_.sequences.empty()) ImGui::TextDisabled("No cutscenes yet.");
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+        // Where the keys land follows View from (one intent, one control).
+        {
+            const char* cap = "Into";
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", cap);
+            ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+            if (phoneRecTarget_.empty()) {
+                ImGui::TextUnformatted("free camera shots");
+            } else {
+                ImGui::Text("%s's track", phoneRecTarget_.c_str());
+            }
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextDisabled("\xc2\xb7 follows View from");
+        }
+        // Keyframe density. Every frame is the sync-with-the-game option: one
+        // key per rendered frame, so nothing is interpolated.
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Keys");
+            ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+            char rate[24];
+            std::snprintf(rate, sizeof(rate), "%.0f / s##dens", phoneDensity_);
+            const char* opts[] = {"Every frame", rate, "Optimize"};
+            ImGui::BeginDisabled(phoneRec_);
+            ui::Segmented("##phone_density", opts, 3, &phoneDensityMode_, -1.0f);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("How densely the move is sampled into keys.\n"
+                                  "Every frame = one key per game frame (exact, the biggest table).\n"
+                                  "N / s = keys per second. Optimize = drop keys the PS2's own\n"
+                                  "interpolation reproduces within an error bound (the smallest).");
+            if (phoneDensityMode_ == 1)
+                ui::DragFloat("Rate", &phoneDensity_, 0.5f, 0.5f, 60.0f, "%.1f keys/s");
+            else if (phoneDensityMode_ == 2)
+                ui::SliderFloat("Tolerance", &phoneTolerance_, 0.005f, 1.0f, "%.3f u",
+                                ImGuiSliderFlags_Logarithmic);
+        }
+        ui::Switch("Start at playhead", &phoneRecAtPlayhead_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Recorded keys begin at the playhead (%.2f s) instead of\n"
+                              "at t = 0, so a move can be dropped after an existing shot.",
+                              seqPlayhead_);
+    }
+    ImGui::Spacing();
+    {
+        const bool canRec = haveSeq && phoneHasPose_;
+        char lbl[64];
+        if (phoneRec_)
+            std::snprintf(lbl, sizeof(lbl), "Stop  %.1f s \xc2\xb7 %d keys###Record", (float)phoneTake_.duration(),
+                          phoneRecStats_.keyCount);
+        else
+            std::snprintf(lbl, sizeof(lbl), "Record###Record");
+        if (ui::RecordButton(lbl, phoneRec_, -1.0f, phoneRec_ || canRec)) {
+            if (phoneRec_) stopPhoneRecording();
+            else startPhoneRecording();
+        }
+        // what it costs, in one line
+        float perSec = phoneDensityMode_ == 0 ? projectFrameRate() : phoneDensity_;
+        char cost[96];
+        if (!haveSeq)
+            std::snprintf(cost, sizeof(cost), "Pick a cutscene to record into.");
+        else if (!phoneHasPose_)
+            std::snprintf(cost, sizeof(cost), "Waiting for a pose...");
+        else if (phoneDensityMode_ == 2)
+            std::snprintf(cost, sizeof(cost), "only the keys needed \xc2\xb7 warns past 600 \xc2\xb7 one undo step");
+        else
+            std::snprintf(cost, sizeof(cost), "~%.0f keys a second \xc2\xb7 warns past 600 \xc2\xb7 one undo step",
+                          perSec);
+        const float cw = ImGui::CalcTextSize(cost).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImMax(0.0f, (ImGui::GetContentRegionAvail().x - cw) * 0.5f));
+        ImGui::TextDisabled("%s", cost);
+        if (phoneRec_ && phoneRecStats_.keyCount > 600)
+            ImGui::TextColored(sem.warn, "%d keys is a big table - consider a lower density.",
+                               phoneRecStats_.keyCount);
+        if (phoneRec_ && phoneRecSeq_ != selectedSequence_ && phoneRecSeq_ >= 0 &&
+            phoneRecSeq_ < (int)project_.sequences.size())
+            ImGui::TextDisabled("Recording into \"%s\".", project_.sequences[phoneRecSeq_].name.c_str());
+    }
+    ImGui::Spacing();
+
+    // --- the stream: machine-wide, set once -----------------------------------------------
+    char streamHdr[96];
+    std::snprintf(streamHdr, sizeof(streamHdr), "Stream & smoothing  %d \xc2\xb7 %d fps \xc2\xb7 q%d \xc2\xb7 smooth %d###stream",
+                  phoneCamPrefs_.maxWidth, phoneCamPrefs_.fps, phoneCamPrefs_.quality, phoneCamPrefs_.smoothing);
+    if (ui::Section(streamHdr)) {
+        ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+        bool prefsChanged = false;
+        static const char* kSizes[] = {"256", "320", "480", "640", "960"};
+        static const int kSizeVals[] = {256, 320, 480, 640, 960};
+        int sizeIdx = 2;
+        for (int i = 0; i < 5; ++i)
+            if (phoneCamPrefs_.maxWidth == kSizeVals[i]) sizeIdx = i;
+        if (ui::Combo("Max size", &sizeIdx, kSizes, 5)) {
+            phoneCamPrefs_.maxWidth = phoneCamPrefs_.maxHeight = kSizeVals[sizeIdx];
+            prefsChanged = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Long-edge cap of the streamed image. The phone can ask\n"
+                              "for its own value, which then wins.");
+        if (ui::SliderInt("fps", &phoneCamPrefs_.fps, 1, 30)) prefsChanged = true;
+        if (ui::SliderInt("JPEG quality", &phoneCamPrefs_.quality, 20, 90)) prefsChanged = true;
+        if (ui::SliderInt("Smoothing", &phoneCamPrefs_.smoothing, 0, phonecam::kMaxSmoothing,
+                          phoneCamPrefs_.smoothing == 0 ? "%d (lowest latency)" : "%d"))
+            prefsChanged = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Frames allowed in flight beyond the one being sent.\n"
+                "0 is the least delay but the most stutter; 1-2 keeps the\n"
+                "cadence even for that many frames of delay (~%.0f ms each\n"
+                "at %d fps). The oldest frame is dropped when full.",
+                1000.0f / (float)(phoneCamPrefs_.fps > 0 ? phoneCamPrefs_.fps : 15), phoneCamPrefs_.fps);
+        if (prefsChanged) {
+            phoneCam_.setPreviewDefaults(phoneCamPrefs_);
+            saveGlobalConfig();
+        }
+        if (ui::GhostButton("Disconnect the phone")) phoneCam_.disconnectDevice();
     }
     ImGui::End();
 }
@@ -915,8 +1246,12 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     // entity, in which case eye/at/fov come from the entity's CURRENT pose in
     // seqPosed_ (object tracks already ran, so an animated camera entity gives
     // a dolly shot). Shots blend across the segment; Step easing = hard cut.
-    // The exact same resolution runs in the generated PS2 player.
-    if (seqPreview_ && s.cameraEnabled && !s.cameraKeys.empty()) {
+    // The exact same resolution runs in the generated PS2 player. The shot is
+    // always resolved (the Director previews it in its own window); it drives
+    // the viewport only with "Also drive the viewport" (seqPreview_).
+    seqShotValid_ = false;
+    seqShotCam_.clear();
+    if (s.cameraEnabled && !s.cameraKeys.empty()) {
         std::vector<SeqCameraKey> ck = s.cameraKeys;
         std::sort(ck.begin(), ck.end(),
                   [](const SeqCameraKey& a, const SeqCameraKey& b) {
@@ -980,7 +1315,15 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
             seqShakeOffset(t, shake, off);
             for (int c = 0; c < 3; ++c) e0[c] += off[c], a0[c] += off[c];
         }
-        viewport_.setCameraOverride(e0, a0, f0, r0);
+        seqShotValid_ = true;
+        for (int c = 0; c < 3; ++c) seqShotEye_[c] = e0[c], seqShotAt_[c] = a0[c];
+        seqShotFov_ = f0;
+        seqShotRoll_ = r0;
+        seqShotShake_ = shake;
+        seqShotCam_ = ck[i].camera;
+    }
+    if (seqShotValid_ && seqPreview_) {
+        viewport_.setCameraOverride(seqShotEye_, seqShotAt_, seqShotFov_, seqShotRoll_);
         seqCameraPushed_ = true;
     } else if (seqCameraPushed_) {
         viewport_.clearCameraOverride();
@@ -1005,20 +1348,29 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
     return seqPosed_;
 }
 
-// Cutscene Director window (Tools > Cutscene Director): sequence list on the
-// left, the selected sequence's timeline on the right - object tracks (each a
-// list of pose keyframes) plus an optional camera track. The playhead scrubs
-// the whole scene live in the viewport; keys are authored by posing an object
-// (or the view) and snapshotting it at the playhead.
+// Cutscene Director window (Tools > Cutscene Director). The shot at the
+// playhead is the hero (rendered in the window - the viewport stays yours
+// unless "Also drive the viewport" is picked), the inspector beside it edits
+// the selected key or the sequence's own settings, and the timeline below
+// shows camera shots as clips, the fades and bars as ramps, and one lane per
+// animated object.
 void App::drawCutsceneWindow() {
-    if (!showCutsceneEditor_ || !hasProject_) return;
+    if (!showCutsceneEditor_ || !hasProject_) {
+        seqWasOpen_ = false;
+        return;
+    }
+    if (!seqWasOpen_) {
+        seqWasOpen_ = true;
+        seqOpenSeek_ = true;
+    }
 
-    ImGui::SetNextWindowSize(ImVec2(scaled(880), scaled(620)),
-                             ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1080), scaled(720)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Cutscene Director", &showCutsceneEditor_)) {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
 
     bool changed = false;
     // Belt and braces (the Save/Menu Editor idiom): `changed` is set by hand at
@@ -1041,338 +1393,26 @@ void App::drawCutsceneWindow() {
             n = base + "-" + std::to_string(k);
         }
     };
-
-    // --- left: sequence list ------------------------------------------------
-    ImGui::BeginChild("##seq_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
-    if (ImGui::Button("+ New sequence", ImVec2(-1, 0))) {
+    auto selectSequence = [&](int i) {
+        selectedSequence_ = i;
+        selectedSeqTrack_ = -1;
+        selectedSeqKey_ = -1;
+        seqPlayhead_ = 0.0f;
+        seqOpenSeek_ = true;
+    };
+    auto newSequence = [&]() {
         Sequence s;
         s.name = uniqueSeqName("Cutscene");
         project_.sequences.push_back(std::move(s));
-        selectedSequence_ = (int)project_.sequences.size() - 1;
-        selectedSeqTrack_ = -1;
-        seqPlayhead_ = 0.0f;
+        selectSequence((int)project_.sequences.size() - 1);
+        seqInspTab_ = 1;
+        seqInspTabForce_ = true;
         changed = true;
-    }
-    ImGui::Separator();
-    for (int i = 0; i < (int)project_.sequences.size(); ++i) {
-        ImGui::PushID(i);
-        if (ImGui::Selectable(project_.sequences[i].name.c_str(), selectedSequence_ == i)) {
-            selectedSequence_ = i;
-            selectedSeqTrack_ = -1;
-            seqPlayhead_ = 0.0f;
-        }
-        ImGui::PopID();
-    }
-    if (project_.sequences.empty())
-        ImGui::TextDisabled("No cutscenes yet.\nA sequence poses objects\n"
-                            "+ the camera over time,\nfired by the Play\n"
-                            "Sequence flow node.");
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    // --- right: selected sequence -------------------------------------------
-    ImGui::BeginChild("##seq_edit", ImVec2(0, 0));
-    if (selectedSequence_ < 0 || selectedSequence_ >= (int)project_.sequences.size()) {
-        ImGui::TextDisabled("Select a cutscene on the left (or create one).");
-        ImGui::TextDisabled("\nPlay it in the game with the Play Sequence flow\n"
-                            "node (category \"Scene\"); Stop Sequence ends it.");
-        ImGui::EndChild();
-        ImGui::End();
-        commitIfEdited();
-        return;
-    }
-    Sequence& s = project_.sequences[selectedSequence_];
-
-    char nameBuf[64];
-    std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
-        for (SceneData& sc : project_.scenes)
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
-                    const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name)
-                        fn.str = nameBuf;
-                }
-        s.name = nameBuf;
-    }
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Duplicate")) {
-        Sequence copy = s;
-        copy.name = uniqueSeqName(s.name);
-        project_.sequences.push_back(std::move(copy));
-        selectedSequence_ = (int)project_.sequences.size() - 1;
-        changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Delete")) {
-        for (SceneData& sc : project_.scenes)
-            for (SceneObject& o : sc.objects)
-                for (FlowNode& fn : o.flowGraph.nodes) {
-                    const FlowNodeType* ft = flowNodeType(fn.type);
-                    if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name)
-                        fn.str.clear();
-                }
-        project_.sequences.erase(project_.sequences.begin() + selectedSequence_);
-        selectedSequence_ = -1;
-        selectedSeqTrack_ = -1;
-        commitChange();
-        ImGui::EndChild();
-        ImGui::End();
-        return;
-    }
-
-    ImGui::SetNextItemWidth(scaled(110.0f));
-    if (ImGui::DragFloat("Duration (s)", &s.duration, 0.1f, 0.1f, 600.0f, "%.2f"))
-        changed = true;
-    if (s.duration < 0.1f) s.duration = 0.1f;
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Checkbox("Loop", &s.loop)) changed = true;
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Checkbox("Skippable", &s.skippable)) changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The menu button (START) ends the cutscene early.\n"
-                          "While it plays that button is the cutscene's, not\n"
-                          "the pause menu's.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Checkbox("Camera track", &s.cameraEnabled)) changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Drive the game camera from the camera lane's shots\n"
-                          "for the duration of playback.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Checkbox("Hide player", &s.hidePlayer)) changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Hide the third-person player avatar while the cutscene\n"
-                          "plays (no effect in FPP/noclip - they have no body).");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    if (ImGui::Checkbox("Hide HUD", &s.hideHud)) changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Hides the HUD, the USE prompt and USE itself.\n"
-                          "Display Text stays - subtitles keep working.\n"
-                          "Off for a cutscene the player keeps playing under.");
-
-    // How a skip is taken. Only meaningful while the cutscene is skippable, so
-    // the row only appears then - a mode that decides nothing reads as one that
-    // is broken.
-    if (s.skippable) {
-        static const char* kSkipNames[] = {"Skip instantly", "Ask first"};
-        ImGui::SetNextItemWidth(scaled(130.0f));
-        if (ImGui::Combo("On skip", &s.skipMode, kSkipNames, kSeqSkipModeCount))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Ask first opens the project's skip screen and\n"
-                              "freezes the cutscene until the player answers.");
-        if (s.skipMode == kSeqSkipConfirm) {
-            const int sm = project::skipMenuIndex(project_);
-            ImGui::SameLine(0.0f, scaled(10.0f));
-            if (sm < 0) {
-                ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.3f, 1.0f),
-                                   "no skip screen - skips instantly");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Nothing to open, so the press just skips.\n"
-                        "Tools > Menu Editor > + Skip screen.");
-            } else {
-                ImGui::TextDisabled("screen: %s", project_.menus[sm].name.c_str());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Edit it in Tools > Menu Editor.");
-            }
-        }
-    }
-
-    // Cinematic dressing: widescreen masks + fades, composited over the frame
-    // (and the HUD) on the PS2 and previewed on the viewport image.
-    static const char* kBarsNames[] = {"None", "Cinema 2.39:1", "Wide 16:9",
-                                       "Pillarbox", "Frame"};
-    ImGui::SetNextItemWidth(scaled(130.0f));
-    if (ImGui::Combo("Widescreen bars", &s.bars, kBarsNames, kSeqBarsStyleCount))
-        changed = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Solid black masks while the cutscene plays; they\n"
-                          "slide in at the start and out before the end (times\n"
-                          "below; 0 = they appear/vanish instantly).");
-    // Bars slide-in/out times, only meaningful when bars are on. Authored
-    // just like the fades, right next to them.
-    if (s.bars != kSeqBarsNone) {
-        ImGui::SameLine(0.0f, scaled(14.0f));
-        ImGui::SetNextItemWidth(scaled(76.0f));
-        if (ImGui::DragFloat("Bars in", &s.barsSlideIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How long the bars take to slide in at the start.\n"
-                              "0 = they are there from the first frame.");
-        ImGui::SameLine(0.0f, scaled(10.0f));
-        ImGui::SetNextItemWidth(scaled(76.0f));
-        if (ImGui::DragFloat("Bars out", &s.barsSlideOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How long the bars take to slide out before the\n"
-                              "end. 0 = they stay until the last frame.");
-        if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
-        if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
-    }
-    ImGui::SetNextItemWidth(scaled(76.0f));
-    if (ImGui::DragFloat("Fade in", &s.fadeIn, 0.05f, 0.0f, 10.0f, "%.2f s"))
-        changed = true;
-    ImGui::SameLine(0.0f, scaled(10.0f));
-    ImGui::SetNextItemWidth(scaled(76.0f));
-    if (ImGui::DragFloat("Fade out", &s.fadeOut, 0.05f, 0.0f, 10.0f, "%.2f s"))
-        changed = true;
-    if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
-    if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
-
-    // --- Adjust imported take -----------------------------------------------
-    // After a take is imported the recording + mapping stay loaded, so the
-    // whole path can be re-positioned and re-oriented in place (start point,
-    // start yaw, scale) without re-importing. Re-bakes the same target.
-    if (seqTakeActive_ && seqTakeSeqIdx_ == selectedSequence_ &&
-        !seqTake_.samples.empty()) {
-        const std::string what =
-            seqTakeTarget_.empty() ? std::string("free camera shots")
-                                   : ("camera \"" + seqTakeTarget_ + "\"");
-        if (ImGui::CollapsingHeader("Adjust imported take",
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::TextDisabled("Re-positions the imported %s.", what.c_str());
-            bool rebake = false;
-            if (ImGui::DragFloat3("Start point", seqTakeMap_.origin, 0.1f)) rebake = true;
-            ImGui::SameLine();
-            if (ImGui::SmallButton("From view")) {
-                takeOriginAimFromView();  // position + aim
-                rebake = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Move the start point to the editor camera AND\n"
-                                  "aim the path where you are looking.");
-            ImGui::SetNextItemWidth(scaled(140.0f));
-            if (ImGui::DragFloat("Start yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
-                                 360.0f, "%.0f deg"))
-                rebake = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Rotates the whole path about the up axis,\n"
-                                  "pivoting on the start point.");
-            ImGui::SameLine(0.0f, scaled(14.0f));
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            if (ImGui::DragFloat("Scale", &seqTakeMap_.scale, 0.02f, 0.01f, 1000.0f,
-                                 "%.2f u/m"))
-                rebake = true;
-            ImGui::SameLine(0.0f, scaled(14.0f));
-            if (ImGui::SmallButton("Done")) {
-                seqTakeActive_ = false;  // stop tracking; keys stay
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Finish adjusting - the keys become ordinary\n"
-                                  "editable keyframes.");
-            if (rebake) {
-                applyCamTake(s, true);
-                const float lastT =
-                    s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
-                if (lastT > s.duration) s.duration = lastT;
-                changed = true;
-            }
-        }
-    }
-
-    // --- Phone camera (live recording) --------------------------------------
-    // The other half of the phone story: instead of importing a finished file,
-    // record the move as it happens (docs/phone-camera.md). The link itself
-    // lives in Tools > Phone Camera; this is where a take lands in a sequence.
-    if (ImGui::CollapsingHeader("Phone camera",
-                                phoneRec_ ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        if (!phoneCam_.listening()) {
-            ImGui::TextDisabled("Hold your phone, watch the shot on its screen and\n"
-                                "record the camera move straight into this cutscene.");
-            if (ImGui::Button("Open Phone Camera...")) showPhoneCamWindow_ = true;
-        } else {
-            // Target: a Camera entity (a real dolly the game films from) or the
-            // camera lane's free shots - same choice the take importer offers.
-            bool anyCam = false;
-            for (const SceneObject& o : project_.objects())
-                if (o.type == PrimitiveType::Camera) anyCam = true;
-            const std::string targetLabel =
-                phoneRecTarget_.empty() ? "Free camera shots" : phoneRecTarget_;
-            ImGui::SetNextItemWidth(scaled(190.0f));
-            if (ImGui::BeginCombo("Into", targetLabel.c_str())) {
-                if (ImGui::Selectable("Free camera shots", phoneRecTarget_.empty()))
-                    phoneRecTarget_.clear();
-                if (anyCam) ImGui::Separator();
-                for (const SceneObject& o : project_.objects())
-                    if (o.type == PrimitiveType::Camera)
-                        if (ImGui::Selectable(o.name.c_str(), phoneRecTarget_ == o.name))
-                            phoneRecTarget_ = o.name;
-                ImGui::EndCombo();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("A Camera entity records into its transform track, so\n"
-                                  "the game films from a camera that dollies along your\n"
-                                  "path. Free shots write the camera lane directly.");
-
-            // Keyframe density. "Project frame rate" is the sync-with-the-game
-            // option: one key per rendered frame, so nothing is interpolated.
-            static const char* kDensNames[] = {"Project frame rate", "Custom rate",
-                                               "Optimize (tolerance)"};
-            ImGui::SetNextItemWidth(scaled(190.0f));
-            ImGui::Combo("Keyframes", &phoneDensityMode_, kDensNames, 3);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("How densely the move is sampled into keys.\n"
-                                  "Project frame rate = one key per game frame (exact,\n"
-                                  "biggest table). Custom rate = keys per second.\n"
-                                  "Optimize = no fixed rate; drop keys the PS2's own\n"
-                                  "interpolation already reproduces within an error\n"
-                                  "bound (the smallest table).");
-            ImGui::SameLine(0.0f, scaled(12.0f));
-            if (phoneDensityMode_ == 0) {
-                ImGui::Text("%.0f keys/s", projectFrameRate());
-            } else if (phoneDensityMode_ == 1) {
-                ImGui::SetNextItemWidth(scaled(120.0f));
-                ImGui::DragFloat("##dens", &phoneDensity_, 0.5f, 0.5f, 60.0f,
-                                 "%.1f keys/s");
-            } else {
-                ImGui::SetNextItemWidth(scaled(120.0f));
-                ImGui::SliderFloat("##tol", &phoneTolerance_, 0.005f, 1.0f, "%.3f u",
-                                   ImGuiSliderFlags_Logarithmic);
-            }
-            ImGui::Checkbox("Start at playhead", &phoneRecAtPlayhead_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Recorded keys begin at the playhead instead of at\n"
-                                  "t = 0, so a move can be dropped after an existing\n"
-                                  "shot.");
-
-            if (phoneRec_) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.13f, 0.17f, 1.0f));
-                if (ImGui::Button("Stop recording", ImVec2(scaled(140), 0)))
-                    stopPhoneRecording();
-                ImGui::PopStyleColor();
-                ImGui::SameLine();
-                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.4f, 1.0f),
-                                   "REC  %.2f s  %d keys", (float)phoneTake_.duration(),
-                                   phoneRecStats_.keyCount);
-                if (phoneRecSeq_ != selectedSequence_)
-                    ImGui::TextDisabled("(recording into \"%s\")",
-                                        phoneRecSeq_ >= 0 &&
-                                                phoneRecSeq_ < (int)project_.sequences.size()
-                                            ? project_.sequences[phoneRecSeq_].name.c_str()
-                                            : "?");
-                if (phoneRecStats_.keyCount > 600)
-                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f),
-                                       "%d keys is a big table - consider a lower "
-                                       "density.", phoneRecStats_.keyCount);
-            } else {
-                const bool canRec = phoneCam_.connected() && phoneHasPose_;
-                ImGui::BeginDisabled(!canRec);
-                if (ImGui::Button("Record", ImVec2(scaled(140), 0)))
-                    startPhoneRecording();
-                ImGui::EndDisabled();
-                ImGui::SameLine();
-                if (!phoneCam_.connected())
-                    ImGui::TextDisabled("Waiting for the phone to connect...");
-                else if (!phoneHasPose_)
-                    ImGui::TextDisabled("Waiting for a pose...");
-                else
-                    ImGui::TextDisabled("The phone's REC button does this too.");
-            }
-        }
-    }
+    };
+    if (selectedSequence_ >= (int)project_.sequences.size()) selectedSequence_ = -1;
+    // Open on a sequence rather than on an empty pane.
+    if (selectedSequence_ < 0 && !project_.sequences.empty()) selectSequence(0);
+    const bool haveSeq = selectedSequence_ >= 0;
 
     // "Import take...": pick a phone-recorded 6DoF camera take (CamTrackAR
     // .hfcs or the canonical CSV - docs/camera-takes.md) and stage it for the
@@ -1415,64 +1455,130 @@ void App::drawCutsceneWindow() {
         seqTakeOpen_ = true;
     };
 
-    // --- transport -----------------------------------------------------------
-    ImGui::SeparatorText("Timeline");
-    // Space toggles play/stop while the Cutscene Director is focused (but not
-    // while typing in a field or dragging a widget - Space also clicks a
-    // focused button, so skip when an item is active to avoid a double toggle).
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
-        ImGui::IsKeyPressed(ImGuiKey_Space, false))
-        seqPlaying_ = !seqPlaying_;
-    if (ImGui::Button(seqPlaying_ ? "Pause" : "Play")) seqPlaying_ = !seqPlaying_;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play / pause (Space)");
-    ImGui::SameLine();
-    if (ImGui::Button("Rewind")) {
-        seqPlayhead_ = 0.0f;
-        seqPlaying_ = false;
+    // --- header: which sequence, who plays it, the phone, import -------------
+    {
+        const float h = ImGui::GetFrameHeight();
+        const char* cur = haveSeq ? project_.sequences[selectedSequence_].name.c_str() : "No sequence";
+        ImVec2 ts;
+        {
+            ui::FontScope bold(ui::boldFont());
+            ts = ImGui::CalcTextSize(cur);
+        }
+        const float w = ts.x + fs * 2.4f;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("Pick sequence", ImVec2(w, h))) ImGui::OpenPopup("##seq_switch");
+        const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("The cutscene being edited - click to switch or add one.");
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding;
+        ImVec4 fill = sem.surface;
+        fill.w = 0.5f + 0.5f * t;
+        dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(fill), r);
+        dl->AddRect(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.border), r);
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(p.x + fs * 0.6f, p.y + (h - ts.y) * 0.5f), ImGui::GetColorU32(sem.text), cur);
+        }
+        const float cx = p.x + w - fs * 0.8f, cy = p.y + h * 0.5f;
+        dl->AddTriangleFilled(ImVec2(cx - fs * 0.25f, cy - fs * 0.1f), ImVec2(cx + fs * 0.25f, cy - fs * 0.1f),
+                              ImVec2(cx, cy + fs * 0.18f), ImGui::GetColorU32(sem.textDim));
     }
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::Checkbox("Preview in viewport", &seqPreview_);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Pose the scene at the playhead. Objects you have\n"
-                          "SELECTED stay at their real transform while paused,\n"
-                          "so the gizmo edits what you see - snapshot or\n"
-                          "auto-key to turn that pose into a keyframe.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::Checkbox("Auto-key", &seqAutoKey_);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
-                          "playhead for every selected object that has a\n"
-                          "track in this sequence.");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::SetNextItemWidth(scaled(100.0f));
-    ImGui::SliderFloat("Zoom", &seqZoom_, 1.0f, 8.0f, "%.1fx");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Timeline horizontal zoom (also Ctrl + mouse wheel\n"
-                          "over the dopesheet).");
-    ImGui::SameLine(0.0f, scaled(14.0f));
-    ImGui::Text("t = %.2f s", seqPlayhead_);
-    ImGui::SameLine(0.0f, 14.0f);
-    if (ImGui::SmallButton("Import take...")) beginTakeImport();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Import a phone-recorded 6DoF camera move (CamTrackAR\n"
-                          ".hfcs or the CSV spec in docs/camera-takes.md) as free\n"
-                          "camera shots on the camera lane.");
-    if (seqPlaying_) {
-        seqPlayhead_ += ImGui::GetIO().DeltaTime;
-        if (seqPlayhead_ >= s.duration) {
-            if (s.loop)
-                seqPlayhead_ = std::fmod(seqPlayhead_, s.duration);
-            else {
-                seqPlayhead_ = s.duration;
-                seqPlaying_ = false;
+    if (ImGui::BeginPopup("##seq_switch")) {
+        for (int i = 0; i < (int)project_.sequences.size(); ++i) {
+            ImGui::PushID(i);
+            if (ImGui::Selectable(project_.sequences[i].name.c_str(), selectedSequence_ == i))
+                selectSequence(i);
+            ImGui::PopID();
+        }
+        if (!project_.sequences.empty()) ImGui::Separator();
+        if (ImGui::Selectable("+ New sequence")) newSequence();
+        ImGui::EndPopup();
+    }
+    if (haveSeq) {
+        // Who starts this cutscene: every Play Sequence naming it, any scene.
+        const std::string& nm = project_.sequences[selectedSequence_].name;
+        std::vector<std::string> by;
+        for (size_t si = 0; si < project_.scenes.size(); ++si)
+            for (const SceneObject& o : project_.scenes[si].objects)
+                for (const FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (!ft || ft->strKind != FlowParamKind::SequenceName || fn.str != nm) continue;
+                    std::string who = o.name;
+                    if ((int)si != project_.activeScene) who += " in " + project_.scenes[si].name;
+                    by.push_back(who + " (" + ft->title + ")");
+                }
+        ImGui::SameLine(0.0f, fs * 0.8f);
+        ImGui::AlignTextToFramePadding();
+        if (by.empty()) {
+            ImGui::TextDisabled("not started by any graph yet");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("A Play Sequence flow node starts it in the game.");
+        } else {
+            ImGui::TextDisabled("played by");
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextUnformatted(by.front().c_str());
+            if (by.size() > 1) {
+                ImGui::SameLine(0.0f, fs * 0.3f);
+                ImGui::TextDisabled("+%d", (int)by.size() - 1);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    std::string all;
+                    for (const std::string& b : by) all += b + "\n";
+                    ImGui::SetTooltip("%s", all.c_str());
+                }
             }
         }
     }
-    if (seqPlayhead_ < 0.0f) seqPlayhead_ = 0.0f;
-    if (seqPlayhead_ > s.duration) seqPlayhead_ = s.duration;
+    {
+        // The phone link's state, and the way to it: recording lives in the
+        // Phone Camera window, this is the one-glance answer to "is it on".
+        char pill[64];
+        int kind = 4;
+        if (phoneRec_) {
+            std::snprintf(pill, sizeof(pill), "Phone camera \xc2\xb7 REC###seq_phone");
+            kind = 2;
+        } else if (phoneCam_.connected()) {
+            std::snprintf(pill, sizeof(pill), "Phone camera###seq_phone");
+            kind = 0;
+        } else if (phoneCam_.listening()) {
+            std::snprintf(pill, sizeof(pill), "Phone camera \xc2\xb7 waiting###seq_phone");
+            kind = 1;
+        } else {
+            std::snprintf(pill, sizeof(pill), "Phone camera###seq_phone");
+        }
+        const float impW = ImGui::CalcTextSize("Import take...").x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        const float total = ui::StatusPillWidth(pill) + ImGui::GetStyle().ItemSpacing.x + impW;
+        ImGui::SameLine();
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        if (ImGui::GetCursorPosX() < right - total) ImGui::SetCursorPosX(right - total);
+        if (ui::StatusPill(pill, kind)) {
+            showPhoneCamWindow_ = true;
+            ImGui::SetWindowFocus("Phone Camera");
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Film with your phone and record the move into this\n"
+                              "cutscene - opens Tools > Phone Camera.");
+        ImGui::SameLine();
+        if (ui::GhostButton("Import take...", impW, haveSeq)) beginTakeImport();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Import a phone-recorded 6DoF camera move (CamTrackAR\n"
+                              ".hfcs or the CSV spec in docs/camera-takes.md).");
+    }
 
-    static const char* kEaseNames[] = {"Linear", "Smooth", "Step (hold)"};
+    if (!haveSeq) {
+        if (ui::EmptyState(ui::Glyph::Film, "No cutscenes yet",
+                           "A sequence poses objects and the camera over time. The Play Sequence "
+                           "flow node starts it in the game.",
+                           "New sequence"))
+            newSequence();
+        ImGui::End();
+        commitIfEdited();
+        return;
+    }
+    Sequence& s = project_.sequences[selectedSequence_];
+    bool deleteSeq = false;
+
+    static const char* kBarsNames[] = {"None", "Cinema 2.39:1", "Wide 16:9", "Pillarbox", "Frame"};
 
     // Snapshot helpers. A key within 1/60 s of the requested time is replaced
     // (keeping its easing and, for camera keys, the shot binding/fov/shake).
@@ -1533,93 +1639,713 @@ void App::drawCutsceneWindow() {
         return true;
     };
 
-    // --- the dopesheet ---------------------------------------------------
-    // One lane per track (the camera lane first), keys as draggable diamonds,
-    // a click/drag-scrubbed time ruler and a playhead line across all lanes.
-    // The label column stays pinned while the lanes scroll horizontally.
-    const float laneH = scaled(26.0f), rulerH = scaled(22.0f), labelW = scaled(170.0f);
-    const int laneCount = (s.cameraEnabled ? 1 : 0) + (int)s.tracks.size();
-    const float sheetH =
-        rulerH + laneCount * laneH + ImGui::GetStyle().ScrollbarSize + scaled(8.0f);
+    // Playback: Space toggles while the Director is focused (not while typing
+    // or dragging - Space also clicks a focused button).
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
+        ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        seqPlaying_ = !seqPlaying_;
+    // Open on content, not on the black first frame of the fade-in (the
+    // Credits preview does the same). Only an untouched playhead moves.
+    if (seqOpenSeek_) {
+        seqOpenSeek_ = false;
+        if (seqPlayhead_ == 0.0f && !seqPlaying_ && s.fadeIn > 0.0f) seqPlayhead_ = std::min(s.fadeIn, s.duration);
+    }
+    if (seqPlaying_) {
+        seqPlayhead_ += ImGui::GetIO().DeltaTime;
+        if (seqPlayhead_ >= s.duration) {
+            if (s.loop)
+                seqPlayhead_ = std::fmod(seqPlayhead_, s.duration);
+            else {
+                seqPlayhead_ = s.duration;
+                seqPlaying_ = false;
+            }
+        }
+    }
+    if (seqPlayhead_ < 0.0f) seqPlayhead_ = 0.0f;
+    if (seqPlayhead_ > s.duration) seqPlayhead_ = s.duration;
+
+    // Per-camera and per-track colours: data tints from the theme's own
+    // meanings, so a camera is the same colour in its clip and its lane.
+    const ImVec4 kTints[] = {sem.accent, sem.ok, sem.warn, sem.special, sem.danger, sem.axisZ};
+    auto tintOf = [&](const std::string& name) {
+        uint32_t h = 2166136261u;
+        for (char c : name) h = (h ^ (unsigned char)c) * 16777619u;
+        return kTints[h % (sizeof(kTints) / sizeof(kTints[0]))];
+    };
+    auto withA = [](ImVec4 c, float a) {
+        c.w = a;
+        return c;
+    };
+    auto mixc = [](const ImVec4& a, const ImVec4& b, float t) {
+        return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
+                      a.w + (b.w - a.w) * t);
+    };
+
+    // --- body: [shot | inspector] over the timeline --------------------------------
+    const float thick = ImMax(6.0f, fs * 0.45f);  // the toolkit splitter's
+    const float bodyW = ImGui::GetContentRegionAvail().x;
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float transportH = ImGui::GetFrameHeightWithSpacing() + fs * 0.4f;
+    if (seqTopH_ <= 0.0f) seqTopH_ = bodyH * 0.52f;
+    seqTopH_ = ImClamp(seqTopH_, scaled(160.0f), ImMax(scaled(160.0f), bodyH - transportH - scaled(140.0f)));
+    if (seqInspW_ <= 0.0f) seqInspW_ = scaled(300.0f);
+    seqInspW_ = ImClamp(seqInspW_, scaled(240.0f), ImMax(scaled(240.0f), bodyW * 0.5f));
+
+    ImGui::BeginChild("##seq_top", ImVec2(0, seqTopH_));
+    {
+        const float heroW = ImMax(scaled(160.0f), ImGui::GetContentRegionAvail().x - seqInspW_ - thick);
+        ImGui::BeginChild("##seq_hero", ImVec2(heroW, 0));
+        {
+            // --- the shot at the playhead ---------------------------------------
+            const ImVec2 avail = ImGui::GetContentRegionAvail();
+            const float rowH = ImGui::GetFrameHeightWithSpacing();
+            const float aspect = ps2ViewportOutput().tvAspect > 0.1f ? ps2ViewportOutput().tvAspect : 4.0f / 3.0f;
+            float w = avail.x - fs, h = w / aspect;
+            if (h > avail.y - rowH - fs) {
+                h = avail.y - rowH - fs;
+                w = h * aspect;
+            }
+            w = ImMax(w, 16.0f);
+            h = ImMax(h, 16.0f);
+            const ImVec2 c0 = ImGui::GetCursorScreenPos();
+            const ImVec2 p(c0.x + (avail.x - w) * 0.5f, c0.y + fs * 0.4f);
+            const ImVec2 q(p.x + w, p.y + h);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+            // Keeps seqPosed_ and the shot current even while the viewport
+            // panel is hidden behind another tab.
+            cutscenePosedObjects();
+            if (seqShotValid_) {
+                std::vector<std::string> hide;
+                for (const SeqCameraKey& k : s.cameraKeys)
+                    if (!k.camera.empty()) hide.push_back(k.camera);
+                viewport_.setHiddenCameras(std::move(hide));
+                const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
+                // The scene as the game draws it, re-rendered when the shot,
+                // the playhead or the project changes (Viewport::renderGameView).
+                uint32_t playBits = 0;
+                std::memcpy(&playBits, &seqPlayhead_, sizeof(playBits));
+                const uint32_t tex = viewport_.renderShot((int)(w * sc), (int)(h * sc), seqPosed_, seqShotEye_,
+                                                          seqShotAt_, seqShotFov_, seqShotRoll_,
+                                                          Viewport::GameViewShot,
+                                                          modelEditSerial_ * 31u + playBits);
+                dl->AddImageRounded((ImTextureID)(intptr_t)tex, p, q, ImVec2(0, 1), ImVec2(1, 0),
+                                    IM_COL32_WHITE, r);
+                // bars and fade, the same coverage the PS2 composites
+                const ImU32 black = IM_COL32(0, 0, 0, 255);
+                if (s.bars != kSeqBarsNone) {
+                    const float amt = seqBarsAmount(seqPlayhead_, s.duration, s.barsSlideIn, s.barsSlideOut);
+                    float ft, fb, fl, fr;
+                    seqBarsFractions(s.bars, aspect, ft, fb, fl, fr);
+                    const float bt = ft * amt * h, bb = fb * amt * h, bl = fl * amt * w, br = fr * amt * w;
+                    if (bt > 0) dl->AddRectFilled(p, ImVec2(q.x, p.y + bt), black, r, ImDrawFlags_RoundCornersTop);
+                    if (bb > 0) dl->AddRectFilled(ImVec2(p.x, q.y - bb), q, black, r, ImDrawFlags_RoundCornersBottom);
+                    if (bl > 0) dl->AddRectFilled(p, ImVec2(p.x + bl, q.y), black, r, ImDrawFlags_RoundCornersLeft);
+                    if (br > 0) dl->AddRectFilled(ImVec2(q.x - br, p.y), q, black, r, ImDrawFlags_RoundCornersRight);
+                }
+                const float fade = seqFadeAlpha(seqPlayhead_, s.duration, s.fadeIn, s.fadeOut);
+                if (fade > 0.0f) dl->AddRectFilled(p, q, IM_COL32(0, 0, 0, (int)(fade * 255.0f)), r);
+                // glass label: which camera, its lens, its shake
+                char lbl[96];
+                if (!seqShotCam_.empty())
+                    std::snprintf(lbl, sizeof(lbl), "%s \xc2\xb7 FOV %.0f \xc2\xb7 shake %.2f", seqShotCam_.c_str(),
+                                  seqShotFov_, seqShotShake_);
+                else
+                    std::snprintf(lbl, sizeof(lbl), "free shot \xc2\xb7 FOV %.0f \xc2\xb7 shake %.2f", seqShotFov_,
+                                  seqShotShake_);
+                const ImVec2 ls = ImGui::CalcTextSize(lbl);
+                const ImVec2 la(p.x + fs * 0.6f, p.y + fs * 0.6f);
+                dl->AddRectFilled(la, ImVec2(la.x + ls.x + fs * 0.8f, la.y + ls.y + fs * 0.4f),
+                                  IM_COL32(0, 0, 0, 170), fs * 0.3f);
+                dl->AddText(ImVec2(la.x + fs * 0.4f, la.y + fs * 0.2f), IM_COL32(235, 235, 240, 255), lbl);
+            } else {
+                dl->AddRectFilled(p, q, ImGui::GetColorU32(sem.field), r);
+                const char* msg = s.cameraEnabled ? "No camera shots yet"
+                                                  : "Camera track off - the game keeps its own camera";
+                const ImVec2 ms = ImGui::CalcTextSize(msg);
+                dl->AddText(ImVec2((p.x + q.x - ms.x) * 0.5f, (p.y + q.y) * 0.5f - ms.y * 1.6f),
+                            ImGui::GetColorU32(sem.textDim), msg);
+                const char* act = s.cameraEnabled ? "Add a shot at the playhead" : "Turn on the camera track";
+                const float bw = ImGui::CalcTextSize(act).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+                ImGui::SetCursorScreenPos(ImVec2((p.x + q.x - bw) * 0.5f, (p.y + q.y) * 0.5f));
+                if (ui::PrimaryButton(act, bw)) {
+                    if (!s.cameraEnabled) {
+                        s.cameraEnabled = true;
+                        changed = true;
+                    } else if (snapshotCameraKey(seqPlayhead_)) {
+                        changed = true;
+                    } else {
+                        statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
+                    }
+                }
+            }
+            dl->AddRect(p, q, ImGui::GetColorU32(sem.border), r);
+            // what the preview drives, and what the sequence hides
+            ImGui::SetCursorScreenPos(ImVec2(p.x, q.y + fs * 0.5f));
+            const char* modes[] = {"Shot", "Also drive the viewport"};
+            int mode = seqPreview_ ? 1 : 0;
+            if (ui::Segmented("##seq_view", modes, 2, &mode)) seqPreview_ = mode == 1;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Shot: the preview is here and the viewport stays yours.\n"
+                                  "Also drive the viewport: the viewport films through the\n"
+                                  "sequence camera too, with its bars and fades.");
+            ImGui::SameLine(0.0f, fs);
+            std::string summary;
+            if (s.bars != kSeqBarsNone) summary += std::string(kBarsNames[s.bars]) + " bars";
+            if (s.hideHud) summary += std::string(summary.empty() ? "" : " \xc2\xb7 ") + "HUD hidden";
+            if (s.hidePlayer) summary += std::string(summary.empty() ? "" : " \xc2\xb7 ") + "player hidden";
+            if (!summary.empty()) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", summary.c_str());
+            }
+        }
+        ImGui::EndChild();
+        ImGui::SameLine(0.0f, 0.0f);
+        {
+            float hw = heroW;
+            ui::VSplitter("##seq_split_insp", &hw, scaled(160.0f), scaled(240.0f), seqTopH_);
+            seqInspW_ += heroW - hw;
+        }
+        ImGui::BeginChild("##seq_insp", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
+        {
+            if (ui::BeginQuietTabBar("##seq_insp_tabs")) {
+                const ImGuiTabItemFlags force = seqInspTabForce_ ? ImGuiTabItemFlags_SetSelected : 0;
+                const int want = seqInspTab_;  // while forcing, ImGui still reports the old tab
+                if (ui::QuietTab("Key", want == 0, want == 0 ? force : 0) && !force) seqInspTab_ = 0;
+                if (ui::QuietTab("Sequence", want == 1, want == 1 ? force : 0) && !force) seqInspTab_ = 1;
+                ui::EndQuietTabBar();
+            }
+            seqInspTabForce_ = false;
+            ImGui::BeginChild("##seq_insp_body", ImVec2(0, 0));
+            if (seqInspTab_ == 1) {
+                // --- the sequence's own settings ----------------------------------
+                ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+                char nameBuf[64];
+                std::snprintf(nameBuf, sizeof(nameBuf), "%s", s.name.c_str());
+                if (ui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                    for (SceneData& sc : project_.scenes)
+                        for (SceneObject& o : sc.objects)
+                            for (FlowNode& fn : o.flowGraph.nodes) {
+                                const FlowNodeType* ft = flowNodeType(fn.type);
+                                if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name)
+                                    fn.str = nameBuf;
+                            }
+                    s.name = nameBuf;
+                }
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ui::DragFloat("Duration (s)", &s.duration, 0.1f, 0.1f, 600.0f, "%.2f s")) changed = true;
+                if (s.duration < 0.1f) s.duration = 0.1f;
+                if (ui::Switch("Loop", &s.loop)) changed = true;
+                if (ui::Switch("Skippable", &s.skippable)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("The menu button (START) ends the cutscene early.\n"
+                                      "While it plays that button is the cutscene's, not\n"
+                                      "the pause menu's.");
+                // How a skip is taken - only while skippable, a mode that decides
+                // nothing reads as one that is broken.
+                if (s.skippable) {
+                    static const char* kSkipNames[] = {"Skip instantly", "Ask first"};
+                    if (ui::Combo("On skip", &s.skipMode, kSkipNames, kSeqSkipModeCount)) changed = true;
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Ask first opens the project's skip screen and\n"
+                                          "freezes the cutscene until the player answers.");
+                    if (s.skipMode == kSeqSkipConfirm) {
+                        const int sm = project::skipMenuIndex(project_);
+                        if (sm < 0) {
+                            ImGui::TextColored(sem.warn, "No skip screen - skips instantly.");
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                                ImGui::SetTooltip("Nothing to open, so the press just skips.\n"
+                                                  "Tools > Menu Editor > + Skip screen.");
+                        } else {
+                            ImGui::TextDisabled("Asks with screen \"%s\".", project_.menus[sm].name.c_str());
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                                ImGui::SetTooltip("Edit it in Tools > Menu Editor.");
+                        }
+                    }
+                }
+                if (ui::Switch("Camera track", &s.cameraEnabled)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Drive the game camera from the camera lane's shots\n"
+                                      "for the duration of playback.");
+                if (ui::Switch("Hide player", &s.hidePlayer)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Hide the third-person player avatar while the cutscene\n"
+                                      "plays (no effect in FPP/noclip - they have no body).");
+                if (ui::Switch("Hide HUD", &s.hideHud)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Hides the HUD, the USE prompt and USE itself.\n"
+                                      "Display Text stays - subtitles keep working.\n"
+                                      "Off for a cutscene the player keeps playing under.");
+                ImGui::Spacing();
+                ui::Caption("Bars & fades");
+                // Cinematic dressing: widescreen masks + fades, composited over
+                // the frame (and the HUD) on the PS2 and drawn on the preview.
+                if (ui::Combo("Widescreen bars", &s.bars, kBarsNames, kSeqBarsStyleCount)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Solid black masks while the cutscene plays; they\n"
+                                      "slide in at the start and out before the end.");
+                if (s.bars != kSeqBarsNone) {
+                    if (ui::DragFloat("Bars in", &s.barsSlideIn, 0.05f, 0.0f, 10.0f, "%.2f s")) changed = true;
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("How long the bars take to slide in at the start.\n"
+                                          "0 = they are there from the first frame.");
+                    if (ui::DragFloat("Bars out", &s.barsSlideOut, 0.05f, 0.0f, 10.0f, "%.2f s")) changed = true;
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("How long the bars take to slide out before the\n"
+                                          "end. 0 = they stay until the last frame.");
+                    if (s.barsSlideIn < 0.0f) s.barsSlideIn = 0.0f;
+                    if (s.barsSlideOut < 0.0f) s.barsSlideOut = 0.0f;
+                }
+                if (ui::DragFloat("Fade in", &s.fadeIn, 0.05f, 0.0f, 10.0f, "%.2f s")) changed = true;
+                if (ui::DragFloat("Fade out", &s.fadeOut, 0.05f, 0.0f, 10.0f, "%.2f s")) changed = true;
+                if (s.fadeIn < 0.0f) s.fadeIn = 0.0f;
+                if (s.fadeOut < 0.0f) s.fadeOut = 0.0f;
+
+                // --- Adjust imported take -----------------------------------------
+                // After a take is imported the recording + mapping stay loaded, so
+                // the whole path can be re-positioned and re-oriented in place
+                // (start point, start yaw, scale) without re-importing.
+                if (seqTakeActive_ && seqTakeSeqIdx_ == selectedSequence_ &&
+                    !seqTake_.samples.empty()) {
+                    const std::string what =
+                        seqTakeTarget_.empty() ? std::string("free camera shots")
+                                               : ("camera \"" + seqTakeTarget_ + "\"");
+                    if (ui::Section("Adjust imported take", ImGuiTreeNodeFlags_DefaultOpen)) {
+                        ImGui::TextDisabled("Re-positions the imported %s.", what.c_str());
+                        bool rebake = false;
+                        if (ImGui::DragFloat3("Start point", seqTakeMap_.origin, 0.1f)) rebake = true;
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("From view")) {
+                            takeOriginAimFromView();  // position + aim
+                            rebake = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Move the start point to the editor camera AND\n"
+                                              "aim the path where you are looking.");
+                        ImGui::SetNextItemWidth(scaled(140.0f));
+                        if (ImGui::DragFloat("Start yaw", &seqTakeMap_.yawDeg, 1.0f, -360.0f,
+                                             360.0f, "%.0f deg"))
+                            rebake = true;
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Rotates the whole path about the up axis,\n"
+                                              "pivoting on the start point.");
+                        ImGui::SameLine(0.0f, scaled(14.0f));
+                        ImGui::SetNextItemWidth(scaled(120.0f));
+                        if (ImGui::DragFloat("Scale", &seqTakeMap_.scale, 0.02f, 0.01f, 1000.0f,
+                                             "%.2f u/m"))
+                            rebake = true;
+                        ImGui::SameLine(0.0f, scaled(14.0f));
+                        if (ImGui::SmallButton("Done")) {
+                            seqTakeActive_ = false;  // stop tracking; keys stay
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Finish adjusting - the keys become ordinary\n"
+                                              "editable keyframes.");
+                        if (rebake) {
+                            applyCamTake(s, true);
+                            const float lastT =
+                                s.cameraKeys.empty() ? 0.0f : s.cameraKeys.back().time;
+                            if (lastT > s.duration) s.duration = lastT;
+                            changed = true;
+                        }
+                    }
+                }
+                ImGui::Spacing();
+                if (ui::GhostButton("Duplicate")) {
+                    Sequence copy = s;
+                    copy.name = uniqueSeqName(s.name);
+                    project_.sequences.push_back(std::move(copy));
+                    changed = true;
+                    selectSequence((int)project_.sequences.size() - 1);
+                }
+                ImGui::SameLine();
+                if (ui::DangerButton("Delete sequence")) deleteSeq = true;
+            } else {
+                // --- the selected key ----------------------------------------------
+                const bool camSel = selectedSeqTrack_ == -1 && s.cameraEnabled && selectedSeqKey_ >= 0 &&
+                                    selectedSeqKey_ < (int)s.cameraKeys.size();
+                const bool trackSel = selectedSeqTrack_ >= 0 && selectedSeqTrack_ < (int)s.tracks.size();
+                const bool objSel = trackSel && selectedSeqKey_ >= 0 &&
+                                    selectedSeqKey_ < (int)s.tracks[selectedSeqTrack_].keys.size();
+                // The three easings by what they do to a camera.
+                auto easingRow = [&](const char* caption, int& easing, bool camera) {
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextDisabled("%s", caption);
+                    ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+                    const char* camOpts[] = {"Cut", "Smooth", "Linear"};
+                    const char* objOpts[] = {"Hold", "Smooth", "Linear"};
+                    static const int kToEasing[] = {2, 1, 0};
+                    int sel = easing == 2 ? 0 : easing == 1 ? 1 : 2;
+                    if (ui::Segmented(camera ? "##cam_ease" : "##obj_ease", camera ? camOpts : objOpts, 3, &sel, -1.0f)) {
+                        easing = kToEasing[sel];
+                        changed = true;
+                    }
+                };
+                if (camSel) {
+                    SeqCameraKey& k = s.cameraKeys[selectedSeqKey_];
+                    const int n = (int)s.cameraKeys.size();
+                    const float until = selectedSeqKey_ + 1 < n ? s.cameraKeys[selectedSeqKey_ + 1].time : s.duration;
+                    const bool cut = selectedSeqKey_ == 0 || s.cameraKeys[selectedSeqKey_ - 1].easing == 2;
+                    {
+                        ui::FontScope bold(ui::boldFont());
+                        ImGui::Text("Camera %s \xc2\xb7 %.2f s", cut ? "cut" : "blend", k.time);
+                    }
+                    ImGui::TextDisabled("shot %d of %d \xc2\xb7 holds until %.2f s", selectedSeqKey_ + 1, n, until);
+                    ImGui::Spacing();
+                    ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+                    // A shot either films from a Camera entity or is FREE - its
+                    // own stored eye/look-at/FOV/roll. Free is what the take
+                    // importer and the phone recorder write when pointed at the
+                    // camera lane, so this has to be able to go back to it.
+                    SceneObject* camObj = nullptr;
+                    for (SceneObject& o : project_.active().objects)
+                        if (o.name == k.camera && o.type == PrimitiveType::Camera) camObj = &o;
+                    if (ui::BeginCombo("Shot from", k.camera.empty() ? "Free shot" : k.camera.c_str())) {
+                        if (ImGui::Selectable("Free shot", k.camera.empty())) {
+                            k.camera.clear();
+                            changed = true;
+                        }
+                        bool anyCam = false;
+                        for (const SceneObject& o : project_.objects()) {
+                            if (o.type != PrimitiveType::Camera) continue;
+                            if (!anyCam) ImGui::Separator();
+                            anyCam = true;
+                            if (ImGui::Selectable(o.name.c_str(), o.name == k.camera)) {
+                                k.camera = o.name;
+                                changed = true;
+                            }
+                        }
+                        if (!anyCam)
+                            ImGui::TextDisabled("No Camera entities - add one with\n"
+                                                "+ Add object > Gameplay > Camera.");
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("A Camera entity films from its own pose + FOV - animate\n"
+                                          "it (or import a take into it) for a moving shot. Free\n"
+                                          "shot uses the eye/look-at stored on this key instead.");
+                    if (!k.camera.empty() && !camObj)
+                        ImGui::TextColored(sem.danger, "Camera \"%s\" is not in this scene.", k.camera.c_str());
+                    easingRow("Into next", k.easing, true);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("How this shot becomes the next one: a hard cut, a\n"
+                                          "smooth blend, or a constant-speed move.");
+                    if (camObj) {
+                        // A bound shot's lens IS the entity's: editing it here
+                        // edits the camera (a scene edit, so it is undoable).
+                        ui::DragFloat("FOV", &camObj->cameraFov, 0.5f, 5.0f, 150.0f, "%.0f\xc2\xb0");
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip("%s's own field of view - every shot from it uses it.",
+                                              camObj->name.c_str());
+                    } else if (k.camera.empty()) {
+                        ui::DragFloat("FOV", &k.fov, 0.5f, 5.0f, 150.0f, "%.0f\xc2\xb0");
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    }
+                    ui::DragFloat("Shake", &k.shake, 0.005f, 0.0f, 2.0f, "%.2f");
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
+                                          "(interpolates between shots; 0 = steady).");
+                    // Roll only means something for a free shot: a bound one
+                    // takes its whole basis from the Camera entity.
+                    if (k.camera.empty()) {
+                        ui::DragFloat("Roll", &k.roll, 0.5f, -180.0f, 180.0f, "%.1f\xc2\xb0");
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip("Dutch angle - rotation about the view axis\n"
+                                              "(interpolates between shots; 0 = level).");
+                    } else {
+                        ImGui::AlignTextToFramePadding();
+                        ImGui::TextDisabled("Roll");
+                        ImGui::SameLine(ImClamp(ImGui::GetContentRegionAvail().x * 0.34f, scaled(80.0f), scaled(120.0f)));
+                        ImGui::TextDisabled("from %s's tilt", k.camera.c_str());
+                    }
+                    if (ui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) seqPlayhead_ = k.time;
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        const float t = k.time;
+                        sortCamKeys();
+                        for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                            if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
+                        changed = true;
+                    }
+                    ImGui::Spacing();
+                    if (!k.camera.empty() && camObj) {
+                        const bool through = lookThroughCam_ == k.camera;
+                        const std::string lt = (through ? "Stop looking through " : "Look through ") + k.camera;
+                        if (ui::GhostButton((lt + "###lookthrough").c_str())) lookThroughCam_ = through ? "" : k.camera;
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip("The viewport films through this camera, so you can\n"
+                                              "move it with the gizmo and see the shot change.");
+                        ImGui::SameLine();
+                    }
+                    if (ui::DangerButton("Delete key")) {
+                        s.cameraKeys.erase(s.cameraKeys.begin() + selectedSeqKey_);
+                        selectedSeqKey_ = -1;
+                        changed = true;
+                    }
+                } else if (objSel) {
+                    SeqTrack& tr = s.tracks[selectedSeqTrack_];
+                    SeqObjectKey& k = tr.keys[selectedSeqKey_];
+                    {
+                        ui::FontScope bold(ui::boldFont());
+                        ImGui::Text("%s \xc2\xb7 key at %.2f s", tr.target.empty() ? "?" : tr.target.c_str(), k.time);
+                    }
+                    ImGui::TextDisabled("key %d of %d", selectedSeqKey_ + 1, (int)tr.keys.size());
+                    ImGui::Spacing();
+                    ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+                    if (ui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) seqPlayhead_ = k.time;
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        const float t = k.time;
+                        sortObjKeys(tr);
+                        for (int i = 0; i < (int)tr.keys.size(); ++i)
+                            if (tr.keys[i].time == t) selectedSeqKey_ = i;
+                        changed = true;
+                    }
+                    easingRow("Into next", k.easing, false);
+                    // pose fields for the channels this track animates
+                    if (tr.animPos) {
+                        ui::AxisDrag3("Position", k.position, 0.1f);
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    }
+                    if (tr.animRot) {
+                        ui::AxisDrag3("Rotation", k.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    }
+                    if (tr.animScale) {
+                        ui::AxisDrag3("Scale", k.scale, 0.05f, 0.01f, 1000.0f);
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    }
+                    if (tr.animColor) {
+                        ui::ColorHex("Color", k.color);
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    }
+                    if (tr.animVis) {
+                        if (ui::Switch("Visible (holds to the next key)", &k.visible)) changed = true;
+                    }
+                    if (!tr.animPos && !tr.animRot && !tr.animScale && !tr.animColor && !tr.animVis)
+                        ImGui::TextDisabled("No channels on - turn one on below.");
+                    ImGui::Spacing();
+                    if (ui::GhostButton("Re-snapshot")) {
+                        if (snapshotObjectKey(tr, k.time)) changed = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Replace this key with the object's current pose.");
+                    ImGui::SameLine();
+                    if (ui::DangerButton("Delete key")) {
+                        tr.keys.erase(tr.keys.begin() + selectedSeqKey_);
+                        selectedSeqKey_ = -1;
+                        changed = true;
+                    }
+                }
+                if (trackSel) {
+                    // The selected lane: what it animates.
+                    SeqTrack& tr = s.tracks[selectedSeqTrack_];
+                    ImGui::Spacing();
+                    ui::Caption("Track", tr.target.c_str());
+                    ImGui::PushID("track");
+                    ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
+                    if (ui::Switch("Position", &tr.animPos)) changed = true;
+                    if (ui::Switch("Rotation", &tr.animRot)) changed = true;
+                    if (ui::Switch("Scale", &tr.animScale)) changed = true;
+                    if (ui::Switch("Color", &tr.animColor)) changed = true;
+                    if (ui::Switch("Visibility", &tr.animVis)) changed = true;
+                    if (!objSel) {
+                        if (ui::GhostButton("Key the playhead")) {
+                            if (snapshotObjectKey(tr, seqPlayhead_)) changed = true;
+                        }
+                        ImGui::SameLine();
+                        if (ui::DangerButton("Remove track")) {
+                            s.tracks.erase(s.tracks.begin() + selectedSeqTrack_);
+                            selectedSeqTrack_ = -1;
+                            selectedSeqKey_ = -1;
+                            changed = true;
+                        }
+                    }
+                    ImGui::PopID();
+                } else if (!camSel) {
+                    ui::EmptyState(ui::Glyph::Film, "No key selected",
+                                   "Click a shot or a key on the timeline. Double-click a lane "
+                                   "to drop a key at that time.");
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
+    ui::HSplitter("##seq_split_tl", &seqTopH_, scaled(160.0f), scaled(140.0f) + transportH, bodyW);
+
+    // --- transport -----------------------------------------------------------------
+    {
+        const float h = ImGui::GetFrameHeight();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        // rewind: a bar and a left triangle
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("Rewind", ImVec2(h, h))) {
+                seqPlayhead_ = 0.0f;
+                seqPlaying_ = false;
+            }
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            if (t > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h), ImGui::GetColorU32(withA(sem.surface, t)),
+                                  ImGui::GetStyle().FrameRounding);
+            const ImU32 ink = ImGui::GetColorU32(mixc(sem.textDim, sem.text, t));
+            const float c = h * 0.5f, s2 = h * 0.2f;
+            dl->AddRectFilled(ImVec2(p.x + c - s2 - 2.0f, p.y + c - s2), ImVec2(p.x + c - s2, p.y + c + s2), ink);
+            dl->AddTriangleFilled(ImVec2(p.x + c + s2, p.y + c - s2), ImVec2(p.x + c + s2, p.y + c + s2),
+                                  ImVec2(p.x + c - s2 + 1.0f, p.y + c), ink);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Back to 0");
+        }
+        ImGui::SameLine();
+        // play / pause: a filled round button
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton(seqPlaying_ ? "Pause###Play" : "Play###Play", ImVec2(h, h)))
+                seqPlaying_ = !seqPlaying_;
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            const ImVec2 c(p.x + h * 0.5f, p.y + h * 0.5f);
+            dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(mixc(sem.surface, sem.text, 0.08f + 0.1f * t)), 24);
+            const ImU32 ink = ImGui::GetColorU32(sem.text);
+            const float s2 = h * 0.18f;
+            if (seqPlaying_) {
+                dl->AddRectFilled(ImVec2(c.x - s2, c.y - s2), ImVec2(c.x - s2 * 0.3f, c.y + s2), ink);
+                dl->AddRectFilled(ImVec2(c.x + s2 * 0.3f, c.y - s2), ImVec2(c.x + s2, c.y + s2), ink);
+            } else {
+                dl->AddTriangleFilled(ImVec2(c.x - s2 * 0.7f, c.y - s2), ImVec2(c.x - s2 * 0.7f, c.y + s2),
+                                      ImVec2(c.x + s2 * 1.1f, c.y), ink);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Play / pause (Space)");
+        }
+        ImGui::SameLine(0.0f, fs * 0.8f);
+        {
+            auto tc = [](float sec, char* out, size_t n) {
+                const int m = (int)(sec / 60.0f);
+                std::snprintf(out, n, "%d:%05.2f", m, sec - (float)m * 60.0f);
+            };
+            char a[24], b[24];
+            tc(seqPlayhead_, a, sizeof(a));
+            tc(s.duration, b, sizeof(b));
+            ui::FontScope mono(ui::monoFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(a);
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextDisabled("/ %s", b);
+        }
+        ImGui::SameLine(0.0f, fs * 0.8f);
+        if (ui::FilterChip("Auto-key", seqAutoKey_)) seqAutoKey_ = !seqAutoKey_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
+                              "playhead for every selected object that has a\n"
+                              "track in this sequence.");
+        ImGui::SameLine();
+        if (ui::FilterChip("Loop##transport", s.loop)) {
+            s.loop = !s.loop;
+            changed = true;
+        }
+        if (phoneRec_) {
+            ImGui::SameLine();
+            char rec[64];
+            std::snprintf(rec, sizeof(rec), "REC %.1f s \xc2\xb7 %d keys", (float)phoneTake_.duration(),
+                          phoneRecStats_.keyCount);
+            ui::Badge(rec, 2);
+        }
+        // right end: the hint and the zoom
+        const char* hint = "Double-click a lane to key \xc2\xb7 drag keys to retime";
+        const float zw = ImGui::CalcTextSize("-").x + ImGui::CalcTextSize("+").x +
+                         ImGui::GetStyle().FramePadding.x * 5.2f + ImGui::GetStyle().ItemSpacing.x;
+        const float hw = ImGui::CalcTextSize(hint).x + fs;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() + hw + zw < right) {
+            ImGui::SetCursorPosX(right - hw - zw);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", hint);
+            ImGui::SameLine();
+        } else if (ImGui::GetCursorPosX() < right - zw) {
+            ImGui::SetCursorPosX(right - zw);
+        }
+        if (ui::GhostButton("-##seqzoom")) seqZoom_ = ImMax(1.0f, seqZoom_ / 1.25f);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom out (Ctrl + wheel)");
+        ImGui::SameLine();
+        if (ui::GhostButton("+##seqzoom")) seqZoom_ = ImMin(8.0f, seqZoom_ * 1.25f);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom in (Ctrl + wheel)");
+    }
+
+    // --- the timeline --------------------------------------------------------------
+    // Lanes: the camera's shots as clips (when the camera track is on), the
+    // fades & bars as ramps, then one lane per object track with its keys as
+    // diamonds over a span bar. A click/drag-scrubbed ruler and the playhead
+    // run across all of them; the label column stays pinned while the lanes
+    // scroll horizontally.
+    const float laneH = scaled(28.0f), rulerH = scaled(24.0f), labelW = scaled(180.0f);
+    const int camLanes = s.cameraEnabled ? 1 : 0;
+    const int fadeLane = camLanes;      // lane index of "Fades & bars"
+    const int trackLane0 = camLanes + 1;
+    const int laneCount = trackLane0 + (int)s.tracks.size();
+    auto laneOf = [&](int ti) { return ti < 0 ? 0 : trackLane0 + ti; };  // -1 = camera lane
     // sanity: a deleted/toggled lane can strand the key selection
-    if (selectedSeqTrack_ >= (int)s.tracks.size() ||
-        (selectedSeqTrack_ < 0 && !s.cameraEnabled))
+    if (selectedSeqTrack_ >= (int)s.tracks.size() || (selectedSeqTrack_ < 0 && !s.cameraEnabled))
         selectedSeqKey_ = -1;
 
     int deleteTrack = -1;
-    ImGui::BeginChild("##dopesheet", ImVec2(0, sheetH), ImGuiChildFlags_Borders,
-                      ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##dopesheet", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
     {
         // Ctrl + mouse wheel zooms the timeline (like the flow graph); a plain
         // wheel keeps scrolling the dopesheet.
-        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl &&
-            ImGui::GetIO().MouseWheel != 0.0f) {
-            seqZoom_ *= ImPow(1.1f, ImGui::GetIO().MouseWheel);
-            if (seqZoom_ < 1.0f) seqZoom_ = 1.0f;
-            if (seqZoom_ > 8.0f) seqZoom_ = 8.0f;
+        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f) {
+            seqZoom_ = ImClamp(seqZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel), 1.0f, 8.0f);
             ImGui::GetIO().MouseWheel = 0.0f;  // consume: don't also scroll
         }
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
         const float visibleW = ImGui::GetWindowSize().x;
-        float timeW = (visibleW - labelW - scaled(8.0f)) * seqZoom_;
+        float timeW = (visibleW - labelW - scaled(12.0f)) * seqZoom_;
         if (timeW < scaled(160.0f)) timeW = scaled(160.0f);
         const float pps = timeW / s.duration;  // pixels per second
-        const float x0 = origin.x + labelW;    // timeline left edge
+        const float x0 = origin.x + labelW + scaled(4.0f);
         const float contentH = rulerH + laneCount * laneH;
-        ImGui::Dummy(ImVec2(labelW + timeW + scaled(4.0f), contentH));
+        const float addRowH = ImGui::GetFrameHeight() + ImGui::GetStyle().ScrollbarSize + scaled(10.0f);
+        ImGui::Dummy(ImVec2(labelW + timeW + scaled(12.0f), contentH + addRowH));
         const float laneY0 = origin.y + rulerH;
-        const ImVec2 winPos = ImGui::GetWindowPos();  // pinned label column x
-        const float labelX = winPos.x;
+        const float labelX = ImGui::GetWindowPos().x;  // pinned label column x
 
-        const ImU32 colRuler = ImGui::GetColorU32(ImGuiCol_TableHeaderBg);
-        const ImU32 colLaneA = ImGui::GetColorU32(ImGuiCol_TableRowBg);
-        const ImU32 colLaneB = ImGui::GetColorU32(ImGuiCol_TableRowBgAlt);
         const ImU32 colGrid = ImGui::GetColorU32(ImGuiCol_Border);
-        const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
-        const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-        const ImU32 colPlayhead = IM_COL32(255, 80, 80, 255);
-        const ImU32 colSelected = IM_COL32(255, 200, 70, 255);
-        // key fill encodes the outgoing easing
-        auto keyColor = [&](int easing) {
-            if (easing == 2) return IM_COL32(255, 176, 80, 255);   // step
-            if (easing == 0) return IM_COL32(200, 200, 200, 255);  // linear
-            return IM_COL32(120, 200, 255, 255);                   // smooth
-        };
+        const ImU32 colText = ImGui::GetColorU32(sem.text);
+        const ImU32 colDim = ImGui::GetColorU32(sem.textDim);
+        const ImU32 colPlayhead = ImGui::GetColorU32(sem.danger);
         auto timeAtMouse = [&]() {
             float t = (ImGui::GetIO().MousePos.x - x0) / pps;
             t = t < 0.0f ? 0.0f : (t > s.duration ? s.duration : t);
             return std::round(t * 100.0f) / 100.0f;  // snap to 10 ms
         };
+        auto xAt = [&](float t) { return x0 + t * pps; };
 
-        // lane backgrounds (before the interactive items on them)
-        dl->AddRectFilled(ImVec2(x0, origin.y), ImVec2(x0 + timeW, origin.y + rulerH),
-                          colRuler);
+        // lane backgrounds: hairlines, the camera lane a touch raised
         for (int li = 0; li < laneCount; ++li) {
             const float y = laneY0 + li * laneH;
-            dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + timeW, y + laneH),
-                              (li & 1) ? colLaneB : colLaneA);
+            if (li == 0 && camLanes)
+                dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + timeW, y + laneH),
+                                  ImGui::GetColorU32(withA(sem.surface, 0.35f)));
+            dl->AddLine(ImVec2(labelX, y + laneH), ImVec2(x0 + timeW, y + laneH),
+                        ImGui::GetColorU32(withA(sem.border, 0.6f)));
         }
 
         // lane hit areas: double-click an empty spot = drop a key there.
-        // AllowOverlap so the keyframe buttons submitted on top of the lane
-        // still catch the mouse (drag a key to retime) - without it the lane
-        // eats every click over it.
+        // AllowOverlap so the clips and keys submitted on top still catch the
+        // mouse - without it the lane eats every click over it.
         for (int li = 0; li < laneCount; ++li) {
-            const int ti = s.cameraEnabled ? li - 1 : li;  // -1 = camera lane
+            if (li == fadeLane) continue;
+            const int ti = (camLanes && li == 0) ? -1 : li - trackLane0;
             ImGui::PushID(100 + li);
             ImGui::SetCursorScreenPos(ImVec2(x0, laneY0 + li * laneH));
             ImGui::SetNextItemAllowOverlap();
             ImGui::InvisibleButton("##lane", ImVec2(timeW, laneH));
-            if (ImGui::IsItemHovered() &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 const float t = timeAtMouse();
-                bool did = false;
-                if (ti < 0) {
-                    did = snapshotCameraKey(t);
-                } else {
-                    did = snapshotObjectKey(s.tracks[ti], t);
-                }
+                bool did = ti < 0 ? snapshotCameraKey(t) : snapshotObjectKey(s.tracks[ti], t);
                 if (did) {
                     selectedSeqTrack_ = ti;
                     selectedSeqKey_ = -1;  // select the dropped key below
@@ -1631,7 +2357,11 @@ void App::drawCutsceneWindow() {
                             if (s.tracks[ti].keys[i].time == t) selectedSeqKey_ = i;
                     }
                     seqPlayhead_ = t;
+                    seqInspTab_ = 0;
+                    seqInspTabForce_ = true;
                     changed = true;
+                } else if (ti < 0) {
+                    statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
                 }
             }
             ImGui::PopID();
@@ -1645,8 +2375,7 @@ void App::drawCutsceneWindow() {
             seqPlaying_ = false;
         }
         {
-            static const float kSteps[] = {0.1f, 0.2f, 0.5f, 1.0f,  2.0f,
-                                           5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
+            static const float kSteps[] = {0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
             float step = 60.0f;
             for (float c : kSteps)
                 if (c * pps >= scaled(56.0f)) {
@@ -1655,57 +2384,50 @@ void App::drawCutsceneWindow() {
                 }
             const float minor = step / 5.0f;
             for (float t = 0.0f; t <= s.duration + 1e-4f; t += minor) {
-                const float x = x0 + t * pps;
+                const float x = xAt(t);
                 const bool major = std::fabs(std::fmod(t + 1e-4f, step)) < 2e-3f;
-                dl->AddLine(ImVec2(x, origin.y + (major ? scaled(4.0f) : scaled(13.0f))),
+                dl->AddLine(ImVec2(x, origin.y + (major ? scaled(14.0f) : scaled(18.0f))),
                             ImVec2(x, origin.y + rulerH), colGrid);
                 if (major) {
                     char buf[16];
                     std::snprintf(buf, sizeof(buf), "%g s", t);
                     dl->AddText(ImVec2(x + scaled(3.0f), origin.y + scaled(2.0f)), colDim, buf);
-                    // faint grid line down the lanes
                     dl->AddLine(ImVec2(x, laneY0), ImVec2(x, laneY0 + laneCount * laneH),
-                                ImGui::GetColorU32(ImGuiCol_Border, 0.4f));
+                                ImGui::GetColorU32(ImGuiCol_Border, 0.35f));
                 }
             }
         }
 
-        // keys: diamonds (free camera shots and object keys) / circles (shots
-        // bound to a Camera entity). Click selects, drag retimes, right-click
-        // opens easing/delete.
-        auto keyWidget = [&](int lane, int ki, float& time, int& easing,
-                             bool bound) -> int {
-            // returns 0 = untouched, 1 = edited (uncommitted), 2 = committed,
-            // 3 = delete me
+        // One key's hit box: click selects, drag retimes, right-click opens
+        // easing/delete. Returns 0 untouched, 1 edited, 2 commit, 3 delete.
+        static const char* kEaseNames[] = {"Linear", "Smooth", "Step (hold)"};
+        auto keyHit = [&](int lane, int ki, float& time, int& easing, ImVec2 c, float r,
+                          bool& hovered) -> int {
             int result = 0;
-            const int li = s.cameraEnabled ? lane + 1 : lane;
-            const float cx = x0 + time * pps;
-            const float cy = laneY0 + li * laneH + laneH * 0.5f;
-            const float r = scaled(6.0f);
-            const float pad = scaled(4.0f);  // hit-area margin around the diamond
+            const float pad = scaled(4.0f);
             ImGui::PushID((lane + 2) * 1000 + ki);
-            ImGui::SetCursorScreenPos(ImVec2(cx - r - pad, cy - r - pad));
+            ImGui::SetCursorScreenPos(ImVec2(c.x - r - pad, c.y - r - pad));
             ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + pad), 2.0f * (r + pad)));
-            const bool hovered = ImGui::IsItemHovered();
+            hovered = ImGui::IsItemHovered();
             const bool dragging = ImGui::IsItemActive();
-            // the horizontal-resize cursor + tooltip make retiming discoverable
-            if (hovered || dragging)
-                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (hovered || dragging) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
             if (hovered && !dragging)
-                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete",
-                                  time);
+                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete", time);
             if (ImGui::IsItemActivated()) {
                 selectedSeqTrack_ = lane;
                 selectedSeqKey_ = ki;
+                seqInspTab_ = 0;
+                seqInspTabForce_ = true;
             }
             if (dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
                 time = timeAtMouse();
                 seqPlayhead_ = time;
                 result = 1;
             }
-            if (ImGui::IsItemDeactivated()) result = 2;  // sort + commit outside
-            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                seqPlayhead_ = time;
+            // sort + commit outside - only when it was dragged: a click that
+            // merely selects the key is not an edit
+            if (ImGui::IsItemDeactivated() && ImGui::GetIO().MouseDragMaxDistanceSqr[0] > 1.0f) result = 2;
+            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) seqPlayhead_ = time;
             ImGui::OpenPopupOnItemClick("##keyctx", ImGuiPopupFlags_MouseButtonRight);
             if (ImGui::BeginPopup("##keyctx")) {
                 selectedSeqTrack_ = lane;
@@ -1722,35 +2444,67 @@ void App::drawCutsceneWindow() {
                 if (ImGui::MenuItem("Delete key")) result = 3;
                 ImGui::EndPopup();
             }
-            const bool sel = selectedSeqTrack_ == lane && selectedSeqKey_ == ki;
-            const ImU32 fill = keyColor(easing);
-            if (bound) {
-                dl->AddCircleFilled(ImVec2(cx, cy), r - 1.0f, fill);
-                dl->AddCircle(ImVec2(cx, cy), r - 1.0f, IM_COL32(20, 20, 20, 255));
-            } else {
-                const ImVec2 pts[4] = {{cx, cy - r}, {cx + r, cy}, {cx, cy + r},
-                                       {cx - r, cy}};
-                dl->AddConvexPolyFilled(pts, 4, fill);
-                dl->AddPolyline(pts, 4, IM_COL32(20, 20, 20, 255),
-                                ImDrawFlags_Closed, 1.0f);
-            }
-            if (sel || hovered)
-                dl->AddCircle(ImVec2(cx, cy), r + scaled(2.5f),
-                              sel ? colSelected : ImGui::GetColorU32(ImGuiCol_Text, 0.6f),
-                              0, sel ? 2.0f : 1.0f);
             ImGui::PopID();
             return result;
         };
 
-        // camera lane keys
+        // --- camera lane: shots as clips ----------------------------------------
         if (s.cameraEnabled) {
+            const float y0 = laneY0 + scaled(3.0f), y1 = laneY0 + laneH - scaled(3.0f);
+            const int n = (int)s.cameraKeys.size();
             int del = -1, resort = -1;
-            for (int ki = 0; ki < (int)s.cameraKeys.size(); ++ki) {
+            for (int ki = 0; ki < n; ++ki) {
                 SeqCameraKey& k = s.cameraKeys[ki];
-                const int r =
-                    keyWidget(-1, ki, k.time, k.easing, !k.camera.empty());
-                if (r == 2) resort = ki;
-                if (r == 3) del = ki;
+                const float tEnd = ki + 1 < n ? s.cameraKeys[ki + 1].time : s.duration;
+                const float cx0 = xAt(k.time), cx1 = ImMax(cx0 + scaled(4.0f), xAt(tEnd) - scaled(2.0f));
+                const std::string name = k.camera.empty() ? std::string("free shot") : k.camera;
+                const ImVec4 tint = tintOf(name);
+                const bool sel = selectedSeqTrack_ == -1 && selectedSeqKey_ == ki;
+                // the clip body: click selects the shot, double-click parks the
+                // playhead on it
+                ImGui::PushID(5000 + ki);
+                ImGui::SetCursorScreenPos(ImVec2(cx0, y0));
+                ImGui::SetNextItemAllowOverlap();
+                ImGui::InvisibleButton("##clip", ImVec2(ImMax(1.0f, cx1 - cx0), y1 - y0));
+                if (ImGui::IsItemClicked()) {
+                    selectedSeqTrack_ = -1;
+                    selectedSeqKey_ = ki;
+                    seqInspTab_ = 0;
+                    seqInspTabForce_ = true;
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    seqPlayhead_ = k.time;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("%s \xc2\xb7 %.2f - %.2f s \xc2\xb7 %s into the next", name.c_str(), k.time,
+                                      tEnd, k.easing == 2 ? "cut" : k.easing == 1 ? "smooth" : "linear");
+                ImGui::PopID();
+                // fill, and a blend into the next shot's colour for Smooth/Linear
+                const float rr = scaled(4.0f);
+                const ImVec4 body = mixc(sem.surface, tint, 0.28f);
+                dl->AddRectFilled(ImVec2(cx0, y0), ImVec2(cx1, y1), ImGui::GetColorU32(body), rr);
+                if (ki + 1 < n && k.easing != 2) {
+                    const std::string nextName =
+                        s.cameraKeys[ki + 1].camera.empty() ? std::string("free shot") : s.cameraKeys[ki + 1].camera;
+                    const ImVec4 nb = mixc(sem.surface, tintOf(nextName), 0.28f);
+                    const float gx = cx0 + (cx1 - cx0) * (k.easing == 1 ? 0.55f : 0.0f);
+                    dl->AddRectFilledMultiColor(ImVec2(gx, y0 + 1.0f), ImVec2(cx1, y1 - 1.0f),
+                                                ImGui::GetColorU32(body), ImGui::GetColorU32(nb),
+                                                ImGui::GetColorU32(nb), ImGui::GetColorU32(body));
+                }
+                dl->AddRect(ImVec2(cx0, y0), ImVec2(cx1, y1),
+                            ImGui::GetColorU32(sel ? sem.text : withA(tint, 0.7f)), rr, 0, sel ? 2.0f : 1.0f);
+                dl->PushClipRect(ImVec2(cx0, y0), ImVec2(cx1 - scaled(2.0f), y1), true);
+                const float ty = (y0 + y1 - ImGui::GetTextLineHeight()) * 0.5f;
+                dl->AddCircleFilled(ImVec2(cx0 + scaled(9.0f), (y0 + y1) * 0.5f), scaled(3.5f),
+                                    ImGui::GetColorU32(tint));
+                dl->AddText(ImVec2(cx0 + scaled(17.0f), ty), colText, name.c_str());
+                dl->PopClipRect();
+                // the cut handle at the clip's left edge: drag to retime
+                bool hov = false;
+                const int res = keyHit(-1, ki, k.time, k.easing, ImVec2(cx0, (y0 + y1) * 0.5f), scaled(4.0f), hov);
+                if (hov) dl->AddRectFilled(ImVec2(cx0 - 1.5f, y0), ImVec2(cx0 + 1.5f, y1), colText);
+                if (res == 2) resort = ki;
+                if (res == 3) del = ki;
             }
             if (del >= 0) {
                 s.cameraKeys.erase(s.cameraKeys.begin() + del);
@@ -1768,15 +2522,95 @@ void App::drawCutsceneWindow() {
                 changed = true;
             }
         }
-        // object lane keys
+
+        // --- fades & bars: ramps at both ends -------------------------------------
+        {
+            const float y = laneY0 + fadeLane * laneH;
+            const float y0 = y + scaled(7.0f), y1 = y + laneH - scaled(7.0f);
+            ImGui::PushID("fades");
+            ImGui::SetCursorScreenPos(ImVec2(x0, y));
+            ImGui::InvisibleButton("##fadelane", ImVec2(timeW, laneH));
+            if (ImGui::IsItemClicked()) {
+                seqInspTab_ = 1;
+                seqInspTabForce_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Fades and bars are set on the Sequence tab - click to open it.");
+            ImGui::PopID();
+            const ImU32 black = IM_COL32(0, 0, 0, 255), clear = IM_COL32(0, 0, 0, 0);
+            const ImU32 barCol = ImGui::GetColorU32(withA(sem.textDim, 0.55f));
+            const ImU32 barClear = ImGui::GetColorU32(withA(sem.textDim, 0.0f));
+            const float ym = (y0 + y1) * 0.5f;
+            if (s.fadeIn > 0.0f)
+                dl->AddRectFilledMultiColor(ImVec2(xAt(0), y0), ImVec2(xAt(s.fadeIn), ym), black, clear, clear, black);
+            if (s.fadeOut > 0.0f)
+                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - s.fadeOut), y0), ImVec2(xAt(s.duration), ym),
+                                            clear, black, black, clear);
+            if (s.bars != kSeqBarsNone) {
+                const float bi = ImMax(s.barsSlideIn, 0.01f), bo = ImMax(s.barsSlideOut, 0.01f);
+                dl->AddRectFilledMultiColor(ImVec2(xAt(0), ym + 1.0f), ImVec2(xAt(bi), y1), barClear, barCol, barCol,
+                                            barClear);
+                dl->AddRectFilled(ImVec2(xAt(bi), ym + 1.0f), ImVec2(xAt(s.duration - bo), y1),
+                                  ImGui::GetColorU32(withA(sem.textDim, 0.18f)));
+                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - bo), ym + 1.0f), ImVec2(xAt(s.duration), y1),
+                                            barCol, barClear, barClear, barCol);
+            }
+            const bool bars = s.bars != kSeqBarsNone;
+            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
+            if (!bars && s.fadeIn <= 0.0f && s.fadeOut <= 0.0f) {
+                dl->AddText(ImVec2(x0 + scaled(8.0f), ty), colDim, "no fades or bars");
+            } else {
+                char a[64], b[64];
+                if (bars) {
+                    std::snprintf(a, sizeof(a), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeIn, s.barsSlideIn);
+                    std::snprintf(b, sizeof(b), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeOut, s.barsSlideOut);
+                } else {
+                    std::snprintf(a, sizeof(a), "fade %.1f s", s.fadeIn);
+                    std::snprintf(b, sizeof(b), "fade %.1f s", s.fadeOut);
+                }
+                const float aw = ImGui::CalcTextSize(a).x, bw = ImGui::CalcTextSize(b).x;
+                const float ax = xAt(ImMax(s.fadeIn, s.bars != kSeqBarsNone ? s.barsSlideIn : 0.0f)) + scaled(8.0f);
+                const float bx = xAt(s.duration - ImMax(s.fadeOut, s.bars != kSeqBarsNone ? s.barsSlideOut : 0.0f)) -
+                                 scaled(8.0f) - bw;
+                if (ax + aw < bx - scaled(12.0f)) {
+                    dl->AddText(ImVec2(ax, ty), colDim, a);
+                    dl->AddText(ImVec2(bx, ty), colDim, b);
+                }
+            }
+        }
+
+        // --- object lanes: span bar, visibility on-spans, key diamonds ------------
         for (int ti = 0; ti < (int)s.tracks.size(); ++ti) {
             SeqTrack& tr = s.tracks[ti];
+            const float y = laneY0 + laneOf(ti) * laneH;
+            const float cy = y + laneH * 0.5f;
+            const ImVec4 tint = tintOf(tr.target);
+            if (!tr.keys.empty()) {
+                dl->AddLine(ImVec2(xAt(tr.keys.front().time), cy), ImVec2(xAt(tr.keys.back().time), cy),
+                            ImGui::GetColorU32(withA(tint, 0.45f)), scaled(2.0f));
+                if (tr.animVis)
+                    for (size_t j = 0; j < tr.keys.size(); ++j) {
+                        if (!tr.keys[j].visible) continue;
+                        const float tEnd = j + 1 < tr.keys.size() ? tr.keys[j + 1].time : s.duration;
+                        dl->AddRectFilled(ImVec2(xAt(tr.keys[j].time), cy - scaled(5.0f)),
+                                          ImVec2(xAt(tEnd), cy + scaled(5.0f)),
+                                          ImGui::GetColorU32(withA(tint, 0.30f)), scaled(2.0f));
+                    }
+            }
             int del = -1, resort = -1;
             for (int ki = 0; ki < (int)tr.keys.size(); ++ki) {
-                const int r = keyWidget(ti, ki, tr.keys[ki].time,
-                                        tr.keys[ki].easing, false);
-                if (r == 2) resort = ki;
-                if (r == 3) del = ki;
+                const float kx = xAt(tr.keys[ki].time);
+                const float r = scaled(6.0f);
+                bool hov = false;
+                const int res = keyHit(ti, ki, tr.keys[ki].time, tr.keys[ki].easing, ImVec2(kx, cy), r, hov);
+                const bool sel = selectedSeqTrack_ == ti && selectedSeqKey_ == ki;
+                const ImVec2 pts[4] = {{kx, cy - r}, {kx + r, cy}, {kx, cy + r}, {kx - r, cy}};
+                dl->AddConvexPolyFilled(pts, 4, ImGui::GetColorU32(tint));
+                dl->AddPolyline(pts, 4, ImGui::GetColorU32(sel ? sem.text : withA(sem.ground, 0.9f)),
+                                ImDrawFlags_Closed, sel ? 2.0f : 1.0f);
+                if (hov && !sel) dl->AddCircle(ImVec2(kx, cy), r + scaled(2.5f), colText, 0, 1.0f);
+                if (res == 2) resort = ki;
+                if (res == 3) del = ki;
             }
             if (del >= 0) {
                 tr.keys.erase(tr.keys.begin() + del);
@@ -1795,75 +2629,90 @@ void App::drawCutsceneWindow() {
             }
         }
 
-        // playhead: a line across ruler + lanes with a grabber triangle
+        // playhead: a line across ruler + lanes with its time on a pill
         {
-            const float x = x0 + seqPlayhead_ * pps;
-            dl->AddLine(ImVec2(x, origin.y), ImVec2(x, laneY0 + laneCount * laneH),
-                        colPlayhead, 1.5f);
-            dl->AddTriangleFilled(ImVec2(x - scaled(5.0f), origin.y),
-                                  ImVec2(x + scaled(5.0f), origin.y),
-                                  ImVec2(x, origin.y + scaled(9.0f)), colPlayhead);
+            const float x = xAt(seqPlayhead_);
+            dl->AddLine(ImVec2(x, origin.y + scaled(4.0f)), ImVec2(x, laneY0 + laneCount * laneH), colPlayhead, 1.5f);
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "%.2f", seqPlayhead_);
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(buf);
+            const ImVec2 a(x - ts.x * 0.5f - scaled(4.0f), origin.y + scaled(1.0f));
+            dl->AddRectFilled(a, ImVec2(a.x + ts.x + scaled(8.0f), a.y + ts.y + scaled(2.0f)), colPlayhead,
+                              scaled(3.0f));
+            dl->AddText(ImVec2(a.x + scaled(4.0f), a.y + scaled(1.0f)), ImGui::GetColorU32(sem.ground), buf);
         }
 
         // pinned label column, drawn last so it occludes scrolled-under keys.
-        // Right-click a label = track settings; [+] = snapshot key @ playhead.
-        dl->AddRectFilled(ImVec2(labelX, origin.y),
-                          ImVec2(labelX + labelW, origin.y + contentH),
-                          ImGui::GetColorU32(ImGuiCol_ChildBg));
-        dl->AddRectFilled(ImVec2(labelX, origin.y),
-                          ImVec2(labelX + labelW, origin.y + rulerH), colRuler);
-        dl->AddText(ImVec2(labelX + scaled(8.0f), origin.y + scaled(3.0f)), colDim, "Track");
-        dl->AddLine(ImVec2(labelX + labelW, origin.y),
-                    ImVec2(labelX + labelW, origin.y + contentH), colGrid);
+        // Click a label = select the lane; right-click = track settings; + =
+        // key the playhead.
+        dl->AddRectFilled(ImVec2(labelX, origin.y), ImVec2(labelX + labelW, origin.y + contentH + addRowH),
+                          ImGui::GetColorU32(ImGuiCol_WindowBg));
+        dl->AddLine(ImVec2(labelX + labelW, origin.y), ImVec2(labelX + labelW, origin.y + contentH), colGrid);
         for (int li = 0; li < laneCount; ++li) {
-            const int ti = s.cameraEnabled ? li - 1 : li;
+            const int ti = (camLanes && li == 0) ? -1 : li == fadeLane ? -2 : li - trackLane0;
             const float y = laneY0 + li * laneH;
-            dl->AddLine(ImVec2(labelX, y), ImVec2(labelX + labelW, y),
-                        ImGui::GetColorU32(ImGuiCol_Border, 0.5f));
+            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
             ImGui::PushID(500 + li);
-            // snapshot button on the right edge of the label cell
-            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - scaled(24.0f), y + scaled(3.0f)));
-            if (ImGui::SmallButton("+")) {
+            if (ti == -2) {
+                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f), colDim);
+                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colDim, "Fades & bars");
+                ImGui::PopID();
+                continue;
+            }
+            // key-the-playhead button on the right edge of the label cell
+            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - scaled(26.0f), y + (laneH - ImGui::GetFrameHeight()) * 0.5f));
+            if (ui::GhostButton("+", scaled(22.0f))) {
                 if (ti < 0) {
                     if (snapshotCameraKey(seqPlayhead_)) changed = true;
+                    else statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
                 } else if (snapshotObjectKey(s.tracks[ti], seqPlayhead_)) {
                     changed = true;
                 }
             }
-            if (ImGui::IsItemHovered())
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 ImGui::SetTooltip(ti < 0 ? "Add a shot at the playhead, filming from the\n"
                                            "active camera (looked-through / selected /\n"
                                            "first). Needs a Camera entity in the scene."
                                          : "Snapshot the object's pose as a key\n"
                                            "at the playhead.");
-            // the rest of the cell: click selects the lane, right-click = setup
             ImGui::SetCursorScreenPos(ImVec2(labelX, y));
-            ImGui::InvisibleButton("##label", ImVec2(labelW - scaled(26.0f), laneH));
+            ImGui::InvisibleButton("##label", ImVec2(labelW - scaled(28.0f), laneH));
             if (ImGui::IsItemClicked()) {
                 selectedSeqTrack_ = ti;
                 selectedSeqKey_ = -1;
+                seqInspTab_ = 0;
+                seqInspTabForce_ = true;
             }
             ImGui::OpenPopupOnItemClick("##trackctx", ImGuiPopupFlags_MouseButtonRight);
+            const bool laneSel = selectedSeqTrack_ == ti && (ti >= 0 || selectedSeqKey_ < 0) && ti >= 0;
+            if (laneSel)
+                dl->AddRectFilled(ImVec2(labelX, y), ImVec2(labelX + labelW, y + laneH),
+                                  ImGui::GetColorU32(withA(sem.accent, 0.12f)));
             if (ti < 0) {
-                dl->AddText(ImVec2(labelX + scaled(8.0f), y + scaled(5.0f)), colText, "[*] Camera");
-                dl->AddText(ImVec2(labelX + scaled(86.0f), y + scaled(5.0f)), colDim,
-                            ("(" + std::to_string(s.cameraKeys.size()) + ")").c_str());
+                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f), colText);
+                char lbl[48];
+                std::snprintf(lbl, sizeof(lbl), "Camera \xc2\xb7 %d shot%s", (int)s.cameraKeys.size(),
+                              s.cameraKeys.size() == 1 ? "" : "s");
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colText, lbl);
             } else {
                 const SeqTrack& tr = s.tracks[ti];
-                const std::string label =
-                    (tr.target.empty() ? "<no object>" : tr.target);
-                dl->AddText(ImVec2(labelX + scaled(8.0f), y + scaled(5.0f)), colText, label.c_str());
-                // animated-channel letters, dimmed when off
+                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f),
+                                    ImGui::GetColorU32(tintOf(tr.target)));
+                // the animated channels as a dim summary: only the ones on
+                std::string ch;
                 const char* chs[] = {"P", "R", "S", "C", "V"};
-                const bool on[] = {tr.animPos, tr.animRot, tr.animScale,
-                                   tr.animColor, tr.animVis};
-                float cxs = labelX + labelW - scaled(88.0f);
-                for (int c = 0; c < 5; ++c) {
-                    dl->AddText(ImVec2(cxs, y + scaled(5.0f)),
-                                on[c] ? colText : ImGui::GetColorU32(ImGuiCol_TextDisabled, 0.4f),
-                                chs[c]);
-                    cxs += scaled(11.0f);
-                }
+                const bool on[] = {tr.animPos, tr.animRot, tr.animScale, tr.animColor, tr.animVis};
+                for (int c = 0; c < 5; ++c)
+                    if (on[c]) ch += std::string(ch.empty() ? "" : " ") + chs[c];
+                const float chW = ImGui::CalcTextSize(ch.c_str()).x;
+                const float chX = labelX + labelW - scaled(32.0f) - chW;
+                dl->PushClipRect(ImVec2(labelX, y), ImVec2(chX - scaled(4.0f), y + laneH), true);
+                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colText,
+                            tr.target.empty() ? "<no object>" : tr.target.c_str());
+                dl->PopClipRect();
+                dl->AddText(ImVec2(chX, ty), colDim, ch.c_str());
             }
             if (ImGui::BeginPopup("##trackctx")) {
                 if (ti < 0) {
@@ -1872,8 +2721,7 @@ void App::drawCutsceneWindow() {
                     if (ImGui::MenuItem("Add shot @ playhead (active camera)")) {
                         if (snapshotCameraKey(seqPlayhead_)) changed = true;
                     }
-                    if (ImGui::MenuItem("Clear all shots", nullptr, false,
-                                        !s.cameraKeys.empty())) {
+                    if (ImGui::MenuItem("Clear all shots", nullptr, false, !s.cameraKeys.empty())) {
                         s.cameraKeys.clear();
                         selectedSeqKey_ = -1;
                         changed = true;
@@ -1882,8 +2730,7 @@ void App::drawCutsceneWindow() {
                 } else {
                     SeqTrack& tr = s.tracks[ti];
                     ImGui::SetNextItemWidth(scaled(160.0f));
-                    if (ImGui::BeginCombo("Object",
-                                          tr.target.empty() ? "<pick>" : tr.target.c_str())) {
+                    if (ImGui::BeginCombo("Object", tr.target.empty() ? "<pick>" : tr.target.c_str())) {
                         for (const SceneObject& o : project_.objects())
                             if (ImGui::Selectable(o.name.c_str(), o.name == tr.target)) {
                                 tr.target = o.name;
@@ -1907,6 +2754,51 @@ void App::drawCutsceneWindow() {
             }
             ImGui::PopID();
         }
+
+        // + Object track, under the last lane in the label column
+        ImGui::SetCursorScreenPos(ImVec2(labelX + scaled(6.0f), laneY0 + laneCount * laneH + scaled(4.0f)));
+        if (ui::GhostButton("+ Object track")) ImGui::OpenPopup("##addtrack");
+        if (ImGui::BeginPopup("##addtrack")) {
+            auto hasTrack = [&](const std::string& name) {
+                for (const SeqTrack& tr : s.tracks)
+                    if (tr.target == name) return true;
+                return false;
+            };
+            // one track per object; a fresh track gets a starting key at the
+            // playhead from the object's current pose, so it animates at once
+            auto addTrackFor = [&](const std::string& name) {
+                SeqTrack tr;
+                tr.target = name;
+                cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+                s.tracks.push_back(std::move(tr));
+                selectedSeqTrack_ = (int)s.tracks.size() - 1;
+                selectedSeqKey_ = -1;
+                changed = true;
+            };
+            int freshSelected = 0;
+            for (int sel : selection_)
+                if (sel >= 0 && sel < (int)project_.objects().size() && !hasTrack(project_.objects()[sel].name))
+                    ++freshSelected;
+            char selLabel[48];
+            std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
+            if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
+                for (int sel : selection_)
+                    if (sel >= 0 && sel < (int)project_.objects().size() &&
+                        !hasTrack(project_.objects()[sel].name))
+                        addTrackFor(project_.objects()[sel].name);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("One track per selected object (objects that\n"
+                                  "already have a track are skipped).");
+            ImGui::Separator();
+            for (const SceneObject& o : project_.objects()) {
+                const bool tracked = hasTrack(o.name);
+                if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr, false, !tracked))
+                    addTrackFor(o.name);
+            }
+            if (project_.objects().empty()) ImGui::TextDisabled("No objects in this scene.");
+            ImGui::EndPopup();
+        }
     }
     ImGui::EndChild();
 
@@ -1914,210 +2806,6 @@ void App::drawCutsceneWindow() {
         s.tracks.erase(s.tracks.begin() + deleteTrack);
         if (selectedSeqTrack_ == deleteTrack) selectedSeqTrack_ = -1, selectedSeqKey_ = -1;
         changed = true;
-    }
-    if (ImGui::SmallButton("+ Add object track")) ImGui::OpenPopup("##addtrack");
-    if (ImGui::BeginPopup("##addtrack")) {
-        auto hasTrack = [&](const std::string& name) {
-            for (const SeqTrack& tr : s.tracks)
-                if (tr.target == name) return true;
-            return false;
-        };
-        // one track per object; a fresh track gets a starting key at the
-        // playhead from the object's current pose, so it animates immediately
-        auto addTrackFor = [&](const std::string& name) {
-            SeqTrack tr;
-            tr.target = name;
-            cutsceneSnapshotObjectKey(tr, seqPlayhead_);
-            s.tracks.push_back(std::move(tr));
-            selectedSeqTrack_ = (int)s.tracks.size() - 1;
-            selectedSeqKey_ = -1;
-            changed = true;
-        };
-        int freshSelected = 0;
-        for (int sel : selection_)
-            if (sel >= 0 && sel < (int)project_.objects().size() &&
-                !hasTrack(project_.objects()[sel].name))
-                ++freshSelected;
-        char selLabel[48];
-        std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
-        if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
-            for (int sel : selection_)
-                if (sel >= 0 && sel < (int)project_.objects().size() &&
-                    !hasTrack(project_.objects()[sel].name))
-                    addTrackFor(project_.objects()[sel].name);
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("One track per selected object (objects that\n"
-                              "already have a track are skipped).");
-        ImGui::Separator();
-        for (const SceneObject& o : project_.objects()) {
-            const bool tracked = hasTrack(o.name);
-            if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr,
-                                false, !tracked))
-                addTrackFor(o.name);
-        }
-        if (project_.objects().empty())
-            ImGui::TextDisabled("No objects in this scene.");
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("Double-click a lane to drop a key - right-click keys & labels.");
-
-    // --- selected key inspector ----------------------------------------------
-    ImGui::SeparatorText("Key");
-    const bool camSel = selectedSeqTrack_ == -1 && s.cameraEnabled &&
-                        selectedSeqKey_ >= 0 &&
-                        selectedSeqKey_ < (int)s.cameraKeys.size();
-    const bool objSel = selectedSeqTrack_ >= 0 &&
-                        selectedSeqTrack_ < (int)s.tracks.size() &&
-                        selectedSeqKey_ >= 0 &&
-                        selectedSeqKey_ < (int)s.tracks[selectedSeqTrack_].keys.size();
-    if (camSel) {
-        SeqCameraKey& k = s.cameraKeys[selectedSeqKey_];
-        ImGui::SetNextItemWidth(scaled(90.0f));
-        if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
-            seqPlayhead_ = k.time;
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            const float t = k.time;
-            sortCamKeys();
-            for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
-                if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
-            changed = true;
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(90.0f));
-        if (ImGui::DragFloat("Shake", &k.shake, 0.005f, 0.0f, 2.0f, "%.2f")) {}
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Handheld camera shake amplitude in world units\n"
-                              "(interpolates between shots; 0 = steady).");
-        // Roll only means something for a free shot: a bound one takes its whole
-        // basis from the Camera entity's orientation.
-        if (k.camera.empty()) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(100.0f));
-            if (ImGui::DragFloat("Roll", &k.roll, 0.5f, -180.0f, 180.0f, "%.1f deg")) {}
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Dutch angle - rotation about the view axis\n"
-                                  "(interpolates between shots; 0 = level\n"
-                                  "horizon). A shot bound to a Camera entity\n"
-                                  "tilts with that entity instead.");
-        }
-
-        // A shot either films from a Camera entity or is FREE - its own stored
-        // eye/look-at/FOV/roll. Free is not a leftover: it is what the take
-        // importer and the phone-camera recorder write when you point them at
-        // the camera lane rather than at an entity, so this combo has to be
-        // able to go back to it or a mis-click is one-way.
-        const char* shotLabel = k.camera.empty() ? "Free shot" : k.camera.c_str();
-        ImGui::SetNextItemWidth(scaled(160.0f));
-        bool anyCam = false;
-        if (ImGui::BeginCombo("Shot from", shotLabel)) {
-            if (ImGui::Selectable("Free shot", k.camera.empty())) {
-                k.camera.clear();
-                changed = true;
-            }
-            for (const SceneObject& o : project_.objects()) {
-                if (o.type != PrimitiveType::Camera) continue;
-                if (!anyCam) ImGui::Separator();
-                anyCam = true;
-                if (ImGui::Selectable(o.name.c_str(), o.name == k.camera)) {
-                    k.camera = o.name;
-                    changed = true;
-                }
-            }
-            if (!anyCam)
-                ImGui::TextDisabled("No Camera entities - add one with\n"
-                                    "+ Add object > Gameplay > Camera.");
-            ImGui::EndCombo();
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("A Camera entity films from its own pose + FOV - animate\n"
-                              "it (or import a take into it) for a moving shot. Free\n"
-                              "shot uses the eye/look-at stored on this key instead.\n"
-                              "Step easing between two shots = a cut.");
-        {
-            bool found = false;
-            for (const SceneObject& o : project_.objects())
-                if (o.name == k.camera && o.type == PrimitiveType::Camera) {
-                    ImGui::TextDisabled("Films from \"%s\" (FOV %.0f deg).",
-                                        o.name.c_str(), o.cameraFov);
-                    found = true;
-                    break;
-                }
-            if (k.camera.empty())
-                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
-                                   "Pick a camera above for this shot.");
-            else if (!found)
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Camera \"%s\" is not in this scene.",
-                                   k.camera.c_str());
-        }
-        if (ImGui::SmallButton("Delete key")) {
-            s.cameraKeys.erase(s.cameraKeys.begin() + selectedSeqKey_);
-            selectedSeqKey_ = -1;
-            changed = true;
-        }
-    } else if (objSel) {
-        SeqTrack& tr = s.tracks[selectedSeqTrack_];
-        SeqObjectKey& k = tr.keys[selectedSeqKey_];
-        ImGui::SetNextItemWidth(scaled(90.0f));
-        if (ImGui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) {
-            seqPlayhead_ = k.time;
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit()) {
-            const float t = k.time;
-            sortObjKeys(tr);
-            for (int i = 0; i < (int)tr.keys.size(); ++i)
-                if (tr.keys[i].time == t) selectedSeqKey_ = i;
-            changed = true;
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        if (ImGui::Combo("Easing", &k.easing, kEaseNames, 3)) changed = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Re-snapshot")) {
-            if (snapshotObjectKey(tr, k.time)) changed = true;
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Replace this key with the object's current pose.");
-        // pose fields for the channels this track animates
-        if (tr.animPos) {
-            ImGui::DragFloat3("Position", k.position, 0.1f);
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        if (tr.animRot) {
-            ImGui::DragFloat3("Rotation", k.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        if (tr.animScale) {
-            ImGui::DragFloat3("Scale", k.scale, 0.05f, 0.01f, 1000.0f);
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        if (tr.animColor) {
-            ImGui::ColorEdit3("Color", k.color);
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        if (tr.animVis) {
-            if (ImGui::Checkbox("Visible (holds to the next key)", &k.visible))
-                changed = true;
-        }
-        if (!tr.animPos && !tr.animRot && !tr.animScale && !tr.animColor && !tr.animVis)
-            ImGui::TextDisabled("No channels enabled - right-click the track label.");
-        if (ImGui::SmallButton("Delete key")) {
-            tr.keys.erase(tr.keys.begin() + selectedSeqKey_);
-            selectedSeqKey_ = -1;
-            changed = true;
-        }
-    } else {
-        ImGui::TextDisabled("No key selected. Double-click a lane to drop one, or use\n"
-                            "the [+] on a track label to snapshot at the playhead.\n"
-                            "Play the cutscene in the game with the Play Sequence node.");
     }
 
     // --- Import take modal ----------------------------------------------------
@@ -2285,7 +2973,17 @@ void App::drawCutsceneWindow() {
         ImGui::EndPopup();
     }
 
-    ImGui::EndChild();
+    if (deleteSeq) {
+        for (SceneData& sc : project_.scenes)
+            for (SceneObject& o : sc.objects)
+                for (FlowNode& fn : o.flowGraph.nodes) {
+                    const FlowNodeType* ft = flowNodeType(fn.type);
+                    if (ft && ft->strKind == FlowParamKind::SequenceName && fn.str == s.name) fn.str.clear();
+                }
+        project_.sequences.erase(project_.sequences.begin() + selectedSequence_);
+        selectSequence(-1);
+        changed = true;
+    }
     ImGui::End();
 
     commitIfEdited();

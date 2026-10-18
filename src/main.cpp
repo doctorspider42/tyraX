@@ -2354,7 +2354,7 @@ bool warnRecorderOff(const Project& p) {
     if (!p.settings.inputRecorder) {
         std::fprintf(stderr,
                      "error: the \"Input recorder\" preference is off for this "
-                     "project (Project > Preferences > Build).\n");
+                     "project (Project > Preferences > Build & debug).\n");
         return false;
     }
     return true;
@@ -2437,7 +2437,7 @@ static int recordFromCli(int argc, char** argv) {
     if (!padText.empty() && !p.settings.remotePad) {
         std::fprintf(stderr,
                      "error: --pad needs the \"Remote Pad\" preference on "
-                     "(Project > Preferences > Build).\n");
+                     "(Project > Preferences > Build & debug).\n");
         return 1;
     }
 
@@ -2750,8 +2750,10 @@ static int uiScriptFromCli(int argc, char** argv) {
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
             "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
-            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
-            " shot pad.png\"\n"
+            "example: --ui-script myproj \"click \\\"TyraX menu\\\"; click Tools;"
+            " click \\\"Remote Pad\\\"; shot pad.png\"\n"
+            "         (the menus live behind the logo button \"TyraX menu\"; a step\n"
+            "         naming a menu - click Tools - opens it first)\n"
             "hint:    a script of just \"dump\" lists every widget on screen\n");
         return 2;
     };

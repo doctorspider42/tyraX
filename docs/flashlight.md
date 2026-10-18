@@ -2,7 +2,8 @@
 
 A **Player** object can carry a torch: *Properties > Flashlight* on the player,
 with a colour, a reach, a cone half-angle and an optional pad button to switch
-it on and off. The `Set Flashlight` flow node is the master switch — a project
+it on and off (*Toggle button*: the controller picker - click the button on
+the small pad or pick its name, `<none>` for no button). The `Set Flashlight` flow node is the master switch — a project
 can start dark and hand the torch over later.
 
 It reaches the world in two ways at once, and the difference between them is
@@ -591,7 +592,7 @@ draws the *right* shape - draws it precisely where the caster hides it, so it
 looks like nothing at all while quietly taking the slot the moon had been
 using. Set *Held right* / *Held below eye* first, then judge either mode.
 
-**The technique is a project setting** (*Preferences > Rendering > Flashlight
+**The technique is a project setting** (*Preferences > Graphics > Flashlight
 shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |

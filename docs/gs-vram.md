@@ -64,7 +64,7 @@ A **CLUT** is addressed by CBP in blocks, not pages: a 16-entry palette is one
 block (64 words, 256 B) and a 256-entry one is four (256 words, 1 KB).
 
 Palettizing is the single biggest lever after the colour depth:
-*Preferences > Rendering > Textures* at 4-bit turns a 256×256 into ~1/8 of the
+*Preferences > Graphics > Textures* at 4-bit turns a 256×256 into ~1/8 of the
 pixels plus a 64-byte CLUT (8 192 words instead of 65 536). It is why the
 `showcase` example, which draws a whole village, never comes close to filling
 VRAM.
@@ -81,7 +81,7 @@ VRAM.
 
 ## Colour depth
 
-*Preferences > Display > Colour depth* picks the frame buffers' pixel format
+*Preferences > Picture > Colour depth* picks the frame buffers' pixel format
 (`ProjectSettings::colorDepth`, `EngineOptions::colorDepth`):
 
 - **32-bit** (`PSMCT32`) — the stock 8-8-8-8 buffer.
@@ -143,7 +143,7 @@ setting that exists today.
 
 The cost of 16-bit colour is 32 levels per channel instead of 256, i.e.
 banding in anything smooth — skies, fog, the post-fx blur. **GS ordered
-dithering** (the `DTHE` + `DIMX` registers, *Preferences > Display > Dithering*,
+dithering** (the `DTHE` + `DIMX` registers, *Preferences > Picture > Dithering*,
 on by default) trades that banding for fine noise a TV blurs away. The
 hardware only dithers 16-bit destinations, so the switch does nothing at
 32-bit. Measured on a `showcase` sky band (500×120 px of the captured frame):

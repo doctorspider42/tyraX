@@ -38,9 +38,10 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
-4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
-   > PS2 (ps2link) IP*. Machine-global, not project data, so you do this once.
-5. **Run with F6**, stop with the toolbar's Stop. That is it.
+4. **Point the editor at it** — *Edit > Preferences > Running games
+   > ps2link IP*. Machine-global, not project data, so you do this once.
+   **Test connection** next to it checks the address before you deploy.
+5. **Run with F6**, stop with the top bar's Stop. That is it.
 
 Two things worth knowing before you hit a wall:
 
@@ -401,10 +402,22 @@ the baseline launch, and are excluded from the six cycles.
 
 ## 3. Point the editor at it
 
-*Edit > Preferences > Real PS2 (network deploy) > **PS2 (ps2link) IP***. This is
+*Edit > Preferences > Running games > **ps2link IP***. This is
 a **machine-global** editor setting (`editor.ini`), shared by every project —
 not project data, so it never travels in a `.tyra` file. Leave it empty to
 disable the F6 path entirely.
+
+**Test connection** beside the field opens a TCP connection to `tcp/18193` -
+the file-request socket ps2link listens on, which every `ps2client` command
+connects to the same way - waits up to 2 s, and closes it again without
+sending a byte. Nothing is deployed and the console is not reset. It answers
+one of three things: *ps2link answered (N ms)*; *no answer within 2 s* (wrong
+IP, console off or not in ps2link, or a network in between); *refused* (a
+machine is at that address but nothing listens there - not ps2link). It is
+greyed out while a game is running on the console, whose file server holds the
+connection. A green answer proves the TCP half only: the console's log comes
+back over UDP 18194, which the PC's firewall must still let in (see the ports
+table below).
 
 Headless, the IP can also come from the command line:
 
@@ -414,9 +427,18 @@ tyrax-editor --build <projectDir> --run-ps2 192.168.1.42
 
 ## 4. Deploy and run
 
-**F6** = build && run on PS2, **Ctrl+F6** = run without building. The run
-toolbar's target dropdown has the same thing as *PlayStation 2 (ps2link)* — the
-run triangles turn **blue** when the console is the target and green for PCSX2.
+**F6** = build && run on PS2, **Ctrl+F6** = run without building. The top
+bar's **PCSX2 | PS2** switch picks the target for the Run button (and F5) — Run
+turns **blue** when the console is the target and green for PCSX2.
+
+While this project's game is up on the selected target — the deploy's
+`ps2client` file server alive, or a PCSX2 whose command line names this
+project's ELF (never "any PCSX2") — Run reads **Running 00:42** with the time
+since the launch, and hovering it turns it into **Stop**: a click stops the
+game exactly like the Stop square beside it. F5/F6 and the run menu's *Run*
+still rebuild and restart it. The check runs on the Runner's own thread about
+once a second, so the label can trail a launch or an exit by a second; a PCSX2
+started by hand on this ELF counts too, timed from when the editor first saw it.
 
 What the editor does, in order:
 
@@ -449,7 +471,7 @@ the path is printed in the Output panel as `[editor] Console log: ...`.
 - **Crash-safe.** Each line is flushed as it arrives, so the file is current up
   to the last line the console sent, whoever dies first.
 - **Bounded, in lines, not time.** A file keeps the last *Console log lines*
-  lines (Edit > Preferences > Real PS2, default 20 000). It is rewritten down to
+  lines (Edit > Preferences > Running games, default 20 000). It is rewritten down to
   that many each time it reaches twice as many, so the END of a session, which
   is what a crash leaves, is always there. 0 turns the file off.
 - **Bounded, in files.** At most *Console logs kept* sessions (default 10) stay
@@ -563,7 +585,7 @@ Differences on real hardware:
   that fix logs nothing over ps2link — rebuild it before concluding that the
   code you are chasing is silent.)
 - **Keyboard and mouse work**, because this is the TyraX ps2link: tick
-  *Project > Preferences > Build > Keyboard & mouse controls* and the
+  *Project > Preferences > Build & debug > Keyboard & mouse controls* and the
   *Also over ps2link* sub-option under it is already on — the game reuses
   ps2link's resident USB stack instead of loading one it cannot load. See
   [keyboard-mouse.md](keyboard-mouse.md).

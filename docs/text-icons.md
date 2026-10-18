@@ -14,7 +14,7 @@ It works in **every** text the project has — HUD texts, menu titles and entry
 labels, Toggle/Choice option labels, loading-screen texts and *Display Text*
 nodes — because both text renderers understand the placeholder, not just one.
 
-Managed in *Tools > UI Editor > **Button icons***. Every field a placeholder
+Managed in *Tools > UI Editor > **Button icons*** (the button under the On screen list). Every field a placeholder
 can go into has a **`{{ }}`** button next to it listing the tokens this project
 understands, each with the glyph it draws - the legend for the syntax, and one
 click inserts the token so there is nothing to remember.

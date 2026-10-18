@@ -29,8 +29,9 @@
 #            the upstream fork point recorded in .gitignore, not something
 #            setup.sh checks out over the tracked engine sources.
 
+# Dear ImGui is NOT here: it is tracked in vendor/imgui-tyrax with TyraX
+# patches (TYRAX-PATCHES.md there; upstream docking b334d19b, 1.92.9).
 VENDOR_DEPS=(
-    "https://github.com/ocornut/imgui.git|https://github.com/doctorspider42/tyrax-vendor-imgui.git|b334d19b667958ed970000073644d911fae17e57|docking|vendor/imgui|vendor/imgui/imgui.cpp|1"
     "https://github.com/glfw/glfw.git|https://github.com/doctorspider42/tyrax-vendor-glfw.git|7b6aead9fb88b3623e3b3725ebb42670cbe4c579|3.4|vendor/glfw|vendor/glfw/CMakeLists.txt|1"
     "https://github.com/CedricGuillemet/ImGuizmo.git|https://github.com/doctorspider42/tyrax-vendor-imguizmo.git|dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d|master|vendor/imguizmo|vendor/imguizmo/src/ImGuizmo.cpp|1"
     "https://github.com/Nelarius/imnodes.git|https://github.com/doctorspider42/tyrax-vendor-imnodes.git|eb36902c892548ef94f88f51ad7e7c9c7058a71c|master|vendor/imnodes|vendor/imnodes/imnodes.cpp|1"

@@ -349,6 +349,12 @@ struct Cache::Entry {
 
 void Cache::clear() { nodes_.clear(); }
 
+int cachedPointCount(const Cache& cache, int nodeId) {
+    auto it = cache.nodes_.find(nodeId);
+    if (it == cache.nodes_.end() || !it->second || !it->second->value.points) return -1;
+    return (int)it->second->value.points->pts.size();
+}
+
 float rand01(uint32_t seed, int nodeId, uint64_t key, int channel) {
     uint64_t h = mix64(0x51ed270b7f3ac1ULL ^ seed);
     h = hashCombine(h, (uint64_t)(uint32_t)nodeId);

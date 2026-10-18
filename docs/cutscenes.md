@@ -12,11 +12,43 @@ keyframes, or using the phone as a live viewfinder — see
 [camera takes](camera-takes.md) and [the phone camera](phone-camera.md).
 `examples/cutscene-demo` is the worked example for all of it.
 
+## The Director window
+
+![The Cutscene Director on cutscene-demo's "The Reveal", played by the pedestal's Play Sequence: the shot at the playhead (cam-low, FOV 90, shake 0.08, Cinema bars) as the hero, the Key tab editing the selected camera cut (Shot from cam-low, Into next Cut / Smooth / Linear, FOV, Shake, Time), the transport with the 0:03.53 / 0:14.00 timecode, and the timeline: the camera lane as named clips per camera, the Fades & bars lane, and a lane per animated object with its keys as diamonds over a span.](img/cutscene-director.png)
+
+The header picks the sequence (and adds one), says which graphs start it —
+*played by pedestal (Play Sequence)*, or *not started by any graph yet* —
+shows the phone camera link's state (click it for *Tools > Phone Camera*,
+where a phone move is recorded into the sequence) and imports a take.
+
+- **The shot** at the playhead is the big picture: rendered through the
+  sequence camera in the window itself, as the game draws it (no grid,
+  markers, gizmos or selection outline), with the bars and fades the console
+  will composite and a label naming the camera, its FOV and shake. *Shot*
+  leaves the main viewport to you; *Also drive the viewport* makes it film
+  through the sequence camera too (what the Director always did before).
+  Opening the Director, or picking another sequence, parks the playhead at
+  the end of the fade-in - the first frame with something to see - instead of
+  the black 0:00 (the saved sequence is not touched; rewind still goes to 0).
+- **The timeline** shows the camera lane as **clips** — one per shot, named
+  and coloured by camera, as long as it holds; a Smooth or Linear blend fades
+  into the next shot's colour, a Cut is a hard edge. Click a clip to select
+  the shot, drag its left edge to retime the cut, double-click to park the
+  playhead on it. **Fades & bars** draws the fade and bar ramps at both ends.
+  Object lanes show each key as a diamond on a span bar, visibility as
+  on-spans, and the animated channels as a dim `P R S C V` summary.
+  Double-click any lane to drop a key; `+` on a label keys the playhead.
+- **The inspector** has two tabs. *Key*: the selected camera shot (*Shot
+  from*, *Into next* — Cut / Smooth / Linear, the three easings named for what
+  they do to a camera —, FOV, Shake, Roll, Time, *Look through*) or object key
+  (Time, easing, the pose fields, Re-snapshot), plus the selected lane's
+  channels. *Sequence*: everything below.
+
 ## The sequence options
 
-![The Cutscene Director editing a sequence: the option row carries Loop, Skippable, Camera track, Hide player and Hide HUD, with the On skip dropdown ("Ask first") and the name of the skip screen below it, then the widescreen bars and fades, and a dopesheet with a camera lane and one lane per animated object.](img/cutscene-director.png)
+![The Director's Sequence tab: Name, Duration, Loop, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide player and Hide HUD as switches, then Bars & fades.](img/cutscene-sequence-tab.png)
 
-Every cutscene carries a handful of switches above the dopesheet:
+Every cutscene carries a handful of settings on the inspector's **Sequence** tab:
 
 | Option | What it does |
 |---|---|
@@ -95,9 +127,9 @@ box, chooses between:
 The skip screen is an ordinary menu, so it is authored, styled and previewed
 like every other one — *Tools > Menu Editor*, with the whole
 [stylesheet](menu-styles.md) language available. One menu per project carries
-the role, marked with the **Cutscene skip screen** tick box.
+the role, marked with the **Cutscene skip screen** switch on the *Opens* tab.
 
-The fastest way to get one is **+ Skip screen** in the Menu Editor's menu list.
+The fastest way to get one is **New > + Skip screen** in the Menu Editor's menu list.
 It scaffolds a two-row confirmation already marked with the role:
 
 ```
@@ -114,7 +146,7 @@ where it froze and it carries on. Only the **Skip cutscene** row action ends it.
 If a cutscene is set to *Ask first* and the project has no skip screen, the
 press skips on the spot. Swallowing it and doing nothing would read as a broken
 button; the Cutscene Director says so in amber next to the dropdown, and the
-Menu Editor marks an unreachable *Skip cutscene* row with `(!)`.
+Menu Editor flags an unreachable *Skip cutscene* row in amber ("Unreachable: this is not the skip screen").
 
 ### Ending a cutscene from a graph
 
