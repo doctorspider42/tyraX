@@ -276,6 +276,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
         else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
         else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
+        else if (match("navTrackpad", v)) cfg.nav.trackpad = toI(v, cfg.nav.trackpad ? 1 : 0) != 0;
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
         else if (match("toolchainImage", v)) cfg.toolchainImage = v;
@@ -378,6 +379,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
       << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
+      << "navTrackpad=" << (n.trackpad ? 1 : 0) << "\n"
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
       << "toolchainImage=" << cfg.toolchainImage << "\n"
@@ -4125,6 +4127,10 @@ void App::drawViewportWindow() {
             // whatever those two buttons mean on their own - and it is scheme
             // independent, since every scheme leaves the pair unused.
             const bool doDollyPan = rmb && mmb;
+            // Shift + right-drag pans in every scheme: the middle-drag pan for
+            // a pointer with no middle button (a trackpad's two-finger press).
+            // No scheme uses Shift with the right button.
+            const bool shiftRightPan = rmb && shift && !mmb;
             switch (nav_.scheme) {
                 case NavScheme::Blender:
                     doOrbit = mmb && !shift;
@@ -4147,6 +4153,10 @@ void App::drawViewportWindow() {
                     doPan = mmb;
                     break;
             }
+            if (shiftRightPan) {
+                doOrbit = false;
+                doPan = true;
+            }
             if (doDollyPan) {
                 doOrbit = doPan = false;  // the pair is its own gesture
                 // Dragging DOWN moves forward. That is the pan sense, not the
@@ -4162,8 +4172,29 @@ void App::drawViewportWindow() {
             if (doPan)
                 viewport_.pan(io.MouseDelta.x * nav_.panSensitivity,
                               io.MouseDelta.y * nav_.panSensitivity);
-            if (io.MouseWheel != 0.0f || dolly != 0.0f)
+            // The wheel. With the trackpad option a two-finger scroll is a
+            // DRAG of the scene (both axes, so it follows the fingers the way
+            // a middle-drag follows the mouse), Cmd/Ctrl + scroll zooms and
+            // Option + scroll orbits; without it the wheel zooms, as always.
+            // kScrollPx: one scroll unit in drag pixels - trackpad deltas come
+            // in fractions of a line, so this is what makes a swipe cover
+            // about as much ground as the same distance dragged.
+            constexpr float kScrollPx = 12.0f;
+            const bool cmd = io.KeyCtrl || io.KeySuper;
+            const bool scrolled = io.MouseWheel != 0.0f || io.MouseWheelH != 0.0f;
+            if (nav_.trackpad && scrolled && !cmd) {
+                const float dx = io.MouseWheelH * kScrollPx, dy = io.MouseWheel * kScrollPx;
+                if (alt) {
+                    const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
+                    const float sy = nav_.orbitSensitivity * (nav_.invertY ? -1.0f : 1.0f);
+                    viewport_.orbit(dx * sx, dy * sy);
+                } else {
+                    viewport_.pan(dx * nav_.panSensitivity, dy * nav_.panSensitivity);
+                }
+                if (dolly != 0.0f) viewport_.zoom(dolly);
+            } else if (io.MouseWheel != 0.0f || dolly != 0.0f) {
                 viewport_.zoom(io.MouseWheel * nav_.zoomSensitivity + dolly);
+            }
 
             // Begin a rubber-band box when a left-drag starts and the left
             // button is not driving the camera in this scheme (only Maya's
@@ -21490,6 +21521,15 @@ void App::drawNavigationModal() {
         "Left mouse stays free for selection.",
     };
     ImGui::TextDisabled("%s", schemeHelp[scheme]);
+    ImGui::TextDisabled("Any scheme: Shift+right drag pans (no middle button needed).");
+
+    ImGui::SeparatorText("Trackpad");
+    changed |= ImGui::Checkbox("Two-finger scroll pans", &nav_.trackpad);
+    ImGui::TextDisabled(
+        nav_.trackpad ? "Scroll pans, Cmd+scroll zooms, Option+scroll orbits.\n"
+                        "Turn off to zoom with a mouse wheel instead."
+                      : "The wheel zooms. Turn on for a trackpad: scroll pans,\n"
+                        "Cmd+scroll zooms, Option+scroll orbits.");
 
     ImGui::SeparatorText("Movement keys");
     int keys = (int)nav_.moveKeys;

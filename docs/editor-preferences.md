@@ -35,6 +35,22 @@ every page by name and description (try `ip`, `docker`, `model`).
 | **AI assistant** | *Backend*, *Model* (or Custom with a free *Model id*) and *Extended thinking*, used by the [AI Assistant](ai-chat.md) and [Generate with AI](ai-flow-graph.md). |
 | **Updates** | *Check for updates at startup*, *Check now*, and *Stop skipping* for a skipped version ([updates](updates.md)). |
 
+## Moving the camera without a middle button
+
+*View > Navigation controls...* picks the mouse scheme (Tyra, Blender, Maya,
+Unity), the fly keys and the sensitivities - all machine settings in
+`editor.ini`. Every scheme pans with a middle-button drag, which a laptop's
+trackpad does not have, so two more ways in:
+
+- **Two-finger scroll pans** (*Trackpad*, on by default on macOS): the scene
+  follows your fingers, **Cmd+scroll** (or Ctrl+scroll) zooms and
+  **Option+scroll** orbits. Turn it off to zoom with a mouse wheel again.
+- **Shift + right-drag pans** in every scheme - on a trackpad, a two-finger
+  press and drag with Shift held.
+
+Pinch-to-zoom is not available: the window library the editor uses does not
+pass the gesture on.
+
 ## Project Preferences looks the same
 
 *Project > Preferences* (Ctrl+,) holds the project's own settings with the same

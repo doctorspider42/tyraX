@@ -92,6 +92,15 @@ struct NavConfig {
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
     bool orbitAroundSelection = true;  // pivot snaps to the selected object
+    // Trackpad navigation (no middle button): two-finger scroll PANS, Cmd/Ctrl
+    // + scroll zooms, Option + scroll orbits. On by default on macOS, where
+    // the built-in trackpad is the usual pointer; a mouse user turns it off in
+    // View > Navigation controls to get wheel-zoom back.
+#ifdef __APPLE__
+    bool trackpad = true;
+#else
+    bool trackpad = false;
+#endif
 };
 
 // One log panel's classified view of its text (docs/log-panels.md) - the state
