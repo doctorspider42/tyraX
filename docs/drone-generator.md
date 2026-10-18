@@ -21,8 +21,9 @@ under a level.
 
 The window opens on the **Simple** view; **Detailed** is everything below this
 section (the project rail and presets, the transport with Record, the seven
-tabs). The `Simple | Detailed` switch sits at the right of the title row in
-Simple and of the tab row in Detailed, and is remembered per machine
+tabs). The `Simple | Detailed` switch sits at the top right in both views -
+the title row in Simple, the patch title row (right of the render state) in
+Detailed - and is remembered per machine
 (`droneDetailed` in `editor.ini`), not per project. Both views edit the SAME
 patch, transport and file: switching never stops playback, and Simple adds no
 saved field - every control reads its value back from the patch and writes by

@@ -1458,7 +1458,10 @@ void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
             state = changed ? "changed since last render" : "rendered";
         }
         const float sw = ImGui::CalcTextSize(state).x + ImGui::GetFontSize();
-        const float right = ImGui::GetContentRegionMax().x;
+        // Simple | Detailed at the row's right end - where the Simple view
+        // has it - and the render state left of it.
+        const float viewW = drawDroneViewSwitch(0.0f, 0.0f, false);
+        const float right = ImGui::GetContentRegionMax().x - viewW - ImGui::GetFontSize();
         ImGui::SameLine();
         if (ImGui::GetCursorPosX() < right - sw) {
             ImGui::SetCursorPos(ImVec2(right - sw, rowMid));
@@ -1468,7 +1471,10 @@ void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
                                   "saved after the last render, mean the WAV is behind.",
                                   fileWav.c_str());
         }
-        ImGui::SetCursorPosY(y0 + ImGui::GetItemRectSize().y + scaled(14.0f));
+        const float rowH = ImGui::GetItemRectSize().y;
+        drawDroneViewSwitch(ImGui::GetContentRegionMax().x,
+                            rowMid - (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::SetCursorPosY(y0 + rowH + scaled(14.0f));
     }
 
     // Record mode stops itself at the end of the piece instead of playing on
@@ -1604,7 +1610,6 @@ void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
     ImGui::Dummy(ImVec2(0.0f, scaled(2.0f)));
 
     // ---- tabs -------------------------------------------------------------
-    const float tabRowY = ImGui::GetCursorPosY();
     if (ui::BeginQuietTabBar("dronetabbar")) {
         // Selector only: the content is drawn below, gated by droneTab_.
         static int lastFrame = -10;
@@ -1618,8 +1623,6 @@ void App::drawDroneDetailed(bool& dirty, bool& openNewAsk) {
         ui::EndQuietTabBar();
         lastFrame = ImGui::GetFrameCount();
     }
-    // Simple | Detailed at the tab row's right end (the Ambience Editor's spot).
-    drawDroneViewSwitch(ImGui::GetContentRegionMax().x, tabRowY);
     const float footerH = ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeightWithSpacing() +
                           ImGui::GetStyle().ItemSpacing.y * 2.0f;
     ImGui::BeginChild("dronetabs", ImVec2(0, -footerH), false);
