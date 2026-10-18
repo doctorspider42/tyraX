@@ -2870,9 +2870,6 @@ private:
     int modelImpostorViews_ = 8;
     int modelDistantKind_ = 0;
     std::string modelImpostorObject_;
-    // Impostor capture tries the GPU and falls back to the CPU on its own -
-    // not a user choice (it used to be a checkbox mislabelled "Impostor").
-    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -4186,12 +4183,11 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
-    // "Bake GI on the GPU when this machine has one" - machine-global
-    // (editor.ini), edited from the Ambience Editor's Global illumination tab
-    // next to the Bake buttons, which is where a person looks for it. The
-    // errorPopup precedent: a machine-wide setting does not have to live in the
-    // Preferences modal, it just has to go through saveGlobalConfig().
-    bool giGpuBake_ = false;
+    // "Use the GPU for bakes" - ONE machine-wide switch (editor.ini gpuBakes,
+    // Edit > Preferences > Build) for the GI gather and the impostor capture;
+    // the Ambience Editor shows which engine the next GI bake uses and links
+    // here instead of keeping a switch of its own.
+    bool gpuBakes_ = true;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame

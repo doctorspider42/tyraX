@@ -3573,7 +3573,7 @@ bool App::drawDistantVersion(SceneObject& o) {
             billboard
                 ? impostorbake::model(project_.dir, o.modelPath, o.materialPath,
                                       "res/models/impostors/model-" + key, &path, &extent,
-                                      &error, 128, modelImpostorViews_, impostorGpu_, &backend)
+                                      &error, 128, modelImpostorViews_, gpuBakes_, &backend)
                 : modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
                                        "res/models/proxies/model-" + key, &path, &extent,
                                        &triangles, &error);

@@ -65,6 +65,7 @@
 #include "geist_regular_gen.hpp"
 #include "geist_semibold_gen.hpp"
 
+#include "gigpu.hpp"
 #include "platform.hpp"
 
 // PickKind + the pick*() wrappers, fileSizeOr0, readTextFileTail,
@@ -196,17 +197,21 @@ struct EditorConfig {
     // build. Off by default: everything else the assistant does is instant and
     // one Ctrl+Z away, this is neither.
     bool chatAllowBuild = false;
-    // Bake global illumination on the GPU when this machine has one
-    // (docs/global-illumination.md, "The GPU backend"). Machine-global for the
-    // same reason the emulator path is: whether there is a usable GPU here is a
-    // fact about the box, not about any project.
+    // ONE switch for every bake that can run on the GPU - the GI lightmap
+    // gather and the impostor capture today (docs/editor-preferences.md,
+    // Build page). Machine-global for the same reason the emulator path is:
+    // whether there is a usable GPU here is a fact about the box, not about
+    // any project. Each bake still falls back to the CPU on its own when the
+    // GPU is missing or refuses.
     //
-    // OFF by default, and deliberately matching the CLI's --gpu rather than
-    // being helpful: the two backends agree to a tolerance, not bit-for-bit, so
-    // switching backends rewrites every byte of a scene's cached bake. The
-    // repo's own GI examples SHIP that cache, so a default-on would turn a
-    // contributor's first bake into a binary diff nobody asked for.
-    bool giGpuBake = false;
+    // ON by default. The GI backends agree to a tolerance (2/255), not
+    // bit-for-bit, so a GPU re-bake rewrites a scene's cached bytes - the
+    // reason this used to be an off-by-default GI-only switch. One editor-wide
+    // choice is worth more than that: whoever needs CPU-identical caches (the
+    // repo's own GI examples) turns it off once. Its old key, giGpuBake, is
+    // not read: it was written as 0 into every editor.ini whether or not
+    // anyone chose it.
+    bool gpuBakes = true;
     // Update check (docs/updates.md): whether the editor asks GitHub for a
     // newer release at startup, and one version somebody has told it to stop
     // mentioning. Which build is installed is a property of this machine, so
@@ -283,7 +288,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("buildBackend", v))
             cfg.buildBackend = v == "docker" ? "docker" : "native";
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
-        else if (match("giGpuBake", v)) cfg.giGpuBake = toI(v, 0) != 0;
+        else if (match("gpuBakes", v)) cfg.gpuBakes = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
         else if (match("displayName", v)) cfg.displayName = v;
         else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
@@ -385,7 +390,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "toolchainImage=" << cfg.toolchainImage << "\n"
       << "buildBackend=" << cfg.buildBackend << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
-      << "giGpuBake=" << (cfg.giGpuBake ? 1 : 0) << "\n"
+      << "gpuBakes=" << (cfg.gpuBakes ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
       << "displayName=" << cfg.displayName << "\n"
       << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
@@ -675,7 +680,7 @@ int App::run(const std::string& initialProjectDir) {
         globalToolchainImage_ = cfg.toolchainImage;
         globalBuildBackend_ = cfg.buildBackend;
         errorPopupEnabled_ = cfg.errorPopup;
-        giGpuBake_ = cfg.giGpuBake;
+        gpuBakes_ = cfg.gpuBakes;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
         globalDisplayName_ = cfg.displayName;
         globalSessionCacheDir_ = cfg.sessionCacheDir;
@@ -1314,7 +1319,7 @@ void App::saveGlobalConfig() {
                       viewportPs2Shade_, viewportGsColor_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
-                      giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
+                      gpuBakes_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
                       nativeTitleBar_, ambienceDetailed_, droneDetailed_,
                       std::move(recent), multiViewports_});
@@ -21205,6 +21210,18 @@ void App::drawEditorPreferencesModal() {
         rowDesc("Native needs no Docker: the bundled PS2DEV toolchain runs directly (through WSL on "
                 "Windows) and the first build sets it up in the editor cache. Docker is the compatibility "
                 "fallback.");
+    }
+    if (show(3, "GPU", "GPU bakes global illumination GI impostor Metal OpenGL compute graphics card")) {
+        rowStart("GPU");
+        if (ui::Switch("Use the GPU for bakes", &gpuBakes_)) saveGlobalConfig();
+        std::string why;
+        const bool here = gigpu::available(&why);
+        const std::string desc =
+            here ? std::string("Global illumination lightmaps and impostor captures run on the GPU (Metal on a "
+                               "Mac) - several times faster - and fall back to the CPU on their own. A GPU GI "
+                               "bake matches the CPU's within 2/255, not byte for byte.")
+                 : "No usable GPU here (" + why + "): every bake runs on the CPU.";
+        rowDesc(desc.c_str());
     }
     if (prefBuildBackend_ == 1 && show(3, "Compiler image", "docker image name GHCR h4570 tyra")) {
         // The buffer is the single truth and the combo a shortcut into it.

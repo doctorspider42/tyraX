@@ -509,17 +509,20 @@ flatters the GPU by a factor of eight and is the wrong number to plan with.
 
 ### Baking with it
 
-In the editor it is a switch at the bottom of the Bake column — *Tools >
-Ambience Editor > Global illumination > **Bake on the GPU*** (the column's
-header badge says which engine the next bake uses). It is greyed out with the
-reason on hover when the machine has no usable GPU, and it is **machine-global**
-(editor.ini), not a project setting: whether this box has a GPU is a fact about
-the box. Headless it is `--bake-gi <projectDir> --gpu`.
+In the editor it follows the ONE editor-wide GPU switch, *Edit > Preferences >
+Build > **Use the GPU for bakes*** (on by default; it also drives the impostor
+capture). The Bake column (*Tools > Ambience Editor > Global illumination*) says
+which engine the next bake uses - its header badge and a "Bakes on the GPU /
+CPU" line with a **Change** link to that setting - and why when the machine has
+no usable GPU. It is **machine-global** (editor.ini `gpuBakes`), not a project
+setting: whether this box has a GPU is a fact about the box. Headless it is
+`--bake-gi <projectDir> --gpu`, opt-in, because the command line reads no
+editor settings.
 
-Opt-in in both, because the two backends agree to a tolerance and not
-bit-for-bit, so flipping it silently would change every existing project's
-cached bytes — and this repo's own GI examples ship that cache. End to end,
-8 cores:
+The two backends agree to a tolerance and not bit-for-bit, so a GPU re-bake
+rewrites a scene's cached bytes. Where a cache has to stay CPU-identical - this
+repo's own GI examples ship theirs - turn the editor-wide switch off. End to
+end, 8 cores:
 
 | Example | CPU | GPU | atlas | terrain |
 | --- | --- | --- | --- | --- |

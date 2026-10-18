@@ -153,7 +153,9 @@ uploads geometry/textures once per asset, dilates RGB borders in four GPU
 passes (without spreading alpha), and reads back once for all views.
 `bakegl.hpp` shares hidden-window creation and scoped context restoration with
 GI. The capture context is separate from GI and the viewport; it requires
-OpenGL 3.3, whereas GI compute requires 4.3. Failed GPU capture automatically
+OpenGL 3.3, whereas GI compute requires 4.3 (Metal on a Mac). In the editor it
+follows *Edit > Preferences > Build > Use the GPU for bakes*, the one switch for
+every GPU bake; off, the capture runs on the CPU. Failed GPU capture automatically
 retries on CPU, and the result message identifies the backend or fallback reason.
 Both paths use the same projected bounds, binary alpha and per-capture RGB
 padding. Silhouette edge coverage may differ slightly between GL rasterization

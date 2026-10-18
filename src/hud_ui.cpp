@@ -2190,7 +2190,7 @@ void App::drawGiBakeSection() {
     {
         std::string gpuWhy;
         const bool gpuHere = gigpu::available(&gpuWhy);
-        const bool useGpu = giGpuBake_ && gpuHere;
+        const bool useGpu = gpuBakes_ && gpuHere;
         {
             ui::FontScope bold(ui::boldFont());
             ImGui::AlignTextToFramePadding();
@@ -2303,18 +2303,18 @@ void App::drawGiBakeSection() {
         // Pinned options.
         ImGui::Separator();
         ui::InspectorRows rows(scaled(80), scaled(120));
-        ImGui::BeginDisabled(!gpuHere || giBaker_.running());
-        bool wantGpu = useGpu;
-        if (ui::Switch("Bake on the GPU (8-10x faster lightmap passes, matches the CPU within 2/255)", &wantGpu)) {
-            giGpuBake_ = wantGpu;
-            saveGlobalConfig();
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", gpuHere ? "A GPU compute gather (Metal on a Mac) instead of the CPU cores. Starting the backend\n"
-                                              "costs ~0.9 s once per session. Off by default so a re-bake does not\n"
-                                              "rewrite a cache checked into a repository. Machine-wide setting."
+        // GPU or CPU is ONE editor-wide choice (Edit > Preferences > Build >
+        // Use the GPU for bakes): this says which and links there.
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled(useGpu ? "Bakes on the GPU" : gpuHere ? "Bakes on the CPU" : "Bakes on the CPU (no GPU here)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", gpuHere ? "Set once for every bake in Edit > Preferences > Build > Use the GPU for bakes."
                                             : ("No GPU bake on this machine: " + gpuWhy).c_str());
+        ImGui::SameLine();
+        if (ImGui::TextLink("Change##gpubakes")) {
+            prefCategory_ = 3;  // Build
+            openEditorPrefsPopup_ = true;
+        }
         // ONE name for giAutoBake everywhere (Project Preferences > Build & debug says
         // the same and links here).
         ImGui::BeginDisabled(!st.giEnabled);
@@ -2400,7 +2400,7 @@ void App::modelAoPoll() {
 // bake. Each reads the project from disk-backed state, hence the save first.
 void App::startGiBake(bool allScenes) {
     if (giBaker_.running() || !project_.settings.giEnabled) return;
-    const bool useGpu = giGpuBake_ && gigpu::available(nullptr);
+    const bool useGpu = gpuBakes_ && gigpu::available(nullptr);
     saveProject();
     giBaker_.start(project_, allScenes ? std::vector<int>{} : std::vector<int>{project_.activeScene},
                    useGpu);
@@ -3925,7 +3925,7 @@ void App::addTreeToScene(bool place) {
     std::string impostorRel, impostorBackend;
     if (treeGenImpostor_ &&
         !treegen::writeImpostor(project_.dir, name, treeMesh_, treeBarkTex_,
-                                treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, impostorGpu_, &impostorBackend)) {
+                                treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, gpuBakes_, &impostorBackend)) {
         statusMessage_ = "Impostor export failed: " + err;
         return;
     }
