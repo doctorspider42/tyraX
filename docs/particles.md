@@ -18,6 +18,11 @@ and glows, baked from a recipe into ordinary PNG + `.mtl` assets.
 The window is three columns: the **library**, the **preview** in the middle
 (the thing being made gets the room), and the **inspector**.
 
+A project with no effects yet opens on **Make your first effect** instead: one
+card per preset - Fire, Smoke, Fog, Sparks, Rain, Custom - each with its glow
+and one line on what it does. A click makes that effect (texture baked) and
+the three columns appear.
+
 - **Library**: each effect with a glow in its main layer's tint and "5 layers
   - 1 emitter" (vehicles too when one uses it). **+ New effect** in the header
   starts from a preset for each motion - Fire, Smoke, Fog, Sparks, Rain,

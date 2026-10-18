@@ -42,6 +42,22 @@ void openDocPage(const char* page) {
 }
 
 const char* const kKinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
+// One line per kKinds entry, for the first-effect cards.
+const char* const kKindDesc[] = {"Glowing flames rising from a point", "Slow grey puffs that drift and spread",
+                                 "A low, wide haze over the ground",   "Tiny bright bits that shoot and fall",
+                                 "Streaks falling over an area",        "Plain particles to shape yourself"};
+
+// An effect's glow: its tint in soft rings on a dark tile `d` px square.
+void drawGlowTile(ImDrawList* dl, ImVec2 t0, float d, const float color[3], bool additive, float r) {
+    const theme::Semantics& sem = theme::semantics();
+    dl->AddRectFilled(t0, ImVec2(t0.x + d, t0.y + d), ImGui::GetColorU32(sem.ground), r);
+    const ImVec2 c(t0.x + d * 0.5f, t0.y + d * 0.5f);
+    for (int i = 5; i >= 1; --i)
+        dl->AddCircleFilled(c, d * (0.16f + 0.065f * (float)i),
+                            ImGui::ColorConvertFloat4ToU32(
+                                ImVec4(color[0], color[1], color[2], additive ? 0.22f : 0.16f)),
+                            24);
+}
 const char* const kTexKinds[] = {"None (pick a material)", "Smoke puff", "Flame",
                                  "Glow / spark"};
 
@@ -139,6 +155,72 @@ void App::drawParticleEditorWindow() {
     };
     int deleteAt = -1;
 
+    // --- no effects yet: one centred column, every preset a card ---------------
+    // No library, no inspector, no "+ New effect": the six cards ARE the way
+    // in (each named by its preset - what a script clicks), with only the
+    // docs button above them.
+    if (lib.empty()) {
+        const float rowH = ImGui::GetFrameHeight();
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - rowH);
+        if (ui::HelpButton("Particle docs", rowH, "Open docs/particles.md")) openDocPage("particles");
+        const float fs = ImGui::GetFontSize();
+        const float colW = ImMin(scaled(700), ImGui::GetContentRegionAvail().x);
+        const float cardH = fs * 4.6f;
+        const float blockH = fs * 4.0f + cardH * 2.0f + scaled(12) + fs * 3.0f;
+        const float x0 = ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - colW) * 0.5f;
+        const float y0 = ImGui::GetCursorPosY() +
+                         ImMax(0.0f, (ImGui::GetContentRegionAvail().y - blockH) * 0.45f);
+        ImGui::SetCursorPos(ImVec2(x0, y0));
+        ImGui::BeginGroup();
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.45f);
+            ImGui::TextUnformatted("Make your first effect");
+            ImGui::PopFont();
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + colW);
+        ImGui::TextUnformatted("Pick a starting point. Everything can be changed afterwards, and its texture "
+                               "is generated for you.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(10)));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(scaled(6), scaled(6)));
+        if (ImGui::BeginTable("##fxfirst", 3, ImGuiTableFlags_SizingStretchSame, ImVec2(colW, 0))) {
+            for (int k = 0; k < 6; ++k) {
+                ImGui::TableNextColumn();
+                ImGui::PushID(k);
+                if (ui::ChoiceCard(kKinds[k], false, cardH)) newEffect(k);
+                ImGui::PopID();
+                const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ParticleEffect preset = project::particlePreset(k);
+                const float pad = scaled(12), d = cardH - pad * 2.0f;
+                drawGlowTile(dl, ImVec2(a.x + pad, a.y + pad), d, preset.color, preset.additive,
+                             ImGui::GetStyle().FrameRounding + 3.0f);
+                const float tx = a.x + pad * 2.0f + d;
+                const float ty = a.y + (cardH - fs * 2.3f) * 0.5f;
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    dl->AddText(ImVec2(tx, ty), ImGui::GetColorU32(sem.text), kKinds[k]);
+                }
+                dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(tx, ty + fs * 1.3f),
+                            ImGui::GetColorU32(sem.textDim), kKindDesc[k], nullptr, b.x - tx - pad);
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleVar();
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted("An effect is defined once here; emitters and vehicle tyre smoke use it by name.");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (ui::Link("How particles work")) openDocPage("particles");
+        ImGui::EndGroup();
+        ImGui::End();
+        return;
+    }
+
     // --- header: count, New effect, docs -------------------------------------
     {
         const float rowH = ImGui::GetFrameHeight();
@@ -216,13 +298,7 @@ void App::drawParticleEditorWindow() {
             // The effect's glow: its main layer's tint on a dark tile.
             const float d = rowH - scaled(10);
             const ImVec2 t0(p.x + scaled(6), p.y + scaled(5));
-            dl->AddRectFilled(t0, ImVec2(t0.x + d, t0.y + d), ImGui::GetColorU32(sem.ground), r + 2.0f);
-            const ImVec2 c(t0.x + d * 0.5f, t0.y + d * 0.5f);
-            for (int i = 5; i >= 1; --i)
-                dl->AddCircleFilled(c, d * (0.16f + 0.065f * (float)i),
-                                    ImGui::ColorConvertFloat4ToU32(
-                                        ImVec4(e.color[0], e.color[1], e.color[2], e.additive ? 0.22f : 0.16f)),
-                                    24);
+            drawGlowTile(dl, t0, d, e.color, e.additive, r + 2.0f);
             const float tx = t0.x + d + scaled(10);
             const float fs = ImGui::GetFontSize();
             dl->PushClipRect(p, ImVec2(p.x + w - 2.0f, p.y + rowH), true);
@@ -233,12 +309,6 @@ void App::drawParticleEditorWindow() {
             dl->AddText(ImGui::GetFont(), fs * 0.86f, ImVec2(tx, p.y + rowH * 0.5f + 1.0f),
                         ImGui::GetColorU32(sem.textDim), sub);
             dl->PopClipRect();
-        }
-        if (lib.empty()) {
-            if (ui::EmptyState(ui::Glyph::Sparkle, "No effects yet",
-                               "Start from a motion preset; its texture is generated for you.",
-                               "New fire effect"))
-                newEffect(0);
         }
         ImGui::EndChild();
         ImGui::PushTextWrapPos(0.0f);
