@@ -55,7 +55,10 @@ Create project.](img/new-project.png)
 
 **Start as** (left) is the one choice that cannot change later: it picks the
 game sources the project generates, and those are yours to edit, so switching
-afterwards would overwrite your work or orphan it.
+afterwards would overwrite your work or orphan it. Each card's picture is the
+same small floor-and-horizon scene: seen down a crosshair (First person), with
+the player standing in it seen from behind (Third person), or with only a
+camera on a tripod (Empty).
 
 | Card | What you get |
 |---|---|

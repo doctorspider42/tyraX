@@ -17606,35 +17606,73 @@ static const char* const kNewPresetDesc[] = {
     "Camera on a boom behind the player. Uses the Player object's animated model.",
     "No player, a camera that stays put. Drive it from a cutscene or your own code."};
 
-// The little picture on a preset card, drawn into [a, b].
+// The little picture on a preset card, drawn into [a, b]: the same small
+// scene every time - a dark sky, a floor whose grid runs to a vanishing point
+// on the horizon - and what each preset puts in it. First person: the view
+// itself (a crosshair on the horizon, a crate down the floor). Third person:
+// the player from behind, standing on the floor with a shadow. Empty: a
+// camera on a tripod, nobody in front of it.
 static void drawPresetArt(ImDrawList* dl, int preset, ImVec2 a, ImVec2 b) {
     const theme::Semantics& sem = theme::semantics();
     const float w = b.x - a.x, h = b.y - a.y;
-    dl->AddRectFilled(a, b, ImGui::GetColorU32(sem.ground), 6.0f);
-    dl->AddRectFilled(ImVec2(a.x, a.y + h * 0.72f), b, ImGui::GetColorU32(sem.field), 6.0f,
-                      ImDrawFlags_RoundCornersBottom);
+    const float r = 6.0f;
     auto P = [&](float x, float y) { return ImVec2(a.x + w * x, a.y + h * y); };
-    const float th = ImMax(1.5f, h * 0.035f);
+    auto col = [](ImVec4 c, float alpha) { return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * alpha)); };
+    const ImVec4 tint = preset == 0 ? sem.accent : preset == 1 ? sem.ok : sem.textDim;
+    const float th = ImMax(1.5f, h * 0.03f);
+
+    // Sky over floor, the floor lit a touch by the preset's colour.
+    const float hy = 0.5f;  // the horizon
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(sem.ground), r);
+    dl->AddRectFilledMultiColor(P(0, hy), b, ImGui::GetColorU32(sem.field), ImGui::GetColorU32(sem.field),
+                                col(tint, 0.16f), col(tint, 0.16f));
+    dl->PushClipRect(a, b, true);
+    const ImU32 grid = col(tint, preset == 2 ? 0.22f : 0.3f);
+    const ImVec2 vp = P(0.5f, hy);
+    for (int i = -4; i <= 4; ++i) dl->AddLine(vp, P(0.5f + i * 0.32f, 1.0f), grid, 1.0f);
+    for (float d : {0.04f, 0.1f, 0.2f, 0.36f}) dl->AddLine(P(0, hy + d), P(1, hy + d), grid, 1.0f);
+    dl->AddLine(P(0, hy), P(1, hy), col(tint, 0.45f), 1.0f);
+
     if (preset == 0) {
+        // A crate down the floor, slightly off the centre line.
+        const ImU32 face = col(sem.textDim, 0.55f), top = col(sem.textDim, 0.8f);
+        dl->AddRectFilled(P(0.66f, 0.58f), P(0.8f, 0.74f), face);
+        dl->AddQuadFilled(P(0.66f, 0.58f), P(0.8f, 0.58f), P(0.77f, 0.54f), P(0.69f, 0.54f), top);
+        // Crosshair: four ticks around a dot, where the eye looks.
         const ImU32 c = ImGui::GetColorU32(sem.accent);
-        dl->AddLine(P(0.38f, 0.32f), P(0.62f, 0.32f), c, th);
-        dl->AddLine(P(0.5f, 0.2f), P(0.5f, 0.44f), c, th);
-        dl->AddLine(P(0.22f, 0.92f), P(0.5f, 0.68f), c, th);
-        dl->AddLine(P(0.5f, 0.68f), P(0.78f, 0.92f), c, th);
+        const ImVec2 o = P(0.5f, 0.28f);
+        const float g = h * 0.05f, l = h * 0.11f;
+        dl->AddLine(ImVec2(o.x - g - l, o.y), ImVec2(o.x - g, o.y), c, th);
+        dl->AddLine(ImVec2(o.x + g, o.y), ImVec2(o.x + g + l, o.y), c, th);
+        dl->AddLine(ImVec2(o.x, o.y - g - l), ImVec2(o.x, o.y - g), c, th);
+        dl->AddLine(ImVec2(o.x, o.y + g), ImVec2(o.x, o.y + g + l), c, th);
+        dl->AddCircleFilled(o, th * 0.9f, c);
     } else if (preset == 1) {
+        // The player from behind: shadow, shoulders/torso, head.
         const ImU32 c = ImGui::GetColorU32(sem.ok);
-        dl->AddCircle(P(0.58f, 0.36f), h * 0.07f, c, 16, th);
-        dl->AddLine(P(0.58f, 0.43f), P(0.58f, 0.66f), c, th);
-        dl->AddLine(P(0.49f, 0.52f), P(0.67f, 0.52f), c, th);
-        dl->AddLine(P(0.58f, 0.66f), P(0.52f, 0.8f), c, th);
-        dl->AddLine(P(0.58f, 0.66f), P(0.64f, 0.8f), c, th);
-        dl->AddLine(P(0.18f, 0.24f), P(0.38f, 0.38f), c, th);
+        dl->AddEllipseFilled(P(0.5f, 0.9f), ImVec2(w * 0.2f, h * 0.05f), col(sem.ground, 0.7f));
+        dl->AddRectFilled(P(0.36f, 0.5f), P(0.64f, 0.62f), c, w * 0.07f, ImDrawFlags_RoundCornersTop);
+        dl->AddQuadFilled(P(0.37f, 0.6f), P(0.63f, 0.6f), P(0.59f, 0.75f), P(0.41f, 0.75f), c);
+        dl->AddRectFilled(P(0.41f, 0.74f), P(0.49f, 0.9f), c, 2.0f);
+        dl->AddRectFilled(P(0.51f, 0.74f), P(0.59f, 0.9f), c, 2.0f);
+        dl->AddCircleFilled(P(0.5f, 0.36f), h * 0.1f, c, 24);
     } else {
+        // A movie camera on a tripod: reels, body, lens, legs.
         const ImU32 c = ImGui::GetColorU32(sem.textDim);
-        dl->AddRect(P(0.3f, 0.26f), P(0.7f, 0.6f), c, 2.0f, 0, th);
-        dl->AddLine(P(0.4f, 0.6f), P(0.4f, 0.72f), c, th);
-        dl->AddLine(P(0.6f, 0.6f), P(0.6f, 0.72f), c, th);
+        const ImU32 dark = ImGui::GetColorU32(sem.ground);
+        for (float x : {0.38f, 0.54f}) {
+            dl->AddCircleFilled(P(x, 0.22f), h * 0.09f, c, 20);
+            dl->AddCircleFilled(P(x, 0.22f), h * 0.03f, dark, 12);
+        }
+        dl->AddRectFilled(P(0.3f, 0.3f), P(0.62f, 0.5f), c, 3.0f);
+        dl->AddQuadFilled(P(0.62f, 0.36f), P(0.75f, 0.3f), P(0.75f, 0.5f), P(0.62f, 0.44f), c);
+        const ImVec2 hinge = P(0.46f, 0.5f);
+        dl->AddLine(hinge, P(0.32f, 0.84f), c, th);
+        dl->AddLine(hinge, P(0.46f, 0.88f), c, th);
+        dl->AddLine(hinge, P(0.6f, 0.84f), c, th);
     }
+    dl->PopClipRect();
+    dl->AddRect(a, b, col(sem.border, 0.8f), r);
 }
 
 void App::drawNewProjectModal() {
