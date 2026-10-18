@@ -21218,8 +21218,7 @@ void App::drawEditorPreferencesModal() {
         const bool here = gigpu::available(&why);
         const std::string desc =
             here ? std::string("Global illumination lightmaps and impostor captures run on the GPU (Metal on a "
-                               "Mac) - several times faster - and fall back to the CPU on their own. A GPU GI "
-                               "bake matches the CPU's within 2/255, not byte for byte.")
+                               "Mac) - several times faster - and fall back to the CPU on their own.")
                  : "No usable GPU here (" + why + "): every bake runs on the CPU.";
         rowDesc(desc.c_str());
     }
