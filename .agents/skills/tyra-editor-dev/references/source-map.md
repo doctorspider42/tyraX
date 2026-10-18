@@ -89,7 +89,8 @@ Read when you need to find which file owns something, or before adding a file. L
 | `decalproj.cpp/.hpp` | 580 | Projected-decal geometry | lighting-and-bakes |
 | `aobake.cpp/.hpp` | 2.5k | AO, lightmap atlas, analytic shapes | lighting-and-bakes |
 | `gibake.cpp/.hpp` | 1.85k | Global illumination + probes | lighting-and-bakes |
-| `gigpu.cpp/.hpp` | 775 | GI gather on GL 4.3 compute | lighting-and-bakes |
+| `gigpu.cpp/.hpp` | 775 | GI gather on GL 4.3 compute (not macOS) | lighting-and-bakes |
+| `gigpu_metal.mm` | 454 | the same gather on Metal (macOS) | lighting-and-bakes |
 | `bakegl.hpp` | 25 | Hidden GL context for GPU bakers | lighting-and-bakes |
 | `bakepar.hpp` | 70 | Bakers' parallel-for | lighting-and-bakes |
 | `bvh.cpp/.hpp` | 280 | Shared BVH | lighting-and-bakes |

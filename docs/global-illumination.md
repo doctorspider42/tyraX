@@ -441,14 +441,23 @@ above and the 800% the box can give.
 
 ## The GPU backend
 
-The hemisphere gather also exists as a **GL 4.3 compute kernel** (`src/gigpu.cpp`),
-a twin of `gibake::gather` + `directAt` + `skyRadiance` + `bvh::trace`.
+The hemisphere gather also exists as a GPU kernel, a twin of `gibake::gather` +
+`directAt` + `skyRadiance` + `bvh::trace`, in two backends behind one interface
+(`src/gigpu.hpp`):
+
+- **Windows and Linux**: a GL 4.3 compute shader (`src/gigpu.cpp`), on a
+  hidden GLFW window's context.
+- **macOS**: a **Metal** compute kernel (`src/gigpu_metal.mm`), because macOS
+  OpenGL stops at 4.1 and has no compute shaders. It is a line-by-line port of
+  the GLSL with Metal's fast math switched off (it would flush denormals and
+  reorder the arithmetic the ray tests depend on). It needs no window, so on a
+  Mac `--bake-gi --gpu` and `--gi-gpu-check` also work headless.
 
 It is an accelerator **with a reference**, not a replacement, and that is
 structural rather than cautious: `--bake-gi` runs headless on build servers and
 inside the Docker build, where there is no display and no GL context at all. So
 the CPU integrator can never be deleted, and every path has to survive
-`gigpu::available()` answering false. The context is a hidden GLFW window rather
+`gigpu::available()` answering false. The GL context is a hidden GLFW window rather
 than EGL, because GLFW is already a dependency on both platforms and a
 per-OS pair would be a file that exists twice (see "Platform parity" in the
 `tyra-editor-dev` skill).
@@ -475,7 +484,12 @@ scene 0: 2716 triangles, 173824 sample points, 128 rays each
   relative mean error 0.0030%  -> AGREE
 ```
 
-Run it after touching **either** side. A relative mean error in the thousandths
+On an Apple M-series Mac the Metal backend reads 0.0011% (global-illumination,
+56x a single core) and 0.0030% (gi-showcase, 59x); a whole `--bake-gi --gpu` of
+gi-showcase takes 0.42 s against 1.29 s on all ten CPU cores.
+
+Run it after touching **any** side - the C++ gather, the GLSL or the Metal
+kernel. A relative mean error in the thousandths
 of a percent is float divergence between two transcendental implementations;
 anything above 1% is a kernel that stopped being a twin, and the verb exits
 non-zero on it.

@@ -2311,7 +2311,7 @@ void App::drawGiBakeSection() {
         }
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", gpuHere ? "A GL 4.3 compute gather instead of the CPU cores. Starting the backend\n"
+            ImGui::SetTooltip("%s", gpuHere ? "A GPU compute gather (Metal on a Mac) instead of the CPU cores. Starting the backend\n"
                                               "costs ~0.9 s once per session. Off by default so a re-bake does not\n"
                                               "rewrite a cache checked into a repository. Machine-wide setting."
                                             : ("No GPU bake on this machine: " + gpuWhy).c_str());

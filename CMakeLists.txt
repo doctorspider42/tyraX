@@ -59,7 +59,10 @@ if(APPLE)
     # OBJC as well: with only OBJCXX enabled, CMake compiles GLFW's own .m
     # files as Objective-C++ (and they do not build as C++).
     enable_language(OBJC OBJCXX)
-    set(TYRAX_EDITOR_MAC_SOURCES src/platform_mac.mm)
+    # gigpu_metal.mm: the GPU GI bake on Metal (macOS OpenGL has no compute
+    # shaders) - the macOS half of gigpu.cpp. ARC for that file only.
+    set(TYRAX_EDITOR_MAC_SOURCES src/platform_mac.mm src/gigpu_metal.mm)
+    set_source_files_properties(src/gigpu_metal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 # --- GLFW ---
@@ -412,6 +415,8 @@ else()
     if(APPLE)
         # Cocoa: NSWindow / NSEvent in src/platform_mac.mm (the merged title bar).
         target_link_libraries(tyrax-editor PRIVATE "-framework Cocoa")
+        # Metal: the GPU GI bake (src/gigpu_metal.mm).
+        target_link_libraries(tyrax-editor PRIVATE "-framework Metal" "-framework Foundation")
     endif()
 endif()
 
