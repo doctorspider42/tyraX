@@ -18778,12 +18778,12 @@ static const PrefIndexEntry kPrefIndex[] = {
      "highlightUsable,highlightDistance,highlightColor,highlightWidth,highlightSteps,highlightOpacity,highlightOverlay",
      false, "usable proximity outline"},
     {"Sky, sun and fog", "Graphics", "Look", "", false, "ambience editor lighting"},
-    {"Static object batching", "Graphics", "Speed", "staticBatching", true, "rendering"},
-    {"Occlusion culling", "Graphics", "Speed", "occlusionCulling", true, "conservative"},
-    {"Texture atlasing", "Graphics", "Speed", "textureAtlas", true, "atlas"},
-    {"Interleave batches and roads", "Graphics", "Speed", "interleavePasses", true, "objects"},
-    {"Shiny vehicles at once", "Graphics", "Speed", "vehicleShineBudget", true, "reflection"},
-    {"Triangle clipping", "Graphics", "Speed", "clipping", true, "triangles VU1 EE culling"},
+    {"Static object batching", "Graphics", "Performance", "staticBatching", true, "rendering"},
+    {"Occlusion culling", "Graphics", "Performance", "occlusionCulling", true, "conservative"},
+    {"Texture atlasing", "Graphics", "Performance", "textureAtlas", true, "atlas"},
+    {"Interleave batches and roads", "Graphics", "Performance", "interleavePasses", true, "objects"},
+    {"Shiny vehicles at once", "Graphics", "Performance", "vehicleShineBudget", true, "reflection"},
+    {"Triangle clipping", "Graphics", "Performance", "clipping", true, "triangles VU1 EE culling"},
     {"Animation LOD distance", "Graphics", "Detail at a distance", "animLodDistance", true, ""},
     {"Mesh LOD distance", "Graphics", "Detail at a distance", "meshLodDistance", true, ""},
     {"Projected shadow distance", "Graphics", "Detail at a distance", "projShadowDistance", true, "shadows"},
@@ -19603,7 +19603,7 @@ void App::drawPreferencesWindow() {
         int depth = prefSettings_.colorDepth == "16bit"    ? 1
                     : prefSettings_.colorDepth == "hybrid" ? 2
                                                            : 0;
-        const char* depthNames[] = {"Full (32-bit)", "Reduced (16-bit)", "Mixed"};
+        const char* depthNames[] = {"Full (32-bit)", "Reduced (16-bit)", "Hybrid"};
         if (segRow("Colours", depthNames, 3, &depth))
             prefSettings_.colorDepth =
                 depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
@@ -20149,7 +20149,7 @@ void App::drawPreferencesWindow() {
 
     prefRow("Sky, sun and fog");
     if (advanced("for squeezing out frame rate - the defaults are safe")) {
-    prefGroup("Speed");
+    prefGroup("Performance");
     ui::Switch("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"

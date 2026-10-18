@@ -46,7 +46,7 @@ by what you are trying to do:
 | **Game** | the preset, the player's height and speeds (or the orbit speed), two players, gravity and jump | sprint, stick deadzones and response curves |
 | **Picture** | TV region, picture mode, widescreen, colours | PAL picture, supported resolutions, dithering, triple buffering, VSync |
 | **World** | world scale, terrain size, detail, view distance and material, the loading screen | terrain detail distance, the AI navigation grid |
-| **Graphics** | texture colours, shadows, usable-object highlight, the Ambience Editor | speed (batching, occlusion culling, atlasing...), detail at a distance, reflections, the upscaler and frame extrapolation |
+| **Graphics** | texture colours, shadows, usable-object highlight, the Ambience Editor | performance (batching, occlusion culling, atlasing...), detail at a distance, reflections, the upscaler and frame extrapolation |
 | **Build & debug** | debug or release, on-screen overlays, keyboard & mouse, the live tools, AI support | ps2link keyboard, bakes before a build, how often the live tools check in, the crash handler |
 
 Each page shows its essentials in one card; the **Advanced** fold under it is
