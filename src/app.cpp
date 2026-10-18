@@ -20265,28 +20265,39 @@ void App::drawPreferencesWindow() {
     // authored for another is silently the wrong length. These two numbers
     // are the ratio the build applies to every clip.
     {
-        ImGui::SetNextItemWidth(scaled(90));
-        ui::DragFloat("##animSrcFps", &prefSettings_.animSourceFps, 0.25f,
+        // A caption-left row like the rest (the intRow shape): the caption,
+        // then at the field column "<exported> -> <played>" as two drags.
+        const char* caption = "Animation frame rate";
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float cw = IM_TRUNC(ImClamp(avail * 0.34f, scaled(140), scaled(260)));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(sem.textDim, "%s", caption);
+        const float arrowW = ImGui::CalcTextSize("exported  ->  played").x;
+        const float dragW = ImMax(scaled(60), (avail - cw - arrowW - ImGui::GetStyle().ItemSpacing.x * 2.0f) * 0.5f);
+        ImGui::SameLine();
+        ImGui::SetCursorScreenPos(ImVec2(p.x + cw, p.y));
+        ImGui::SetNextItemWidth(dragW);
+        ImGui::DragFloat("##animSrcFps", &prefSettings_.animSourceFps, 0.25f,
                          1.0f, 240.0f, "%.0f fps");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The fps the clips were exported at.");
         ImGui::SameLine();
-        ImGui::TextUnformatted("exported ->");
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("exported  ->  played");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(90));
-        ui::DragFloat("##animPlayFps", &prefSettings_.animPlayFps, 0.25f,
+        ImGui::SetNextItemWidth(dragW);
+        ImGui::DragFloat("##animPlayFps", &prefSettings_.animPlayFps, 0.25f,
                          1.0f, 240.0f, "%.0f fps");
-        ImGui::SameLine();
-        ImGui::TextUnformatted("Animation fps");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("The fps they should play at.");
+        ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(caption).x);
         prefSettings_.animSourceFps =
             std::clamp(prefSettings_.animSourceFps, 1.0f, 240.0f);
         prefSettings_.animPlayFps =
             std::clamp(prefSettings_.animPlayFps, 1.0f, 240.0f);
         const float ratio =
             prefSettings_.animPlayFps / prefSettings_.animSourceFps;
-        if (std::fabs(ratio - 1.0f) > 0.001f)
-            ImGui::TextDisabled("    every clip plays %.3fx %s", ratio,
-                                ratio > 1.0f ? "faster" : "slower");
-        else
-            ImGui::TextDisabled("    clips play at their authored length");
+        // The help goes on the caption (NoteRow made it a row); the verdict
+        // sits under the fields.
         prefHelp(
             "glTF and FBX store keyframe times in SECONDS, never an fps - so\n"
             "a clip animated for 30 fps but exported from a 24 fps Blender\n"
@@ -20296,6 +20307,11 @@ void App::drawPreferencesWindow() {
             "the ratio; the source files are never modified. Equal values\n"
             "(the default) change nothing. Per-clip overrides live in\n"
             "Tools > Animation Editor.");
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + cw);
+        if (std::fabs(ratio - 1.0f) > 0.001f)
+            ImGui::TextDisabled("every clip plays %.3fx %s", ratio, ratio > 1.0f ? "faster" : "slower");
+        else
+            ImGui::TextDisabled("clips play at their authored length");
     }
 
     prefRow("Animation frame rate");

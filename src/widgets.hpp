@@ -259,6 +259,10 @@ bool EyeToggle(const char* label, bool visible, float size, bool show);
  * track as a `from` -> `to` gradient (e.g. Temperature: blue -> orange)
  * instead of the accent fill. Consumed by that one slider. */
 void SetNextSliderGradient(ImU32 from, ImU32 to);
+/** The next inspector-row widget's field stops `px` short of the row's right
+ * edge, so a small button can follow it on the same line (SameLine). Consumed
+ * by that one row; outside InspectorRows it does nothing. */
+void SetNextRowFieldTrim(float px);
 // --- end verify-world ---
 
 // --- verify-world (polish-3) ---

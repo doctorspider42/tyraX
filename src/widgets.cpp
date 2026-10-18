@@ -709,6 +709,9 @@ void drawCaption(ImDrawList* dl, ImVec2 at, float maxX, const char* text, const 
     ImGui::PopStyleColor();
 }
 
+// SetNextRowFieldTrim: the next row's field leaves this much room on its right.
+float gNextRowTrim = 0.0f;
+
 bool beginRow(const char* label, Row& r, bool clipLabel = true) {
     RowScope* s = rowScope();
     if (!s) return false;
@@ -735,7 +738,8 @@ bool beginRow(const char* label, Row& r, bool clipLabel = true) {
         ImGui::IsMouseHoveringRect(r.caption.Min, r.caption.Max))
         ImGui::SetTooltip("%.*s", (int)(end - label), label);
     r.fieldX = p.x + cw;
-    r.fieldW = ImMax(1.0f, avail - cw);
+    r.fieldW = ImMax(1.0f, avail - cw - gNextRowTrim);
+    gNextRowTrim = 0.0f;
     ImGui::SetCursorScreenPos(ImVec2(r.fieldX, p.y));
     ImGui::SetNextItemWidth(r.fieldW);
     if (clipLabel) {
@@ -877,6 +881,8 @@ bool DragInt(const char* label, int* v, float speed, int vmin, int vmax, const c
 // The next slider paints its track as a gradient: the in-tree ImGui patch
 // (style.SliderThinTrack, vendor/imgui-tyrax/TYRAX-PATCHES.md) draws every
 // slider - inspector row or not - so the cue rides along on the context.
+void SetNextRowFieldTrim(float px) { gNextRowTrim = px; }
+
 void SetNextSliderGradient(ImU32 from, ImU32 to) {
     ImGuiContext& g = *ImGui::GetCurrentContext();
     g.SliderNextTrackFrom = from;
