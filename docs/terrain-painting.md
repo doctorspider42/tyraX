@@ -34,6 +34,10 @@ Paint is never a dead button: in a scene with no layers yet, choosing it adds
 - **Erase** removes the selected layer, revealing the layers below (Shift
   does the same while you drag).
 
+The same Radius, Strength and Flatten / Erase sit on a card at the bottom of
+the viewport while a terrain tool is on, so you can change them without
+leaving the ground.
+
 The brush has no falloff control: its edge is always soft. Painting is
 non-destructive: TyraX stores blend weights, not a flattened ground texture.
 Sculpting and painting can be mixed freely.

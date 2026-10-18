@@ -3731,7 +3731,8 @@ void App::drawViewportWindow() {
         const bool brushMode = sculptMode_ || paintMode_;
         bool brushHit = false;
         float brushX = 0.0f, brushZ = 0.0f;
-        if (brushMode && imageHovered) {
+        const bool overBrushCard = ImGui::IsMouseHoveringRect(brushCardMin_, brushCardMax_, false);
+        if (brushMode && imageHovered && !overBrushCard) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
             brushHit = viewport_.terrainRaycast(u, v, brushX, brushZ);
@@ -4880,6 +4881,9 @@ void App::drawViewportWindow() {
 
         // --- Bottom row: selection readout (after the gear), output switch ---
         const float cardY = imgPos.y + avail.y - cardH - ovMargin;
+        // What the bottom row leaves free between its cards, for the brush card.
+        float bottomFreeL = imgPos.x + ovMargin, bottomFreeR = imgPos.x + avail.x - ovMargin;
+        float bottomRowTop = cardY;
         {
             // Output switch (bottom-right): the editor's own image or the
             // console's (viewportPs2_, also the gear's "PS2 output (GS)"
@@ -4896,6 +4900,7 @@ void App::drawViewportWindow() {
             const float readoutX = imgPos.x + viewportGearSpan();
             float outX = imgPos.x + avail.x - ovMargin - outW;
             float outY = cardY;
+            bottomFreeL = readoutX;
 
             // Selection readout: what is selected and how big, plus Frame.
             const int nSel = (int)selection_.size();
@@ -4958,6 +4963,7 @@ void App::drawViewportWindow() {
                     ImDrawList* odl = ImGui::GetWindowDrawList();
                     const ImVec2 c0(readoutX, cardY), c1(readoutX + w, cardY + cardH);
                     ui::OverlayGlassPanel(odl, c0, c1);
+                    bottomFreeL = c1.x;
                     const float midY = cardY + cardH * 0.5f;
                     const float ty = midY - fs * 0.5f;
                     float x = c0.x + ovPad + scaled(6.0f);
@@ -5002,6 +5008,8 @@ void App::drawViewportWindow() {
             }
 
             if (outX > readoutX) {
+                if (outY < cardY) bottomRowTop = outY;
+                else bottomFreeR = outX;
                 ImDrawList* odl = ImGui::GetWindowDrawList();
                 const ImVec2 c0(outX, outY);
                 ui::OverlayGlassPanel(odl, c0, ImVec2(c0.x + outW, c0.y + cardH));
@@ -5031,51 +5039,117 @@ void App::drawViewportWindow() {
             }
         }
 
-        // Quick brush controls for both terrain modes - the same variables the
-        // Terrain Editor window edits, so they never disagree. Ranges scale
-        // with the map (see brushMaxRadius/sculptMaxStrength); logarithmic so
-        // small maps keep fine control. [ and ] resize the brush from the keys.
+        // Brush card (bottom centre) for both terrain modes: Radius, Strength,
+        // Flatten + Level or Erase, and under them what a drag does. The same
+        // variables the Terrain Editor window edits, so they never disagree.
+        // Ranges scale with the map (see brushMaxRadius/sculptMaxStrength);
+        // logarithmic so small maps keep fine control. [ and ] resize the
+        // brush from the keys. It sits in the bottom row between the selection
+        // readout and the output switch, or a row above them when that gap is
+        // too narrow.
+        brushCardMin_ = brushCardMax_ = ImVec2(0, 0);
         if (sculptMode_ || paintMode_) {
-            ImGui::SetCursorScreenPos(ImVec2(topRowX, topRowY + (pastePending_ ? rowH : 0.0f)));
-            ImGui::SetNextItemWidth(scaled(140));
-            ImGui::SliderFloat("Radius", &brushRadius_, 1.0f,
-                               brushMaxRadius(project_), "%.1f",
-                               ImGuiSliderFlags_Logarithmic);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Brush radius ([ / ] to resize)");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(140));
+            const theme::Semantics& sem = theme::semantics();
+            const ImGuiStyle& st = ImGui::GetStyle();
+            const float fs = ImGui::GetFontSize();
+            const float gap = scaled(10.0f), capGap = scaled(6.0f);
+            const float hintFs = IM_TRUNC(fs * 0.86f);
+            const bool flat = sculptMode_ && sculptFlatten_;
+            const char* toggle = sculptMode_ ? "Flatten" : "Erase";
+            const float trackH = IM_TRUNC(fs * 1.05f);
+            const float switchW = IM_TRUNC(trackH * 1.8f) + st.ItemInnerSpacing.x +
+                                  ImGui::CalcTextSize(toggle).x;
+            const float levelW = scaled(70.0f);
+            std::string hint;
             if (sculptMode_) {
-                ImGui::SliderFloat("Strength", &brushStrength_, 0.01f,
-                                   sculptMaxStrength(project_), "%.2f",
-                                   ImGuiSliderFlags_Logarithmic);
-                ImGui::SameLine();
-                ImGui::Checkbox("Flatten", &sculptFlatten_);
-                const float lvl = terrainDimOf(project_);
-                if (sculptFlatten_) {
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(scaled(90));
-                    ImGui::DragFloat("Level", &flattenHeight_, 0.1f, -lvl, lvl,
-                                     "%.1f");
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("LMB level to height, RMB orbit");
-                } else {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("LMB raise, Shift+LMB lower, RMB orbit");
-                }
+                hint = flat ? "Drag levels the ground to Level  \xC2\xB7  [ ] resize  \xC2\xB7  RMB orbit"
+                            : "Drag raises, Shift+drag lowers  \xC2\xB7  [ ] resize  \xC2\xB7  RMB orbit";
             } else {
-                ImGui::SliderFloat("Strength", &paintStrength_, 0.05f, 1.0f,
-                                   "%.2f");
-                ImGui::SameLine();
-                ImGui::Checkbox("Erase", &paintErase_);
-                ImGui::SameLine();
                 const SceneData& psc = project_.active();
-                const bool okLayer = paintLayer_ >= 0 &&
-                                     paintLayer_ < (int)psc.terrainLayers.size();
-                ImGui::TextDisabled(
-                    okLayer ? "painting '%s' - LMB paint, Shift erase, RMB orbit"
-                            : "no layer - add one in the Terrain Editor",
-                    okLayer ? psc.terrainLayers[paintLayer_].name.c_str() : "");
+                if (paintLayer_ >= 0 && paintLayer_ < (int)psc.terrainLayers.size())
+                    hint = "Painting " + psc.terrainLayers[paintLayer_].name +
+                           "  \xC2\xB7  Shift erases  \xC2\xB7  [ ] resize  \xC2\xB7  RMB orbit";
+                else
+                    hint = "No layer to paint - add one in the Terrain Editor";
+            }
+            const float hintW = ImGui::GetFont()->CalcTextSizeA(hintFs, FLT_MAX, 0.0f, hint.c_str()).x;
+            // Width without the sliders, then the sliders take what is left
+            // (up to 140 px each, at least 60).
+            const float fixedW = ImGui::CalcTextSize("Radius").x + capGap +
+                                 ImGui::CalcTextSize("Strength").x + capGap + switchW + gap * 4.0f +
+                                 (flat ? gap + ImGui::CalcTextSize("Level").x + capGap + levelW : 0.0f);
+            const float room = avail.x - ovMargin * 2.0f - (ovPad + scaled(6.0f)) * 2.0f;
+            const float sliderW = ImClamp((room - fixedW) * 0.5f, scaled(60.0f), scaled(140.0f));
+            const float rowW = fixedW + sliderW * 2.0f;
+            const float inset = ovPad + scaled(6.0f);  // as the selection readout
+            const float W = ImMin(ImMax(rowW, hintW) + inset * 2.0f, avail.x - ovMargin * 2.0f);
+            const float H = cardH + hintFs + scaled(4.0f);
+            float x = imgPos.x + (avail.x - W) * 0.5f;
+            float y = cardY + cardH - H;
+            // Centred in the bottom row's gap if it fits there, else right
+            // above the row (still centred).
+            if (x < bottomFreeL + scaled(6.0f) || x + W > bottomFreeR - scaled(6.0f) ||
+                bottomRowTop < cardY) {
+                const float x2 = ImClamp(x, bottomFreeL + scaled(6.0f), bottomFreeR - scaled(6.0f) - W);
+                if (bottomRowTop >= cardY && x2 >= bottomFreeL + scaled(6.0f) &&
+                    x2 + W <= bottomFreeR - scaled(6.0f))
+                    x = x2;
+                else
+                    y = bottomRowTop - H - scaled(6.0f);
+            }
+            x = ImMax(x, imgPos.x + ovMargin);
+            if (y > topRowY) {
+                ImDrawList* odl = ImGui::GetWindowDrawList();
+                const ImVec2 c0(x, y), c1(x + W, y + H);
+                ui::OverlayGlassPanel(odl, c0, c1);
+                brushCardMin_ = c0;
+                brushCardMax_ = c1;
+                const float rowY = y + ovPad;
+                const float textY = rowY + (rowH - fs) * 0.5f;
+                float cx = x + inset;
+                auto caption = [&](const char* t) {
+                    odl->AddText(ImVec2(cx, textY), ImGui::GetColorU32(sem.textDim), t);
+                    cx += ImGui::CalcTextSize(t).x + capGap;
+                };
+                auto divider = [&] {
+                    cx += gap;
+                    ui::OverlayDivider(odl, cx, rowY + rowH * 0.2f, rowY + rowH * 0.8f);
+                    cx += gap;
+                };
+                auto place = [&](float w) {
+                    ImGui::SetCursorScreenPos(ImVec2(cx, rowY + (rowH - ImGui::GetFrameHeight()) * 0.5f));
+                    ImGui::SetNextItemWidth(w);
+                    cx += w;
+                };
+                caption("Radius");
+                place(sliderW);
+                ImGui::SliderFloat("##Radius", &brushRadius_, 1.0f, brushMaxRadius(project_), "%.1f",
+                                   ImGuiSliderFlags_Logarithmic);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brush radius ([ / ] to resize)");
+                divider();
+                caption("Strength");
+                place(sliderW);
+                if (sculptMode_)
+                    ImGui::SliderFloat("##Strength", &brushStrength_, 0.01f, sculptMaxStrength(project_),
+                                       "%.2f", ImGuiSliderFlags_Logarithmic);
+                else
+                    ImGui::SliderFloat("##Strength", &paintStrength_, 0.05f, 1.0f, "%.2f");
+                divider();
+                ImGui::SetCursorScreenPos(ImVec2(cx, rowY + (rowH - ImGui::GetFrameHeight()) * 0.5f));
+                ui::Switch(toggle, sculptMode_ ? &sculptFlatten_ : &paintErase_);
+                cx += switchW;
+                if (flat) {
+                    cx += gap;
+                    caption("Level");
+                    place(levelW);
+                    const float lvl = terrainDimOf(project_);
+                    ImGui::DragFloat("##Level", &flattenHeight_, 0.1f, -lvl, lvl, "%.1f");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The height Flatten levels the ground to");
+                }
+                odl->PushClipRect(c0, c1, true);
+                odl->AddText(ImGui::GetFont(), hintFs, ImVec2(x + inset, rowY + rowH + scaled(2.0f)),
+                             ImGui::GetColorU32(sem.textDim), hint.c_str());
+                odl->PopClipRect();
             }
         }
 

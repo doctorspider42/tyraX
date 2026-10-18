@@ -2196,6 +2196,9 @@ private:
     bool sculptStroke_ = false;    // an LMB stroke is in progress
     bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
+    // The viewport's brush card (bottom centre) as last drawn: a press inside it
+    // is a click on the card, never a stroke on the ground under it.
+    ImVec2 brushCardMin_{0, 0}, brushCardMax_{0, 0};
 
     // Terrain splat painting (docs/terrain-painting.md). Paints the active layer
     // into SceneData::splat with the same brush raycast as sculpting (mutually

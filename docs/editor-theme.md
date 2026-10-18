@@ -203,7 +203,11 @@ A few things worth knowing because they are decisions rather than defaults:
   the gear (its menu starts with *Center view*) and the selection readout -
   colour, name, type, triangles and size in metres - with **Frame** (key F; its
   ID is still `Center selection`). Bottom right, **Editor | As PS2**
-  (`viewportPs2_`) with the GS framebuffer size. Visible text may differ from
+  (`viewportPs2_`) with the GS framebuffer size. While Sculpt or Paint is on,
+  a brush card sits at the bottom centre - Radius, Strength, the Flatten (+
+  Level) or Erase switch, and a dim line saying what a drag does - in the
+  bottom row's gap when it fits, else one row above it; a press on the card
+  never strokes the ground under it (`brushCardMin_`/`brushCardMax_`). Visible text may differ from
   the ID (`ui::OverlayMenuButton(label, text, ...)`); every old label is still
   the ID. The viewport image rounds its bottom corners with the card.
 - **The Properties panel is headed by the object** - a tile in its colour, its
