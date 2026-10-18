@@ -17610,8 +17610,8 @@ static const char* const kNewPresetDesc[] = {
 // scene every time - a dark sky, a floor whose grid runs to a vanishing point
 // on the horizon - and what each preset puts in it. First person: the view
 // itself (a crosshair on the horizon, a crate down the floor). Third person:
-// the player from behind, standing on the floor with a shadow. Empty: a
-// camera on a tripod, nobody in front of it.
+// the player from behind, standing on the floor with a shadow. Empty: the
+// floor alone.
 static void drawPresetArt(ImDrawList* dl, int preset, ImVec2 a, ImVec2 b) {
     const theme::Semantics& sem = theme::semantics();
     const float w = b.x - a.x, h = b.y - a.y;
@@ -17656,20 +17656,6 @@ static void drawPresetArt(ImDrawList* dl, int preset, ImVec2 a, ImVec2 b) {
         dl->AddRectFilled(P(0.41f, 0.74f), P(0.49f, 0.9f), c, 2.0f);
         dl->AddRectFilled(P(0.51f, 0.74f), P(0.59f, 0.9f), c, 2.0f);
         dl->AddCircleFilled(P(0.5f, 0.36f), h * 0.1f, c, 24);
-    } else {
-        // A movie camera on a tripod: reels, body, lens, legs.
-        const ImU32 c = ImGui::GetColorU32(sem.textDim);
-        const ImU32 dark = ImGui::GetColorU32(sem.ground);
-        for (float x : {0.38f, 0.54f}) {
-            dl->AddCircleFilled(P(x, 0.22f), h * 0.09f, c, 20);
-            dl->AddCircleFilled(P(x, 0.22f), h * 0.03f, dark, 12);
-        }
-        dl->AddRectFilled(P(0.3f, 0.3f), P(0.62f, 0.5f), c, 3.0f);
-        dl->AddQuadFilled(P(0.62f, 0.36f), P(0.75f, 0.3f), P(0.75f, 0.5f), P(0.62f, 0.44f), c);
-        const ImVec2 hinge = P(0.46f, 0.5f);
-        dl->AddLine(hinge, P(0.32f, 0.84f), c, th);
-        dl->AddLine(hinge, P(0.46f, 0.88f), c, th);
-        dl->AddLine(hinge, P(0.6f, 0.84f), c, th);
     }
     dl->PopClipRect();
     dl->AddRect(a, b, col(sem.border, 0.8f), r);
