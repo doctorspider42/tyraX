@@ -3941,10 +3941,24 @@ private:
     // last drawn category had (the sidebar's index, one frame behind).
     std::string prefsCat_;
     std::string prefsScrollTo_;
+    // One setting to bring into view and ring briefly (accent outline that
+    // fades over ~1.5 s), by its label - "Texture atlasing" from the Texture
+    // Atlas. Checked by the rows that support it (prefsMarkItem).
+    void prefsMarkItem(const char* label, ImVec2 a, ImVec2 b);
+    std::string prefsScrollToItem_;
+    std::string prefsFlashItem_;
+    double prefsFlashStart_ = 0.0;
     bool prefsScrollTop_ = false;
     char prefsSearch_[96] = {};
     std::vector<std::string> prefsSections_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
+    // Set by a FLOATING tool window that sends the user to a preference (the
+    // Texture Atlas's "Turn it on in Rendering prefs"): Project Preferences
+    // then opens floating, centred over that window and focused - docked as a
+    // tab it would sit behind the very window that asked for it, and the click
+    // would look like it did nothing. Holds that window's rect.
+    bool prefsOverFloating_ = false;
+    ImVec2 prefsOverPos_{0, 0}, prefsOverSize_{0, 0};
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
     // THE TERRAIN GRID IS THE ONE THING THAT MAY NOT APPLY PER FRAME.

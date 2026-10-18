@@ -18713,6 +18713,28 @@ void App::rebakeSplatPreview() {
 }
 
 // Raise the window (and seed the two scratch values it does not read live).
+// After a setting's row [a, b]: scroll it into view when it was asked for
+// (prefsScrollToItem_), and ring it in the accent colour while it flashes.
+void App::prefsMarkItem(const char* label, ImVec2 a, ImVec2 b) {
+    if (prefsScrollToItem_ == label) {
+        ImGui::SetScrollHereY(0.35f);
+        prefsScrollToItem_.clear();
+        prefsFlashItem_ = label;
+        prefsFlashStart_ = ImGui::GetTime();
+    }
+    if (prefsFlashItem_ != label) return;
+    const float t = (float)(ImGui::GetTime() - prefsFlashStart_);
+    if (t > 1.6f) {
+        prefsFlashItem_.clear();
+        return;
+    }
+    ImVec4 c = theme::semantics().accent;
+    c.w = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) / 0.8f;
+    const ImVec2 pad(scaled(6), scaled(4));
+    ImGui::GetWindowDrawList()->AddRect(ImVec2(a.x - pad.x, a.y - pad.y), ImVec2(b.x + pad.x, b.y + pad.y),
+                                        ImGui::GetColorU32(c), scaled(6), 0, scaled(2));
+}
+
 void App::openProjectPreferences() {
     if (!hasProject_) return;
     prefTerrain_ = project_.active().terrain;
@@ -18881,6 +18903,17 @@ void App::drawPreferencesWindow() {
     if (focusProjectPrefs_ || takeToolFocus("Project Preferences")) {
         ImGui::SetNextWindowFocus();
         focusProjectPrefs_ = false;
+    }
+    if (prefsOverFloating_) {
+        prefsOverFloating_ = false;
+        const ImVec2 sz(ImMin(scaled(1000), prefsOverSize_.x - scaled(40)),
+                        ImMin(scaled(760), prefsOverSize_.y - scaled(40)));
+        ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(ImVec2(prefsOverPos_.x + prefsOverSize_.x * 0.5f,
+                                       prefsOverPos_.y + prefsOverSize_.y * 0.5f),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(ImMax(sz.x, scaled(640)), ImMax(sz.y, scaled(420))), ImGuiCond_Always);
+        ImGui::SetNextWindowFocus();
     }
 
     if (!ImGui::Begin("Project Preferences", &showProjectPrefs_)) {
@@ -19832,6 +19865,7 @@ void App::drawPreferencesWindow() {
         "full color while everything else goes 4-bit.");
 
     ui::Switch("Texture atlasing", &prefSettings_.textureAtlas);
+    const ImVec2 atlasRowMin = ImGui::GetItemRectMin(), atlasRowMax = ImGui::GetItemRectMax();
     prefHelp(
         "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
         "pages at build: one GS VRAM allocation per page instead of one per\n"
@@ -19843,6 +19877,9 @@ void App::drawPreferencesWindow() {
         "the page is a full allocation whatever it holds. Tools > Texture\n"
         "Atlas prints both numbers, says why each texture was refused, and is\n"
         "where a texture is kept out or put in a group of your own.");
+    // The row with its dim description line under it (RowHelp).
+    prefsMarkItem("Texture atlasing", atlasRowMin,
+                  ImVec2(atlasRowMax.x, ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y));
 
     prefSection("Ambience (sky, lighting, fog)");
     if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;

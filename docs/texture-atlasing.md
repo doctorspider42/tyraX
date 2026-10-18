@@ -8,7 +8,9 @@ at build time — *Project > Preferences > Rendering > Texture atlasing*
 one per texture, and draw batches switch textures less.
 
 **Look at what it did before trusting it.** *Tools > Texture Atlas* opens on
-the verdict: an *Atlasing on/off* chip (with a jump to *Rendering prefs*) and
+the verdict: an *Atlasing on/off* chip (with a jump to *Rendering prefs*: the
+Preferences open on the *Texture atlasing* switch, scrolled to it and ringed
+for a moment - over the Texture Atlas when that window floats) and
 three numbers - **GS VRAM** before and after with the difference as the big
 figure (green when it saves, amber with a `+` when it costs), **Allocations**
 (textures -> pages) and **Refused**. Below them: the list of pages (thumbnail,

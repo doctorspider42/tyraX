@@ -225,7 +225,15 @@ void App::drawTextureAtlasWindow() {
     auto openRenderingPrefs = [&]() {
         showProjectPrefs_ = true;
         prefsFocusTab_ = "Rendering";
+        prefsScrollToItem_ = "Texture atlasing";
         pendingFocusWindow_ = "Project Preferences";
+        // Floating, this window would cover the Preferences tab: they open
+        // over it instead (prefsOverFloating_).
+        if (!ImGui::IsWindowDocked()) {
+            prefsOverFloating_ = true;
+            prefsOverPos_ = ImGui::GetWindowPos();
+            prefsOverSize_ = ImGui::GetWindowSize();
+        }
     };
 
     // --- header: state + the two actions ------------------------------------
