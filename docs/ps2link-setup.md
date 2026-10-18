@@ -35,7 +35,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r8 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Running games
@@ -400,7 +400,7 @@ mismatches and fixed-dt sign reversal remain rejected measurement controls.
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r7 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r8 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -676,6 +676,7 @@ one (a wedge still answers ARP and usually ping).
 | `dumpmem` writes a zero-byte file | Its offset and size are **decimal**, not hex. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |
+| Stops before Ready at `ps2link: IOP restarted, loading modules` | Update pre-r8 builds: r8 adds SPU2 bus setup to fix a known hang in `spu2Silence()`. If it still hangs on r8 or later, report the PS2Link revision, console model and boot method. |
 | Sound keeps droning / goes haywire after a reset or redeploy | Fixed in r3. Check the boot log for `SPU2 silenced`; if it is absent you are on a pre-r3 build. As a stopgap on an old build, `ps2client -h <ip> execee host:silencer.elf` from `tools/silencer/`. |
 | No sound at all in a game, on r3 only | Would mean the silence is sticking when it should not — `libsd`'s init is supposed to reprogram every register it clears. Report it with the boot log; the fallback is to flash r2 while it is diagnosed. |
 | `Net config:` shows `192.168.1.10` | `IPCONFIG.DAT` was not found next to `PS2LINK.ELF`; ps2link fell back to its compiled-in default. |
