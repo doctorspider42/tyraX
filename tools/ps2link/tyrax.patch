@@ -566,7 +566,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..ce9ba06 100644
+index d566140..99a7aad 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -23,6 +23,7 @@
@@ -631,12 +631,12 @@ index d566140..ce9ba06 100644
 +     * takes stdio out of every error path in cmdHandler.c, r6 stops rebooting
 +     * the IOP twice per Stop - which is what made a Stop wedge the console. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r7 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link r8 (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r7 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link r8 (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);

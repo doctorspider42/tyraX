@@ -5516,6 +5516,7 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 172
+// 1.172.3: PS2Link r8 establishes SPU2 bus mapping/timing before silencing.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto
@@ -5642,7 +5643,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 3
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.

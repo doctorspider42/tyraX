@@ -5,6 +5,12 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 1.172.3 - Unreleased
+
+### Real PS2
+
+- PS2Link r8 fixes a startup hang observed on an SCPH-70004 booted through FreeDVDBoot/uLaunchELF by configuring the sound hardware's bus mapping and timing before muting leftover audio.
+
 ## 1.172.2 - 2026-10-16
 
 ### Releases
