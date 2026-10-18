@@ -2315,7 +2315,7 @@ void App::drawGiBakeSection() {
                                               "costs ~0.9 s once per session. Off by default so a re-bake does not\n"
                                               "rewrite a cache checked into a repository. Machine-wide setting."
                                             : ("No GPU bake on this machine: " + gpuWhy).c_str());
-        // ONE name for giAutoBake everywhere (Project Preferences > Build says
+        // ONE name for giAutoBake everywhere (Project Preferences > Build & debug says
         // the same and links here).
         ImGui::BeginDisabled(!st.giEnabled);
         if (ui::Switch("Re-bake stale global illumination before every build (only scenes whose cache no "
@@ -2324,7 +2324,7 @@ void App::drawGiBakeSection() {
             commitChange();
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("A changed big scene can cost minutes. Also in Project Preferences > Build.");
+            ImGui::SetTooltip("A changed big scene can cost minutes. Also in Project Preferences > Build & debug.");
     }
     ui::EndCard();
     };
@@ -3138,14 +3138,14 @@ void App::drawPrelitSection() {
                             prelitCount, vramKb);
     else
         ImGui::TextDisabled("Nothing pre-lit in this scene - 0 KB.");
-    // The same switch Project Preferences > Build carries, offered where the
+    // The same switch Project Preferences > Build & debug carries, offered where the
     // person is looking at the staleness it answers. Project-wide, not per
     // scene - a build compiles every scene.
     if (ImGui::Checkbox("Re-bake stale objects before every build",
                         &project_.settings.prelitAutoBake))
         commitChange();
     prefHelp("Only the stale ones, all scenes; a build with everything fresh "
-             "costs nothing. Also in Project > Preferences > Build.");
+             "costs nothing. Also in Project > Preferences > Build & debug.");
     ImGui::TextDisabled("Headless: --bake-prelit <projectDir> [scene]");
 }
 
@@ -7295,7 +7295,7 @@ void App::drawAnimEditorWindow() {
                       project_.settings.animPlayFps);
         ui::Badge(fps, std::fabs(projScaleH - 1.0f) > 0.001f ? 3 : 4);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Source fps -> play fps (Project > Preferences > Rendering >\n"
+            ImGui::SetTooltip("Source fps -> play fps (Project > Preferences > Graphics >\n"
                               "Animation fps). Multiplies every clip of every model; a\n"
                               "clip's own Time scale stacks on top (%.3fx now).",
                               projScaleH);

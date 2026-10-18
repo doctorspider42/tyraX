@@ -20,7 +20,7 @@ extra transport, no engine change.
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build*) — the same requirement Live Link has. Release builds carry no
    instrumentation at all.
-2. Leave **Live Debugger** on (*Project > Preferences > Build*, or *Build > Live
+2. Leave **Live Debugger** on (*Project > Preferences > Build & debug*, or *Build > Live
    Debugger*; on by default).
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
 

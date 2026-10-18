@@ -257,7 +257,7 @@ void App::drawTextureAtlasWindow() {
         ImGui::SameLine();
         if (ui::GhostButton("Rendering prefs")) openRenderingPrefs();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Project Preferences > Rendering > Texture atlasing.");
+            ImGui::SetTooltip("Project Preferences > Graphics > Advanced > Texture atlasing.");
         if (on) {
             ImGui::SameLine();
             if (ImGui::Button("Recompute")) atlasPlanDirty_ = true;

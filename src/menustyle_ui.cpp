@@ -1588,7 +1588,7 @@ void App::drawMenuPreviewWindow() {
         std::snprintf(n, sizeof(n), "%d", (int)modes.size());
         ui::Caption("Resolutions", n);
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("The modes this project supports (Preferences > Display). The game "
+        ImGui::TextDisabled("The modes this project supports (Preferences > Picture). The game "
                             "scales the panel per mode, so a panel near an edge can run off in one "
                             "and not another.");
         ImGui::PopTextWrapPos();

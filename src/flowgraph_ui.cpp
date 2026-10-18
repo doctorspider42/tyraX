@@ -560,7 +560,7 @@ void App::drawFlowGraphWindow() {
                 ImGui::PushTextWrapPos(scaled(360.0f));
                 if (liveLogicState_ == LogicState::Off)
                     ImGui::TextUnformatted(
-                        "Live Logic is off (Project Preferences > Build): every graph edit "
+                        "Live Logic is off (Project Preferences > Build & debug): every graph edit "
                         "needs a build to reach the game.");
                 else if (flowCapPatchable_)
                     ImGui::TextUnformatted(
@@ -1205,7 +1205,7 @@ void App::drawFlowGraphWindow() {
                     }
                 endCombo();
             }
-            ImGui::TextDisabled("USB keyboard (Preferences > Build)");
+            ImGui::TextDisabled("USB keyboard (Preferences > Build & debug)");
         } else if (n.type == "SetInputPreset") {
             const char* current = n.str.empty() ? "(pick a preset)" : n.str.c_str();
             if (beginCombo("Preset", current, t->strTip)) {

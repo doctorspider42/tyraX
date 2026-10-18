@@ -585,7 +585,7 @@ Differences on real hardware:
   that fix logs nothing over ps2link — rebuild it before concluding that the
   code you are chasing is silent.)
 - **Keyboard and mouse work**, because this is the TyraX ps2link: tick
-  *Project > Preferences > Build > Keyboard & mouse controls* and the
+  *Project > Preferences > Build & debug > Keyboard & mouse controls* and the
   *Also over ps2link* sub-option under it is already on — the game reuses
   ps2link's resident USB stack instead of loading one it cannot load. See
   [keyboard-mouse.md](keyboard-mouse.md).

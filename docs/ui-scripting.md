@@ -272,14 +272,15 @@ editor under `caffeinate -d -u`.
   what made tabs targetable at all — so the fix is one step:
 
   ```
-  click "Project Preferences/Display"
+  click "Project Preferences/Graphics"
+  click "Project Preferences/Advanced"
   frames 5
   click "Project Preferences/Use the upscaler"
   ```
 
   Two things that go with it. **Qualify the tab with its window**: a tab label
-  is a short common word, and *Project Preferences* has a `Build` tab while the
-  TyraX menu has a `Build` menu — `find` takes the first match, so a bare
+  is a short common word, and *Project Preferences* has a `World` page while the
+  World Facts window has a `World` tab — `find` takes the first match, so a bare
   `click Build` opens the menu. And **a tab changes what the id-hash fallback
   can reach** (the bullet below): `BeginTabItem` pushes the tab's own id, so a
   widget submitted *directly* inside a tab is seeded by that id and not by the
@@ -291,13 +292,16 @@ editor under `caffeinate -d -u`.
 
   The dialogs with tabs today are the Neural Upscaler window, the Menu Editor,
   the Material Editor and the World Facts window. *Project Preferences* has the
-  same rule without tabs: its categories (Display / World / Rendering / Player
-  / Build) are sidebar rows with those names, only the selected one is drawn,
-  and its content is one child window - so the step is the same
-  `click "Project Preferences/Display"`, and the hash fallback reaches
-  everything in a category. A section in the sidebar's index is
-  `"<Section>##sec"` (`click "Project Preferences/Terrain##sec"` scrolls to
-  it); the search field is `##prefs_search`; **Close** is at the bottom of the
+  same rule without tabs: its pages (Game / Picture / World / Graphics /
+  Build & debug) are sidebar rows with those names, only the selected one is
+  drawn, and its content is one child window - so the step is the same
+  `click "Project Preferences/Picture"`, and the hash fallback reaches
+  everything on a page. Each page's **Advanced** fold is a second gate: closed,
+  nothing in it exists - `click "Project Preferences/Advanced"` opens it
+  (`expect-checked` while open). A changed setting's reset dot is
+  `"Reset <setting>"` (`click "Project Preferences/Reset Torch shadows"`);
+  `Show what I changed###prefs_changed` toggles the list of changed settings;
+  the search field is `##prefs_search`; **Close** is at the bottom of the
   sidebar.
 
   The **Properties panel** has tabs too, for a solid object (box, sphere,

@@ -193,7 +193,7 @@ An area is invisible on the console by design — which is exactly the problem
 the moment something misbehaves: *why did that layer not unload, why is that
 crate not reflecting, is the volume even where I think it is?*
 
-*Preferences > Build > **Show areas*** (debug build profile only, next to Show
+*Preferences > Build & debug > **Show areas*** (debug build profile only, next to Show
 FPS / Show memory / Show frame profiler) draws every area in the game as a
 wireframe box, the same shape the editor shows, tinted with the area's color.
 Twelve thin beams through the ordinary box primitive: one small object per

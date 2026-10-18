@@ -1387,7 +1387,7 @@ std::string App::runChatTool(aichat::ToolCall& c) {
             !project_.settings.remotePad)
             return fail(
                 "Refused: driving the pad needs a DEBUG build with Remote Pad on "
-                "(Project > Preferences > Build). A release game carries no "
+                "(Project > Preferences > Build & debug). A release game carries no "
                 "channel to drive - that is the devkit's zero-cost promise.");
         if (padScriptRunning_) return fail("A pad script is already playing.");
         std::vector<livepad::Step> steps;

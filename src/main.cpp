@@ -2354,7 +2354,7 @@ bool warnRecorderOff(const Project& p) {
     if (!p.settings.inputRecorder) {
         std::fprintf(stderr,
                      "error: the \"Input recorder\" preference is off for this "
-                     "project (Project > Preferences > Build).\n");
+                     "project (Project > Preferences > Build & debug).\n");
         return false;
     }
     return true;
@@ -2437,7 +2437,7 @@ static int recordFromCli(int argc, char** argv) {
     if (!padText.empty() && !p.settings.remotePad) {
         std::fprintf(stderr,
                      "error: --pad needs the \"Remote Pad\" preference on "
-                     "(Project > Preferences > Build).\n");
+                     "(Project > Preferences > Build & debug).\n");
         return 1;
     }
 

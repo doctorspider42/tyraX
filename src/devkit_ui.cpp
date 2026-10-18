@@ -820,13 +820,13 @@ void App::drawReplayPanel() {
     if (project_.settings.buildProfile != "debug") {
         ImGui::TextDisabled(
             "Recording and replaying need the debug build profile\n"
-            "(Project > Preferences > Build).");
+            "(Project > Preferences > Build & debug).");
         return;
     }
     if (!project_.settings.inputRecorder) {
         ImGui::TextDisabled(
             "The input recorder is off for this project\n"
-            "(Project > Preferences > Build > Input recorder).");
+            "(Project > Preferences > Build & debug > Input recorder).");
         return;
     }
     replayRescan(false);
@@ -1810,7 +1810,7 @@ void App::dbgDrawHeader() {
         ImGui::OpenPopup("##dbgsettings");
     if (ImGui::BeginPopup("##dbgsettings")) {
         // The devkit switches this panel depends on, where the panel is - the
-        // same project settings as Project > Preferences > Build.
+        // same project settings as Project > Preferences > Build & debug.
         ui::Caption("This project's devkit");
         bool changed = false;
         changed |= ui::Switch("Live Debugger", &project_.settings.liveDebug);
@@ -1999,7 +1999,7 @@ void App::dbgDrawChecklist() {
         }
         ImGui::Unindent(ImGui::GetFontSize() * 1.4f);
     }
-    item(on, "Live Debugger on", on ? nullptr : "Project > Preferences > Build.");
+    item(on, "Live Debugger on", on ? nullptr : "Project > Preferences > Build & debug.");
     if (!on) {
         ImGui::Indent(ImGui::GetFontSize() * 1.4f);
         if (ui::Switch("Live Debugger (project setting)", &project_.settings.liveDebug))
@@ -3496,7 +3496,7 @@ if (dbgCrash_.present) {
     if (!project_.settings.eeCrashHandler) {
         ImGui::TextDisabled("Tip: turn the EE crash handler on");
         prefHelp(
-            "Preferences > Build > \"EE crash handler\" makes the game write\n"
+            "Preferences > Build & debug > \"EE crash handler\" makes the game write\n"
             "a register dump and a backtrace instead of just going quiet\n"
             "(experimental).");
     }

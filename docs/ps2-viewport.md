@@ -71,7 +71,7 @@ does.
 The host twin of Tyra's `RendererSettings::updateGeometry` (see
 `App::ps2ViewportOutput`):
 
-| *Preferences > Display mode* | GS framebuffer | Notes |
+| *Preferences > Picture mode* | GS framebuffer | Notes |
 |---|---|---|
 | `interlaced` | 512×448 | the stock signal; flicker filter on |
 | `interlaced-field` | 512×**224** | true field rendering — half the lines |
@@ -215,7 +215,7 @@ look.
 
 ## GS colour (16-bit + dithering)
 
-*Preferences > Display > Colour depth* can put the game's framebuffer in
+*Preferences > Picture > Colour depth* can put the game's framebuffer in
 PSMCT16 — 5 bits per channel, half the GS memory, and the GS's 4×4 ordered
 dither (`DTHE` + the `DIMX` matrix) to break the banding up
 ([gs-vram.md](gs-vram.md)). The viewport can now show it: the picture is

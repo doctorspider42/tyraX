@@ -29,7 +29,7 @@ silhouette / Baked (decal)**, and Default is what every project did before the
 choice existed:
 
 - a **blob** under the things that MOVE — the third-person avatar, animated
-  models and physics bodies — while *Preferences > Rendering > Blob shadows
+  models and physics bodies — while *Preferences > Graphics > Blob shadows
   under moving objects* is on;
 - a **projected silhouette** where the object's *Projected shadow (live)*
   checkbox is ticked (that checkbox is still there, and still what an existing
@@ -832,7 +832,7 @@ its own occlusion per pixel, exactly the way the player's torch does
 the wall and the alley behind it equally — the cone is a lighting term and
 nothing stops it.
 
-Switch it on project-wide in *Preferences > Rendering > **Spot light shadow
+Switch it on project-wide in *Preferences > Graphics > **Spot light shadow
 volumes***, and override it on any one light in *Properties > Point light >
 **Shadow volumes*** — **Default (follow the project) / Off / On**, the same
 tri-state idiom as *Dynamic shadow* above. The override only means anything

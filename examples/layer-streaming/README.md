@@ -20,7 +20,7 @@ through the door into the corridor and keep going:
 3. Walk back and the mirrored triggers swap them again. Endlessly.
 
 To watch it, enable **Show FPS** and **Show memory usage** (Project >
-Preferences > Build, debug profile): **MEM** drops on every unload and climbs
+Preferences > Build & debug, debug profile): **MEM** drops on every unload and climbs
 while a building streams in, and **FPS** stays at full rate — loads are
 spread one asset per frame, so there is no hitch. (The overlay ships disabled
 here while a known engine regression makes it freeze the first frame —

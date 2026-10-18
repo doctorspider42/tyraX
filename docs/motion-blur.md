@@ -105,7 +105,7 @@ Two conditions on that, and both are easy to miss because the LIVE chip stays
 green through either (it streams *object* edits and has never carried graph
 logic — see [Live Logic](live-logic.md)):
 
-- **Live Logic has to be ON** (*Project Preferences > Build*). With it off, a
+- **Live Logic has to be ON** (*Project Preferences > Build & debug*). With it off, a
   graph edit reaches nothing until the next build; the status bar says so with an
   amber **LOGIC (off)**.
 - **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
@@ -164,7 +164,7 @@ re-arm the invalid combination behind the drawing environment.
 
 ## 16-bit colour
 
-A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
+A 16-bit frame buffer (*Project Preferences > Picture > Colour depth*) stores 5
 bits per channel, and an accumulator is the one effect that really cares, because
 it feeds its own output back in at a loop gain of `1/(1-f)` — about ten at the
 top of the slider. Quantization is a real hardware limit, but it is not a reason

@@ -7149,7 +7149,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // the GAME blocks the player and the camera boom with, which for a model is
     // its bounding box and not its mesh. placement::collisionBox is the host
     // twin of the generated objectCollisionBox, so this overlay and the
-    // console's own (Preferences > Build > Show collision boxes) draw one
+    // console's own (Preferences > Build & debug > Show collision boxes) draw one
     // answer - including the content-forward yaw, which turns an animated
     // model's box with its mesh.
     if (overlays && collisionOverlay_) {

@@ -794,7 +794,7 @@ liveness checker stays clean for both assemblers.
 Counting instructions says a program fits. It does not say the microcode is
 *right*, and until 2026-08-05 nothing built by `openvcl` had ever been executed.
 It has now, because a project does not have to use the set that overflows: with
-the **EE clipper** (Project Preferences > Rendering > Clipping, anything other
+the **EE clipper** (Project Preferences > Graphics > Clipping, anything other
 than `vu1`) the resident VU1 set is five `cull_*` plus five `as_is_*` programs -
 **1403** instructions against the same 2042 ceiling, 639 to spare.
 

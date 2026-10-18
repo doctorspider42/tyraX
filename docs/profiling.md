@@ -53,7 +53,7 @@ for how to read it out of git history.
 
 ## The built-in frame profiler
 
-**Project > Preferences > Build**, set the profile to **debug**, then tick
+**Project > Preferences > Build & debug**, set the profile to **debug**, then tick
 **Show frame profiler** (alongside *Show FPS* / *Show memory usage*). The game
 draws a per-phase EE-time breakdown in the top-left corner, averaged over ~1 s:
 

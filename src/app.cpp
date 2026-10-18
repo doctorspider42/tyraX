@@ -1582,7 +1582,7 @@ void App::drawMainMenus() {
                  "you docked the panel."},
                 {true, "PS2 output (GS)",
                  "What the console draws: the scene rasterized at the GS\n"
-                 "framebuffer size of Preferences > Display mode, then\n"
+                 "framebuffer size of Preferences > Picture mode, then\n"
                  "fitted into the 4:3 / 16:9 picture a TV shows. Pixels are\n"
                  "the console's, and so is the framing."},
             };
@@ -1742,7 +1742,7 @@ void App::drawMainMenus() {
                 "bounding box, not its\nmesh, so this is what explains a "
                 "prop you cannot walk up to or a\ncamera that pulls in "
                 "early. The running game can draw the same\nboxes - "
-                "Preferences > Build > Show collision boxes.");
+                "Preferences > Build & debug > Show collision boxes.");
         if (menuact::MenuItem("Static batches", nullptr, showBatchOverlay_,
                             hasProject_)) {
             showBatchOverlay_ = !showBatchOverlay_;
@@ -1894,7 +1894,7 @@ void App::drawMainMenus() {
                 "- PCSX2 and real-PS2 deploys alike.\nA project setting: "
                 "off = the game is built without the poller and the "
                 "editor\nnever writes snapshots. Needs the \"debug\" build "
-                "profile (Project >\nPreferences > Build). Also toggled by "
+                "profile (Project >\nPreferences > Build & debug). Also toggled by "
                 "clicking the LIVE chip in the toolbar.");
         // The bakes, as the tabs that own them start them (startGiBake & co.
         // in hud_ui.cpp): listed here so the command palette finds every bake
@@ -5018,7 +5018,7 @@ void App::drawViewportWindow() {
                     "The viewport's own image: full resolution, as wide as\n"
                     "you docked the panel.",
                     "What the console draws: the scene at the GS framebuffer\n"
-                    "size of Preferences > Display mode, fitted into the TV's\n"
+                    "size of Preferences > Picture mode, fitted into the TV's\n"
                     "4:3 / 16:9 picture (also the gear's \"PS2 output (GS)\")."};
                 for (int i = 0; i < 2; ++i) {
                     ImGui::SetCursorScreenPos(ImVec2(x, c0.y + ovPad));
@@ -5419,7 +5419,7 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
         if (ImGui::Checkbox("PS2 output (GS)", &viewportPs2_)) saveGlobalConfig();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Render the scene at the GS framebuffer size of\n"
-                              "Preferences > Display mode and show it the way a\n"
+                              "Preferences > Picture mode and show it the way a\n"
                               "TV does: console pixels, console framing.\n"
                               "Off = the editor's own full-resolution image.");
         if (viewportPs2_ && hasProject_) {
@@ -18713,26 +18713,158 @@ void App::rebakeSplatPreview() {
 }
 
 // Raise the window (and seed the two scratch values it does not read live).
-// After a setting's row [a, b]: scroll it into view when it was asked for
-// (prefsScrollToItem_), and ring it in the accent colour while it flashes.
-void App::prefsMarkItem(const char* label, ImVec2 a, ImVec2 b) {
-    if (prefsScrollToItem_ == label) {
-        ImGui::SetScrollHereY(0.35f);
-        prefsScrollToItem_.clear();
-        prefsFlashItem_ = label;
-        prefsFlashStart_ = ImGui::GetTime();
+// Project Preferences: every setting, the page and group it lives on, the
+// settings keys it writes (the sectionJson keys "changed" and Reset compare
+// against a new project's - empty for rows that are not settings), whether it
+// sits behind the page's Advanced fold, and older names search still finds.
+// The window only draws the selected page, so search, the change counts and
+// "Show what I changed" read this table, not the widgets. Each row in the
+// window ends with prefRow(<label>), which must name an entry here. Keep in
+// step when a setting is added or moved.
+struct PrefIndexEntry {
+    const char* label;
+    const char* cat;
+    const char* section;
+    const char* keys;  // comma-separated settings keys
+    bool adv;
+    const char* also;  // search-only words: old names, jargon
+};
+static const char* const kPrefCats[] = {"Game", "Picture", "World", "Graphics", "Build & debug"};
+static const char* const kPrefCatSub[] = {
+    "Who the player is and how they move.", "How the game looks on the TV.",
+    "The space the game happens in.", "Textures, shadows and lighting.",
+    "What a build carries while you make the game."};
+static const PrefIndexEntry kPrefIndex[] = {
+    {"Preset", "Game", "Player", "", false, "FPP third person game template"},
+    {"Eye height", "Game", "Player", "eyeHeight", false, "body height camera"},
+    {"Walk speed", "Game", "Player", "walkSpeed", false, ""},
+    {"Run speed", "Game", "Player", "runSpeed", false, ""},
+    {"Look speed", "Game", "Player", "lookSpeed", false, "camera"},
+    {"Orbit speed", "Game", "Player", "orbitSpeed", false, "camera turntable"},
+    {"Two players", "Game", "Player", "multiplayer,p2JoinOnStart", false, "multiplayer split screen shared pad 2"},
+    {"Gravity", "Game", "Player", "gravity", false, "physics"},
+    {"Jump speed", "Game", "Player", "jumpSpeed", false, "physics"},
+    {"Sprint speed", "Game", "Controls", "sprintMultiplier", true, "input"},
+    {"Stick deadzones", "Game", "Controls", "stickDeadzoneL,stickDeadzoneR", true, "input drift"},
+    {"Stick response curves", "Game", "Controls", "stickCurveL,stickCurveR,stickExpL,stickExpR", true,
+     "input exponent exponential s-curve"},
+
+    {"TV region", "Picture", "Picture", "videoSystem", false, "target system NTSC PAL video signal"},
+    {"Picture mode", "Picture", "Picture", "displayMode", false,
+     "display mode interlaced progressive 480p 1080i field rendering 576i"},
+    {"Widescreen", "Picture", "Picture", "widescreen", false, "16:9"},
+    {"Colours", "Picture", "Picture", "colorDepth", false, "colour depth 16-bit 32-bit hybrid"},
+    {"PAL picture", "Picture", "Signal", "palFullHeight", true, "letterbox full height 576i"},
+    {"Supported resolutions", "Picture", "Signal", "supportedModes", true, "display modes"},
+    {"Dithering", "Picture", "Signal", "dither", true, "banding"},
+    {"Triple buffering", "Picture", "Frame pacing", "tripleBuffering", true, "presentation vsync"},
+    {"Disable VSync", "Picture", "Frame pacing", "disableVsync", true, "presentation tearing"},
+
+    {"Units per meter", "World", "World", "unitsPerMeter", false, "world scale"},
+    {"Terrain size", "World", "World", "", false, "terrain width depth"},
+    {"Terrain detail", "World", "World", "terrainDetail", false, "max grid cells"},
+    {"View distance", "World", "World", "terrainViewDistance", false, "terrain streaming"},
+    {"Terrain material", "World", "World", "terrainMaterial", false, "texture"},
+    {"Loading screen between scenes", "World", "World", "loadingScreen", false, "scenes"},
+    {"Detail distance", "World", "Terrain detail", "terrainLodDistance", true, "terrain LOD"},
+    {"AI navigation grid", "World", "AI navigation", "navCellSize,navMaxSlope,navAgentRadius", true,
+     "nav cell size walkable slope agent radius NPC"},
+
+    {"Texture colours", "Graphics", "Look", "textureQuant", false, "textures quality palette 4-bit 8-bit"},
+    {"Shadows under moving objects", "Graphics", "Look", "blobShadows", false, "blob shadows"},
+    {"Torch shadows", "Graphics", "Look", "flashShadowVolumes", false, "flashlight shadow volumes"},
+    {"Spot light shadows", "Graphics", "Look", "spotShadowVolumes", false, "shadow volumes"},
+    {"Highlight usable objects", "Graphics", "Look",
+     "highlightUsable,highlightDistance,highlightColor,highlightWidth,highlightSteps,highlightOpacity,highlightOverlay",
+     false, "usable proximity outline"},
+    {"Sky, sun and fog", "Graphics", "Look", "", false, "ambience editor lighting"},
+    {"Static object batching", "Graphics", "Speed", "staticBatching", true, "rendering"},
+    {"Occlusion culling", "Graphics", "Speed", "occlusionCulling", true, "conservative"},
+    {"Texture atlasing", "Graphics", "Speed", "textureAtlas", true, "atlas"},
+    {"Interleave batches and roads", "Graphics", "Speed", "interleavePasses", true, "objects"},
+    {"Shiny vehicles at once", "Graphics", "Speed", "vehicleShineBudget", true, "reflection"},
+    {"Triangle clipping", "Graphics", "Speed", "clipping", true, "triangles VU1 EE culling"},
+    {"Animation LOD distance", "Graphics", "Detail at a distance", "animLodDistance", true, ""},
+    {"Mesh LOD distance", "Graphics", "Detail at a distance", "meshLodDistance", true, ""},
+    {"Projected shadow distance", "Graphics", "Detail at a distance", "projShadowDistance", true, "shadows"},
+    {"Animation frame rate", "Graphics", "Detail at a distance", "animSourceFps,animPlayFps", true, "fps clips"},
+    {"Reflection aim", "Graphics", "Reflections", "envProbeReflected", true, "probe reflected ray"},
+    {"Reflection reuse budget", "Graphics", "Reflections", "reflectionReuseBudget", true, "probe"},
+    {"Reflection ground radius", "Graphics", "Reflections", "reflectionGroundRadius", true, "probe"},
+    {"Reflect scenery as boxes", "Graphics", "Reflections", "reflectionScenery", true, "static probe"},
+    {"Reflect the ground as flat colour", "Graphics", "Reflections", "reflectionGroundProxy", true, "probe"},
+    {"Upscaler and frame extrapolation", "Graphics", "Upscaler & frame extrapolation",
+     "blssEnabled,blssScale,blssNetwork,blssAdaptive,frameExtrapolation,frameExtrapolationPlane,"
+     "frameExtrapolationForce,frameExtrapolationGround",
+     true, "BLSS neural upscaler render scale frame delivery synthesised frames"},
+    {"Upscaler network tuning", "Graphics", "Upscaler & frame extrapolation",
+     "blssSharpen,blssTemporal,blssJitter,blssDebugView", true, "BLSS sharpen temporal jitter neural"},
+
+    {"Build for", "Build & debug", "Build", "buildProfile", false, "profile debug release"},
+    {"Show on screen", "Build & debug", "Build", "showFps,showMemory,showProfiler,showAreas,showCollision", false,
+     "debug overlays FPS memory profiler areas collision"},
+    {"Keyboard & mouse", "Build & debug", "Build", "keyboardMouse", false, "USB controls"},
+    {"Live Link", "Build & debug", "Live tools in debug builds", "liveLink", false, "devkit channels"},
+    {"Live Debugger", "Build & debug", "Live tools in debug builds", "liveDebug", false, "devkit channels"},
+    {"Live Logic", "Build & debug", "Live tools in debug builds", "liveLogic", false, "devkit channels"},
+    {"Time machine", "Build & debug", "Live tools in debug builds", "timeMachine", false, "devkit rewind"},
+    {"Remote Pad", "Build & debug", "Live tools in debug builds", "remotePad", false, "devkit controller"},
+    {"Input recorder", "Build & debug", "Live tools in debug builds", "inputRecorder", false, "devkit replay"},
+    {"AI support", "Build & debug", "AI support", "", false, "Claude Code Codex Copilot"},
+    {"Keyboard & mouse over ps2link", "Build & debug", "Keyboard & mouse", "keyboardMousePs2Link", true, ""},
+    {"Re-bake stale global illumination", "Build & debug", "Bakes before a build", "giAutoBake", true, "GI"},
+    {"Re-bake stale pre-lit objects", "Build & debug", "Bakes before a build", "prelitAutoBake", true, ""},
+    {"How often live tools check in", "Build & debug", "How often live tools check in",
+     "liveLinkPollFrames,liveDebugPollFrames,liveDebugSnapshotFrames,liveLogicPollFrames,timeMachineFrames", true,
+     "devkit poll intervals every"},
+    {"EE crash handler", "Build & debug", "Crash reports", "eeCrashHandler", true, "devkit"},
+};
+
+static const PrefIndexEntry* findPrefEntry(const std::string& label) {
+    for (const PrefIndexEntry& e : kPrefIndex)
+        if (label == e.label) return &e;
+    return nullptr;
+}
+
+// The pages used to be called Display / Rendering / Player / Build: a caller
+// (or a script) asking for the old name gets the page it became.
+static std::string prefCatAlias(const std::string& c) {
+    if (c == "Display") return "Picture";
+    if (c == "Rendering") return "Graphics";
+    if (c == "Player") return "Game";
+    if (c == "Build") return "Build & debug";
+    return c;
+}
+
+// "Changed" = any of the entry's settings keys reads differently from a new
+// project's (absent and present count as different: the writer leaves some
+// keys out at their struct default).
+static const json::Value* prefSettingsObj(const json::Value& root) {
+    const json::Value* s = root.find("settings");
+    return s ? s : &root;
+}
+static std::vector<std::string> prefKeys(const char* keys) {
+    std::vector<std::string> out;
+    std::string k;
+    for (const char* c = keys; ; ++c) {
+        if (*c == ',' || *c == 0) {
+            if (!k.empty()) out.push_back(k);
+            k.clear();
+            if (!*c) break;
+        } else {
+            k += *c;
+        }
     }
-    if (prefsFlashItem_ != label) return;
-    const float t = (float)(ImGui::GetTime() - prefsFlashStart_);
-    if (t > 1.6f) {
-        prefsFlashItem_.clear();
-        return;
+    return out;
+}
+static bool prefEntryChanged(const PrefIndexEntry& e, const json::Value* cur, const json::Value* def) {
+    for (const std::string& k : prefKeys(e.keys)) {
+        const json::Value* a = cur ? cur->find(k) : nullptr;
+        const json::Value* b = def ? def->find(k) : nullptr;
+        if (!a && !b) continue;
+        if (!a || !b || json::write(*a) != json::write(*b)) return true;
     }
-    ImVec4 c = theme::semantics().accent;
-    c.w = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) / 0.8f;
-    const ImVec2 pad(scaled(6), scaled(4));
-    ImGui::GetWindowDrawList()->AddRect(ImVec2(a.x - pad.x, a.y - pad.y), ImVec2(b.x + pad.x, b.y + pad.y),
-                                        ImGui::GetColorU32(c), scaled(6), 0, scaled(2));
+    return false;
 }
 
 void App::openProjectPreferences() {
@@ -18742,96 +18874,6 @@ void App::openProjectPreferences() {
     showProjectPrefs_ = true;
     focusProjectPrefs_ = true;
 }
-
-// Project Preferences search: every setting with the category and section it
-// lives in (the window only draws the selected category, so the index cannot be
-// read off the widgets). Keep in step when a setting is added or moved.
-struct PrefIndexEntry {
-    const char* label;
-    const char* cat;
-    const char* section;
-};
-static const PrefIndexEntry kPrefIndex[] = {
-    {"Target system (NTSC / PAL)", "Display", "Video signal"},
-    {"Display mode (interlaced, progressive, 1080i)", "Display", "Video signal"},
-    {"PAL picture", "Display", "Video signal"},
-    {"Supported resolutions", "Display", "Video signal"},
-    {"Widescreen (16:9)", "Display", "Video signal"},
-    {"Colour depth (16 / 24 / 32-bit, hybrid)", "Display", "Video signal"},
-    {"Dithering", "Display", "Video signal"},
-    {"Triple buffering", "Display", "Presentation"},
-    {"Disable VSync", "Display", "Presentation"},
-    {"Use the upscaler (BLSS)", "Display", "Frame delivery"},
-    {"Upscaler mode (plain / neural)", "Display", "Frame delivery"},
-    {"Render scale", "Display", "Frame delivery"},
-    {"Adapt resolution to frame budget", "Display", "Frame delivery"},
-    {"Frame extrapolation (synthesised frames)", "Display", "Frame delivery"},
-    {"Neural Upscaler (Advanced...)", "Display", "Frame delivery"},
-    {"Units per meter (world scale)", "World", "World"},
-    {"Terrain width / depth", "World", "Terrain"},
-    {"Terrain detail (max grid cells)", "World", "Terrain"},
-    {"View distance", "World", "Terrain"},
-    {"Detail distance", "World", "Terrain"},
-    {"Terrain material", "World", "Terrain"},
-    {"Nav cell size", "World", "AI navigation"},
-    {"Max walkable slope", "World", "AI navigation"},
-    {"Agent radius", "World", "AI navigation"},
-    {"Loading screen between scenes", "World", "Scenes"},
-    {"Triangles (lists / strips)", "Rendering", "Rendering"},
-    {"Animation frame rate", "Rendering", "Rendering"},
-    {"Animation LOD distance", "Rendering", "Rendering"},
-    {"Mesh LOD distance", "Rendering", "Rendering"},
-    {"Reflection probe aim", "Rendering", "Rendering"},
-    {"Reflection reuse budget", "Rendering", "Rendering"},
-    {"Reflection ground radius", "Rendering", "Rendering"},
-    {"Reflect static scenery as boxes", "Rendering", "Rendering"},
-    {"Reflect the ground as flat colour", "Rendering", "Rendering"},
-    {"Static object batching", "Rendering", "Rendering"},
-    {"Interleave batches and roads with objects", "Rendering", "Rendering"},
-    {"Shiny vehicles at once", "Rendering", "Rendering"},
-    {"Conservative occlusion culling", "Rendering", "Rendering"},
-    {"Textures (quality, palettes)", "Rendering", "Rendering"},
-    {"Texture atlasing", "Rendering", "Rendering"},
-    {"Ambience Editor (sky, lighting, fog)", "Rendering", "Ambience"},
-    {"Blob shadows under moving objects", "Rendering", "Shadows"},
-    {"Projected shadow distance", "Rendering", "Shadows"},
-    {"Flashlight shadow volumes", "Rendering", "Shadows"},
-    {"Spot light shadow volumes", "Rendering", "Shadows"},
-    {"Highlight usable objects", "Rendering", "Usable objects"},
-    {"Usable proximity", "Rendering", "Usable objects"},
-    {"Highlight color, blur, opacity", "Rendering", "Usable objects"},
-    {"Game preset (FPP / third person)", "Player", "Game"},
-    {"Walk speed", "Player", "Game"},
-    {"Look speed", "Player", "Game"},
-    {"Eye height / camera", "Player", "Camera"},
-    {"Orbit speed", "Player", "Camera"},
-    {"Two players", "Player", "Multiplayer"},
-    {"Player 2 joins with Start on pad 2", "Player", "Multiplayer"},
-    {"Sprint speed", "Player", "Input"},
-    {"Stick deadzones", "Player", "Input"},
-    {"Stick response exponent", "Player", "Input"},
-    {"Gravity", "Player", "Physics"},
-    {"Jump speed", "Player", "Physics"},
-    {"Build profile (debug / release)", "Build", "Build"},
-    {"Keyboard & mouse controls", "Build", "Build"},
-    {"Keyboard & mouse over ps2link", "Build", "Build"},
-    {"Re-bake stale global illumination before every build", "Build", "Bakes before a build"},
-    {"Re-bake stale pre-lit objects", "Build", "Bakes before a build"},
-    {"Show FPS", "Build", "Debug overlays"},
-    {"Show memory usage", "Build", "Debug overlays"},
-    {"Show frame profiler", "Build", "Debug overlays"},
-    {"Show areas", "Build", "Debug overlays"},
-    {"Show collision boxes", "Build", "Debug overlays"},
-    {"Live Link", "Build", "Devkit channels"},
-    {"Live Debugger", "Build", "Devkit channels"},
-    {"Live Logic", "Build", "Devkit channels"},
-    {"Time machine", "Build", "Devkit channels"},
-    {"Remote Pad", "Build", "Devkit channels"},
-    {"Input recorder", "Build", "Devkit channels"},
-    {"Devkit poll intervals (every)", "Build", "Devkit channels"},
-    {"EE crash handler", "Build", "Devkit channels"},
-    {"AI support (Claude Code, Codex, Copilot)", "Build", "AI support"},
-};
 
 // PROJECT PREFERENCES IS A WINDOW, NOT A MODAL, AND IT APPLIES LIVE.
 //
@@ -18941,94 +18983,190 @@ void App::drawPreferencesWindow() {
     const char* kOpensWindow =
         "\n\nOpens the window alongside this one - both stay usable.";
 
-    // TABS, and the grouping is derived from the sections that were already
-    // here rather than invented: the old "Build" section was doing two jobs at
-    // once - how the picture reaches the TV, and what goes into the ELF - and
-    // splitting it is most of this. Display holds the signal, the presentation
-    // and the two reconstruction features, so "how does a frame reach the
-    // screen" is one tab and the upscaler is in it. Rendering is what the frame
-    // is made of. World is the space the game happens in. Player is who the
-    // player is and how they control. Build is what the built ELF contains.
-    //
-    // A WIDGET INSIDE AN UNSELECTED TAB DOES NOT EXIST - it is not submitted, so
-    // it is not in `dump` and `--ui-script` cannot reach it. Every script that
-    // drives this dialog has to select its tab first; see docs/ui-scripting.md,
-    // "A widget inside an unselected tab does not exist".
-    // A SIDEBAR, NOT TABS: five categories (the old tab names - same script
-    // targets) each with its section index, and a search across all of them
-    // (kPrefIndex). Only the selected category is drawn - a widget in another
-    // category does not exist this frame, exactly as with the tabs - so a
-    // script clicks the category first: `click 'Project Preferences/Display'`.
-    //
-    // A caller can ask for a category, not just for the window (the Texture
-    // Atlas window's "Open Project Preferences", the Terrain Editor's link):
-    // prefsFocusTab_, one-shot.
-    if (!prefsFocusTab_.empty()) {
-        // "Category" or "Category/Section" (scrolls to that section).
-        const size_t slash = prefsFocusTab_.find('/');
-        prefsCat_ = prefsFocusTab_.substr(0, slash);
-        prefsScrollTo_ = slash == std::string::npos ? std::string() : prefsFocusTab_.substr(slash + 1);
-        prefsScrollTop_ = prefsScrollTo_.empty();
-        prefsFocusTab_.clear();
-    }
-    if (prefsCat_.empty()) prefsCat_ = "Display";
     const theme::Semantics& sem = theme::semantics();
     const float fs = ImGui::GetFontSize();
+
+    // FIVE PAGES BY WHAT SOMEBODY IS TRYING TO DO (docs/project-preferences.md):
+    // Game, Picture, World, Graphics, Build & debug. Each shows its essentials;
+    // everything a person tuning performance or chasing a hardware detail
+    // needs is behind the page's Advanced fold, and the explanations are the
+    // captions' hovers instead of a line under every row. Only the selected
+    // page is drawn - a widget on another page (or in a closed fold) does not
+    // exist this frame, so a script clicks the page first:
+    // `click 'Project Preferences/Picture'`, and `click 'Project
+    // Preferences/Advanced'` for the fold.
+    //
+    // A caller can ask for a page ("Graphics", or the old names - prefCatAlias)
+    // and a group on it ("World/Terrain"), or for one setting by its kPrefIndex
+    // label (prefsScrollToItem_, which also opens the fold it lives in).
+    auto advOpen = [&](const std::string& cat) {
+        return std::find(prefsAdvOpen_.begin(), prefsAdvOpen_.end(), cat) != prefsAdvOpen_.end();
+    };
+    auto openAdv = [&](const std::string& cat) {
+        if (!advOpen(cat)) prefsAdvOpen_.push_back(cat);
+    };
+    if (!prefsFocusTab_.empty()) {
+        const size_t slash = prefsFocusTab_.find('/');
+        prefsCat_ = prefCatAlias(prefsFocusTab_.substr(0, slash));
+        std::string section = slash == std::string::npos ? std::string() : prefsFocusTab_.substr(slash + 1);
+        if (section == "Frame delivery") section = "Upscaler & frame extrapolation";
+        prefsScrollTop_ = true;
+        if (!section.empty() && prefsScrollToItem_.empty())
+            for (const PrefIndexEntry& e : kPrefIndex)
+                if (prefsCat_ == e.cat && (section == e.section || section == "Terrain")) {
+                    prefsScrollToItem_ = section == "Terrain" ? "Terrain size" : e.label;
+                    break;
+                }
+        prefsFocusTab_.clear();
+    }
+    if (!prefsScrollToItem_.empty())
+        if (const PrefIndexEntry* e = findPrefEntry(prefsScrollToItem_)) {
+            prefsCat_ = e->cat;
+            if (e->adv) openAdv(e->cat);
+        }
+    prefsCat_ = prefCatAlias(prefsCat_);
     {
-        const float sideW = ImClamp(ImGui::GetContentRegionAvail().x * 0.24f, scaled(150), scaled(250));
+        bool known = false;
+        for (const char* c : kPrefCats) known |= prefsCat_ == c;
+        if (!known) prefsCat_ = "Picture";
+    }
+
+    // What "changed" means: a new project's settings at this world scale and
+    // preset (project::newProjectSettings), as sectionJson text - rebuilt only
+    // when those two change. The current side is last frame's write-back.
+    {
+        char key[96];
+        std::snprintf(key, sizeof(key), "%.6g|%s", (double)project_.settings.unitsPerMeter,
+                      project_.gameTemplate.c_str());
+        if (prefsDefaultsKey_ != key) {
+            Project fresh;
+            fresh.settings = project::newProjectSettings(project_.settings.unitsPerMeter,
+                                                         project_.gameTemplate == "orbit");
+            prefsDefaultsJson_ = project::sectionJson(fresh, project::Section::Settings);
+            prefsDefaultsKey_ = key;
+        }
+    }
+    json::Value curRoot, defRoot;
+    json::parse(project::sectionJson(project_, project::Section::Settings), curRoot);
+    json::parse(prefsDefaultsJson_, defRoot);
+    const json::Value* curS = prefSettingsObj(curRoot);
+    const json::Value* defS = prefSettingsObj(defRoot);
+    auto isChanged = [&](const PrefIndexEntry& e) { return prefEntryChanged(e, curS, defS); };
+    // Reset: the entry's keys take a new project's values (absent where it has
+    // none), read back through the settings reader - so a key resets exactly
+    // as a fresh load of it would.
+    auto resetEntry = [&](const PrefIndexEntry& e) {
+        Project tmp;
+        tmp.settings = prefSettings_;
+        json::Value root;
+        if (!json::parse(project::sectionJson(tmp, project::Section::Settings), root)) return;
+        json::Value* obj = &root;
+        for (auto& kv : root.obj)
+            if (kv.first == "settings") obj = &kv.second;
+        for (const std::string& k : prefKeys(e.keys)) {
+            auto& o = obj->obj;
+            o.erase(std::remove_if(o.begin(), o.end(), [&](const auto& kv) { return kv.first == k; }), o.end());
+            if (const json::Value* d = defS ? defS->find(k) : nullptr) o.emplace_back(k, *d);
+        }
+        Project back;
+        if (project::applySectionJson(back, project::Section::Settings, json::write(root)))
+            prefSettings_ = back.settings;
+    };
+    int changedPerCat[5] = {}, changedAdvPerCat[5] = {}, changedTotal = 0;
+    for (const PrefIndexEntry& e : kPrefIndex) {
+        if (!isChanged(e)) continue;
+        ++changedTotal;
+        for (int i = 0; i < 5; ++i)
+            if (std::string(e.cat) == kPrefCats[i]) {
+                ++changedPerCat[i];
+                if (e.adv) ++changedAdvPerCat[i];
+            }
+    }
+    int catIdx = 0;
+    for (int i = 0; i < 5; ++i)
+        if (prefsCat_ == kPrefCats[i]) catIdx = i;
+
+    {
+        const float sideW = ImClamp(ImGui::GetContentRegionAvail().x * 0.24f, scaled(170), scaled(250));
         ui::BeginCard("##prefs_nav", ImVec2(sideW, ImGui::GetContentRegionAvail().y));
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##prefs_search", "Search settings", prefsSearch_, sizeof(prefsSearch_));
         ImGui::Spacing();
-        const std::string note = "Changes apply immediately and are saved with " + project_.name +
-                                 ".tyra (Save). Editor preferences live in Edit > Preferences.";
+        const std::string note = "Saved with " + project_.name + ".tyra. Your editor's own settings are in "
+                                 "Edit > Preferences.";
         const float footH = ImGui::CalcTextSize(note.c_str(), nullptr, false, ImGui::GetContentRegionAvail().x).y +
-                            ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 4.0f;
+                            ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetStyle().ItemSpacing.y * 5.0f;
         ImGui::BeginChild("##prefs_index", ImVec2(0, -footH));
-        auto go = [&](const char* cat, const char* section) {
-            if (prefsCat_ != cat) prefsScrollTop_ = true;
-            prefsCat_ = cat;
-            prefsScrollTo_ = section ? section : "";
+        auto goItem = [&](const PrefIndexEntry& e) {
+            if (prefsCat_ != e.cat) prefsScrollTop_ = true;
+            prefsCat_ = e.cat;
+            prefsScrollToItem_ = e.label;
+            if (e.adv) openAdv(e.cat);
+        };
+        // A setting as a two-line list row: its name, then where it lives.
+        int hits = 0;
+        auto hitRow = [&](const PrefIndexEntry& e) {
+            ++hits;
+            ImGui::PushID(hits);
+            char sub[128];
+            std::snprintf(sub, sizeof(sub), "%s > %s%s", e.cat, e.section, e.adv ? " (Advanced)" : "");
+            if (ImGui::Selectable("##hit", false, 0, ImVec2(0, fs * 2.3f))) goItem(e);
+            const ImVec2 r0 = ImGui::GetItemRectMin();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddText(ImVec2(r0.x + fs * 0.3f, r0.y + fs * 0.15f), ImGui::GetColorU32(sem.text), e.label);
+            dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(r0.x + fs * 0.3f, r0.y + fs * 1.2f),
+                        ImGui::GetColorU32(sem.textDim), sub);
+            ImGui::PopID();
         };
         if (prefsSearch_[0]) {
-            // Matches across every category, each with where it lives.
             std::string q = prefsSearch_;
             for (char& ch : q) ch = (char)std::tolower((unsigned char)ch);
-            int hits = 0;
             for (const PrefIndexEntry& e : kPrefIndex) {
-                std::string hay = std::string(e.label) + " " + e.section + " " + e.cat;
+                std::string hay = std::string(e.label) + " " + e.section + " " + e.cat + " " + e.also;
                 for (char& ch : hay) ch = (char)std::tolower((unsigned char)ch);
-                if (hay.find(q) == std::string::npos) continue;
-                ++hits;
-                ImGui::PushID(hits);
-                char sub[96];
-                std::snprintf(sub, sizeof(sub), "%s > %s", e.cat, e.section);
-                if (ImGui::Selectable("##hit", false, 0, ImVec2(0, fs * 2.3f))) go(e.cat, e.section);
-                const ImVec2 r0 = ImGui::GetItemRectMin();
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddText(ImVec2(r0.x + fs * 0.3f, r0.y + fs * 0.15f), ImGui::GetColorU32(sem.text), e.label);
-                dl->AddText(ImGui::GetFont(), fs * 0.85f, ImVec2(r0.x + fs * 0.3f, r0.y + fs * 1.2f),
-                            ImGui::GetColorU32(sem.textDim), sub);
-                ImGui::PopID();
+                if (hay.find(q) != std::string::npos) hitRow(e);
             }
             if (!hits) ImGui::TextDisabled("No setting matches.");
+        } else if (prefsShowChanged_) {
+            for (const PrefIndexEntry& e : kPrefIndex)
+                if (isChanged(e)) hitRow(e);
+            if (!hits) {
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                ImGui::TextWrapped("Everything is as a new project starts.");
+                ImGui::PopStyleColor();
+            }
         } else {
-            static const char* const kCats[] = {"Display", "World", "Rendering", "Player", "Build"};
-            static const ui::Glyph kGlyphs[] = {ui::Glyph::Screen, ui::Glyph::Layers, ui::Glyph::Box,
-                                                ui::Glyph::Person, ui::Glyph::Gear};
+            static const ui::Glyph kGlyphs[] = {ui::Glyph::Person, ui::Glyph::Screen, ui::Glyph::Layers,
+                                                ui::Glyph::Sparkle, ui::Glyph::Gear};
             for (int i = 0; i < 5; ++i) {
-                if (ui::ListRow(kCats[i], nullptr, prefsCat_ == kCats[i], kGlyphs[i], 0, true, fs * 2.0f))
-                    go(kCats[i], nullptr);
-                if (prefsCat_ == kCats[i])
-                    for (const std::string& s : prefsSections_) {
-                        ImGui::Indent(fs * 1.4f);
-                        const std::string id = s + "##sec";
-                        if (ui::ListRow(id.c_str(), nullptr, false, ui::Glyph::Box, 0, false)) go(kCats[i], s.c_str());
-                        ImGui::Unindent(fs * 1.4f);
-                    }
+                char n[8];
+                std::snprintf(n, sizeof(n), "%d", changedPerCat[i]);
+                if (ui::ListRow(kPrefCats[i], changedPerCat[i] ? n : nullptr, prefsCat_ == kPrefCats[i], kGlyphs[i],
+                                0, true, fs * 2.0f) &&
+                    prefsCat_ != kPrefCats[i]) {
+                    prefsCat_ = kPrefCats[i];
+                    prefsScrollTop_ = true;
+                }
+                if (changedPerCat[i] && ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%d setting%s changed from a new project's", changedPerCat[i],
+                                      changedPerCat[i] == 1 ? "" : "s");
             }
         }
         ImGui::EndChild();
+        {
+            char lbl[64];
+            std::snprintf(lbl, sizeof(lbl), prefsShowChanged_ ? "Back to pages###prefs_changed"
+                                                              : "Show what I changed (%d)###prefs_changed",
+                          changedTotal);
+            if (ui::GhostButton(lbl, -1.0f)) {
+                prefsShowChanged_ = !prefsShowChanged_;
+                prefsSearch_[0] = 0;
+            }
+            uiscript::markLastItemChecked(prefsShowChanged_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Every setting that differs from what a new project starts with.\n"
+                                  "A blue dot marks them on their page - click it to reset.");
+        }
         ImGui::Separator();
         ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
         ImGui::TextWrapped("%s", note.c_str());
@@ -19051,8 +19189,9 @@ void App::drawPreferencesWindow() {
     }
     prefsSections_.clear();
     ui::InspectorRows rows(scaled(140), scaled(260));
-    // Each row's help also writes its first sentence under the caption.
-    ui::RowMeanings meanings;
+    // No meaning line under every caption any more: the explanation is the
+    // caption's hover (prefHelp), and an essential row that needs a word of
+    // orientation says it in its own short hint (prefHint).
     // Each section's rows sit in a CARD (the design's sections). The card is
     // drawn BEHIND its rows once their height is known: the rows go to channel
     // 1 of a splitter of our own (it nests with the tables' splitters), the card
@@ -19062,6 +19201,7 @@ void App::drawPreferencesWindow() {
     ImDrawListSplitter cardSplit;
     bool cardOpen = false;
     ImVec2 cardMin;
+    float rowTop = 0.0f;  // where the row prefRow closes began (see prefRow)
     const float cardPadX = fs * 0.9f, cardPadY = fs * 0.55f;
     auto closeCard = [&] {
         if (!cardOpen) return;
@@ -19089,25 +19229,7 @@ void App::drawPreferencesWindow() {
         ImGui::Indent(cardPadX);
         w->ContentRegionRect.Max.x -= cardPadX;
         w->WorkRect.Max.x -= cardPadX;
-    };
-    // A section heading: the title in the heading cut, "(...)" as its dim
-    // subtitle. Also the sidebar's index (next frame) and a scroll target.
-    auto prefSection = [&](const char* text) {
-        closeCard();
-        std::string title = text, sub;
-        const size_t lp = title.find(" (");
-        if (lp != std::string::npos && title.back() == ')') {
-            sub = title.substr(lp + 2, title.size() - lp - 3);
-            title = title.substr(0, lp);
-        }
-        prefsSections_.push_back(title);
-        ImGui::Dummy(ImVec2(1.0f, fs * 0.6f));
-        if (prefsScrollTo_ == title) {
-            ImGui::SetScrollHereY(0.0f);
-            prefsScrollTo_.clear();
-        }
-        ui::Heading(title.c_str(), sub.empty() ? nullptr : sub.c_str());
-        openCard();
+        rowTop = ImGui::GetCursorScreenPos().y;
     };
     // A 2-3 option choice as a segmented control on a label-left row (the
     // caption column is the same width InspectorRows uses for this window).
@@ -19149,31 +19271,300 @@ void App::drawPreferencesWindow() {
         ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(label).x);
         return r;
     };
-    auto beginTab = [&](const char* name) { return prefsCat_ == name; };
-    auto endTab = [&]() { closeCard(); };
 
-    if (beginTab("Display")) {
-    prefSection("Video signal");
+    // ONE CALL AT THE END OF EVERY ROW: prefRow(<kPrefIndex label>). The row is
+    // everything since the previous call (or the card's top), so a row's hint,
+    // warning and readout lines belong to it. It draws the changed-from-default
+    // dot in the card's left gutter (an InvisibleButton "Reset <label>" - click
+    // to reset), and scrolls to / rings the row a caller asked for.
+    auto prefRow = [&](const char* label) {
+        const float top = rowTop;
+        const ImVec2 back = ImGui::GetCursorScreenPos();
+        const float bottom = back.y - ImGui::GetStyle().ItemSpacing.y;
+        rowTop = back.y;
+        const PrefIndexEntry* e = findPrefEntry(label);
+        IM_ASSERT(e && "prefRow: label not in kPrefIndex");
+        if (!e) return;
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        const float x0 = cardMin.x, x1 = w->ContentRegionRect.Max.x + cardPadX;
+        if (prefsScrollToItem_ == label) {
+            ImGui::SetScrollFromPosY(top - w->Pos.y, 0.35f);
+            prefsScrollToItem_.clear();
+            prefsFlashItem_ = label;
+            prefsFlashStart_ = ImGui::GetTime();
+        }
+        if (prefsFlashItem_ == label) {
+            const float t = (float)(ImGui::GetTime() - prefsFlashStart_);
+            if (t > 1.6f) {
+                prefsFlashItem_.clear();
+            } else {
+                ImVec4 c = sem.accent;
+                c.w = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) / 0.8f;
+                w->DrawList->AddRect(ImVec2(x0 + scaled(3), top - scaled(3)), ImVec2(x1 - scaled(3), bottom + scaled(3)),
+                                     ImGui::GetColorU32(c), scaled(6), 0, scaled(2));
+            }
+        }
+        if (isChanged(*e)) {
+            const ImVec2 c(x0 + cardPadX * 0.5f, top + ImGui::GetFrameHeight() * 0.5f);
+            const float r = fs * 0.55f;
+            ImGui::SetCursorScreenPos(ImVec2(c.x - r, c.y - r));
+            const std::string id = std::string("Reset ") + label;
+            if (ImGui::InvisibleButton(id.c_str(), ImVec2(r * 2.0f, r * 2.0f))) resetEntry(*e);
+            const bool hov = ImGui::IsItemHovered();
+            if (hov) ImGui::SetTooltip("Changed from a new project's setting - click to reset.");
+            w->DrawList->AddCircleFilled(c, hov ? fs * 0.27f : fs * 0.2f, ImGui::GetColorU32(sem.accent), 12);
+            ImGui::SetCursorScreenPos(back);
+        }
+    };
+    // A short orientation line under an essential row, in plain words. The
+    // full story stays the caption's hover.
+    auto prefHint = [&](const char* text) {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y * 0.7f);
+        ImGui::PushFont(nullptr, fs * 0.88f);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    };
+    // A group: a small caption over its own card (the Advanced groups, and the
+    // second card a page needs).
+    auto prefGroup = [&](const char* title) {
+        closeCard();
+        prefsSections_.push_back(title);
+        ImGui::Dummy(ImVec2(1.0f, fs * 0.35f));
+        ui::Caption(title);
+        openCard();
+    };
+    // The page's title and what it is for, then its essentials card.
+    auto pageHeader = [&] {
+        ImGui::Dummy(ImVec2(1.0f, fs * 0.5f));
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.45f);
+            ImGui::TextUnformatted(kPrefCats[catIdx]);
+            ImGui::PopFont();
+        }
+        ImGui::TextColored(sem.textDim, "%s", kPrefCatSub[catIdx]);
+        ImGui::Dummy(ImVec2(1.0f, fs * 0.4f));
+        openCard();
+    };
+    // The page's Advanced fold: closed, one dashed row that says what is in
+    // it (and how many of those are changed); open, its groups follow. The
+    // row is "Advanced" to scripts, checked while open.
+    auto advanced = [&](const char* summary) {
+        closeCard();
+        ImGui::Dummy(ImVec2(1.0f, fs * 0.5f));
+        const bool open = advOpen(prefsCat_);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x, h = ImGui::GetFrameHeight() * 1.45f;
+        if (ImGui::InvisibleButton("Advanced", ImVec2(w, h))) {
+            if (open)
+                prefsAdvOpen_.erase(std::find(prefsAdvOpen_.begin(), prefsAdvOpen_.end(), prefsCat_));
+            else
+                prefsAdvOpen_.push_back(prefsCat_);
+        }
+        uiscript::markLastItemChecked(open);
+        const bool hov = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+        if (!open || hov)
+            dl->AddRect(p, ImVec2(p.x + w, p.y + h),
+                        hov ? ImGui::GetColorU32(sem.border) : IM_COL32(255, 255, 255, 22), r);
+        float x = p.x + fs * 0.9f;
+        const float cy = p.y + h * 0.5f;
+        ImGui::RenderArrow(dl, ImVec2(x, cy - fs * 0.5f), ImGui::GetColorU32(sem.textDim),
+                           open ? ImGuiDir_Down : ImGuiDir_Right, 0.8f);
+        x += fs * 1.2f;
+        {
+            ui::FontScope bold(ui::boldFont());
+            dl->AddText(ImVec2(x, cy - fs * 0.5f), ImGui::GetColorU32(sem.text), "Advanced");
+            x += ImGui::CalcTextSize("Advanced").x + fs * 0.8f;
+        }
+        const int nChanged = changedAdvPerCat[catIdx];
+        std::string sub = summary;
+        if (nChanged) sub += "  \xC2\xB7  " + std::to_string(nChanged) + " changed";
+        dl->PushClipRect(p, ImVec2(p.x + w - fs * 0.5f, p.y + h), true);
+        dl->AddText(ImVec2(x, cy - fs * 0.5f), ImGui::GetColorU32(nChanged ? sem.accent : sem.textDim), sub.c_str());
+        dl->PopClipRect();
+        return open;
+    };
+
+    if (prefsCat_ == "Game") {
+    pageHeader();
+    // Read-only on purpose: the preset is picked once, in New Project. It
+    // decides which game-template sources are generated, and those are
+    // user-ownable - switching here would either overwrite work or leave an
+    // owned source no longer matching what the project builds.
+    ImGui::BeginDisabled();
+    {
+        int shown = presetIndexOf(project_.gameTemplate);
+        const char* names[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
+        ui::Combo("Preset", &shown, names, kNewPresetCount);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Fixed when the project was created and not changeable here: it picks\n"
+        "the generated game sources (files with the editor marker), which you\n"
+        "may have taken ownership of. Start a new project to use another\n"
+        "preset. The player's own camera settings stay editable - select the\n"
+        "Player object and see Properties.");
+
+    prefRow("Preset");
+    // The player's numbers - shared by both player presets (the height is the
+    // eye in FPP, the body in third person, the same way a Player object
+    // labels it); a project with no player template has the orbit camera.
+    if (project_.hasPlayerTemplate()) {
+        const bool third = project_.gameTemplate == "thirdperson";
+        ui::DragFloat(third ? "Body height" : "Eye height", &prefSettings_.eyeHeight,
+                         0.05f, 0.2f, 50.0f, "%.2f");
+        prefRow("Eye height");
+        walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
+                      prefSettings_.unitsPerMeter);
+        prefRow("Walk speed");
+        // The same walk -> run stick ramp a Player object has
+        // (docs/player-speeds.md), for the fallback walker a scene with no
+        // Player object gets. Sprint stays the multiplier (Advanced), because
+        // there is no object here to state an absolute speed on.
+        speedTierDrag("Run speed", prefSettings_.runSpeed,
+                      project::settingsRunSpeed(prefSettings_),
+                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
+        prefHelp(
+            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
+            "the stick walks. Left unset the walk speed is the only speed,\n"
+            "which is how this walker always behaved.\n\n"
+            "This is the project-wide fallback: a scene with a Player object\n"
+            "takes all three tiers from that object instead.");
+        prefRow("Run speed");
+        ui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
+        prefRow("Look speed");
+    } else {
+        ui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
+        prefHelp(
+            "How fast the camera circles the terrain in a scene that has no\n"
+            "Player object. 0 - what the Empty preset starts at - parks it at\n"
+            "a fixed vantage point looking at the origin, so the project shows\n"
+            "what you built instead of a turntable; drive the camera from a\n"
+            "script, a Camera object or a cutscene. A scene WITH a Player\n"
+            "object ignores this - the player owns the camera.");
+        prefRow("Orbit speed");
+    }
+    {
+        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
+                     : prefSettings_.multiplayer == "split" ? 2
+                                                            : 0;
+        const char* mpNames[] = {"Off (single player)", "Shared screen",
+                                 "Split screen (top / bottom)"};
+        if (ui::Combo("Two players", &mpMode, mpNames, 3))
+            prefSettings_.multiplayer =
+                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
+        if (mpMode != 0) {
+            ui::Switch("Player 2 joins with Start on pad 2",
+                            &prefSettings_.p2JoinOnStart);
+            prefHelp(
+                "Player 2 exists in scenes that contain a SECOND Player object\n"
+                "(the first is P1, the second P2). Shared screen frames both\n"
+                "with one camera; split screen renders each player's own view.\n"
+                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
+                "mid-game (Menu Editor > + Option block).");
+        }
+    }
+
+    prefRow("Two players");
+    ui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
+                     "%.1f");
+    prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    prefRow("Gravity");
+    if (project_.hasPlayerTemplate()) {
+        ui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
+                         "%.1f");
+        prefRow("Jump speed");
+    }
+    if (advanced("sprint, stick deadzones and response curves")) {
+    prefGroup("Controls");
+    ui::DragFloat("Sprint speed", &prefSettings_.sprintMultiplier, 0.02f, 1.0f,
+                     4.0f, "%.2fx");
+    prefHelp(
+        "Walk-speed multiplier while the \"sprint\" input action is held\n"
+        "(Tools > Input Map - pad R2 / Left Shift by default). 1.00x turns\n"
+        "sprinting off without unbinding the button. A third-person avatar\n"
+        "crosses its run threshold while sprinting, so it plays the run clip.");
+    prefRow("Sprint speed");
+    ui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
+                       "%.2f");
+    ui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
+                       "%.2f");
+    prefHelp(
+        "Analog stick offsets below this fraction read as zero. Raise it when\n"
+        "a worn pad drifts (left = movement, right = camera); motion above the\n"
+        "deadzone ramps smoothly, so higher values only cost range, not control.");
+
+    prefRow("Stick deadzones");
+    // Response curve per stick, applied after the deadzone: Linear passes the
+    // rescaled magnitude through; Exponential/S-Curve reshape it (the exponent
+    // tunes how much). The plot previews deflection (x) -> output (y). These
+    // are project-wide defaults; a flow graph can change them live with the
+    // Set Stick Curve node.
+    const char* curveNames[] = {"Linear", "Exponential", "S-Curve"};
+    auto stickCurveUi = [&](const char* label, int& curve, float& exponent) {
+        ImGui::PushID(label);
+        if (curve < 0 || curve > 2) curve = 0;
+        ui::Combo(label, &curve, curveNames, 3);
+        if (curve != 0) {
+            ui::SliderFloat("Exponent", &exponent, 1.0f, 6.0f, "%.2f");
+            if (exponent < 1.0f) exponent = 1.0f;
+        }
+        float samples[48];
+        for (int i = 0; i < 48; ++i) {
+            float m = i / 47.0f;
+            if (curve == 1) {
+                m = powf(m, exponent);
+            } else if (curve == 2) {
+                const float s = m * m * (3.0f - 2.0f * m);
+                m = exponent == 1.0f ? s : powf(s, exponent);
+            }
+            samples[i] = m;
+        }
+        ImGui::PlotLines("##curvePreview", samples, 48, 0, nullptr, 0.0f, 1.0f,
+                         ImVec2(0, scaled(46)));
+        ImGui::PopID();
+    };
+    stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
+    stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
+    prefHelp(
+        "Exponential is gentle near center and snappy at the edge (aiming);\n"
+        "S-Curve eases in and out. Higher exponent = more pronounced.");
+
+    prefRow("Stick response curves");
+    }
+    closeCard();
+    }
+
+    if (prefsCat_ == "Picture") {
+    pageHeader();
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
                    : prefSettings_.videoSystem == "ntsc" ? 1
                                                          : 0;
-    const char* videoSysNames[] = {"Auto (console region)", "NTSC", "PAL"};
-    if (segRow("Target system", videoSysNames, 3, &videoSys))
+    const char* videoSysNames[] = {"Auto", "NTSC", "PAL"};
+    if (segRow("TV region", videoSysNames, 3, &videoSys))
         prefSettings_.videoSystem = videoSys == 2 ? "pal" : videoSys == 1 ? "ntsc" : "auto";
     prefHelp(
         "Video signal of the built game (also on exported ISOs). Auto follows\n"
         "the console region. Game speed is normalized - PAL (50 Hz) and NTSC\n"
         "(60 Hz) play at the same wall-clock speed.");
+    prefHint("Auto plays on any console.");
+    prefRow("TV region");
     int dispMode = prefSettings_.displayMode == "pal576"             ? 4
                    : prefSettings_.displayMode == "1080i"            ? 3
                    : prefSettings_.displayMode == "progressive"      ? 2
                    : prefSettings_.displayMode == "interlaced-field" ? 1
                                                                      : 0;
-    const char* dispModeNames[] = {"Interlaced (480i/576i)",
-                                   "Interlaced, field rendering (480i/576i)",
-                                   "Progressive scan (480p)", "1080i (HD)",
-                                   "PAL 576i (full-height, 50 Hz)"};
-    if (ui::Combo("Display mode", &dispMode, dispModeNames, 5))
+    const char* dispModeNames[] = {"Interlaced", "Interlaced, field rendering",
+                                   "Progressive (480p)", "1080i (HD)",
+                                   "PAL 576i, full height"};
+    if (ui::Combo("Picture mode", &dispMode, dispModeNames, 5))
         prefSettings_.displayMode = dispMode == 4   ? "pal576"
                                     : dispMode == 3 ? "1080i"
                                     : dispMode == 2 ? "progressive"
@@ -19196,6 +19587,51 @@ void App::drawPreferencesWindow() {
         "also leaves less VRAM for textures. All can also be switched at\n"
         "runtime with the Set Display Mode flow node, which shows a\n"
         "keep-or-revert prompt with an automatic rollback.");
+    prefHint("Progressive and 1080i need component cables on a real console.");
+    prefRow("Picture mode");
+    ui::Switch("Widescreen (16:9)", &prefSettings_.widescreen);
+    prefHelp(
+        "Widens the projection so proportions are correct on a 16:9 TV\n"
+        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
+        "the picture also fills more of the screen. HUD sprites stretch\n"
+        "with the screen. Runtime switch: the Set Widescreen flow node.");
+    prefRow("Widescreen");
+    // Colour depth. The GS is 4 MB and the frame buffers are most of it, so
+    // this is the biggest single lever on how much VRAM textures get - and
+    // on whether a third display buffer fits at all.
+    {
+        int depth = prefSettings_.colorDepth == "16bit"    ? 1
+                    : prefSettings_.colorDepth == "hybrid" ? 2
+                                                           : 0;
+        const char* depthNames[] = {"Full (32-bit)", "Reduced (16-bit)", "Mixed"};
+        if (segRow("Colours", depthNames, 3, &depth))
+            prefSettings_.colorDepth =
+                depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
+        prefHelp(
+            "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
+            "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
+            "GS memory and hands all of it to textures, which roughly\n"
+            "DOUBLES the texture budget - the single biggest saving available\n"
+            "on a 4 MB GS, what makes the taller HD scan modes practical, and\n"
+            "what most often decides whether triple buffering fits.\n"
+            "The cost is 32 levels per channel instead of 256, so smooth\n"
+            "gradients - skies, fog, bloom - band unless Dithering is on.\n"
+            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
+            "GS needs the pair to share page geometry), so depth precision\n"
+            "drops with it: keep the near plane up.\n"
+            "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
+            "z (full-precision blending and depth), then one dithered copy per\n"
+            "frame puts it in a 16-bit buffer the TV shows: half a frame\n"
+            "buffer back for textures without 16-bit banding in the blends.\n"
+            "In Hybrid there is no previous frame to sample, so motion blur,\n"
+            "the upscaler's temporal pass and frame extrapolation are off.\n"
+            "Triple buffering adds a second 16-bit display buffer while\n"
+            "the 32-bit draw buffer stays fixed. See docs/gs-vram.md.");
+    }
+    prefHint("Reduced leaves about twice the memory for textures.");
+    prefRow("Colours");
+    if (advanced("PAL picture, supported resolutions, dithering, triple buffering, VSync")) {
+    prefGroup("Signal");
     if (prefSettings_.displayMode == "interlaced") {
         int palPic = prefSettings_.palFullHeight ? 1 : 0;
         const char* palPicNames[] = {"Letterbox (NTSC-size picture)",
@@ -19211,6 +19647,7 @@ void App::drawPreferencesWindow() {
             "always get 480i. A menu display row's DEFAULT option maps to\n"
             "whatever this resolves to on the player's console. (Field\n"
             "rendering has no full-height variant yet.)");
+        prefRow("PAL picture");
     }
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
@@ -19240,59 +19677,20 @@ void App::drawPreferencesWindow() {
         }
         ImGui::TreePop();
     }
-    ui::Switch("Widescreen (16:9)", &prefSettings_.widescreen);
-    prefHelp(
-        "Widens the projection so proportions are correct on a 16:9 TV\n"
-        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
-        "the picture also fills more of the screen. HUD sprites stretch\n"
-        "with the screen. Runtime switch: the Set Widescreen flow node.");
-    // Colour depth. The GS is 4 MB and the frame buffers are most of it, so
-    // this is the biggest single lever on how much VRAM textures get - and
-    // on whether the third display buffer below fits at all.
+    prefRow("Supported resolutions");
     {
-        int depth = prefSettings_.colorDepth == "16bit"    ? 1
-                    : prefSettings_.colorDepth == "hybrid" ? 2
-                                                           : 0;
-        const char* depthNames[] = {"32-bit", "16-bit", "Hybrid"};
-        if (segRow("Colour depth", depthNames, 3, &depth))
-            prefSettings_.colorDepth =
-                depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
-        prefHelp(
-            "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
-            "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
-            "GS memory and hands all of it to textures, which roughly\n"
-            "DOUBLES the texture budget - the single biggest saving available\n"
-            "on a 4 MB GS, what makes the taller HD scan modes practical, and\n"
-            "what most often decides whether triple buffering fits.\n"
-            "The cost is 32 levels per channel instead of 256, so smooth\n"
-            "gradients - skies, fog, bloom - band unless Dithering is on.\n"
-            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
-            "GS needs the pair to share page geometry), so depth precision\n"
-            "drops with it: keep the near plane up.\n"
-            "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
-            "z (full-precision blending and depth), then one dithered copy per\n"
-            "frame puts it in a 16-bit buffer the TV shows: half a frame\n"
-            "buffer back for textures without 16-bit banding in the blends.\n"
-            "In Hybrid there is no previous frame to sample, so motion blur,\n"
-            "the upscaler's temporal pass and frame extrapolation are off.\n"
-            "Triple buffering adds a second 16-bit display buffer while\n"
-            "the 32-bit draw buffer stays fixed. See docs/gs-vram.md.");
         ImGui::BeginDisabled(prefSettings_.colorDepth == "32bit");
-        ImGui::Indent(scaled(16));
         ui::Switch("Dithering", &prefSettings_.dither);
         prefHelp(
             "The GS's ordered 4x4 dither, which trades the banding of a\n"
             "16-bit buffer for fine noise that a TV blurs away. The hardware\n"
             "only dithers 16-bit destinations, so this does nothing at 32-bit\n"
             "colour. Leave it on unless you want the flat bands on purpose.");
-        ImGui::Unindent(scaled(16));
         ImGui::EndDisabled();
-    }
-
-    // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
-    // of these used to sit under "Build", which is where nobody deciding how
-    // the picture is presented would look for them.
-    prefSection("Presentation");
+        }
+    prefRow("Dithering");
+    // WHEN a finished frame reaches the TV, as opposed to what is in it.
+    prefGroup("Frame pacing");
     // TRIPLE BUFFERING IS ASKED OF EVERY MODE THE PROJECT CAN RUN IN, not only
     // of the one it boots in - which is what the user's second complaint was
     // about ("we set it here and then someone changes the resolution in the
@@ -19380,95 +19778,47 @@ void App::drawPreferencesWindow() {
                         " Turning the neural upscaler on also frees enough - "
                         "the z buffer follows its smaller raster.";
             }
-            ImGui::PushStyleColor(ImGuiCol_Text, amber);
-            ImGui::TextWrapped(
-                "    No room in any supported mode (%s): a third buffer costs "
-                "%.2f MB, leaving %.2f MB of the %.2f MB the renderer and the "
-                "texture heap need.%s",
-                modeList(tbModes.notFitting).c_str(),
-                f.bufferWords / 262144.0f, f.leftWords / 262144.0f,
-                f.needWords / 262144.0f, escape.c_str());
-            ImGui::PopStyleColor();
+            ImGui::TextColored(amber, "Does not fit in any supported mode");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "No room in any supported mode (%s): a third buffer costs\n"
+                    "%.2f MB, leaving %.2f MB of the %.2f MB the renderer and the\n"
+                    "texture heap need.%s",
+                    modeList(tbModes.notFitting).c_str(),
+                    f.bufferWords / 262144.0f, f.leftWords / 262144.0f,
+                    f.needWords / 262144.0f, escape.c_str());
         } else if (!tbModes.notFitting.empty()) {
             // THE DESYNC, named. This is the honest answer and the one the
             // report asked for: the modes disagree, and the game will too.
-            ImGui::PushStyleColor(ImGuiCol_Text, amber);
-            ImGui::TextWrapped(
-                "    Fits in %s, not in %s (boot mode %s: %s). The engine "
-                "re-decides on every runtime scan-mode switch, so a player who "
-                "changes resolution changes the frame pacing.",
-                modeList(tbModes.fitting).c_str(),
-                modeList(tbModes.notFitting).c_str(),
-                project::displayModeInfo(tbModes.boot).label,
-                tbModes.bootFits ? "fits" : "does not");
-            ImGui::PopStyleColor();
+            ImGui::TextColored(amber, "Fits in some modes only");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Fits in %s, not in %s (boot mode %s: %s). The engine\n"
+                    "re-decides on every runtime scan-mode switch, so a player who\n"
+                    "changes resolution changes the frame pacing.",
+                    modeList(tbModes.fitting).c_str(),
+                    modeList(tbModes.notFitting).c_str(),
+                    project::displayModeInfo(tbModes.boot).label,
+                    tbModes.bootFits ? "fits" : "does not");
         } else if (prefSettings_.tripleBuffering) {
-            ImGui::TextDisabled("    Fits in every mode this project supports (%s).",
+            ImGui::TextDisabled("Fits in every supported mode (%s)",
                                 modeList(tbModes.fitting).c_str());
         }
     }
-    ui::Switch("Disable VSync (experimental)", &prefSettings_.disableVsync);
+    prefRow("Triple buffering");
+    ui::Switch("Disable VSync", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
 
-    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
-    // decisions a person switching the feature on has to make, and nothing
-    // else. What a user meets here is a checkbox, a mode, a raster and one line
-    // saying which side of the measured break-even this project falls on; the
-    // training, evaluation, cross-validation and instrumentation are behind the
-    // Advanced button and stay exactly as they were.
-    //
-    // The reduction is a consequence of plain mode rather than a tidy-up. Until
-    // that landed BLSS MEANT "fit a network to your scene", so the window had to
-    // be the whole feature - but plain mode's break-even is 2.6 coverages
-    // against the neural path's 13.1, a trained net ships embedded in the
-    // editor, and on every project measured that net chooses nothing anyway. So
-    // training is genuinely advanced, and the ordinary interaction is three
-    // controls and a sentence.
-    //
-    // The widgets, the tooltips AND the build-interlock warning still live in
-    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
-    // block one level deeper. They were inlined here once, which made this
-    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
-    // would have made it two mirrors, and two mirrors of an interlock drift the
-    // day either is touched. The staged settings go in, so both the warning and
-    // the verdict answer for what the modal will apply and not for what is on
-    // disk.
-    //
-    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
-    // this engine reconstructs rather than renders - the upscaler (per scene)
-    // and frame extrapolation (per project) - and they refuse each other, so
-    // they have to be read together. It is on the DISPLAY tab for the same
-    // reason: somebody asking "how does a frame reach the screen" arrives at the
-    // signal, the presentation and the reconstruction in one place.
-    prefSection("Frame delivery (upscaler, extrapolation)");
-    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
-    // The network's own knobs - the Neural Upscaler window's old "Project
-    // settings" tab drew them; this is their only home now.
-    drawBlssNetworkTuning(prefSettings_);
-    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
-        showBlss_ = true;
-    prefHelp(
-        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
-        "cross-validate it, look at the pictures it makes and at what its input\n"
-        "channels look like, and place a console-measured feature vector inside\n"
-        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
-        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
-        "usable.\n"
-        "\n"
-        "None of it is needed to USE the feature. A trained network ships with\n"
-        "the editor, and in the plain mode above there is no network at all.\n"
-        "\n"
-        "Opens alongside this window - it draws these same controls one level\n"
-        "deeper, over the same live project settings, so the two cannot\n"
-        "disagree.");
-    endTab();
+    prefRow("Disable VSync");
+    }
+    closeCard();
     }
 
-    if (beginTab("World")) {
-    prefSection("World");
+    if (prefsCat_ == "World") {
+    pageHeader();
     ui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
                      1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
     if (prefSettings_.unitsPerMeter < 0.001f) prefSettings_.unitsPerMeter = 0.001f;
@@ -19500,7 +19850,7 @@ void App::drawPreferencesWindow() {
             "sprints at ~6 m/s, and gravity is 9.81 m/s^2.");
     }
 
-    prefSection("Terrain");
+    prefRow("Units per meter");
     // THE THREE CONTROLS THAT DO NOT APPLY PER FRAME (see prefGridDetail_ in
     // app.hpp). Each of them changes the heightmap's dimensions, and
     // project::ensureHeightmap answers that with a NEAREST-NEIGHBOUR RESAMPLE -
@@ -19531,6 +19881,7 @@ void App::drawPreferencesWindow() {
         ImGui::TextDisabled("= %.1f x %.1f m",
                             (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
                             (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
+    prefRow("Terrain size");
     ui::SliderInt("Detail (max grid cells)", &prefGridDetail_, 4, 512);
     gridScratch(prefGridDetail_, project_.settings.terrainDetail, gridChanged,
                 [&](int v) {
@@ -19545,6 +19896,7 @@ void App::drawPreferencesWindow() {
              "new grid is lost - it applies when you release the slider, and\n"
              "Ctrl+Z takes it back.");
 
+    prefRow("Terrain detail");
     ui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
                      prefSettings_.terrainViewDistance > 0.0f ? "%.0f units"
@@ -19557,36 +19909,6 @@ void App::drawPreferencesWindow() {
         "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
         "whole map resident. Meant for FPP - orbit showcases see the whole\n"
         "map at once and should leave it 0.");
-
-    ui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
-                     0.0f, 2000.0f,
-                     prefSettings_.terrainLodDistance > 0.0f
-                         ? "%.0f units"
-                         : "off (full detail everywhere)");
-    if (prefSettings_.terrainLodDistance < 0.0f)
-        prefSettings_.terrainLodDistance = 0.0f;
-    prefHelp(
-        "Beyond this range the ground is built from every 2nd heightmap\n"
-        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
-        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
-        "tile, so no crack shows, and collision is unaffected. This is what\n"
-        "makes a large map affordable to DRAW; the view distance above is\n"
-        "what makes it fit in memory. 0 = full detail everywhere.");
-    if (prefSettings_.terrainLodDistance > 0.0f) {
-        const SceneData& sc = project_.active();
-        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
-                               ? sc.terrain.width
-                               : prefSettings_.terrainDetail;
-        // What one full-detail tile costs, so the bands mean something in
-        // triangles rather than in units.
-        const float span = 16.0f * (float)sc.terrain.width /
-                           (float)(cellsX > 0 ? cellsX : 1);
-        ImGui::TextDisabled(
-            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
-            "beyond %.0f (tile = %.0f units).",
-            prefSettings_.terrainLodDistance,
-            prefSettings_.terrainLodDistance * 2.2f, span);
-    }
 
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
@@ -19620,14 +19942,61 @@ void App::drawPreferencesWindow() {
             ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
     }
 
-    // Both of these describe the SPACE rather than the picture: where an NPC may
-    // walk, and what is shown while the next space is loaded.
+    prefRow("View distance");
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
-    prefSection("AI navigation");
+    prefRow("Terrain material");
+    ui::Switch("Loading screen between scenes", &prefSettings_.loadingScreen);
+    prefHelp(
+        "Master switch: shows a loading screen while a scene loads (also at\n"
+        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
+        "(Scene > Preferences), or a project default is used; with none, a\n"
+        "built-in loading.png on black is shown.");
+    if (ImGui::Button("Open Loading Screens editor"))
+        showLoadingEditor_ = true;
+    prefHelp(
+        (std::string("Design the loading screens this project shows between "
+                     "scenes.") +
+         kOpensWindow)
+            .c_str());
+    prefRow("Loading screen between scenes");
+    if (advanced("terrain detail distance, the AI navigation grid")) {
+    prefGroup("Terrain detail");
+    ui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
+                     0.0f, 2000.0f,
+                     prefSettings_.terrainLodDistance > 0.0f
+                         ? "%.0f units"
+                         : "off (full detail everywhere)");
+    if (prefSettings_.terrainLodDistance < 0.0f)
+        prefSettings_.terrainLodDistance = 0.0f;
+    prefHelp(
+        "Beyond this range the ground is built from every 2nd heightmap\n"
+        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
+        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
+        "tile, so no crack shows, and collision is unaffected. This is what\n"
+        "makes a large map affordable to DRAW; the view distance above is\n"
+        "what makes it fit in memory. 0 = full detail everywhere.");
+    if (prefSettings_.terrainLodDistance > 0.0f) {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        // What one full-detail tile costs, so the bands mean something in
+        // triangles rather than in units.
+        const float span = 16.0f * (float)sc.terrain.width /
+                           (float)(cellsX > 0 ? cellsX : 1);
+        ImGui::TextDisabled(
+            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
+            "beyond %.0f (tile = %.0f units).",
+            prefSettings_.terrainLodDistance,
+            prefSettings_.terrainLodDistance * 2.2f, span);
+    }
+
+    prefRow("Detail distance");
+    prefGroup("AI navigation");
     ui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
                      16.0f, "%.2f units");
     if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
@@ -19648,25 +20017,204 @@ void App::drawPreferencesWindow() {
         "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
         "graphs use no AI nodes carry no nav data at all.");
 
-    prefSection("Scenes");
-    ui::Switch("Loading screen between scenes", &prefSettings_.loadingScreen);
-    prefHelp(
-        "Master switch: shows a loading screen while a scene loads (also at\n"
-        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
-        "(Scene > Preferences), or a project default is used; with none, a\n"
-        "built-in loading.png on black is shown.");
-    if (ImGui::Button("Open Loading Screens editor"))
-        showLoadingEditor_ = true;
-    prefHelp(
-        (std::string("Design the loading screens this project shows between "
-                     "scenes.") +
-         kOpensWindow)
-            .c_str());
-    endTab();
+    prefRow("AI navigation grid");
+    }
+    closeCard();
     }
 
-    if (beginTab("Rendering")) {
-    prefSection("Rendering");
+    if (prefsCat_ == "Graphics") {
+    pageHeader();
+    // Texture quantization - the PS2-native "compression" (palettized
+    // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
+    // model/material overrides live in the Asset Browser's inspector.
+    int quantMode = prefSettings_.textureQuant == "none" ? 0
+                    : prefSettings_.textureQuant == "8bit" ? 1
+                                                           : 2;
+    const char* quantNames[] = {"Full", "256", "16"};
+    if (segRow("Texture colours", quantNames, 3, &quantMode))
+        prefSettings_.textureQuant =
+            quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
+    prefHelp(
+        "Quantized at build (sources in res/ stay untouched). Override per\n"
+        "model/material in the Asset Browser - e.g. keep the hero's textures\n"
+        "full color while everything else goes 4-bit.");
+
+    prefHint("16 is the PS2 look and the lightest on memory.");
+    prefRow("Texture colours");
+    ui::Switch("Shadows under moving objects", &prefSettings_.blobShadows);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A soft dark quad on the terrain under the third-person avatar,\n"
+            "animated models and physics objects, fading as they rise -\n"
+            "grounds them visually for one quad each.\n"
+            "This is the DEFAULT now, not the whole story: any object can ask\n"
+            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
+            "shadow - including a static prop, and with this switch off\n"
+            "(docs/shadows.md).");
+    prefRow("Shadows under moving objects");
+    ui::Switch("Torch shadows",
+                    &prefSettings_.flashShadowVolumes);
+    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
+    // below the VRAM warning, so on a tight project it chained onto the amber
+    // line instead and the checkbox had none.
+    prefHelp(
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
+        "Point lights are not affected either way; SPOT lights have their own\n"
+        "switch below (docs/shadows.md).\n"
+        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
+        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four casters for every light together, and light leaks through\n"
+        "everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
+    prefRow("Torch shadows");
+    ui::Switch("Spot light shadows",
+                    &prefSettings_.spotShadowVolumes);
+    prefHelp(
+        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
+        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
+        "the wall it is bolted to and the alley behind it alike; with it the\n"
+        "cone is occluded per pixel like the torch's, for every solid in it.\n"
+        "This is the project-wide DEFAULT - a light can say otherwise on\n"
+        "itself in Properties > Point light > Shadow volumes.\n"
+        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
+        "The count bracket is per light per frame, so a room full of lamps\n"
+        "costs what a single one does; which lamp it is, is what the\n"
+        "per-light override is for.\n"
+        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
+        "band, so a project with either one on has already paid for it.");
+    // WHAT IT COSTS, in the currency that actually runs out. The count band is
+    // 512 KB at 32-bit colour and a 512x512 project has about that much
+    // texture heap in the first place, so switching this on can take the last
+    // of it - and the symptom is not a missing shadow, it is every texture in
+    // the scene evicting and re-uploading once a frame. Measured on the scene
+    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
+    // ~1.6 re-uploads per frame with them on.
+    //
+    // Shown for EITHER user of the band, and only once: the two share one
+    // buffer, so the warning is about the pair rather than about the torch.
+    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
+        // The DIFFERENCE is exact (it is one buffer, sized by the same
+        // arithmetic the engine uses); the absolute headroom is not - the
+        // model reads ~256 KB high against what a running game reports,
+        // because the reserve it subtracts is the engine's third-buffer
+        // constant rather than the real post-init allocations. So the warning
+        // states the cost and points at the number that IS authoritative.
+        const project::TextureHeapEstimate heap =
+            project::textureHeapEstimate(project_, prefSettings_);
+        if (heap.freeKb < 512)
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.7f, 0.3f, 1),
+                "Takes %d KB of texture memory - little left here",
+                heap.countBandKb);
+    }
+
+    prefRow("Spot light shadows");
+    ui::Switch("Highlight usable objects", &prefSettings_.highlightUsable);
+    prefHelp(
+        "In-game outline around objects marked 'Usable' while the player is\n"
+        "within the proximity distance. The viewport marks them with a wire box.");
+    if (prefSettings_.highlightUsable) {
+        ui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
+                         0.5f, 1000.0f, "%.1f");
+        ImGui::ColorEdit3("Highlight color", prefSettings_.highlightColor);
+        ui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
+                         0.05f, 2.0f, "%.2f");
+        ui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
+        ui::SliderFloat("Opacity", &prefSettings_.highlightOpacity, 0.0f, 1.0f,
+                           "%.2f");
+        ui::Switch("Draw over object (experimental)",
+                        &prefSettings_.highlightOverlay);
+        prefHelp(
+            "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
+            "Opacity = transparency of the strongest shell (the rest fade from it).\n"
+            "Draw over object = a colored glow ON the surface fading outward,\n"
+            "instead of only a rim behind the silhouette.");
+    }
+    prefRow("Highlight usable objects");
+    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
+    prefHelp(
+        (std::string(
+             "Sky gradient, baked lighting and distance fog now live in presets.\n"
+             "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
+             "Scene > Preferences (or uses the default).") +
+         kOpensWindow)
+            .c_str());
+
+    prefRow("Sky, sun and fog");
+    if (advanced("for squeezing out frame rate - the defaults are safe")) {
+    prefGroup("Speed");
+    ui::Switch("Static object batching", &prefSettings_.staticBatching);
+    prefHelp(
+        "Merges non-moving primitives and compact imported-model parts\n"
+        "sharing a texture into spatial draw bags at scene load. Each\n"
+        "separate object costs ~1 ms of fixed submit overhead per frame\n"
+        "on real hardware; a batch pays it once. Large models and objects\n"
+        "with physics, LODs, scripts, runtime references, save-state or a\n"
+        "streaming layer stay individual.");
+
+    prefRow("Static object batching");
+    ui::Switch("Occlusion culling",
+                    &prefSettings_.occlusionCulling);
+    prefHelp(
+        "Builds inward proxies for static opaque objects, rasterizes them\n"
+        "into a tiny CPU depth buffer, then skips fully hidden objects and\n"
+        "chunks before they enter the renderer. Open, non-manifold and\n"
+        "alpha-textured models are refused as occluders. Existing projects\n"
+        "default off: verify the trade with the profiler on target hardware.");
+
+    prefRow("Occlusion culling");
+    ui::Switch("Texture atlasing", &prefSettings_.textureAtlas);
+    prefHelp(
+        "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
+        "pages at build: one GS VRAM allocation per page instead of one per\n"
+        "texture, and fewer texture switches. Conservative - tiled terrain\n"
+        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
+        "leave 0..1 keep their own files.\n"
+        "It does NOT always save bytes: a page is quantized as one image, so\n"
+        "in a palettized project its members go up to 8 bits per pixel while\n"
+        "the page is a full allocation whatever it holds. Tools > Texture\n"
+        "Atlas prints both numbers, says why each texture was refused, and is\n"
+        "where a texture is kept out or put in a group of your own.");
+    prefRow("Texture atlasing");
+    {
+        static const char* kInterleaveNames[] = {"Auto", "Always", "Off"};
+        static const char* kInterleaveKeys[] = {"auto", "always", "off"};
+        int il = 0;
+        for (int k = 0; k < 3; ++k)
+            if (prefSettings_.interleavePasses == kInterleaveKeys[k]) il = k;
+        if (ui::Combo("Interleave batches and roads", &il,
+                         kInterleaveNames, 3))
+            prefSettings_.interleavePasses = kInterleaveKeys[il];
+    }
+    prefHelp(
+        "Feeds the static batch and road draws into the object loop instead\n"
+        "of drawing them first. Batches and roads are cheap for the EE and\n"
+        "heavy for VU1/GS, objects the opposite, so drawn one after the other\n"
+        "the EE waits in the first and VU1 idles in the second. Measured on a\n"
+        "PS2: -0.4 ms a frame in a dense garage, a small loss in open ground\n"
+        "with few objects. Auto: the game times both orders every few seconds\n"
+        "and keeps the faster. The first object that may blend (alpha,\n"
+        "cutouts, blend modes) always finds the batches and roads drawn.");
+
+    prefRow("Interleave batches and roads");
+    ui::SliderInt("Shiny vehicles at once", &prefSettings_.vehicleShineBudget,
+                     0, 8, prefSettings_.vehicleShineBudget == 0 ? "all" : "%d");
+    prefHelp(
+        "How many vehicles draw their body shine (the paint reflection and\n"
+        "highlight) in one view: the car being driven first, then the\n"
+        "nearest. The rest stay matte. Measured on a PS2: a second car's\n"
+        "shine costs 0.7 ms a frame parked and 1.2 ms while the camera\n"
+        "turns, a third to a half of the whole car. 0 = every vehicle\n"
+        "within 35 units, the look before this setting.");
+
+    prefRow("Shiny vehicles at once");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
                                                          : 0;
@@ -19674,10 +20222,44 @@ void App::drawPreferencesWindow() {
         "Precise clipping on VU1 (no holes, no EE cost - default)",
         "Precise clipping on EE (the older clipper; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
-    if (ui::Combo("Triangles", &clipMode, clipNames, 3))
+    if (ui::Combo("Triangle clipping", &clipMode, clipNames, 3))
         prefSettings_.clipping =
             clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
 
+    prefRow("Triangle clipping");
+    prefGroup("Detail at a distance");
+    ui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
+    prefHelp(
+        "Animated models farther than this refresh their pose every 2nd frame\n"
+        "(every 4th beyond twice the distance). Playback time is unaffected.\n"
+        "Cuts the per-instance EE cost of distant animated crowds.");
+
+    prefRow("Animation LOD distance");
+    ui::DragFloat("Mesh LOD distance", &prefSettings_.meshLodDistance,
+                     0.5f, 0.0f, 2000.0f,
+                     prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
+    if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
+    prefHelp(
+        "The build bakes ~50% and ~25%-vertex variants of every model -\n"
+        "animated ones into the .tskl, static ones into the .tmdl; objects\n"
+        "farther than this render the reduced meshes. A static model can use\n"
+        "your own LOD meshes instead (the Asset Browser's LOD... button).\n"
+        "Costs RAM and file size; the editor viewport shows the full mesh.");
+
+    prefRow("Mesh LOD distance");
+    ui::DragFloat("Projected shadow distance", &prefSettings_.projShadowDistance,
+                     0.5f, 10.0f, 500.0f, "%.0f u");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "How far from the camera a projected silhouette shadow is still\n"
+            "drawn. A caster beyond it takes none of the four slots; the\n"
+            "shadow dissolves over the last 30%% of the way there. 50 is the\n"
+            "old built-in; raise it for wide scenes where the slots are not\n"
+            "contested (docs/shadows.md).");
+    prefRow("Projected shadow distance");
     // Animation frame rate. glTF/FBX carry keyframe times in seconds and no
     // fps at all, so a clip exported from a scene running at one rate but
     // authored for another is silently the wrong length. These two numbers
@@ -19716,27 +20298,9 @@ void App::drawPreferencesWindow() {
             "Tools > Animation Editor.");
     }
 
-    ui::DragFloat("Animation LOD distance", &prefSettings_.animLodDistance,
-                     0.5f, 0.0f, 2000.0f,
-                     prefSettings_.animLodDistance > 0.0f ? "%.0f units" : "off");
-    if (prefSettings_.animLodDistance < 0.0f) prefSettings_.animLodDistance = 0.0f;
-    prefHelp(
-        "Animated models farther than this refresh their pose every 2nd frame\n"
-        "(every 4th beyond twice the distance). Playback time is unaffected.\n"
-        "Cuts the per-instance EE cost of distant animated crowds.");
-
-    ui::DragFloat("Mesh LOD distance", &prefSettings_.meshLodDistance,
-                     0.5f, 0.0f, 2000.0f,
-                     prefSettings_.meshLodDistance > 0.0f ? "%.0f units" : "off");
-    if (prefSettings_.meshLodDistance < 0.0f) prefSettings_.meshLodDistance = 0.0f;
-    prefHelp(
-        "The build bakes ~50% and ~25%-vertex variants of every model -\n"
-        "animated ones into the .tskl, static ones into the .tmdl; objects\n"
-        "farther than this render the reduced meshes. A static model can use\n"
-        "your own LOD meshes instead (the Asset Browser's LOD... button).\n"
-        "Costs RAM and file size; the editor viewport shows the full mesh.");
-
-    ui::Switch("Reflection probe: aim along the reflected ray",
+    prefRow("Animation frame rate");
+    prefGroup("Reflections");
+    ui::Switch("Aim along the reflected ray",
                     &prefSettings_.envProbeReflected);
     prefHelp(
         "Dynamic reflections (@sky materials): instead of the classic\n"
@@ -19746,6 +20310,7 @@ void App::drawPreferencesWindow() {
         "actually mirrors. Best on large curved chrome at mid distance;\n"
         "the single shared probe still approximates every other surface.");
 
+    prefRow("Reflection aim");
     ui::DragFloat("Reflection reuse budget",
                      &prefSettings_.reflectionReuseBudget, 0.1f, 0.0f, 32.0f,
                      prefSettings_.reflectionReuseBudget > 0.0f
@@ -19767,6 +20332,7 @@ void App::drawPreferencesWindow() {
         "at all while nothing moves, where the skipped capture would have\n"
         "produced the same image. 1.0 is one pixel of 128. 0 = off.");
 
+    prefRow("Reflection reuse budget");
     ui::DragFloat("Reflection ground radius",
                      &prefSettings_.reflectionGroundRadius, 1.0f, 0.0f, 1000.0f,
                      prefSettings_.reflectionGroundRadius > 0.0f
@@ -19784,6 +20350,7 @@ void App::drawPreferencesWindow() {
         "ground under the car in the paint and drops the rest.\n"
         "0 = every resident chunk (the old behaviour).");
 
+    prefRow("Reflection ground radius");
     ui::Switch("Reflect static scenery as boxes",
                     &prefSettings_.reflectionScenery);
     prefHelp(
@@ -19791,6 +20358,7 @@ void App::drawPreferencesWindow() {
         "one box in its material's average colour, merged into a few bags.\n"
         "Objects with Show in reflections keep their own look.");
 
+    prefRow("Reflect scenery as boxes");
     ui::Switch("Reflect the ground as flat colour",
                     &prefSettings_.reflectionGroundProxy);
     prefHelp(
@@ -19798,429 +20366,77 @@ void App::drawPreferencesWindow() {
         "the roads' mean colour instead of the real ground chunks, out to\n"
         "the ground radius or 64 units, whichever is larger.");
 
-    ui::Switch("Static object batching", &prefSettings_.staticBatching);
-    prefHelp(
-        "Merges non-moving primitives and compact imported-model parts\n"
-        "sharing a texture into spatial draw bags at scene load. Each\n"
-        "separate object costs ~1 ms of fixed submit overhead per frame\n"
-        "on real hardware; a batch pays it once. Large models and objects\n"
-        "with physics, LODs, scripts, runtime references, save-state or a\n"
-        "streaming layer stay individual.");
-
-    {
-        static const char* kInterleaveNames[] = {"Auto", "Always", "Off"};
-        static const char* kInterleaveKeys[] = {"auto", "always", "off"};
-        int il = 0;
-        for (int k = 0; k < 3; ++k)
-            if (prefSettings_.interleavePasses == kInterleaveKeys[k]) il = k;
-        if (ui::Combo("Interleave batches and roads with objects", &il,
-                         kInterleaveNames, 3))
-            prefSettings_.interleavePasses = kInterleaveKeys[il];
-    }
-    prefHelp(
-        "Feeds the static batch and road draws into the object loop instead\n"
-        "of drawing them first. Batches and roads are cheap for the EE and\n"
-        "heavy for VU1/GS, objects the opposite, so drawn one after the other\n"
-        "the EE waits in the first and VU1 idles in the second. Measured on a\n"
-        "PS2: -0.4 ms a frame in a dense garage, a small loss in open ground\n"
-        "with few objects. Auto: the game times both orders every few seconds\n"
-        "and keeps the faster. The first object that may blend (alpha,\n"
-        "cutouts, blend modes) always finds the batches and roads drawn.");
-
-    ui::SliderInt("Shiny vehicles at once", &prefSettings_.vehicleShineBudget,
-                     0, 8, prefSettings_.vehicleShineBudget == 0 ? "all" : "%d");
-    prefHelp(
-        "How many vehicles draw their body shine (the paint reflection and\n"
-        "highlight) in one view: the car being driven first, then the\n"
-        "nearest. The rest stay matte. Measured on a PS2: a second car's\n"
-        "shine costs 0.7 ms a frame parked and 1.2 ms while the camera\n"
-        "turns, a third to a half of the whole car. 0 = every vehicle\n"
-        "within 35 units, the look before this setting.");
-
-    ui::Switch("Conservative occlusion culling",
-                    &prefSettings_.occlusionCulling);
-    prefHelp(
-        "Builds inward proxies for static opaque objects, rasterizes them\n"
-        "into a tiny CPU depth buffer, then skips fully hidden objects and\n"
-        "chunks before they enter the renderer. Open, non-manifold and\n"
-        "alpha-textured models are refused as occluders. Existing projects\n"
-        "default off: verify the trade with the profiler on target hardware.");
-
-    // Texture quantization - the PS2-native "compression" (palettized
-    // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
-    // model/material overrides live in the Asset Browser's inspector.
-    int quantMode = prefSettings_.textureQuant == "none" ? 0
-                    : prefSettings_.textureQuant == "8bit" ? 1
-                                                           : 2;
-    const char* quantNames[] = {
-        "Full color (32-bit - heavy on the 4 MB VRAM)",
-        "256 colors (8-bit palette)",
-        "16 colors (4-bit palette - the PS2-era default)"};
-    if (ui::Combo("Textures", &quantMode, quantNames, 3))
-        prefSettings_.textureQuant =
-            quantMode == 0 ? "none" : quantMode == 1 ? "8bit" : "4bit";
-    prefHelp(
-        "Quantized at build (sources in res/ stay untouched). Override per\n"
-        "model/material in the Asset Browser - e.g. keep the hero's textures\n"
-        "full color while everything else goes 4-bit.");
-
-    ui::Switch("Texture atlasing", &prefSettings_.textureAtlas);
-    const ImVec2 atlasRowMin = ImGui::GetItemRectMin(), atlasRowMax = ImGui::GetItemRectMax();
-    prefHelp(
-        "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
-        "pages at build: one GS VRAM allocation per page instead of one per\n"
-        "texture, and fewer texture switches. Conservative - tiled terrain\n"
-        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
-        "leave 0..1 keep their own files.\n"
-        "It does NOT always save bytes: a page is quantized as one image, so\n"
-        "in a palettized project its members go up to 8 bits per pixel while\n"
-        "the page is a full allocation whatever it holds. Tools > Texture\n"
-        "Atlas prints both numbers, says why each texture was refused, and is\n"
-        "where a texture is kept out or put in a group of your own.");
-    // The row with its dim description line under it (RowHelp).
-    prefsMarkItem("Texture atlasing", atlasRowMin,
-                  ImVec2(atlasRowMax.x, ImGui::GetCursorScreenPos().y - ImGui::GetStyle().ItemSpacing.y));
-
-    prefSection("Ambience (sky, lighting, fog)");
-    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
-    prefHelp(
-        (std::string(
-             "Sky gradient, baked lighting and distance fog now live in presets.\n"
-             "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
-             "Scene > Preferences (or uses the default).") +
-         kOpensWindow)
-            .c_str());
-
-    prefSection("Shadows");
-    ui::Switch("Blob shadows under moving objects", &prefSettings_.blobShadows);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "A soft dark quad on the terrain under the third-person avatar,\n"
-            "animated models and physics objects, fading as they rise -\n"
-            "grounds them visually for one quad each.\n"
-            "This is the DEFAULT now, not the whole story: any object can ask\n"
-            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
-            "shadow - including a static prop, and with this switch off\n"
-            "(docs/shadows.md).");
-    ui::DragFloat("Projected shadow distance", &prefSettings_.projShadowDistance,
-                     0.5f, 10.0f, 500.0f, "%.0f u");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "How far from the camera a projected silhouette shadow is still\n"
-            "drawn. A caster beyond it takes none of the four slots; the\n"
-            "shadow dissolves over the last 30%% of the way there. 50 is the\n"
-            "old built-in; raise it for wide scenes where the slots are not\n"
-            "contested (docs/shadows.md).");
-    ui::Switch("Flashlight shadow volumes",
-                    &prefSettings_.flashShadowVolumes);
-    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
-    // below the VRAM warning, so on a tight project it chained onto the amber
-    // line instead and the checkbox had none.
-    prefHelp(
-        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
-        "Point lights are not affected either way; SPOT lights have their own\n"
-        "switch below (docs/shadows.md).\n"
-        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
-        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
-        "most four casters for every light together, and light leaks through\n"
-        "everything else.\n"
-        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
-        "every solid in the beam occludes, exactly per pixel against the real\n"
-        "depth buffer - model casters from their REAL triangles (silhouette-\n"
-        "extruded, counted in a dedicated GS buffer), primitives from their\n"
-        "boxes - and the four slots are left to the scene's lights. Costs the\n"
-        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
-        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
-        "pixel format).");
-    ui::Switch("Spot light shadow volumes",
-                    &prefSettings_.spotShadowVolumes);
-    prefHelp(
-        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
-        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
-        "the wall it is bolted to and the alley behind it alike; with it the\n"
-        "cone is occluded per pixel like the torch's, for every solid in it.\n"
-        "This is the project-wide DEFAULT - a light can say otherwise on\n"
-        "itself in Properties > Point light > Shadow volumes.\n"
-        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
-        "The count bracket is per light per frame, so a room full of lamps\n"
-        "costs what a single one does; which lamp it is, is what the\n"
-        "per-light override is for.\n"
-        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
-        "band, so a project with either one on has already paid for it.");
-    // WHAT IT COSTS, in the currency that actually runs out. The count band is
-    // 512 KB at 32-bit colour and a 512x512 project has about that much
-    // texture heap in the first place, so switching this on can take the last
-    // of it - and the symptom is not a missing shadow, it is every texture in
-    // the scene evicting and re-uploading once a frame. Measured on the scene
-    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
-    // ~1.6 re-uploads per frame with them on.
+    prefRow("Reflect the ground as flat colour");
+    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
+    // decisions a person switching the feature on has to make, and nothing
+    // else. What a user meets here is a checkbox, a mode, a raster and one line
+    // saying which side of the measured break-even this project falls on; the
+    // training, evaluation, cross-validation and instrumentation are behind the
+    // Advanced button and stay exactly as they were.
     //
-    // Shown for EITHER user of the band, and only once: the two share one
-    // buffer, so the warning is about the pair rather than about the torch.
-    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
-        // The DIFFERENCE is exact (it is one buffer, sized by the same
-        // arithmetic the engine uses); the absolute headroom is not - the
-        // model reads ~256 KB high against what a running game reports,
-        // because the reserve it subtracts is the engine's third-buffer
-        // constant rather than the real post-init allocations. So the warning
-        // states the cost and points at the number that IS authoritative.
-        const project::TextureHeapEstimate heap =
-            project::textureHeapEstimate(project_, prefSettings_);
-        if (heap.freeKb < 512)
-            ImGui::TextColored(
-                ImVec4(0.95f, 0.7f, 0.3f, 1),
-                "  Takes a %d KB count band - little texture VRAM left here",
-                heap.countBandKb);
-    }
-
-    prefSection("Usable objects");
-    ui::Switch("Highlight usable objects", &prefSettings_.highlightUsable);
+    // The reduction is a consequence of plain mode rather than a tidy-up. Until
+    // that landed BLSS MEANT "fit a network to your scene", so the window had to
+    // be the whole feature - but plain mode's break-even is 2.6 coverages
+    // against the neural path's 13.1, a trained net ships embedded in the
+    // editor, and on every project measured that net chooses nothing anyway. So
+    // training is genuinely advanced, and the ordinary interaction is three
+    // controls and a sentence.
+    //
+    // The widgets, the tooltips AND the build-interlock warning still live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
+    // block one level deeper. They were inlined here once, which made this
+    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
+    // would have made it two mirrors, and two mirrors of an interlock drift the
+    // day either is touched. The staged settings go in, so both the warning and
+    // the verdict answer for what the modal will apply and not for what is on
+    // disk.
+    //
+    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
+    // this engine reconstructs rather than renders - the upscaler (per scene)
+    // and frame extrapolation (per project) - and they refuse each other, so
+    // they have to be read together. It is on the DISPLAY tab for the same
+    // reason: somebody asking "how does a frame reach the screen" arrives at the
+    // signal, the presentation and the reconstruction in one place.
+    prefGroup("Upscaler & frame extrapolation");
+    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    prefRow("Upscaler and frame extrapolation");
+    // The network's own knobs - the Neural Upscaler window's old "Project
+    // settings" tab drew them; this is their only home now.
+    drawBlssNetworkTuning(prefSettings_);
+    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
+        showBlss_ = true;
     prefHelp(
-        "In-game outline around objects marked 'Usable' while the player is\n"
-        "within the proximity distance. The viewport marks them with a wire box.");
-    if (prefSettings_.highlightUsable) {
-        ui::DragFloat("Proximity (units)", &prefSettings_.highlightDistance, 0.1f,
-                         0.5f, 1000.0f, "%.1f");
-        ImGui::ColorEdit3("Highlight color", prefSettings_.highlightColor);
-        ui::DragFloat("Blur width (units)", &prefSettings_.highlightWidth, 0.01f,
-                         0.05f, 2.0f, "%.2f");
-        ui::SliderInt("Blur steps", &prefSettings_.highlightSteps, 1, 8);
-        ui::SliderFloat("Opacity", &prefSettings_.highlightOpacity, 0.0f, 1.0f,
-                           "%.2f");
-        ui::Switch("Draw over object (experimental)",
-                        &prefSettings_.highlightOverlay);
-        prefHelp(
-            "Width = total rim size; steps = shells in the fade (1 = sharp edge).\n"
-            "Opacity = transparency of the strongest shell (the rest fade from it).\n"
-            "Draw over object = a colored glow ON the surface fading outward,\n"
-            "instead of only a rim behind the silhouette.");
+        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
+        "cross-validate it, look at the pictures it makes and at what its input\n"
+        "channels look like, and place a console-measured feature vector inside\n"
+        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
+        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
+        "usable.\n"
+        "\n"
+        "None of it is needed to USE the feature. A trained network ships with\n"
+        "the editor, and in the plain mode above there is no network at all.\n"
+        "\n"
+        "Opens alongside this window - it draws these same controls one level\n"
+        "deeper, over the same live project settings, so the two cannot\n"
+        "disagree.");
+    prefRow("Upscaler network tuning");
     }
-    endTab();
+    closeCard();
     }
 
-    if (beginTab("Player")) {
-    // The starting preset leads this tab because it is what DECIDES the player:
-    // it picks which game-template sources are generated, and the camera block
-    // below changes shape with it (eye height in FPP, body height in third
-    // person, orbit speed with no player at all).
-    prefSection("Game");
-    // Read-only on purpose: the preset is picked once, in New Project. It
-    // decides which game-template sources are generated, and those are
-    // user-ownable - switching here would either overwrite work or leave an
-    // owned source no longer matching what the project builds.
-    ImGui::BeginDisabled();
-    {
-        int shown = presetIndexOf(project_.gameTemplate);
-        const char* names[kNewPresetCount];
-        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
-        ui::Combo("Preset", &shown, names, kNewPresetCount);
-    }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Fixed when the project was created and not changeable here: it picks\n"
-        "the generated game sources (files with the editor marker), which you\n"
-        "may have taken ownership of. Start a new project to use another\n"
-        "preset. The player's own camera settings stay editable - select the\n"
-        "Player object and see Properties.");
-
-    // Player defaults - shared by both player presets (the height is the eye in
-    // FPP, the body in third person, the same way a Player object labels it).
-    if (project_.hasPlayerTemplate()) {
-        const bool third = project_.gameTemplate == "thirdperson";
-        prefSection(third ? "Third-person camera" : "FPP camera");
-        ui::DragFloat(third ? "Body height" : "Eye height", &prefSettings_.eyeHeight,
-                         0.05f, 0.2f, 50.0f, "%.2f");
-        walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
-                      prefSettings_.unitsPerMeter);
-        // The same walk -> run stick ramp a Player object has
-        // (docs/player-speeds.md), for the fallback walker a scene with no
-        // Player object gets. Sprint stays the multiplier below, because
-        // there is no object here to state an absolute speed on.
-        speedTierDrag("Run speed", prefSettings_.runSpeed,
-                      project::settingsRunSpeed(prefSettings_),
-                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
-        prefHelp(
-            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
-            "the stick walks. Left unset the walk speed is the only speed,\n"
-            "which is how this walker always behaved.\n\n"
-            "This is the project-wide fallback: a scene with a Player object\n"
-            "takes all three tiers from that object instead.");
-        ui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
-    } else {
-        prefSection("Camera");
-        ui::DragFloat("Orbit speed", &prefSettings_.orbitSpeed, 0.05f, 0.0f, 10.0f, "%.2f");
-        prefHelp(
-            "How fast the camera circles the terrain in a scene that has no\n"
-            "Player object. 0 - what the Empty preset starts at - parks it at\n"
-            "a fixed vantage point looking at the origin, so the project shows\n"
-            "what you built instead of a turntable; drive the camera from a\n"
-            "script, a Camera object or a cutscene. A scene WITH a Player\n"
-            "object ignores this - the player owns the camera.");
-    }
-
-    prefSection("Multiplayer");
-    {
-        int mpMode = prefSettings_.multiplayer == "shared"  ? 1
-                     : prefSettings_.multiplayer == "split" ? 2
-                                                            : 0;
-        const char* mpNames[] = {"Off (single player)", "Shared screen",
-                                 "Split screen (top / bottom)"};
-        if (ui::Combo("Two players", &mpMode, mpNames, 3))
-            prefSettings_.multiplayer =
-                mpMode == 1 ? "shared" : mpMode == 2 ? "split" : "off";
-        if (mpMode != 0) {
-            ui::Switch("Player 2 joins with Start on pad 2",
-                            &prefSettings_.p2JoinOnStart);
-            prefHelp(
-                "Player 2 exists in scenes that contain a SECOND Player object\n"
-                "(the first is P1, the second P2). Shared screen frames both\n"
-                "with one camera; split screen renders each player's own view.\n"
-                "A menu Toggle bound to 'Player count' can also switch 1P/2P\n"
-                "mid-game (Menu Editor > + Option block).");
-        }
-    }
-
-    prefSection("Input");
-    ui::DragFloat("Sprint speed", &prefSettings_.sprintMultiplier, 0.02f, 1.0f,
-                     4.0f, "%.2fx");
-    prefHelp(
-        "Walk-speed multiplier while the \"sprint\" input action is held\n"
-        "(Tools > Input Map - pad R2 / Left Shift by default). 1.00x turns\n"
-        "sprinting off without unbinding the button. A third-person avatar\n"
-        "crosses its run threshold while sprinting, so it plays the run clip.");
-    ui::SliderFloat("Left stick deadzone", &prefSettings_.stickDeadzoneL, 0.0f, 0.9f,
-                       "%.2f");
-    ui::SliderFloat("Right stick deadzone", &prefSettings_.stickDeadzoneR, 0.0f, 0.9f,
-                       "%.2f");
-    prefHelp(
-        "Analog stick offsets below this fraction read as zero. Raise it when\n"
-        "a worn pad drifts (left = movement, right = camera); motion above the\n"
-        "deadzone ramps smoothly, so higher values only cost range, not control.");
-
-    // Response curve per stick, applied after the deadzone: Linear passes the
-    // rescaled magnitude through; Exponential/S-Curve reshape it (the exponent
-    // tunes how much). The plot previews deflection (x) -> output (y). These
-    // are project-wide defaults; a flow graph can change them live with the
-    // Set Stick Curve node.
-    const char* curveNames[] = {"Linear", "Exponential", "S-Curve"};
-    auto stickCurveUi = [&](const char* label, int& curve, float& exponent) {
-        ImGui::PushID(label);
-        if (curve < 0 || curve > 2) curve = 0;
-        ui::Combo(label, &curve, curveNames, 3);
-        if (curve != 0) {
-            ui::SliderFloat("Exponent", &exponent, 1.0f, 6.0f, "%.2f");
-            if (exponent < 1.0f) exponent = 1.0f;
-        }
-        float samples[48];
-        for (int i = 0; i < 48; ++i) {
-            float m = i / 47.0f;
-            if (curve == 1) {
-                m = powf(m, exponent);
-            } else if (curve == 2) {
-                const float s = m * m * (3.0f - 2.0f * m);
-                m = exponent == 1.0f ? s : powf(s, exponent);
-            }
-            samples[i] = m;
-        }
-        ImGui::PlotLines("##curvePreview", samples, 48, 0, nullptr, 0.0f, 1.0f,
-                         ImVec2(0, scaled(46)));
-        ImGui::PopID();
-    };
-    stickCurveUi("Left stick curve", prefSettings_.stickCurveL, prefSettings_.stickExpL);
-    stickCurveUi("Right stick curve", prefSettings_.stickCurveR, prefSettings_.stickExpR);
-    prefHelp(
-        "Exponential is gentle near center and snappy at the edge (aiming);\n"
-        "S-Curve eases in and out. Higher exponent = more pronounced.");
-
-    prefSection("Physics");
-    ui::DragFloat("Gravity (units/s^2)", &prefSettings_.gravity, 0.1f, 0.0f, 100.0f,
-                     "%.1f");
-    if (project_.hasPlayerTemplate())
-        ui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
-                         "%.1f");
-    prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
-    endTab();
-    }
-
-    if (beginTab("Build")) {
-    // WHAT GOES INTO THE ELF, which is a different question from what the game
-    // looks like - the video signal and the presentation used to live in this
-    // section and are now on the Display tab, where somebody asking how the
-    // picture reaches the TV will look for them.
-    prefSection("Build");
+    if (prefsCat_ == "Build & debug") {
+    pageHeader();
     int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
     const char* profileNames[] = {"Release", "Debug"};
-    if (segRow("Profile", profileNames, 2, &profile))
+    if (segRow("Build for", profileNames, 2, &profile))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
     prefHelp(
         "Debug carries the devkit channels below, the overlays, -g and the\n"
         "unstripped ELF copy the crash reporter needs. Release carries none\n"
         "of it - every one of those toggles is greyed out here because a\n"
         "release build is verified to contain nothing (--audit-release).");
-    // "&&" was a Win32 habit - ImGui does no accelerator parsing, so it drew
-    // two ampersands and disagreed with every doc page naming this setting.
-    ui::Switch("Keyboard & mouse controls", &prefSettings_.keyboardMouse);
-    prefHelp(
-        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
-        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
-        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
-        "editor sets its emulated USB devices automatically) and with real\n"
-        "USB devices on a console. Skipped on ps2link deploys.");
-    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
-    ImGui::Indent(scaled(16));
-    ui::Switch("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
-    prefHelp(
-        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
-        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
-        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
-        "engine reuses that resident stack instead of loading its own. The\n"
-        "driver logs show up live in Output / ps2client. Untick only if you\n"
-        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
-        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
-        "and docs/keyboard-mouse.md.");
-    ImGui::Unindent(scaled(16));
-    ImGui::EndDisabled();
-
-    prefSection("Bakes before a build");
-    ImGui::BeginDisabled(!prefSettings_.giEnabled);
-    ui::Switch("Re-bake stale global illumination before every build (only scenes whose cache no "
-               "longer matches)",
-               &prefSettings_.giAutoBake);
-    ImGui::EndDisabled();
-    {
-        // The same switch, under the same name, sits on Ambience Editor > Global
-        // illumination - say so, link there, and show what it would do now.
-        refreshGiStates(false);
-        int stale = 0;
-        for (const GiSceneState& s : giStates_) stale += prefSettings_.giEnabled && !s.fresh;
-        ImGui::TextDisabled("Also in");
-        ImGui::SameLine();
-        if (ui::Link("Ambience > Global illumination")) {
-            showAmbienceEditor_ = true;
-            showGiBake_ = true;
-        }
-        if (stale > 0) {
-            ImGui::SameLine();
-            char st[24];
-            std::snprintf(st, sizeof(st), "%d stale", stale);
-            ui::Badge(st, 1);
-        }
-    }
-    prefHelp(
-        "Before every build, re-bake every scene whose GI cache no longer\n"
-        "matches it. Only STALE scenes - a build with everything fresh costs\n"
-        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
-        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
-        "pre-GI lighting. Needs GI enabled.");
-    ui::Switch("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
-    prefHelp(
-        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
-        "texture no longer matches the scene (moved, or the light changed).\n"
-        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
-        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
-        "Procedural volumes and model AO are always baked.");
-
-    prefSection("Debug overlays (drawn by the game, debug builds)");
+    prefRow("Build for");
+    ImGui::TextColored(sem.textDim, "Show on screen");
     {
         // Toggle chips: five switches that are read as one row of "what does
         // the debug game draw on top". Labels = the old checkbox labels (IDs).
@@ -20253,101 +20469,56 @@ void App::drawPreferencesWindow() {
         if (profile == 0) ImGui::TextDisabled("Release builds draw none of these.");
     }
 
-    // THE DEVKIT CHANNELS. Each of these used to be a checkbox with its help
-    // marker somewhere else entirely: Live Link and Live Logic had theirs
-    // stranded at the BOTTOM of the section, chained onto the EE crash
-    // handler's by prefHelp's SameLine, so the crash handler carried three (?)
-    // markers in a row and two of the toggles carried none. A help marker
-    // belongs to the widget it follows - that is the whole idiom.
-    prefSection("Devkit channels (debug builds only)");
-    {
-        // ONE TABLE: each channel's switch, what it does, and how often the game
-        // services it ("Every", game updates between polls, 0 = auto) on the
-        // SAME row, the interval dimmed while its channel is off. The fields
-        // keep their labels ("Live Link every", ...) as IDs and script names;
-        // their right-hand captions are clipped away.
-        const float trackW = IM_TRUNC(IM_TRUNC(fs * 1.05f) * 1.8f);
-        const float everyW = fs * 7.0f, everyGap = fs * 0.9f;
-        {
-            // Column heads, over the caption and the Every column.
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            const float right = p.x + ImGui::GetContentRegionAvail().x;
-            ui::Caption("Channel");
-            ImGui::SameLine();
-            ImGui::SetCursorScreenPos(ImVec2(right - trackW - everyGap - everyW, p.y));
-            ui::Caption("Every");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Game updates between polls, 0 = auto. Rebuild to apply.\n"
-                                  "At 50 FPS, 50 updates take one second; at 16 FPS about three. Longer\n"
-                                  "intervals delay edits and reports. Paused debugger commands stay\n"
-                                  "responsive; Remote Pad and replay input keep their own cadence.\n"
-                                  "Turn unused channels off to remove their work entirely.");
-        }
-        struct Every {
-            const char* label;
-            int* frames;
-            const char* tip;
-        };
-        auto channel = [&](const char* label, bool* on, const char* help, std::initializer_list<Every> every) {
-            ImGui::BeginDisabled(profile == 0);
-            ImGui::SetNextItemAllowOverlap();  // the Every field sits on the row
-            ui::Switch(label, on);
-            const ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax();
-            ImGui::EndDisabled();
-            prefHelp(help);
-            const ImVec2 back = ImGui::GetCursorScreenPos();
-            const float x0 = rmax.x - trackW - everyGap - everyW;
-            if (every.size() == 0) {
-                ImGui::SetCursorScreenPos(ImVec2(x0 + fs * 0.5f, rmin.y));
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextDisabled("-");
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keeps its own cadence.");
-            }
-            const float gap = fs * 0.3f;
-            const float w = (everyW - gap * (float)(every.size() - 1)) / (float)ImMax<size_t>(1, every.size());
-            float x = x0;
-            for (const Every& e : every) {
-                ImGui::BeginDisabled(profile == 0 || !*on);
-                ImGui::SetCursorScreenPos(ImVec2(x, rmin.y));
-                ImGui::SetNextItemWidth(w);
-                ImGui::PushClipRect(ImVec2(x, rmin.y), ImVec2(x + w, rmin.y + ImGui::GetFrameHeight()), true);
-                if (ImGui::DragInt(e.label, e.frames, 0.2f, 0, 120, *e.frames == 0 ? "auto" : "%d"))
-                    *e.frames = std::clamp(*e.frames, 0, 120);
-                ImGui::PopClipRect();
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip("%s - every %s game update(s); 0 = auto. Rebuild to apply.", e.tip,
-                                      *e.frames == 0 ? "auto" : std::to_string(*e.frames).c_str());
-                x += w + gap;
-            }
-            ImGui::SetCursorScreenPos(back);
-        };
-        channel("Live Link", &prefSettings_.liveLink,
-                "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+    prefRow("Show on screen");
+    ui::Switch("Keyboard & mouse", &prefSettings_.keyboardMouse);
+    prefHelp(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
+    prefRow("Keyboard & mouse");
+    // THE LIVE TOOLS (the old "devkit channels"): one switch each, with what
+    // it does in a few words - the full story is the caption's hover, and how
+    // often each one checks in is under Advanced.
+    prefGroup("Live tools in debug builds");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    prefHelp("Debug builds poll livelink.bin next to the ELF so the editor can\n"
                         "stream scene edits into the running game (docs/live-link.md). Turn\n"
                         "off if you don't want your game patched from outside; release\n"
                         "builds never carry the poller. Also toggled by the LIVE chip in\n"
-                        "the toolbar and Build > Live Link.",
-                {{"Live Link every", &prefSettings_.liveLinkPollFrames, "Scene-edit and painted-texture command reads"}});
-        channel("Live Debugger", &prefSettings_.liveDebug,
-                "Debug builds report what their flow graphs run - every trigger and\n"
+                        "the toolbar and Build > Live Link.");
+    prefHint("Scene edits appear in the running game");
+    prefRow("Live Link");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Live Debugger", &prefSettings_.liveDebug);
+    ImGui::EndDisabled();
+    prefHelp("Debug builds report what their flow graphs run - every trigger and\n"
                         "action, the flow variables, the save values - so the editor can show\n"
                         "the graph executing live, set breakpoints, stop and step the game,\n"
                         "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
                         "counter bump per fired node plus one small file write every few\n"
-                        "frames; release builds carry none of it. Tools > Debugger (F9).",
-                {{"Debugger commands every", &prefSettings_.liveDebugPollFrames, "Debugger commands: breakpoints, stop/step and capture request reads"}, {"Debugger reports every", &prefSettings_.liveDebugSnapshotFrames, "Debugger reports: snapshot writes with statistics and watched history"}});
-        channel("Live Logic", &prefSettings_.liveLogic,
-                "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+                        "frames; release builds carry none of it. Tools > Debugger (F9).");
+    prefHint("Watch flow graphs run, set breakpoints");
+    prefRow("Live Debugger");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Live Logic", &prefSettings_.liveLogic);
+    ImGui::EndDisabled();
+    prefHelp("Debug builds carry a small flow-graph interpreter, so editing a graph\n"
                         "changes the RUNNING game with no rebuild: the editor compiles the\n"
                         "graph itself and streams the instructions next to the ELF\n"
                         "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
                         "implement (audio, AI, animation, spawning, runtime text) still need a\n"
                         "build - the Debugger's Logic tab names them. Release builds compile\n"
-                        "every graph to native C++ and carry no interpreter.",
-                {{"Live Logic every", &prefSettings_.liveLogicPollFrames, "Graph patch reads; graph execution still runs every update"}});
-        channel("Time machine", &prefSettings_.timeMachine,
-                "The game captures everything it mutates - object transforms,\n"
+                        "every graph to native C++ and carry no interpreter.");
+    prefHint("Change logic without rebuilding");
+    prefRow("Live Logic");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp("The game captures everything it mutates - object transforms,\n"
                         "physics, animation, flow variables, save values, where the player\n"
                         "stands - a few times a second, and the editor keeps a history of\n"
                         "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
@@ -20355,10 +20526,13 @@ void App::drawPreferencesWindow() {
                         "Logic on you can fix a graph first and watch the new logic play out\n"
                         "on the situation that just broke. Costs one small file written next\n"
                         "to the ELF every few frames, and nothing at all in a release build.\n"
-                        "See docs/time-machine.md.",
-                {{"Time machine every", &prefSettings_.timeMachineFrames, "Restore request reads and state capture writes"}});
-        channel("Remote Pad", &prefSettings_.remotePad,
-                "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+                        "See docs/time-machine.md.");
+    prefHint("Rewind the running game");
+    prefRow("Time machine");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp("Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
                         "you can click (or drive with the editor's own keyboard), and the game\n"
                         "reads it out of one small file next to the ELF. Nothing needs the\n"
                         "keyboard focus, so PCSX2 can sit in the background - and the same\n"
@@ -20366,10 +20540,13 @@ void App::drawPreferencesWindow() {
                         "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
                         "an unattended input test possible. Works on real hardware over\n"
                         "ps2link too (polled less often - it is a network round-trip there).\n"
-                        "Release builds carry none of it. See docs/remote-pad.md.",
-                {});
-        channel("Input recorder", &prefSettings_.inputRecorder,
-                "Records every frame's input - both pads, the USB keyboard and mouse,\n"
+                        "Release builds carry none of it. See docs/remote-pad.md.");
+    prefHint("Drive the game from the editor");
+    prefRow("Remote Pad");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Input recorder", &prefSettings_.inputRecorder);
+    ImGui::EndDisabled();
+    prefHelp("Records every frame's input - both pads, the USB keyboard and mouse,\n"
                         "and the frame's own dt - into a file next to the ELF, and plays one\n"
                         "back over the top of whatever a real controller is doing. So a bug\n"
                         "somebody hit once can be reproduced on demand, with the Live Debugger\n"
@@ -20378,31 +20555,11 @@ void App::drawPreferencesWindow() {
                         "the project's recordings/ folder and is meant to be committed next to\n"
                         "the bug it reproduces. Off by default - a recording is a file that\n"
                         "grows while the game runs. Debugger > Replay, or the command line\n"
-                        "(tyrax-editor --record / --replay). See docs/input-replay.md.",
-                {});
-        ImGui::BeginDisabled(profile == 0);
-        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-        ImGui::TextWrapped("Every = game updates between polls, 0 = auto. Rebuild to apply.");
-        ImGui::PopStyleColor();
-        ImGui::EndDisabled();
-    }
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Separator();
-    ui::Switch("EE crash handler", &prefSettings_.eeCrashHandler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "A real CPU exception (bad pointer, address error, reserved\n"
-        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
-        "just stops. With this on, a debug build installs the engine's crash\n"
-        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
-        "backtrace - and the editor resolves those addresses to functions and\n"
-        "source lines. The crash also takes the screen, so a dead game says so\n"
-        "instead of looking like a hang. Debug builds only - release carries\n"
-        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
-        "at all, so a report only ever appears on a real console.\n"
-        "See docs/devkit.md.");
-
-    prefSection("AI support");
+                        "(tyrax-editor --record / --replay). See docs/input-replay.md.");
+    prefHint("Record and replay a play session");
+    prefRow("Input recorder");
+    if (profile == 0) ImGui::TextDisabled("Release builds carry none of these.");
+    prefGroup("AI support");
     {
         const bool haveClaude = aisupport::installed(project_.dir, "claude");
         const bool haveCodex = aisupport::installed(project_.dir, "codex");
@@ -20431,7 +20588,130 @@ void App::drawPreferencesWindow() {
                                 haveCodex ? " Codex" : "",
                                 haveCopilot ? " Copilot" : "");
     }
-    endTab();
+    prefRow("AI support");
+    if (advanced("bakes before a build, how often live tools check in, crash handler, ps2link")) {
+    prefGroup("Keyboard & mouse");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ui::Switch("Keyboard & mouse over ps2link", &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
+        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
+        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
+        "engine reuses that resident stack instead of loading its own. The\n"
+        "driver logs show up live in Output / ps2client. Untick only if you\n"
+        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
+        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
+        "and docs/keyboard-mouse.md.");
+    ImGui::EndDisabled();
+
+    prefRow("Keyboard & mouse over ps2link");
+    prefGroup("Bakes before a build");
+    ImGui::BeginDisabled(!prefSettings_.giEnabled);
+    ui::Switch("Re-bake stale global illumination",
+               &prefSettings_.giAutoBake);
+    ImGui::EndDisabled();
+    {
+        // The same switch, under the same name, sits on Ambience Editor > Global
+        // illumination - say so, link there, and show what it would do now.
+        refreshGiStates(false);
+        int stale = 0;
+        for (const GiSceneState& s : giStates_) stale += prefSettings_.giEnabled && !s.fresh;
+        ImGui::TextDisabled("Also in");
+        ImGui::SameLine();
+        if (ui::Link("Ambience > Global illumination")) {
+            showAmbienceEditor_ = true;
+            showGiBake_ = true;
+        }
+        if (stale > 0) {
+            ImGui::SameLine();
+            char st[24];
+            std::snprintf(st, sizeof(st), "%d stale", stale);
+            ui::Badge(st, 1);
+        }
+    }
+    prefHelp(
+        "Before every build, re-bake every scene whose GI cache no longer\n"
+        "matches it. Only STALE scenes - a build with everything fresh costs\n"
+        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
+        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
+        "pre-GI lighting. Needs GI enabled.");
+    prefRow("Re-bake stale global illumination");
+    ui::Switch("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
+    prefHelp(
+        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
+        "texture no longer matches the scene (moved, or the light changed).\n"
+        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
+        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
+        "Procedural volumes and model AO are always baked.");
+
+    prefRow("Re-bake stale pre-lit objects");
+    prefGroup("How often live tools check in");
+    {
+        ImGui::BeginDisabled(profile == 0 || !prefSettings_.liveLink);
+        if (ui::DragInt("Live Link every", &prefSettings_.liveLinkPollFrames, 0.2f, 0, 120,
+                        prefSettings_.liveLinkPollFrames == 0 ? "auto" : "%d"))
+            prefSettings_.liveLinkPollFrames = std::clamp(prefSettings_.liveLinkPollFrames, 0, 120);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Scene-edit and painted-texture command reads - every N game updates; 0 = auto. Rebuild to apply.");
+        ImGui::BeginDisabled(profile == 0 || !prefSettings_.liveDebug);
+        if (ui::DragInt("Debugger commands every", &prefSettings_.liveDebugPollFrames, 0.2f, 0, 120,
+                        prefSettings_.liveDebugPollFrames == 0 ? "auto" : "%d"))
+            prefSettings_.liveDebugPollFrames = std::clamp(prefSettings_.liveDebugPollFrames, 0, 120);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Debugger commands: breakpoints, stop/step and capture request reads - every N game updates; 0 = auto. Rebuild to apply.");
+        ImGui::BeginDisabled(profile == 0 || !prefSettings_.liveDebug);
+        if (ui::DragInt("Debugger reports every", &prefSettings_.liveDebugSnapshotFrames, 0.2f, 0, 120,
+                        prefSettings_.liveDebugSnapshotFrames == 0 ? "auto" : "%d"))
+            prefSettings_.liveDebugSnapshotFrames = std::clamp(prefSettings_.liveDebugSnapshotFrames, 0, 120);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Debugger reports: snapshot writes with statistics and watched history - every N game updates; 0 = auto. Rebuild to apply.");
+        ImGui::BeginDisabled(profile == 0 || !prefSettings_.liveLogic);
+        if (ui::DragInt("Live Logic every", &prefSettings_.liveLogicPollFrames, 0.2f, 0, 120,
+                        prefSettings_.liveLogicPollFrames == 0 ? "auto" : "%d"))
+            prefSettings_.liveLogicPollFrames = std::clamp(prefSettings_.liveLogicPollFrames, 0, 120);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Graph patch reads; graph execution still runs every update - every N game updates; 0 = auto. Rebuild to apply.");
+        ImGui::BeginDisabled(profile == 0 || !prefSettings_.timeMachine);
+        if (ui::DragInt("Time machine every", &prefSettings_.timeMachineFrames, 0.2f, 0, 120,
+                        prefSettings_.timeMachineFrames == 0 ? "auto" : "%d"))
+            prefSettings_.timeMachineFrames = std::clamp(prefSettings_.timeMachineFrames, 0, 120);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Restore request reads and state capture writes - every N game updates; 0 = auto. Rebuild to apply.");
+        prefHint("Game updates between checks, 0 = auto. Rebuild to apply.");
+    }
+    prefRow("How often live tools check in");
+    prefGroup("Crash reports");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("EE crash handler", &prefSettings_.eeCrashHandler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "A real CPU exception (bad pointer, address error, reserved\n"
+        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
+        "just stops. With this on, a debug build installs the engine's crash\n"
+        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
+        "backtrace - and the editor resolves those addresses to functions and\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        "at all, so a report only ever appears on a real console.\n"
+        "See docs/devkit.md.");
+
+    prefRow("EE crash handler");
+    }
+    closeCard();
+    }
+
+    // A requested setting that never drew (its row is conditional - "Orbit
+    // speed" in a project with a player) must not pin the page forever.
+    {
+        static int pendingFrames = 0;
+        pendingFrames = prefsScrollToItem_.empty() ? 0 : pendingFrames + 1;
+        if (pendingFrames > 3) prefsScrollToItem_.clear();
     }
 
     ImGui::Dummy(ImVec2(1.0f, ImGui::GetWindowHeight() * 0.6f));  // room to scroll the last section up
@@ -20468,6 +20748,7 @@ void App::drawPreferencesWindow() {
     // the dialog back where it was.
     ImGui::End();
 }
+
 
 // Machine-global editor settings (Edit > Preferences), stored in editor.ini and
 // shared by every project on this machine. ONE commit model, the Project
@@ -21477,7 +21758,7 @@ void App::drawScenePreferencesModal() {
                 "Not while frame extrapolation is on for the project. The two\n"
                 "cannot be combined - both rebuild a frame by reprojecting the\n"
                 "previous one, and in motion the pair tears the picture. Untick\n"
-                "it in Project > Preferences > Display > Frame delivery.");
+                "it in Project > Preferences > Graphics > Advanced.");
         ImGui::BeginDisabled(!s.blssEnabled);
         {
             int mode = s.blssNetwork ? 1 : 0;

@@ -683,7 +683,7 @@ z-fighting, and it will re-shuffle any that a scene already has.
 
 ## Mesh LOD: fewer triangles far away
 
-**Project > Preferences > Rendering > Mesh LOD distance** turns distance
+**Project > Preferences > Graphics > Mesh LOD distance** turns distance
 levels on for the whole project (`off` = no levels at all). An object farther
 from the camera than the distance renders a reduced mesh, and past twice the
 distance a further reduced one. This used to apply only to animated models,

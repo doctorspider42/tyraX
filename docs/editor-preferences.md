@@ -38,12 +38,24 @@ every page by name and description (try `ip`, `docker`, `model`).
 ## Project Preferences looks the same
 
 *Project > Preferences* (Ctrl+,) holds the project's own settings with the same
-model - a sidebar of categories (Display, World, Rendering, Player, Build) with
-each one's sections and **Search settings**, changes applied at once and saved
-with the `.tyra`. Each section is a card of label-left rows, and under every
-row's label sits a dim one-line meaning (the first sentence of its help; the
-whole help is on the label's hover). The Build page's **Devkit channels** card
-joins each channel's switch with its polling interval in an *Every* column
-([devkit](devkit.md)).
+model - changes apply at once and are saved with the `.tyra`. It is five pages
+by what you are trying to do:
 
-![Project Preferences on the Build page: the cards, the one-line meanings and the devkit channels table with its Every column.](img/project-preferences-build.png)
+| Page | Up front | Under **Advanced** |
+|---|---|---|
+| **Game** | the preset, the player's height and speeds (or the orbit speed), two players, gravity and jump | sprint, stick deadzones and response curves |
+| **Picture** | TV region, picture mode, widescreen, colours | PAL picture, supported resolutions, dithering, triple buffering, VSync |
+| **World** | world scale, terrain size, detail, view distance and material, the loading screen | terrain detail distance, the AI navigation grid |
+| **Graphics** | texture colours, shadows, usable-object highlight, the Ambience Editor | speed (batching, occlusion culling, atlasing...), detail at a distance, reflections, the upscaler and frame extrapolation |
+| **Build & debug** | debug or release, on-screen overlays, keyboard & mouse, the live tools, AI support | ps2link keyboard, bakes before a build, how often the live tools check in, the crash handler |
+
+Each page shows its essentials in one card; the **Advanced** fold under it is
+closed until you open it. Rows are short: the explanation is on the caption's
+hover, and only a few essential rows carry a one-line hint. A setting changed
+from what a new project starts with gets a **blue dot** in front of it - click
+the dot to reset it - and each page in the sidebar shows how many it has.
+**Show what I changed** lists all of them (click one to jump there), and
+**Search settings** finds a setting by its name or an older one (*Display mode*,
+*devkit channels*, *BLSS*) and jumps to it, opening Advanced when it lives there.
+
+![Project Preferences on the Build & debug page: the essentials card, the live tools with their one-line hints, and the closed Advanced fold.](img/project-preferences-build.png)

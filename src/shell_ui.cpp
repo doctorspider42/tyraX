@@ -522,7 +522,7 @@ void App::drawToolbar() {
         caret(dl, p.x + profW - padX * 0.5f - caretW * 0.5f, cy, caretW * 0.32f, col(sem.textDim));
         if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("profile_menu"))
             ImGui::SetTooltip(
-                "Build profile (same setting as Project > Preferences > Build).\n"
+                "Build profile (same setting as Project > Preferences > Build & debug).\n"
                 "Debug carries the devkit channels, the overlays, -g and the "
                 "unstripped\nELF the crash reporter needs - Live Link, the Live "
                 "Debugger and Live\nLogic exist in debug builds only. Release "
@@ -1013,7 +1013,7 @@ void App::drawStatusBar() {
                             "is OFF - the\nrunning game is still on its compiled "
                             "graphs. (LIVE stays green:\nLive Link streams object "
                             "edits, never graph logic.)\nBuild & Run (F5), or turn "
-                            "Live Logic on in Project Preferences > Build."
+                            "Live Logic on in Project Preferences > Build & debug."
                 : blocked ? "Live Logic: an edited graph uses nodes the interpreter "
                             "cannot run\n(audio, AI, animation, spawning, runtime "
                             "text, branching nodes...)\n- Build & Run (F5). Click "

@@ -1,6 +1,6 @@
 # Frame extrapolation
 
-![Frame delivery settings](img/project-preferences-display.png)
+![Upscaler and frame extrapolation settings under Graphics > Advanced](img/project-preferences-rendering.png)
 
 Frame extrapolation synthesises an extra presented frame between two rendered
 ones by re-drawing the last finished frame under a newer camera, so a game can
@@ -190,7 +190,7 @@ Nothing here has been on real hardware.
 
 ## Turning it on
 
-*Project > Preferences > Display > Frame delivery > **Present a synthesised
+*Project > Preferences > Graphics > Advanced > **Present a synthesised
 frame between rendered ones*** - off
 by default, saved in the `.tyra` only when on, so an existing project's file and
 its generated code are byte-identical until you tick it.
@@ -365,7 +365,7 @@ by construction and this cannot arise.
 the temporal pass** when they are equal, warning once in the game's log. It is
 the honest degradation: passes 1, 2, 4 and 5 read the low-res target and are
 unaffected, so the picture stays correct and only the temporal accumulation is
-lost. *Project > Preferences > Display* says the same thing in the dialog when a
+lost. *Project > Preferences > Picture* says the same thing in the dialog when a
 project has both features on without room for a third buffer.
 
 Note this is usually latent rather than visible: the pass only runs at all when

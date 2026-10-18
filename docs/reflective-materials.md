@@ -92,7 +92,7 @@ map (within ~1.9× its bounding radius): it would swamp the whole reflection —
 typically as the inspected surface's own dark self-reflection, which read as
 ugly patches up close. It fades back in as you step away.
 
-**The whole town at once:** *Project > Preferences > Rendering > Reflect static
+**The whole town at once:** *Project > Preferences > Graphics > Reflect static
 scenery as boxes* draws every static object into the map without marking
 anything - see "Static scenery in the probe" below. *Reflect the ground as flat
 colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
@@ -196,7 +196,7 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   probe when using many small chunks.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
-## Probe aim: reflected ray (Preferences > Rendering)
+## Probe aim: reflected ray (Preferences > Graphics)
 
 The classic pass aims the env camera **level along the player's forward**
 from the eye — the GT3 trick, correct for skies and "good enough" for
@@ -286,7 +286,7 @@ frame - and the whole resident ring cost **10-15 ms of each capturing frame**
 on a physical PS2 (Motor District, car parked at the 25 FPS spot, camera swept
 at ~180 deg/s with the right stick). It was the frame drop on every turn.
 
-*Preferences > Rendering > Reflection ground radius* keeps only the chunks
+*Preferences > Graphics > Reflection ground radius* keeps only the chunks
 whose box lies within that distance of the eye. In a 128-pixel target with a
 110 deg field of view a chunk a hundred units away is a few pixels at the
 horizon. FRAMETIME `work`, ordinary frame, same sweep:
@@ -304,7 +304,7 @@ old behaviour, and a project without the key loads as 0 (format v62).
 
 ## Static scenery in the probe (1.161.0)
 
-*Project > Preferences > Rendering > Reflect static scenery as boxes* puts every
+*Project > Preferences > Graphics > Reflect static scenery as boxes* puts every
 static object of the scene into the shared probe as **one untextured box**: the
 object's own oriented bounds, coloured with the average of its material (Kd x
 the texture's mean colour, weighted by triangle count over a model's parts) and
@@ -388,7 +388,7 @@ units - which is what the ground stand-in below replaces.
 
 ## The ground stand-in (1.161.0)
 
-*Project > Preferences > Rendering > Reflect the ground as flat colour*
+*Project > Preferences > Graphics > Reflect the ground as flat colour*
 (`reflectionGroundProxy`, format v88, written only when on) draws the probe's
 ground as a **coarse, untextured, height-following grid** instead of the
 resident terrain and road chunks. The paint needs the ground's colour and where
@@ -444,7 +444,7 @@ then draws no ground at all, as before).
 The cadence above halves the probe's cost and stops there. What it cannot do is
 notice that the capture it is about to take would come out the same as the one
 already in VRAM — and on a parked camera under a still sky, every second one
-does. *Preferences > Rendering > Reflection reuse budget* is that second half,
+does. *Preferences > Graphics > Reflection reuse budget* is that second half,
 and it avoids recapturing an unchanged view when the capture pose and relevant
 scene lighting remain stable.
 

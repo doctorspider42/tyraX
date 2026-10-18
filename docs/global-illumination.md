@@ -316,7 +316,7 @@ primitives this one already covers, so nothing is darkened twice.
 
 **Or let the build do it — for stale scenes only.** *Re-bake stale global
 illumination before every build* - the same switch, under the same name, at
-the bottom of this tab's Bake column and in *Project > Preferences > Build*
+the bottom of this tab's Bake column and in *Project > Preferences > Build & debug*
 (off by default, needs GI enabled). Every build — the
 toolbar, `--build`, Run on PS2 — then re-bakes exactly the scenes whose cache
 signature no longer matches, before the [pre-lit](prelit-models.md) pass and the

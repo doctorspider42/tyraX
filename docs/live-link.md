@@ -33,7 +33,7 @@ state, and clicking it toggles Live Link on/off:
   yet; Build & Run once.
 - **● LIVE off** (gray) — disabled for this project.
 
-On/off is a **project setting** (*Project > Preferences > Build > Live Link*,
+On/off is a **project setting** (*Project > Preferences > Build & debug > Live Link*,
 also in *Build > Live Link* and the chip; default on, stored in the `.tyra`).
 Off means the game is **built without the poller** and the editor never writes
 snapshots — for anyone who doesn't want their debug builds patched from

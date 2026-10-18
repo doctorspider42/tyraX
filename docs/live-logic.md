@@ -10,7 +10,7 @@ pipeline that always needed a rebuild.
 
 ## Using it
 
-1. Build profile **debug** (*Project > Preferences > Build*) and **Live Logic**
+1. Build profile **debug** (*Project > Preferences > Build & debug*) and **Live Logic**
    on (same page, or *Build > Live Logic*; on by default).
 2. Build & run once — **F5** (PCSX2) or **F6** (a console over ps2link).
 3. Edit any graph: change a timer, a color, a radius, rewire the exec chain, add
@@ -70,7 +70,7 @@ So a flow-graph edit with Live Link on and Live Logic **off** reaches nothing,
 while LIVE stays green — correctly, because it is still streaming object edits.
 That used to be silent. The status bar now shows an amber **LOGIC (off)** whenever
 a graph differs from the one the running build compiled and Live Logic is off:
-*Build & Run (F5), or turn Live Logic on in Project Preferences > Build.* The
+*Build & Run (F5), or turn Live Logic on in Project Preferences > Build & debug.* The
 check costs one hash per graph and no compile, which is why it can run with the
 feature switched off.
 

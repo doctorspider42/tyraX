@@ -315,7 +315,7 @@ void App::drawStaticBatchesWindow() {
     if (!project_.settings.staticBatching) {
         if (ui::EmptyState(ui::Glyph::Layers, "Static batching is off",
                            "Every object submits its own bag. The switch is in Project "
-                           "Preferences > Rendering.",
+                           "Preferences > Graphics.",
                            "Open Project Preferences")) {
             showProjectPrefs_ = true;
             prefsFocusTab_ = "Rendering";

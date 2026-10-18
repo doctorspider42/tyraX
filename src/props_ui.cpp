@@ -1516,7 +1516,7 @@ void App::drawPropertiesWindow() {
                     "Mark the few props that sell the effect - each one costs a\n"
                     "second small render per frame. Editor preview shows the sky\n"
                     "only; check reflections in the game.");
-            // Project > Preferences > Rendering > Reflect static scenery as boxes:
+            // Project > Preferences > Graphics > Reflect static scenery as boxes:
             // what that switch does with THIS object. The verdict walks the scene's
             // runtime references, so it is recomputed only when the model changes.
             if (project_.settings.reflectionScenery && !o.reflected) {
@@ -3488,7 +3488,7 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Unchecked = the project preference applies\n"
-                              "(Preferences > Rendering). Checked = this\n"
+                              "(Preferences > Graphics). Checked = this\n"
                               "object uses its own distance; 0 disables the\n"
                               "LOD for it.");
         if (ov) {

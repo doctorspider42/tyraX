@@ -1,11 +1,11 @@
 # Devkit
 
-![Devkit channels in Project Preferences](img/project-preferences-build.png)
+![The live tools (devkit channels) in Project Preferences > Build & debug](img/project-preferences-build.png)
 
 TyraX debug builds can inspect and control a running game. Release builds remove
 the devkit completely.
 
-Enable individual channels in **Project > Preferences > Build**. Most need a
+Enable individual channels in **Project > Preferences > Build & debug**. Most need a
 game launched with **Build & Run** (`F5`) or **Run on PS2** (`F6`).
 
 ## Choosing the work and frequency

@@ -121,7 +121,7 @@ boundary — so its box only grows by `15% + 0.5 units per side` before
 unloading: step out of the doorway and the layer goes, instead of loading
 you eight units into the next room first. Both bands are wide enough that
 standing ON the edge cannot thrash. If you can't see why a zone is or isn't
-resident, turn on *Preferences > Build > Show areas* and the box is drawn
+resident, turn on *Preferences > Build & debug > Show areas* and the box is drawn
 in the game (see [areas.md](areas.md)).
 
 ## What happens to object state
@@ -150,7 +150,7 @@ Details worth knowing:
 ## Memory notes
 
 - The debug build profile's **Show memory usage** overlay (Project >
-  Preferences > Build) is the easiest way to watch layers work: MEM drops
+  Preferences > Build & debug) is the easiest way to watch layers work: MEM drops
   when a layer unloads and climbs while one streams in.
 - What a layer frees: per-object vertex/color/UV buffers and draw bags,
   model geometry and collision meshes, animated-model data, and textures

@@ -592,7 +592,7 @@ draws the *right* shape - draws it precisely where the caster hides it, so it
 looks like nothing at all while quietly taking the slot the moon had been
 using. Set *Held right* / *Held below eye* first, then judge either mode.
 
-**The technique is a project setting** (*Preferences > Rendering > Flashlight
+**The technique is a project setting** (*Preferences > Graphics > Flashlight
 shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |

@@ -23,7 +23,7 @@ ps2link with no extra hardware and no extra transport.
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build*) — a release build carries none of this.
-2. Tick **Input recorder** (*Project > Preferences > Build*).
+2. Tick **Input recorder** (*Project > Preferences > Build & debug*).
 
 It is the one devkit channel that is **off by default**. The other four cost a
 small fixed file each; this one writes a file that *grows* for as long as the

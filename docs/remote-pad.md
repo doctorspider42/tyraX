@@ -27,7 +27,7 @@ transport.
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build*) — a release build carries none of this.
-2. Leave **Remote Pad** on (*Project > Preferences > Build*; on by default).
+2. Leave **Remote Pad** on (*Project > Preferences > Build & debug*; on by default).
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
 4. Open *Tools > Remote Pad*.
 

@@ -3942,15 +3942,22 @@ private:
     std::string prefsCat_;
     std::string prefsScrollTo_;
     // One setting to bring into view and ring briefly (accent outline that
-    // fades over ~1.5 s), by its label - "Texture atlasing" from the Texture
-    // Atlas. Checked by the rows that support it (prefsMarkItem).
-    void prefsMarkItem(const char* label, ImVec2 a, ImVec2 b);
+    // fades over ~1.5 s), by its kPrefIndex label - "Texture atlasing" from
+    // the Texture Atlas, a search hit, a "what I changed" entry. Its category's
+    // Advanced fold opens for it when it lives there.
     std::string prefsScrollToItem_;
     std::string prefsFlashItem_;
     double prefsFlashStart_ = 0.0;
     bool prefsScrollTop_ = false;
     char prefsSearch_[96] = {};
     std::vector<std::string> prefsSections_;
+    // Categories whose Advanced fold is open (closed by default, per session),
+    // the sidebar's "Show what I changed" list, and the new-project settings
+    // "changed" is measured against (sectionJson text, rebuilt when the world
+    // scale or the preset differs from the key it was built for).
+    std::vector<std::string> prefsAdvOpen_;
+    bool prefsShowChanged_ = false;
+    std::string prefsDefaultsJson_, prefsDefaultsKey_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     // Set by a FLOATING tool window that sends the user to a preference (the
     // Texture Atlas's "Turn it on in Rendering prefs"): Project Preferences
@@ -4209,7 +4216,7 @@ private:
     // no template (or carrying logic / baked lights / projected decals /
     // mirrors), or layer-table drift flips the toolbar chip to "rebuild"
     // instead of mis-patching. The chip doubles as the on/off switch for the
-    // project preference (also in Build > Live Link and Preferences > Build).
+    // project preference (also in Build > Live Link and Preferences > Build & debug).
     enum class LiveLinkState {
         Off,           // preference off, no project, or release build profile
         NoBuild,       // no bin/livelink.sig yet - run a debug build first

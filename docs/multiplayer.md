@@ -1,6 +1,6 @@
 # Two-player games (shared screen & split screen)
 
-![Player and multiplayer settings](img/project-preferences-player.png)
+![Two players on the Game page of Project Preferences](img/project-preferences-player.png)
 
 TyraX games can host a second local player: both players on one screen with a
 camera that frames the pair (**shared screen**), or each player with their own
@@ -126,7 +126,7 @@ already does for you:
   quads facing P1's view; the second half re-faces the same particles for its
   camera before submitting (`orientParticleQuads`), so big fire/fog sprites
   don't show up edge-on to player 2.
-- **Static batching** (*Preferences > Rendering > Static object batching*,
+- **Static batching** (*Preferences > Graphics > Static object batching*,
   on by default): non-moving primitives and compact imported-model parts
   sharing a texture and spatial cell merge into combined world-space bags at
   scene load, so a cluster of decor pays the
@@ -158,7 +158,7 @@ revision of the demo was tested with a 14k-vertex sample model before
 switching to the two cats) skinned and submitted per half eats the 20 ms PAL
 budget fast - and so does a large count of separate small objects, through
 the per-bag submit cost above. The demo gets from 25 to a locked 50 FPS with
-two knobs — **mesh LOD** (*Preferences > Rendering > Mesh LOD distance* ~4:
+two knobs — **mesh LOD** (*Preferences > Graphics > Mesh LOD distance* ~4:
 third-person cameras sit ~5 units out, so avatars render their 50%-vertex
 variant nearly always) and terrain detail 16. Measured in PCSX2 (software
 renderer, PAL): 1P scene 5.3 ms; split scene 19.2 ms -> 13.2 ms after the

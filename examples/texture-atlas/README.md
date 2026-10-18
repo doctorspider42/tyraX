@@ -56,7 +56,7 @@ this member count).
 
 ## Things worth trying
 
-- **Turn it off.** *Project > Preferences > Rendering > Texture atlasing*, then
+- **Turn it off.** *Project > Preferences > Graphics > Advanced > Texture atlasing*, then
   build and watch `VRAM` on the HUD: 3.70 → 3.76 MB used, and the boot log's
   `Texture atlas:` line disappears.
 - **Read why something is not on the page.** The terrain texture never is — it

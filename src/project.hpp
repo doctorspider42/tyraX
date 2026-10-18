@@ -876,7 +876,7 @@ struct SceneObject {
     float animSpeed = 1.0f;     // playback speed multiplier
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
-    // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
+    // -1 = use the project preference (Preferences > Graphics), 0 = LOD off
     // for this object, > 0 = custom distance in world units.
     float animLodOverride = -1.0f;  // pose-refresh (animation) LOD distance
     float meshLodOverride = -1.0f;  // decimated-mesh LOD distance
@@ -2519,7 +2519,7 @@ static_assert(sizeof(ProjectSettings) == 864,
 // checkbox that does not work, with nothing in any log.
 //
 // It happened: `textureQuant` and `textureAtlas` were never added when texture
-// atlasing landed, so *Preferences > Rendering > Texture atlasing* and the
+// atlasing landed, so *Preferences > Graphics > Advanced > Texture atlasing* and the
 // texture-quality combo beside it could not be changed from the UI at all -
 // only by editing the .tyra. Reported as "I click it and nothing happens".
 //
@@ -4138,7 +4138,7 @@ struct Project {
     // = the build decimates automatically. A tier must keep the model's
     // material set (same count, same usemtl names) and be smaller than the
     // one before it, or the build warns and falls back to decimation.
-    // Only used when a mesh LOD distance is in play (Preferences > Rendering
+    // Only used when a mesh LOD distance is in play (Preferences > Graphics
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
     // Per-asset override of ProjectSettings::modelAo, keyed by the model's
@@ -4515,6 +4515,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
                    const TerrainConfig& terrain, const std::string& preset = "empty",
                    float unitsPerMeter = 1.0f);
 
+// The settings create() gives a new project at this world scale (an empty
+// preset parks the orbit camera). Project Preferences measures "changed" and
+// "Reset" against it.
+ProjectSettings newProjectSettings(float unitsPerMeter, bool emptyPreset);
+
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
 // activeLayout to 0. Used for a fresh project and for one whose manifest
@@ -4818,7 +4823,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 float playerRunSpeed(const SceneObject& o);
 float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
 // The same pair for the fallback walker of a scene with no Player object,
-// which is driven by ProjectSettings instead (Preferences > Player).
+// which is driven by ProjectSettings instead (Preferences > Game).
 float settingsRunSpeed(const ProjectSettings& st);
 float settingsSprintSpeed(const ProjectSettings& st);
 

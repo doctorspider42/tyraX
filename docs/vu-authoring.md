@@ -1350,7 +1350,7 @@ one. **A project's C++ SCRIPT already gets it** (see below); the panel's LOOKS
 do not yet, because a look is installed through `VuBuild::LookClass`, which
 carries exactly two program slots per class. Until that grows a third, a look
 authored under VU1 clipping keeps the stock shading on a clip-classified
-package — author it on the EE clipper (*Preferences > Rendering*) or write the
+package — author it on the EE clipper (*Preferences > Graphics*) or write the
 effect as a script instead. The panel says so in as many words when it sees the
 combination.
 

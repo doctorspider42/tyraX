@@ -122,7 +122,7 @@ Turn it on to see the boxes the player and camera actually hit:
 
 ![The same scene with collision boxes shown as red wireframes.](img/collision-boxes-on.png)
 
-**In the game** — *Project > Preferences > Build > Show collision boxes*
+**In the game** — *Project > Preferences > Build & debug > Show collision boxes*
 (**debug** build profile only, exactly like *Show areas*). Red wireframes
 drawn in the running game, following anything that moves — a tumbling physics
 body, a prop a flow node slides. It is a **look, not a census**: the nearest

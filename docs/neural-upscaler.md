@@ -10,7 +10,7 @@ The feature is off by default. `examples/upscaler-lab` is the reference project.
 
 ## Should you use it?
 
-Open **Project > Preferences > Display > Frame delivery** and click **Will the
+Open **Project > Preferences > Graphics > Advanced** and click **Will the
 frame get faster?**. The check takes about a second and measures the project's
 coverage. Then use **Tools > Neural Upscaler (BLSS)** for the two other questions:
 **Will the picture improve?** and **Is the corpus good enough?**
@@ -33,7 +33,7 @@ Below, the authoring path is a row of tabs (*Training shots*, *Train*,
 *Evaluate*, *Cross-validate*, *Inputs*, *Console probe*) beside a permanent
 **Compare** card - the picture is the hero of a picture tool. The project's
 settings are not a tab here: *Settings in Project Preferences* at the end of
-the tab row opens **Project > Preferences > Display > Frame delivery**, which
+the tab row opens **Project > Preferences > Graphics > Advanced**, which
 holds *Use the upscaler*, Mode, Render scale, frame extrapolation and, under
 *Tuning the network*, the network's sharpen / temporal / jitter / debug view. *Training shots* lists each automatic camera move's measured coverage
 as a bar (red under the break-even) once *Will the frame get faster?* has run,

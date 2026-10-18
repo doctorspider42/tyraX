@@ -4906,6 +4906,58 @@ void seedBuiltinLayouts(Project& p) {
     p.activeLayout = 0;
 }
 
+// The settings a NEW project starts with. They deliberately differ from the
+// struct defaults in places - those are what a project predating each key
+// loads as, so they cannot carry the new answer without changing existing
+// projects' behavior. Also what Project Preferences calls "default" (its
+// changed-from-default dots and Reset).
+ProjectSettings newProjectSettings(float unitsPerMeter, bool emptyPreset) {
+    ProjectSettings st;
+    // A fresh project is born for authoring: the debug profile so Live Link and
+    // the on-screen overlays work from the first build (switch to release for
+    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
+    // drivers it never uses, and the choice is one to make deliberately.
+    st.buildProfile = "debug";
+    st.liveLink = true;
+    st.keyboardMouse = false;
+
+    // PAL picture ON: on a PAL console the region-following interlaced mode
+    // boots the full-height 576i frame (512 rendered lines) instead of the
+    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
+    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
+    // nothing at all on an NTSC console, which still gets its own 448 lines.
+    // Existing projects keep the letterboxed picture (the field reads as false)
+    // because turning it on retroactively would change what they output.
+    st.palFullHeight = true;
+
+    // World scale, chosen when the project is created because the alternative
+    // is discovering it after the world is built. The metric-by-definition
+    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
+    // (docs/world-scale.md); everything else is in units by nature and stays.
+    if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
+    st.unitsPerMeter = unitsPerMeter;
+    st.eyeHeight *= unitsPerMeter;
+    st.walkSpeed *= unitsPerMeter;
+    st.gravity *= unitsPerMeter;
+    st.jumpSpeed *= unitsPerMeter;
+
+    // Automatic model AO, by the same rule: the struct default is what an older
+    // file loads as, so the new answer belongs here (docs/ambient-occlusion.md,
+    // "Model AO").
+    st.modelAo = true;
+
+    // An empty project starts EMPTY: nothing in the scene and a camera that
+    // does not move on its own. The template's automatic orbit is what a scene
+    // with no Player object falls back to, and `orbitSpeed = 0` parks it at a
+    // fixed vantage point looking at the origin - so the first thing the
+    // project does is whatever the user adds (a Player, a script, a Camera
+    // object, a cutscene), not a demo turntable. Not the struct initializer,
+    // which is what projects saved before this load as (they keep their
+    // turntable).
+    if (emptyPreset) st.orbitSpeed = 0.0f;
+    return st;
+}
+
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
                    const TerrainConfig& terrain, const std::string& preset,
                    float unitsPerMeter) {
@@ -4928,37 +4980,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
 
-    // New-project defaults that deliberately differ from the struct defaults -
-    // those are what a project predating each key loads as, so they cannot
-    // carry the new answer without changing existing projects' behavior.
-    //
-    // A fresh project is born for authoring: the debug profile so Live Link and
-    // the on-screen overlays work from the first build (switch to release for
-    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
-    // drivers it never uses, and the choice is one to make deliberately.
-    out.settings.buildProfile = "debug";
-    out.settings.liveLink = true;
-    out.settings.keyboardMouse = false;
-
-    // PAL picture ON: on a PAL console the region-following interlaced mode
-    // boots the full-height 576i frame (512 rendered lines) instead of the
-    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
-    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
-    // nothing at all on an NTSC console, which still gets its own 448 lines.
-    // Existing projects keep the letterboxed picture (the field reads as false)
-    // because turning it on retroactively would change what they output.
-    out.settings.palFullHeight = true;
-
-    // World scale, chosen when the project is created because the alternative
-    // is discovering it after the world is built. The metric-by-definition
-    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
-    // (docs/world-scale.md); everything else is in units by nature and stays.
+    // New-project defaults that deliberately differ from the struct defaults
+    // (newProjectSettings: the debug profile, Live Link, PAL full height, the
+    // world scale, model AO, the parked orbit of an empty project).
     if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
-    out.settings.unitsPerMeter = unitsPerMeter;
-    out.settings.eyeHeight *= unitsPerMeter;
-    out.settings.walkSpeed *= unitsPerMeter;
-    out.settings.gravity *= unitsPerMeter;
-    out.settings.jumpSpeed *= unitsPerMeter;
+    out.settings = newProjectSettings(unitsPerMeter, preset != "thirdperson" && preset != "fpp");
 
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
@@ -4968,10 +4994,6 @@ std::string create(Project& out, const std::string& name, const std::string& par
     amb.name = "Default";
     amb.aoEnabled = true;
     out.ambiencePresets.push_back(amb);
-    // ...and automatic model AO, for the same reason and by the same rule: the
-    // struct default is what an older file loads as, so the new answer belongs
-    // here (docs/ambient-occlusion.md, "Model AO").
-    out.settings.modelAo = true;
     out.defaultAmbience = 0;
 
     // Seed the built-in window layouts (Default/Director/Material Designer).
@@ -4984,18 +5006,6 @@ std::string create(Project& out, const std::string& name, const std::string& par
     const bool thirdPerson = preset == "thirdperson";
     const bool player1st = preset == "fpp";
     out.gameTemplate = thirdPerson ? "thirdperson" : player1st ? "fpp" : "orbit";
-
-    if (!thirdPerson && !player1st) {
-        // An empty project starts EMPTY: nothing in the scene and a camera that
-        // does not move on its own. The template's automatic orbit is what a
-        // scene with no Player object falls back to, and `orbitSpeed = 0` parks
-        // it at a fixed vantage point looking at the origin - so the first
-        // thing the project does is whatever the user adds (a Player, a script,
-        // a Camera object, a cutscene), not a demo turntable. Set here rather
-        // than in the struct initializer, which is what projects saved before
-        // this load as (they keep their turntable).
-        out.settings.orbitSpeed = 0.0f;
-    }
 
     if (thirdPerson || player1st) {
         // The player entity: the camera becomes this player at game start.

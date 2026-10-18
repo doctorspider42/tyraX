@@ -127,7 +127,7 @@ Runtime (`buildStaticBatchList`, among the objects that passed the above):
 
 | reason | why |
 | --- | --- |
-| batching off | the project-wide switch in *Project Preferences > Rendering* |
+| batching off | the project-wide switch in *Project Preferences > Graphics* |
 | model not baked | no `.tmdl` yet — build, or *Build > Refresh generated files* |
 | model has no parts | nothing to draw |
 | reflective material | draws a second additive pass per bag |

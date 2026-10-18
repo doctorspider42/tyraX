@@ -1169,7 +1169,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
 }
 
 // The network's four knobs (sharpen, temporal, jitter, debug view). Project
-// Preferences > Display > Frame delivery draws them under the Essentials, so
+// Preferences > Graphics > Advanced draws them under the Essentials, so
 // they have one home now that the upscaler window has no settings tab.
 bool App::drawBlssNetworkTuning(ProjectSettings& s) {
     bool changed = false;
@@ -1947,7 +1947,7 @@ void App::drawBlssWindow() {
         for (const T& t : kTabs)
             if (ui::QuietTab(t.label, blssTab_ == t.id, flag(t.id))) blssTab_ = t.id;
         // The project's upscaler settings are not a tab of this window: they
-        // live in Project Preferences > Display > Frame delivery (the network
+        // live in Project Preferences > Graphics > Advanced (the network
         // knobs under "Tuning the network" there). This is the way to them.
         ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().accent);
         if (ImGui::TabItemButton("Settings in Project Preferences", ImGuiTabItemFlags_Trailing)) {
@@ -1958,7 +1958,7 @@ void App::drawBlssWindow() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Use the upscaler, Mode, Render scale, frame extrapolation and the\n"
                               "network's tuning (sharpen, temporal, jitter, debug view) - Project\n"
-                              "Preferences > Display > Frame delivery.");
+                              "Preferences > Graphics > Advanced.");
         ui::EndQuietTabBar();
     }
     ImGui::BeginChild("blsstabs", ImVec2(0, 0));
@@ -2178,9 +2178,9 @@ void App::drawBlssVerdictBanner() {
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip(blocked ? "Frame extrapolation is on, and the two refuse each other. Turn\n"
-                                        "it off in Project Preferences > Display first."
+                                        "it off in Project Preferences > Graphics > Advanced first."
                                       : "Turns the upscaler on for the project (the same switch as\n"
-                                        "Project Preferences > Display). Scenes can still opt out.");
+                                        "Project Preferences > Graphics > Advanced). Scenes can still opt out.");
     }
     ImGui::EndChild();
     ImGui::Spacing();
@@ -3032,7 +3032,7 @@ void App::drawBlssTrainTab() {
     prefHelp(
         "The oracle charges for the two sharpen passes at the project's own\n"
         "k, so the labels depend on it - and the corpus renders at the\n"
-        "project's own scale. Change either in Project Preferences > Display;\n"
+        "project's own scale. Change either in Project Preferences > Graphics > Advanced;\n"
         "training follows them rather than offering a second value that could\n"
         "disagree with what the game ships.");
 

@@ -117,7 +117,7 @@ which is why the budget bar in the panel is per look. Measured on the console
 (PAL, frozen camera) back when the three looks were the active set: 50 FPS in
 Toon at EE 38%, 49.4 in Underwater at EE 41%, 50 in Power down at EE 43%.
 
-The scene is on the **EE clipper** (*Preferences > Rendering*) rather than the
+The scene is on the **EE clipper** (*Preferences > Graphics*) rather than the
 default VU1 clipping, and that is the point of the setting here rather than an
 oversight: a material class is a *pair* of resident programs, the second of which
 draws whatever the frustum cuts. A look replaces both halves — but the VU1
@@ -381,7 +381,7 @@ is there to keep the devkit layer alive.
 ## It is also the A/B fixture for adopting generated microcode
 
 The five `as_is` programs in `vendor/tyra` are generated (docs/vu-framework.md),
-and this scene is how that was proven: with *Preferences > Rendering* set to the
+and this scene is how that was proven: with *Preferences > Graphics* set to the
 **EE clipper** (`precise`) the `as_is` family is what draws, so a frame here
 exercises the generated code. Handwritten build against generated build, frozen
 camera, PCSX2: **0 differing pixels of 1 258 400**. The same build was then run
