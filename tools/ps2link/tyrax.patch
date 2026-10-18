@@ -742,7 +742,7 @@ index bf6fb39..afa1ce8 100644
  #endif /* PS2LINK_H */
 \ No newline at end of file
 diff --git a/iop/cmdHandler.c b/iop/cmdHandler.c
-index ea7e38f..7968dec 100644
+index ea7e38f..ac3d52c 100644
 --- a/iop/cmdHandler.c
 +++ b/iop/cmdHandler.c
 @@ -19,6 +19,8 @@
@@ -754,7 +754,7 @@ index ea7e38f..7968dec 100644
  #include "ps2ip.h"
  #include "hostlink.h"
  #include "net_fsys.h"
-@@ -33,6 +35,90 @@ int excepscrdump = 1;
+@@ -33,6 +35,99 @@ int excepscrdump = 1;
  #define PKO_DMA_DEST ((void *)0x200ff800)
  //unsigned int *dma_ptr =(unsigned int*)(0x20100000-2048);
  
@@ -772,10 +772,10 @@ index ea7e38f..7968dec 100644
 + * nothing has to be timed, and it also covers the redeploy case the silencer
 + * never did.
 + *
-+ * Every write below is either a zero or a key-off, so this can only ever make
-+ * the chip quieter - it cannot set a bit that was not set before, which rules
-+ * out tripping some undocumented reset/enable line by accident. And it is safe
-+ * to clobber all of it because libsd's init (what audsrv_init() ends up
++ * First configure SPU2 bus mapping and access timing as PS2SDK's libsd
++ * InitSpu2() does (iop/sound/libsd/src/freesd.c); ps2link has not loaded libsd
++ * here. The sound-register writes that follow are zeros or key-offs. The next
++ * game restores these registers because libsd's init (what audsrv_init() ends up
 + * calling) reprograms exactly this set for both cores - verified by
 + * disassembling $PS2SDK/iop/irx/libsd.irx and mapping its halfword stores onto
 + * the register map: VMIXL/VMIXEL/VMIXR/VMIXER, MMIX, CORE_ATTR, KON, KOFF and
@@ -791,6 +791,15 @@ index ea7e38f..7968dec 100644
 +{
 +    int core;
 +    int voice;
++
++    /* Set up the IOP bus before touching SPU2 sound registers. ps2link does
++     * not load libsd during startup, so perform the bus setup normally done
++     * by libsd's InitSpu2(). Its DMA-channel enable writes are omitted because
++     * this routine only accesses registers through the CPU. */
++    U32_REGISTER_WRITE(U32_REGISTER(0x1404), 0xBF900000);
++    U32_REGISTER_WRITE(U32_REGISTER(0x140C), 0xBF900800);
++    U32_REGISTER_WRITE(U32_REGISTER(0x1014), 0x200B31E1);
++    U32_REGISTER_WRITE(U32_REGISTER(0x1414), 0x200B31E1);
 +
 +    for (core = 0; core < 2; core++) {
 +        /* Order matters: everything that has to be *heard* to take effect is
@@ -845,7 +854,7 @@ index ea7e38f..7968dec 100644
  //////////////////////////////////////////////////////////////////////////
  static void
  pkoExecIop(char *buf, int len)
-@@ -66,8 +152,20 @@ pkoExecIop(char *buf, int len)
+@@ -66,8 +161,20 @@ pkoExecIop(char *buf, int len)
  
      printf("IOP binary path: %s\n", path);
  
@@ -867,7 +876,7 @@ index ea7e38f..7968dec 100644
          printf("arg %d: %s (%d)\n", i, &args[arglen], arglen);
          arglen += strlen(&args[arglen]) + 1;
      }
-@@ -196,11 +294,18 @@ pkoReset(char *buf, int len)
+@@ -196,11 +303,18 @@ pkoReset(char *buf, int len)
          return;
      }
  
@@ -891,7 +900,7 @@ index ea7e38f..7968dec 100644
      pkoSendSifCmd(PKO_RPC_RESET, buf, len);
  };
  
-@@ -252,10 +357,15 @@ cmdListener(int sock)
+@@ -252,10 +366,15 @@ cmdListener(int sock)
          dbgprintf("IOP cmd: received packet (%d)\n", len);
  
          if (len < 0) {
@@ -909,7 +918,7 @@ index ea7e38f..7968dec 100644
              continue;
          }
  
-@@ -376,17 +486,37 @@ int cmdHandlerInit(void)
+@@ -376,17 +495,37 @@ int cmdHandlerInit(void)
      thread.option = 0;
      thread.thread = (void *)cmdThread;
      thread.stacksize = 0x800;
