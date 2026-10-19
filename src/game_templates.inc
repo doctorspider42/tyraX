@@ -243,7 +243,26 @@ inline float stickAxis(const u8& raw, float dz, int curve, float e) {
 // drop) or shorter (vsync disabled) frames pass through, clamped to
 // [1/4, 4x] nominal - a scene load is a hitch, not a gameplay leap.
 inline u32 g_frameClockLast = 0;
+// Bumped once a frame by updateFrameClock: what per-frame caches (the scene
+// grid) key on, since every game loop - a taken-over one included - calls it.
+inline u32 g_frameStamp = 0;
+
+// The scene grid's tuning (TerrainGame::sceneGridNear, docs/collision-boxes.md).
+inline constexpr float kSceneGridCell = 8.0F;  // metres a cell, at least
+inline constexpr int kSceneGridMaxSide = 64;   // cells a side, at most
+// An object covering more cells than this is simply a candidate of every query
+// (a terrain-sized wall would otherwise be copied into hundreds of cells).
+inline constexpr int kSceneGridMaxSpan = 64;
+// Padding on every box: motion of an object that STARTED moving after this
+// frame's rebuild. One that keeps moving is a candidate of every query from
+// the next frame on (`gridAlways`), so the pad only covers one frame's step.
+inline constexpr float kSceneGridMargin = 0.5F;
+// Development switch: every query is checked against the objects' CURRENT
+// boxes, and the walker is run a second time over every object and compared;
+// a disagreement logs a "[GRID] ..." line. Off: compiled away.
+inline constexpr bool kSceneGridVerify = false;
 inline void updateFrameClock() {
+  ++g_frameStamp;
   u32 now;
   asm volatile("mfc0 %0, $9" : "=r"(now));
   const u32 delta = now - g_frameClockLast;
@@ -6365,6 +6384,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
+  sceneGridInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -6380,6 +6400,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
+  sceneGridInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -6419,6 +6440,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
+  sceneGridInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet
@@ -8723,6 +8745,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
+  sceneGridInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -8738,6 +8761,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
+  sceneGridInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -8777,6 +8801,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
+  sceneGridInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet
@@ -9591,7 +9616,36 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+  static bool s_verifyInner = false;  // kSceneGridVerify only
+  if (kSceneGridVerify && !s_verifyInner) {
+    // Verify: the same call over EVERY object, then the real one through the
+    // grid; they must land the walker in the same place.
+    s_verifyInner = true;
+    float vx = *nextX, vz = *nextZ, vg = *ground, vc = *ceiling;
+    gridVerifyAll = true;
+    collidePlayer(prevX, prevZ, &vx, &vz, feetY, eyeHeight, &vg, &vc);
+    gridVerifyAll = false;
+    collidePlayer(prevX, prevZ, nextX, nextZ, feetY, eyeHeight, ground, ceiling);
+    s_verifyInner = false;
+    if (*nextX != vx || *nextZ != vz || *ground != vg || *ceiling != vc) {
+      char line[160];
+      snprintf(line, sizeof(line),
+               "[GRID] walker differs grid=(%.3f %.3f g%.3f c%.3f) all=(%.3f %.3f g%.3f c%.3f)",
+               *nextX, *nextZ, *ground, *ceiling, vx, vz, vg, vc);
+      TYRA_LOG(line);
+    }
+    return;
+  }
+  // Broad phase: the scene grid's candidates around the walker's next
+  // position - its radius, its step and the 0.6 band a push can travel
+  // (CollisionMesh::resolveSphere). Every test below is unchanged.
+  {
+    const float mvx = *nextX - prevX, mvz = *nextZ - prevZ;
+    const float reach = playerRadius + 0.6F + sqrtf(mvx * mvx + mvz * mvz);
+    sceneGridNear(*nextX - reach, *nextZ - reach, *nextX + reach, *nextZ + reach,
+                  gridNearWalker);
+  }
+  for (int oi : gridNearWalker) {
     const RuntimeObject& o = runtimeObjects[oi];
     // The carried object rides in front of the face - letting it block its
     // own carrier would wedge the player against thin air.
@@ -17937,6 +17991,279 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   return b;
 }
 
+// --- the scene grid (docs/collision-boxes.md, "The scene grid") --------------
+// A uniform XZ grid, stored flat (counting sort: gridStart[c]..gridStart[c+1]
+// index gridItems for cell c). Chosen over a BVH or an octree: the worlds are
+// 2.5D (props on a terrain - an octree's Y split buys nothing), a rebuild is
+// one counting pass with no allocation after the first frame, and both query
+// shapes the engine asks - an area (walker, physics, sweep) and a segment
+// (traces) - are flat array walks, which the EE's small data cache likes far
+// better than a tree's pointer chase.
+// (The kSceneGrid* constants live in game_runtime.gen.hpp: the walker, the
+// physics step and the trace world are other translation units.)
+
+void TerrainGame::sceneGridBoxOf(const RuntimeObject& o, float* box) const {
+  const CollisionBox cb = objectCollisionBox(o);
+  const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, o.data);
+  const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, o.data);
+  const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, o.data);
+  const V3 c = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+  const float cx = o.data.position[0] + c.x;
+  const float cz = o.data.position[2] + c.z;
+  float hx = fabsf(ax.x) * cb.half[0] + fabsf(ay.x) * cb.half[1] +
+             fabsf(az.x) * cb.half[2];
+  float hz = fabsf(ax.z) * cb.half[0] + fabsf(ay.z) * cb.half[1] +
+             fabsf(az.z) * cb.half[2];
+  // A collision MESH pushes the walker out of triangles up to 0.6 mesh units
+  // past its radius (CollisionMesh::resolveSphere's capture band).
+  if (o.data.collision == 1) {
+    const float sx = fabsf(o.data.scale[0]), sz = fabsf(o.data.scale[2]);
+    const float band = 0.6F * (sx > sz ? sx : sz);
+    hx += band;
+    hz += band;
+  }
+  box[0] = cx - hx - kSceneGridMargin;
+  box[1] = cz - hz - kSceneGridMargin;
+  box[2] = cx + hx + kSceneGridMargin;
+  box[3] = cz + hz + kSceneGridMargin;
+}
+
+void TerrainGame::sceneGridRebuild() const {
+  gridFrame = g_frameStamp;
+  const int n = (int)runtimeObjects.size();
+  if (gridGen != sceneGeneration || (int)gridEntries.size() != n) {
+    gridEntries.assign((size_t)n, SceneGridEntry());
+    gridMark.assign((size_t)n, 0u);
+    gridGen = sceneGeneration;
+  }
+  gridAlways.clear();
+  float mnX = 1e30F, mnZ = 1e30F, mxX = -1e30F, mxZ = -1e30F;
+  for (int i = 0; i < n; ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    SceneGridEntry& e = gridEntries[(size_t)i];
+    // physObstacle is the widest "can be touched" list (the walker's and the
+    // sweep's objectCollides is a subset): every consumer re-applies its own.
+    e.in = o.active && physObstacle(o.data);
+    if (!e.in) continue;
+    const float key[12] = {o.data.position[0], o.data.position[1],
+                           o.data.position[2], o.data.rotation[0],
+                           o.data.rotation[1], o.data.rotation[2],
+                           o.data.scale[0],    o.data.scale[1],
+                           o.data.scale[2],    o.data.modelYaw,
+                           (float)o.data.model, (float)o.data.collision};
+    bool same = e.valid;
+    for (int k = 0; k < 12 && same; ++k) same = e.key[k] == key[k];
+    const bool moved = e.valid && !same;
+    if (!same) {
+      sceneGridBoxOf(o, e.box);
+      for (int k = 0; k < 12; ++k) e.key[k] = key[k];
+      e.valid = true;
+    }
+    // Moving things (physics bodies, anything that moved since the last
+    // frame) are candidates of every query: a box from the last rebuild
+    // would lag them. There are few of them.
+    if (o.data.physics || moved) {
+      gridAlways.push_back(i);
+      continue;
+    }
+    if (e.box[0] < mnX) mnX = e.box[0];
+    if (e.box[1] < mnZ) mnZ = e.box[1];
+    if (e.box[2] > mxX) mxX = e.box[2];
+    if (e.box[3] > mxZ) mxZ = e.box[3];
+  }
+  gridNx = gridNz = 0;
+  if (mnX > mxX) return;  // nothing static to bucket
+  // Cells of at least kSceneGridCell, and at most kSceneGridMaxSide a side:
+  // sized so span / cell < side - 1, i.e. every box falls inside the grid.
+  float cell = kSceneGridCell;
+  const float spanX = mxX - mnX, spanZ = mxZ - mnZ;
+  const float span = spanX > spanZ ? spanX : spanZ;
+  if (span / cell > (float)(kSceneGridMaxSide - 2))
+    cell = span / (float)(kSceneGridMaxSide - 2);
+  gridInvCell = 1.0F / cell;
+  gridMinX = mnX;
+  gridMinZ = mnZ;
+  gridNx = (int)(spanX * gridInvCell) + 1;
+  gridNz = (int)(spanZ * gridInvCell) + 1;
+  if (gridNx > kSceneGridMaxSide) gridNx = kSceneGridMaxSide;
+  if (gridNz > kSceneGridMaxSide) gridNz = kSceneGridMaxSide;
+  const auto cellX = [&](float x) {
+    int c = (int)((x - gridMinX) * gridInvCell);
+    return c < 0 ? 0 : (c >= gridNx ? gridNx - 1 : c);
+  };
+  const auto cellZ = [&](float z) {
+    int c = (int)((z - gridMinZ) * gridInvCell);
+    return c < 0 ? 0 : (c >= gridNz ? gridNz - 1 : c);
+  };
+  gridStart.assign((size_t)(gridNx * gridNz + 1), 0);
+  // The objects already in gridAlways (moving, physics) are tagged so neither
+  // pass buckets them; the tag is cleared again below.
+  for (int i : gridAlways) gridMark[(size_t)i] = ~0u;
+  // Pass 1: count each cell's entries (and send over-wide objects to every
+  // query instead). Pass 2: prefix sums. Pass 3: fill.
+  for (int pass = 0; pass < 2; ++pass) {
+    for (int i = 0; i < n; ++i) {
+      const SceneGridEntry& e = gridEntries[(size_t)i];
+      if (!e.in || gridMark[(size_t)i] == ~0u) continue;  // in gridAlways
+      const int x0 = cellX(e.box[0]), x1 = cellX(e.box[2]);
+      const int z0 = cellZ(e.box[1]), z1 = cellZ(e.box[3]);
+      if (pass == 0 && (x1 - x0 + 1) * (z1 - z0 + 1) > kSceneGridMaxSpan) {
+        gridAlways.push_back(i);
+        continue;
+      }
+      if (pass == 1 && (x1 - x0 + 1) * (z1 - z0 + 1) > kSceneGridMaxSpan) continue;
+      for (int z = z0; z <= z1; ++z)
+        for (int x = x0; x <= x1; ++x) {
+          if (pass == 0)
+            ++gridStart[(size_t)(z * gridNx + x + 1)];
+          else
+            gridItems[(size_t)(gridCursor[(size_t)(z * gridNx + x)]++)] = i;
+        }
+    }
+    if (pass == 0) {
+      for (size_t c = 1; c < gridStart.size(); ++c) gridStart[c] += gridStart[c - 1];
+      gridItems.resize((size_t)gridStart.back());
+      gridCursor.assign(gridStart.begin(), gridStart.end() - 1);
+    }
+  }
+  // Clear the tags. 0 never equals a live query stamp (they start at 1 and
+  // only ever grow), so no query can mistake it for "already seen".
+  for (int i : gridAlways) gridMark[(size_t)i] = 0u;
+}
+
+void TerrainGame::sceneGridNear(float minX, float minZ, float maxX, float maxZ,
+                                std::vector<int>& out) const {
+  if (gridFrame != g_frameStamp) sceneGridRebuild();
+  out.clear();
+  if (gridVerifyAll) {  // the verify run's brute-force side
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i) out.push_back(i);
+    return;
+  }
+  if (++gridStamp == ~0u) {  // never collide with the rebuild's tag
+    std::fill(gridMark.begin(), gridMark.end(), 0u);
+    gridStamp = 1;
+  }
+  for (int i : gridAlways) {
+    gridMark[(size_t)i] = gridStamp;
+    out.push_back(i);
+  }
+  if (gridNx > 0) {
+    int x0 = (int)((minX - gridMinX) * gridInvCell);
+    int x1 = (int)((maxX - gridMinX) * gridInvCell);
+    int z0 = (int)((minZ - gridMinZ) * gridInvCell);
+    int z1 = (int)((maxZ - gridMinZ) * gridInvCell);
+    // Every box lies inside the grid, so a query off it on a side finds
+    // nothing static there.
+    if (maxX >= gridMinX && maxZ >= gridMinZ && x0 < gridNx && z0 < gridNz) {
+      if (x0 < 0) x0 = 0;
+      if (z0 < 0) z0 = 0;
+      if (x1 >= gridNx) x1 = gridNx - 1;
+      if (z1 >= gridNz) z1 = gridNz - 1;
+      for (int z = z0; z <= z1; ++z)
+        for (int x = x0; x <= x1; ++x) {
+          const int c = z * gridNx + x;
+          for (int k = gridStart[(size_t)c]; k < gridStart[(size_t)c + 1]; ++k) {
+            const int i = gridItems[(size_t)k];
+            if (gridMark[(size_t)i] == gridStamp) continue;
+            gridMark[(size_t)i] = gridStamp;
+            const float* b = gridEntries[(size_t)i].box;
+            if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
+            out.push_back(i);
+          }
+        }
+    }
+  }
+  // In object order, as the full walks were: a walker's pushes apply one
+  // after another, so the order is part of the result.
+  std::sort(out.begin(), out.end());
+  if (kSceneGridVerify) sceneGridVerify(minX, minZ, maxX, maxZ, out);
+}
+
+void TerrainGame::sceneGridAlong(float ax, float az, float bx, float bz,
+                                 float radius, std::vector<int>& out) const {
+  // Short (or vertical) segments: their padded bounding box is the query.
+  const float dx = bx - ax, dz = bz - az;
+  const float minX = (ax < bx ? ax : bx) - radius, maxX = (ax > bx ? ax : bx) + radius;
+  const float minZ = (az < bz ? az : bz) - radius, maxZ = (az > bz ? az : bz) + radius;
+  if (gridFrame != g_frameStamp) sceneGridRebuild();
+  if (gridNx == 0 || gridVerifyAll || fabsf(dx) * gridInvCell < 2.0F) {
+    sceneGridNear(minX, minZ, maxX, maxZ, out);
+    return;
+  }
+  // Long ones: column by column, only the Z cells the segment (padded by
+  // `radius`) crosses inside that column - a diagonal trace touches O(length)
+  // cells, not O(length^2).
+  out.clear();
+  if (++gridStamp == ~0u) {
+    std::fill(gridMark.begin(), gridMark.end(), 0u);
+    gridStamp = 1;
+  }
+  for (int i : gridAlways) {
+    gridMark[(size_t)i] = gridStamp;
+    out.push_back(i);
+  }
+  const float cell = 1.0F / gridInvCell;
+  int x0 = (int)((minX - gridMinX) * gridInvCell);
+  int x1 = (int)((maxX - gridMinX) * gridInvCell);
+  if (x0 < 0) x0 = 0;
+  if (x1 >= gridNx) x1 = gridNx - 1;
+  for (int x = x0; x <= x1; ++x) {
+    // The slab of world X this column covers, padded, clipped to the segment.
+    float cx0 = gridMinX + (float)x * cell - radius;
+    float cx1 = cx0 + cell + 2.0F * radius;
+    float t0 = (cx0 - ax) / dx, t1 = (cx1 - ax) / dx;
+    if (t0 > t1) { const float s = t0; t0 = t1; t1 = s; }
+    if (t0 < 0.0F) t0 = 0.0F;
+    if (t1 > 1.0F) t1 = 1.0F;
+    if (t0 > t1) continue;
+    const float za = az + dz * t0, zb = az + dz * t1;
+    const float zlo = (za < zb ? za : zb) - radius, zhi = (za > zb ? za : zb) + radius;
+    int z0 = (int)((zlo - gridMinZ) * gridInvCell);
+    int z1 = (int)((zhi - gridMinZ) * gridInvCell);
+    if (z1 < 0 || z0 >= gridNz) continue;
+    if (z0 < 0) z0 = 0;
+    if (z1 >= gridNz) z1 = gridNz - 1;
+    for (int z = z0; z <= z1; ++z) {
+      const int c = z * gridNx + x;
+      for (int k = gridStart[(size_t)c]; k < gridStart[(size_t)c + 1]; ++k) {
+        const int i = gridItems[(size_t)k];
+        if (gridMark[(size_t)i] == gridStamp) continue;
+        gridMark[(size_t)i] = gridStamp;
+        const float* b = gridEntries[(size_t)i].box;
+        if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
+        out.push_back(i);
+      }
+    }
+  }
+  // In object order, as the full walks were: a walker's pushes apply one
+  // after another, so the order is part of the result.
+  std::sort(out.begin(), out.end());
+  if (kSceneGridVerify) sceneGridVerify(minX, minZ, maxX, maxZ, out);
+}
+
+void TerrainGame::sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
+                                  const std::vector<int>& out) const {
+  // Every active obstacle whose CURRENT box (not the cached one) reaches the
+  // area must be in `out`. For a segment the area is its padded bounding box,
+  // which is looser than the walk - a miss there is still a real miss only if
+  // the object also crosses the segment, so segment misses read as a hint.
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !physObstacle(o.data)) continue;
+    float b[4];
+    sceneGridBoxOf(o, b);
+    if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
+    bool found = false;
+    for (int j : out) found = found || j == i;
+    if (!found) {
+      char line[128];
+      snprintf(line, sizeof(line), "[GRID] miss obj=%d area=(%.1f %.1f)-(%.1f %.1f)",
+               i, minX, minZ, maxX, maxZ);
+      TYRA_LOG(line);
+    }
+  }
+}
+
 
 
 // Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
@@ -18090,7 +18417,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+  // Broad phase: the scene grid's candidates for that same box.
+  sceneGridNear(sminX, sminZ, smaxX, smaxZ, gridNearSweep);
+  for (int oi : gridNearSweep) {
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
@@ -21972,8 +22301,6 @@ void TerrainGame::updateObjectPhysics() {
   static std::vector<RbContact> contacts;
   static std::vector<short> stepOf;
   static std::vector<int> bodies;   // every physics object this frame
-  static std::vector<int> statics;  // candidate static obstacles
-  static std::vector<float> staticR;
   steps.clear();
   contacts.clear();
   bodies.clear();
@@ -22076,22 +22403,6 @@ void TerrainGame::updateObjectPhysics() {
   for (int i : bodies)
     if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
   const int awakeCount = (int)steps.size();
-
-  // Candidate static obstacles, once per frame for every body: a centre and
-  // a reject radius from the collision box, no trigonometry.
-  statics.clear();
-  staticR.clear();
-  for (int j = 0; j < count; ++j) {
-    const RuntimeObject& s = runtimeObjects[j];
-    if (!s.active || s.data.physics || !physObstacle(s.data)) continue;
-    const CollisionBox cb = objectCollisionBox(s);
-    const float c2 = cb.center[0] * cb.center[0] + cb.center[1] * cb.center[1] +
-                     cb.center[2] * cb.center[2];
-    const float h2 = cb.half[0] * cb.half[0] + cb.half[1] * cb.half[1] +
-                     cb.half[2] * cb.half[2];
-    statics.push_back(j);
-    staticR.push_back(sqrtf(c2) + sqrtf(h2));
-  }
 
   RbCand cand[48];
   RbCand red[4];
@@ -22196,13 +22507,23 @@ void TerrainGame::updateObjectPhysics() {
     }
 
     const float reach = B.radius + sqrtf(rbDot(S.v, S.v)) + 0.05F;
-    for (size_t st = 0; st < statics.size(); ++st) {
-      const int j = statics[st];
+    // Broad phase: the scene grid's candidates within the body's reach;
+    // then a centre + reject radius from the collision box, no trigonometry.
+    sceneGridNear(x1.x - reach, x1.z - reach, x1.x + reach, x1.z + reach,
+                  gridNearPhys);
+    for (int j : gridNearPhys) {
       if (j == S.obj) continue;
       RuntimeObject& s = runtimeObjects[j];
+      if (!s.active || s.data.physics || !physObstacle(s.data)) continue;
+      const CollisionBox scb = objectCollisionBox(s);
+      const float sc2 = scb.center[0] * scb.center[0] +
+                        scb.center[1] * scb.center[1] +
+                        scb.center[2] * scb.center[2];
+      const float sh2 = scb.half[0] * scb.half[0] + scb.half[1] * scb.half[1] +
+                        scb.half[2] * scb.half[2];
       const float dx = s.data.position[0] - x1.x, dy = s.data.position[1] - x1.y,
                   dz = s.data.position[2] - x1.z;
-      const float rr = staticR[st] + reach;
+      const float rr = sqrtf(sc2) + sqrtf(sh2) + reach;
       if (dx * dx + dy * dy + dz * dz > rr * rr) continue;
       const GameModel* sgm = nullptr;
       if (s.data.type == 5 && s.data.model >= 0 &&

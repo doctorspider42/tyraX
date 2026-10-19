@@ -157,12 +157,52 @@ the **terrain**, which is a heightfield and not a box.
 before its bounds arrive (assets load one per frame at scene start). It
 settles by itself; a wrong box for a moment right after a load is that.
 
+## The scene grid
+
+Every contact query against scene objects goes through **one broad phase**,
+the scene grid: the walker (and a game's own actors, through the same
+`collidePlayer`), the camera boom / carry / throw sweep (`sweepSphere`) and the
+physics step's static obstacles. It is a uniform grid over X and Z holding each
+obstacle's world box; a query returns the objects whose box can reach the
+area, and the exact tests (box footprint, collision mesh, the doorway rule)
+then run on those alone. Before it, each of those walked every object in the
+scene, per walker, per sweep, per physics body.
+
+- **Why a grid, not a BVH or an octree.** Scenes are 2.5D - props standing on
+  a terrain - so an octree's split in height buys nothing, and a BVH needs a
+  rebuild or refit with a pointer chase per query. The grid rebuilds in one
+  counting pass with no allocation after the first frame, and both shapes of
+  query the engine asks - an area and a segment - are flat array walks.
+- **When it rebuilds.** On the first query of each frame (`g_frameStamp`,
+  bumped by `updateFrameClock`), and at once after a spawn, despawn or layer
+  (de)activation. An object's box is cached and recomputed only when its
+  position, rotation, scale, model or collision mode changed.
+- **Moving objects** - physics bodies, and anything that moved since the last
+  frame - are candidates of every query rather than bucketed, and every box is
+  padded by 0.5 m for an object that only starts moving after the rebuild. An
+  object covering more than 64 cells (a boundary wall the length of the map) is
+  also a candidate of every query instead of being copied into each cell.
+- **Results are unchanged.** A query never drops an object whose box can
+  reach the area, a collision-mesh object's box includes the 0.6-unit band its
+  push reaches, and candidates come back in object order, the order the full
+  walks used. `kSceneGridVerify` (a constexpr in the generated `game_runtime.gen.hpp`)
+  runs every walker query a second time over every object and logs
+  `[GRID] walker differs` / `[GRID] miss` on any disagreement.
+- **Cells** are at least 8 m and at most 64 a side (a bigger scene gets bigger
+  cells).
+
+New code that asks "what objects are near here / along this line" calls
+`sceneGridNear(minX, minZ, maxX, maxZ, out)` or
+`sceneGridAlong(ax, az, bx, bz, radius, out)` and keeps its own exact test,
+rather than walking `runtimeObjects`.
+
 ## Where it lives
 
 | Layer | Code |
 |---|---|
 | Host (editor overlay, placement snapping, the drag/paste raycast) | `placement::collisionBox` / `placement::collides` (`src/placement.cpp`) |
 | Generated game (walker, spring arm, split-screen cull, the overlay) | `TerrainGame::objectCollisionBox` / `objectCollides` (`templates.cpp`) |
+| Generated game, broad phase (walker, sweep, physics statics) | `TerrainGame::sceneGridNear` / `sceneGridAlong` (`game_templates.inc`) |
 | Editor overlay draw | `Viewport::setCollisionOverlay` (`src/viewport.cpp`) |
 | Game overlay draw | `TerrainGame::renderCollisionBoxes` |
 

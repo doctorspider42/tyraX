@@ -2372,6 +2372,40 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the scene grid (docs/collision-boxes.md, "The scene grid") -----------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw) and the
+  // physics step's static obstacles. A uniform XZ grid of each obstacle's
+  // world box, rebuilt on the first query of a frame (g_frameStamp) and after
+  // any spawn or (de)activation. A query fills `out` with every object whose
+  // box may reach the area - never fewer - and the caller's own exact tests
+  // decide; a query costs the nearby cells, a rebuild one pass over the
+  // objects (cached boxes for the ones that did not move).
+  void sceneGridNear(float minX, float minZ, float maxX, float maxZ,
+                     std::vector<int>& out) const;
+  void sceneGridAlong(float ax, float az, float bx, float bz, float radius,
+                      std::vector<int>& out) const;
+  void sceneGridInvalidate() const { gridFrame = ~0u; }
+  void sceneGridRebuild() const;
+  void sceneGridBoxOf(const RuntimeObject& o, float* box) const;
+  void sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
+                       const std::vector<int>& out) const;
+  struct SceneGridEntry {
+    float key[12] = {};  // pose + model + collision mode the box was made for
+    float box[4] = {};   // world XZ box (minX, minZ, maxX, maxZ), padded
+    bool valid = false;  // `box` holds a computed box
+    bool in = false;     // an active obstacle at the last rebuild
+  };
+  mutable std::vector<SceneGridEntry> gridEntries;
+  mutable std::vector<int> gridStart, gridCursor, gridItems, gridAlways;
+  mutable std::vector<unsigned> gridMark;
+  mutable unsigned gridStamp = 0, gridFrame = ~0u, gridGen = ~0u;
+  mutable float gridMinX = 0.0F, gridMinZ = 0.0F, gridInvCell = 0.125F;
+  mutable int gridNx = 0, gridNz = 0;
+  mutable bool gridVerifyAll = false;  // SCENE_GRID_VERIFY: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> gridNearWalker, gridNearSweep, gridNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -4223,6 +4257,40 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the scene grid (docs/collision-boxes.md, "The scene grid") -----------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw) and the
+  // physics step's static obstacles. A uniform XZ grid of each obstacle's
+  // world box, rebuilt on the first query of a frame (g_frameStamp) and after
+  // any spawn or (de)activation. A query fills `out` with every object whose
+  // box may reach the area - never fewer - and the caller's own exact tests
+  // decide; a query costs the nearby cells, a rebuild one pass over the
+  // objects (cached boxes for the ones that did not move).
+  void sceneGridNear(float minX, float minZ, float maxX, float maxZ,
+                     std::vector<int>& out) const;
+  void sceneGridAlong(float ax, float az, float bx, float bz, float radius,
+                      std::vector<int>& out) const;
+  void sceneGridInvalidate() const { gridFrame = ~0u; }
+  void sceneGridRebuild() const;
+  void sceneGridBoxOf(const RuntimeObject& o, float* box) const;
+  void sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
+                       const std::vector<int>& out) const;
+  struct SceneGridEntry {
+    float key[12] = {};  // pose + model + collision mode the box was made for
+    float box[4] = {};   // world XZ box (minX, minZ, maxX, maxZ), padded
+    bool valid = false;  // `box` holds a computed box
+    bool in = false;     // an active obstacle at the last rebuild
+  };
+  mutable std::vector<SceneGridEntry> gridEntries;
+  mutable std::vector<int> gridStart, gridCursor, gridItems, gridAlways;
+  mutable std::vector<unsigned> gridMark;
+  mutable unsigned gridStamp = 0, gridFrame = ~0u, gridGen = ~0u;
+  mutable float gridMinX = 0.0F, gridMinZ = 0.0F, gridInvCell = 0.125F;
+  mutable int gridNx = 0, gridNz = 0;
+  mutable bool gridVerifyAll = false;  // SCENE_GRID_VERIFY: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> gridNearWalker, gridNearSweep, gridNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
