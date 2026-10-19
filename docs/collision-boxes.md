@@ -190,7 +190,9 @@ a fifth of the candidates, so the exact tests behind it do less.
 - **When it updates.** On the first query of each frame (`g_frameStamp`,
   bumped by `updateFrameClock`), and at once after a spawn, despawn or layer
   (de)activation. An object's box is cached and recomputed only when its
-  position, rotation, scale, model or collision mode changed.
+  position, rotation, scale, model or collision mode changed - or when the
+  model it uses streams in after it was spawned (a clone made before its
+  template's asset was resident is first boxed from the placeholder bounds).
 - **Moving objects** - physics bodies, and anything that moved since the last
   frame - are candidates of every query rather than placed in the structure,
   and every box is padded by 0.5 m for an object that only starts moving after

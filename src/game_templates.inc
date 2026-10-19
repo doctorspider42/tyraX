@@ -6369,6 +6369,10 @@ void TerrainGame::processOneStreamJob() {
         (kind == 2 && o.data.animModel == index)) {
       o.dirty = true;
       if (kind == 2) setupAnimObject(i);
+      // Its broad-phase box was sized from the placeholder bounds and the
+      // cache key (pose, model, collision) did not change when they did.
+      if (i < (int)bpCache.size()) bpCache[(size_t)i].valid = false;
+      broadPhaseInvalidate();
     }
   }
 }
@@ -8730,6 +8734,10 @@ void TerrainGame::processOneStreamJob() {
         (kind == 2 && o.data.animModel == index)) {
       o.dirty = true;
       if (kind == 2) setupAnimObject(i);
+      // Its broad-phase box was sized from the placeholder bounds and the
+      // cache key (pose, model, collision) did not change when they did.
+      if (i < (int)bpCache.size()) bpCache[(size_t)i].valid = false;
+      broadPhaseInvalidate();
     }
   }
 }
