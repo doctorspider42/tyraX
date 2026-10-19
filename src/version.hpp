@@ -5521,7 +5521,8 @@
 // statics and traceLine stopped walking every scene object: one broad phase
 // (vendor/tyra engine physics/broad_phase) names the objects near a query,
 // and Preferences > Game > Physics > Broad phase picks its backend - a
-// height-aware grid (default) or a loose octree (format v95). Results are
+// height-aware grid (default) or a loose octree (format v95); Scene
+// Preferences > Collision overrides it per level. Results are
 // unchanged (kBroadPhaseVerify cross-checks them against brute force); in a
 // 24-bot game scene collision went from ~11 ms a frame to ~0.25. MINOR.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
@@ -6147,8 +6148,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
 // v95 (docs/collision-boxes.md, "The broad phase"): settings "broadPhase"
-// ("octree"), written only when not "grid". Missing = the grid. Additive; no
-// migration step.
+// ("octree"), written only when not "grid", and per scene a settings
+// "broadPhase" plus overrides "broadPhase": true, written only when the scene
+// overrides it. Missing = the grid / inherit. Additive; no migration step.
 inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"

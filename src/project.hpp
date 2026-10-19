@@ -2726,13 +2726,17 @@ struct SceneOverrides {
     // answer: does this scene rasterise reduced at all, and does the MLP
     // reconstruct it or does one bilinear pass. Both are free at a fixed scale.
     bool upscaler = false;    // blssEnabled, blssNetwork
+    // The contact broad phase (docs/collision-boxes.md, "The broad phase"):
+    // a level that stacks in height can take the octree while the rest of the
+    // project stays on the grid. Written only when set (format v95).
+    bool broadPhase = false;  // broadPhase
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
            a.fog == b.fog && a.highlight == b.highlight &&
-           a.upscaler == b.upscaler;
+           a.upscaler == b.upscaler && a.broadPhase == b.broadPhase;
 }
 
 class History;

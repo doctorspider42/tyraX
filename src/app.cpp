@@ -17105,6 +17105,18 @@ void App::drawScenePreferencesModal() {
                 clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
     });
 
+    // The contact broad phase (docs/collision-boxes.md, "The broad phase"). Its
+    // own toggle wording, so a scripted run can find this category's checkbox.
+    category("Collision", ov.broadPhase, [&] {
+        static const char* kBroadPhases[] = {"Grid", "Octree"};
+        int bp = s.broadPhase == "octree" ? 1 : 0;
+        if (ImGui::Combo("Broad phase##scene", &bp, kBroadPhases, 2))
+            s.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("This level's collision broad phase. Octree suits a level that\n"
+                 "stacks in height (floors, bridges, things in the air) or mixes\n"
+                 "dense blocks with open ground; Grid suits flat levels.");
+    }, "Use its own broad phase");
+
     category("Terrain material", ov.terrainMat, [&] {
         drawTerrainMaterialCombo("Material", s.terrainMaterial);
     });

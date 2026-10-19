@@ -17998,7 +17998,8 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
 // Every contact query against scene objects - the walker, sweepSphere and the
 // physics statics (and traceLine) - asks Tyra::BroadPhase (the engine,
 // physics/broad_phase) which objects may be near; their exact tests run on
-// those alone. The backend is the project's choice (SCENE_BROADPHASE: a
+// those alone. The backend is the project's choice (SCENE_BROADPHASE, or per
+// scene SCENE_BROADPHASES: a
 // height-aware grid or a loose octree); this side only keeps each obstacle's
 // world box current, once a frame (g_frameStamp) and after any spawn or
 // (de)activation.
@@ -18050,7 +18051,15 @@ void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) c
 
 void TerrainGame::broadPhaseRefresh() const {
   bpFrame = g_frameStamp;
+  // The active scene's backend: its own when a scene overrides one
+  // (SCENE_BROADPHASES, Scene Preferences > Collision), else the project's.
+  // A level load that changes it rebuilds the structure below.
+#ifdef SCENE_BROADPHASE_PER_SCENE
+  const auto kind = (Tyra::BroadPhase::Kind)
+      SCENE_BROADPHASES[currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0];
+#else
   const auto kind = (Tyra::BroadPhase::Kind)SCENE_BROADPHASE;
+#endif
   const int n = (int)runtimeObjects.size();
   if (bpGen != sceneGeneration || (int)bpCache.size() != n ||
       broadPhase.kind() != kind) {

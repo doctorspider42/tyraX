@@ -168,8 +168,13 @@ fewer than the ones that are - and the exact tests (box footprint, collision
 mesh, the doorway rule) then run on those alone. Before it, each of those
 walked every object in the scene, per walker, per sweep, per physics body.
 
-**Preferences > Game > Physics > Broad phase** picks the backend (saved as
-`"broadPhase"`, only when not the default):
+**Preferences > Game > Physics > Broad phase** picks the project's backend
+(saved as `"broadPhase"`, only when not the default), and **Scene > Scene
+Preferences > Collision** can override it for one level ("Use its own broad
+phase") - keep the project on the grid and give the one stacked level the
+octree. The game switches backend as it loads that level. Only a scene that
+overrides writes anything, and only then does the generated `scene_data.hpp`
+carry a per-scene table (`SCENE_BROADPHASES`). The two backends:
 
 | Backend | What it is | Choose it for |
 |---|---|---|

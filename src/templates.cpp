@@ -10338,6 +10338,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         return n < 0 ? 0 : (n > 128 ? 128 : n);
     };
 
+    // The contact broad phase per scene (docs/collision-boxes.md): emitted only
+    // when a scene overrides it - a project whose scenes all inherit keeps the
+    // header it had, and the game reads the project's SCENE_BROADPHASE. Keyed
+    // on ANY override, not on disagreement: every scene overriding to the same
+    // backend still differs from the project constant.
+    {
+        bool anyOverride = false;
+        for (const SceneData& sc : p.scenes) anyOverride |= sc.overrides.broadPhase;
+        if (anyOverride) {
+            out << "#define SCENE_BROADPHASE_PER_SCENE 1  // 0 grid, 1 octree\n";
+            sceneInts("SCENE_BROADPHASES",
+                      [&](int si) { return rs[si].broadPhase == "octree" ? 1 : 0; });
+        }
+    }
+
     // The terrain SIZE is also the scene's world bounds (every walker is
     // clamped to it), so it is emitted whether or not the scene has a ground.
     sceneFloats("TERRAIN_WIDTHS",
