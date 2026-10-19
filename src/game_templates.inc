@@ -9727,6 +9727,23 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // sweeps and the editor's overlay draws.
     const CollisionBox cb = objectCollisionBox(o);
     const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
+    const float hx = ex + playerRadius;
+    const float hz = ez + playerRadius;
+    // Far away, out before the rotation below (boxRotate is a handful of
+    // sinf/cosf per object, and this loop runs per walker per frame): the
+    // footprint test can only pass within its half-diagonal of the box
+    // centre, and the centre sits |offset| from the origin whatever the
+    // rotation - so past both, nothing below can touch the walker. Exact,
+    // never a false reject; the mesh path above has had the same reject.
+    {
+      const float off2 = cb.center[0] * cb.center[0] +
+                         cb.center[1] * cb.center[1] +
+                         cb.center[2] * cb.center[2];
+      const float reach = sqrtf(off2) + sqrtf(hx * hx + hz * hz);
+      const float dx = *nextX - o.data.position[0];
+      const float dz = *nextZ - o.data.position[2];
+      if (dx * dx + dz * dz > reach * reach) continue;
+    }
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
@@ -9735,8 +9752,6 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
-    const float hx = ex + playerRadius;
-    const float hz = ez + playerRadius;
     const float top = cy + ey;
     const float bottom = cy - ey;
 

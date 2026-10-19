@@ -85,6 +85,14 @@ in the scene paid the full queries every frame, and the grid CLAMPED a far
 query onto its edge cells, so they cost a closest-point test per border
 triangle. Memory is 48 bytes a triangle plus the grid, once per model.
 
+Box mode has the same far reject: a box whose footprint (half-diagonal plus
+the walker's radius, plus the box centre's offset from the object origin)
+cannot reach the walker is skipped before its rotation is computed. That
+rotation is several `sinf`/`cosf` a box, and a game that resolves its own
+actors through the walker's rules pays the whole loop once per actor - measured
+in a 24-bot game it was ~11 ms of every frame with ~280 objects in the scene,
+almost all of it boxes nowhere near any actor.
+
 ## Invisible boundary walls
 
 Use **Scene > Add > Object > Simple > Invisible wall**, or enable **Invisible wall**
