@@ -16141,6 +16141,15 @@ void App::drawPreferencesWindow() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    {
+        static const char* kBroadPhases[] = {"Grid", "Octree"};
+        int bp = prefSettings_.broadPhase == "octree" ? 1 : 0;
+        if (ImGui::Combo("Broad phase", &bp, kBroadPhases, 2))
+            prefSettings_.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("Finds the objects collision, the camera, physics and traces test.\n"
+                 "Grid: fastest for flat scenes of similar-sized props.\n"
+                 "Octree: also splits by height - stacked or very uneven scenes.");
+    }
     endTab();
     }
 

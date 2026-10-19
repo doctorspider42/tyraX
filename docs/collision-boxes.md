@@ -157,44 +157,56 @@ the **terrain**, which is a heightfield and not a box.
 before its bounds arrive (assets load one per frame at scene start). It
 settles by itself; a wrong box for a moment right after a load is that.
 
-## The scene grid
+## The broad phase
 
-Every contact query against scene objects goes through **one broad phase**,
-the scene grid: the walker (and a game's own actors, through the same
-`collidePlayer`), the camera boom / carry / throw sweep (`sweepSphere`) and the
-physics step's static obstacles. It is a uniform grid over X and Z holding each
-obstacle's world box; a query returns the objects whose box can reach the
-area, and the exact tests (box footprint, collision mesh, the doorway rule)
-then run on those alone. Before it, each of those walked every object in the
-scene, per walker, per sweep, per physics body.
+Every contact query against scene objects goes through **one broad phase**:
+the walker (and a game's own actors, through the same `collidePlayer`), the
+camera boom / carry / throw sweep (`sweepSphere`), the physics step's static
+obstacles and the trace world (`traceLine`). It holds each obstacle's world box
+and answers "which objects may be near this area / along this segment" - never
+fewer than the ones that are - and the exact tests (box footprint, collision
+mesh, the doorway rule) then run on those alone. Before it, each of those
+walked every object in the scene, per walker, per sweep, per physics body.
 
-- **Why a grid, not a BVH or an octree.** Scenes are 2.5D - props standing on
-  a terrain - so an octree's split in height buys nothing, and a BVH needs a
-  rebuild or refit with a pointer chase per query. The grid rebuilds in one
-  counting pass with no allocation after the first frame, and both shapes of
-  query the engine asks - an area and a segment - are flat array walks.
-- **When it rebuilds.** On the first query of each frame (`g_frameStamp`,
+**Preferences > Game > Physics > Broad phase** picks the backend (saved as
+`"broadPhase"`, only when not the default):
+
+| Backend | What it is | Choose it for |
+|---|---|---|
+| **Grid** (default) | A uniform grid over X and Z, rebuilt every frame in one counting pass; every box keeps its height, so a query's height range filters the candidates | Flat worlds of similar-sized props (most scenes): the cheapest query and rebuild |
+| **Octree** | A loose octree (each node's bounds twice its cell) whose nodes split only past 8 objects and remember the bounds of what they hold; kept across frames - only objects that moved, appeared or left are moved | Scenes that stack in height (multi-floor interiors, bridges over roads, things in the air) or mix dense blocks with open ground |
+
+Both return the same objects for the same scene, in ascending object order
+(the order the full walks used, which the walker's order-dependent pushes
+need). Measured on the host over the same random scene: a walker-sized query
+costs the grid ~0.1 us and the octree ~0.4 us, but the octree hands back about
+a fifth of the candidates, so the exact tests behind it do less.
+
+- **When it updates.** On the first query of each frame (`g_frameStamp`,
   bumped by `updateFrameClock`), and at once after a spawn, despawn or layer
   (de)activation. An object's box is cached and recomputed only when its
   position, rotation, scale, model or collision mode changed.
 - **Moving objects** - physics bodies, and anything that moved since the last
-  frame - are candidates of every query rather than bucketed, and every box is
-  padded by 0.5 m for an object that only starts moving after the rebuild. An
-  object covering more than 64 cells (a boundary wall the length of the map) is
-  also a candidate of every query instead of being copied into each cell.
-- **Results are unchanged.** A query never drops an object whose box can
-  reach the area, a collision-mesh object's box includes the 0.6-unit band its
-  push reaches, and candidates come back in object order, the order the full
-  walks used. `kSceneGridVerify` (a constexpr in the generated `game_runtime.gen.hpp`)
-  runs every walker query a second time over every object and logs
-  `[GRID] walker differs` / `[GRID] miss` on any disagreement.
-- **Cells** are at least 8 m and at most 64 a side (a bigger scene gets bigger
-  cells).
+  frame - are candidates of every query rather than placed in the structure,
+  and every box is padded by 0.5 m for an object that only starts moving after
+  the update. So is an object too large to place (more than 64 grid cells, or
+  outside the octree's root).
+- **The walker asks for a whole column.** Its box path takes any box under the
+  feet as a floor and any box overhead as the jump ceiling, however far, so
+  height cannot narrow its query without changing where it stands. The sweep,
+  the physics statics and traces pass their real height.
+- **Results are unchanged.** A collision-mesh object's box includes the
+  0.6-unit band its push reaches. `kBroadPhaseVerify` (a constexpr in the
+  generated `game_runtime.gen.hpp`) runs every walker call a second time over
+  every object and checks every query against the objects' current boxes,
+  logging `[BROADPHASE] ...` on any disagreement.
 
-New code that asks "what objects are near here / along this line" calls
-`sceneGridNear(minX, minZ, maxX, maxZ, out)` or
-`sceneGridAlong(ax, az, bx, bz, radius, out)` and keeps its own exact test,
-rather than walking `runtimeObjects`.
+The structure itself is engine code (`Tyra::BroadPhase`,
+`vendor/tyra/engine/inc/physics/broad_phase.hpp`): a caller hands it boxes
+(`begin` / `set` / `commit`) and asks `queryBox` / `querySegment`. New code in
+the generated game that asks "what objects are near here / along this line"
+calls `broadPhaseNear(area, out)` or `broadPhaseAlong(a, b, radius, out)` and
+keeps its own exact test, rather than walking `runtimeObjects`.
 
 ## Where it lives
 
@@ -202,7 +214,7 @@ rather than walking `runtimeObjects`.
 |---|---|
 | Host (editor overlay, placement snapping, the drag/paste raycast) | `placement::collisionBox` / `placement::collides` (`src/placement.cpp`) |
 | Generated game (walker, spring arm, split-screen cull, the overlay) | `TerrainGame::objectCollisionBox` / `objectCollides` (`templates.cpp`) |
-| Generated game, broad phase (walker, sweep, physics statics) | `TerrainGame::sceneGridNear` / `sceneGridAlong` (`game_templates.inc`) |
+| Generated game, broad phase (walker, sweep, physics statics, traces) | `TerrainGame::broadPhaseNear` / `broadPhaseAlong` (`game_templates.inc`) over `Tyra::BroadPhase` (`vendor/tyra/engine/src/physics/broad_phase.cpp`) |
 | Editor overlay draw | `Viewport::setCollisionOverlay` (`src/viewport.cpp`) |
 | Game overlay draw | `TerrainGame::renderCollisionBoxes` |
 

@@ -2188,6 +2188,11 @@ struct ProjectSettings {
     // Physics
     float gravity = 9.8f;    // units/s^2
     float jumpSpeed = 4.5f;  // units/s (FPP jump)
+    // The broad phase every contact query uses - walker, camera/carry sweep,
+    // physics, traces (docs/collision-boxes.md, "The broad phase"): "grid"
+    // (height-aware uniform grid) or "octree" (loose octree). Written only
+    // when not "grid" (format v95).
+    std::string broadPhase = "grid";
 
     // Lighting (baked into vertex colors at build)
     float lightDir[3] = {0.37f, 0.82f, 0.44f};   // direction TO the light
@@ -2496,9 +2501,9 @@ struct ProjectSettings {
 // std::string against libstdc++'s 32, so both are listed - update BOTH when a
 // field lands (a Mac build prints the libc++ one in the same message).
 #if defined(_LIBCPP_VERSION)
-static_assert(sizeof(ProjectSettings) == 784,
+static_assert(sizeof(ProjectSettings) == 808,
 #else
-static_assert(sizeof(ProjectSettings) == 864,
+static_assert(sizeof(ProjectSettings) == 896,
 #endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
@@ -2588,7 +2593,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.multiplayer == b.multiplayer &&
            a.p2JoinOnStart == b.p2JoinOnStart &&
            a.orbitSpeed == b.orbitSpeed && a.gravity == b.gravity &&
-           a.jumpSpeed == b.jumpSpeed && eq3(a.lightDir, b.lightDir) &&
+           a.jumpSpeed == b.jumpSpeed && a.broadPhase == b.broadPhase &&
+           eq3(a.lightDir, b.lightDir) &&
            a.ambient == b.ambient && a.diffuse == b.diffuse &&
            eq3(a.lightColor, b.lightColor) && a.brightness == b.brightness &&
            a.aoEnabled == b.aoEnabled && a.aoStrength == b.aoStrength &&

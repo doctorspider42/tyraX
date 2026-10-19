@@ -968,6 +968,8 @@ constexpr float STICK_EXP_L = {{STICK_EXP_L}};
 constexpr float STICK_EXP_R = {{STICK_EXP_R}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
+// The contact broad phase (docs/collision-boxes.md): 0 grid, 1 octree.
+constexpr int SCENE_BROADPHASE = {{SCENE_BROADPHASE}};
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
 // Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
@@ -2373,39 +2375,34 @@ class TerrainGame : public Tyra::Game {
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
 
-  // --- the scene grid (docs/collision-boxes.md, "The scene grid") -----------
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
   // ONE broad phase for every contact query against scene objects - the
-  // walker (and collideActor), sweepSphere (camera boom, carry, throw) and the
-  // physics step's static obstacles. A uniform XZ grid of each obstacle's
-  // world box, rebuilt on the first query of a frame (g_frameStamp) and after
-  // any spawn or (de)activation. A query fills `out` with every object whose
-  // box may reach the area - never fewer - and the caller's own exact tests
-  // decide; a query costs the nearby cells, a rebuild one pass over the
-  // objects (cached boxes for the ones that did not move).
-  void sceneGridNear(float minX, float minZ, float maxX, float maxZ,
-                     std::vector<int>& out) const;
-  void sceneGridAlong(float ax, float az, float bx, float bz, float radius,
-                      std::vector<int>& out) const;
-  void sceneGridInvalidate() const { gridFrame = ~0u; }
-  void sceneGridRebuild() const;
-  void sceneGridBoxOf(const RuntimeObject& o, float* box) const;
-  void sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
-                       const std::vector<int>& out) const;
-  struct SceneGridEntry {
-    float key[12] = {};  // pose + model + collision mode the box was made for
-    float box[4] = {};   // world XZ box (minX, minZ, maxX, maxZ), padded
-    bool valid = false;  // `box` holds a computed box
-    bool in = false;     // an active obstacle at the last rebuild
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp) and after any spawn or (de)activation; a query fills `out`
+  // with every object whose box may reach it - never fewer - in ascending
+  // order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
   };
-  mutable std::vector<SceneGridEntry> gridEntries;
-  mutable std::vector<int> gridStart, gridCursor, gridItems, gridAlways;
-  mutable std::vector<unsigned> gridMark;
-  mutable unsigned gridStamp = 0, gridFrame = ~0u, gridGen = ~0u;
-  mutable float gridMinX = 0.0F, gridMinZ = 0.0F, gridInvCell = 0.125F;
-  mutable int gridNx = 0, gridNz = 0;
-  mutable bool gridVerifyAll = false;  // SCENE_GRID_VERIFY: hand out everything
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
-  mutable std::vector<int> gridNearWalker, gridNearSweep, gridNearPhys;
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -4258,39 +4255,34 @@ class TerrainGame : public Tyra::Game {
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
 
-  // --- the scene grid (docs/collision-boxes.md, "The scene grid") -----------
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
   // ONE broad phase for every contact query against scene objects - the
-  // walker (and collideActor), sweepSphere (camera boom, carry, throw) and the
-  // physics step's static obstacles. A uniform XZ grid of each obstacle's
-  // world box, rebuilt on the first query of a frame (g_frameStamp) and after
-  // any spawn or (de)activation. A query fills `out` with every object whose
-  // box may reach the area - never fewer - and the caller's own exact tests
-  // decide; a query costs the nearby cells, a rebuild one pass over the
-  // objects (cached boxes for the ones that did not move).
-  void sceneGridNear(float minX, float minZ, float maxX, float maxZ,
-                     std::vector<int>& out) const;
-  void sceneGridAlong(float ax, float az, float bx, float bz, float radius,
-                      std::vector<int>& out) const;
-  void sceneGridInvalidate() const { gridFrame = ~0u; }
-  void sceneGridRebuild() const;
-  void sceneGridBoxOf(const RuntimeObject& o, float* box) const;
-  void sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
-                       const std::vector<int>& out) const;
-  struct SceneGridEntry {
-    float key[12] = {};  // pose + model + collision mode the box was made for
-    float box[4] = {};   // world XZ box (minX, minZ, maxX, maxZ), padded
-    bool valid = false;  // `box` holds a computed box
-    bool in = false;     // an active obstacle at the last rebuild
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp) and after any spawn or (de)activation; a query fills `out`
+  // with every object whose box may reach it - never fewer - in ascending
+  // order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
   };
-  mutable std::vector<SceneGridEntry> gridEntries;
-  mutable std::vector<int> gridStart, gridCursor, gridItems, gridAlways;
-  mutable std::vector<unsigned> gridMark;
-  mutable unsigned gridStamp = 0, gridFrame = ~0u, gridGen = ~0u;
-  mutable float gridMinX = 0.0F, gridMinZ = 0.0F, gridInvCell = 0.125F;
-  mutable int gridNx = 0, gridNz = 0;
-  mutable bool gridVerifyAll = false;  // SCENE_GRID_VERIFY: hand out everything
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
-  mutable std::vector<int> gridNearWalker, gridNearSweep, gridNearPhys;
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -19020,6 +19012,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{P2_JOIN_ON_START}}",
                    st.p2JoinOnStart ? "true" : "false");
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
+    s = replaceAll(s, "{{SCENE_BROADPHASE}}", st.broadPhase == "octree" ? "1" : "0");
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");

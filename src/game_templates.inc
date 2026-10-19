@@ -247,20 +247,15 @@ inline u32 g_frameClockLast = 0;
 // grid) key on, since every game loop - a taken-over one included - calls it.
 inline u32 g_frameStamp = 0;
 
-// The scene grid's tuning (TerrainGame::sceneGridNear, docs/collision-boxes.md).
-inline constexpr float kSceneGridCell = 8.0F;  // metres a cell, at least
-inline constexpr int kSceneGridMaxSide = 64;   // cells a side, at most
-// An object covering more cells than this is simply a candidate of every query
-// (a terrain-sized wall would otherwise be copied into hundreds of cells).
-inline constexpr int kSceneGridMaxSpan = 64;
-// Padding on every box: motion of an object that STARTED moving after this
-// frame's rebuild. One that keeps moving is a candidate of every query from
-// the next frame on (`gridAlways`), so the pad only covers one frame's step.
-inline constexpr float kSceneGridMargin = 0.5F;
-// Development switch: every query is checked against the objects' CURRENT
-// boxes, and the walker is run a second time over every object and compared;
-// a disagreement logs a "[GRID] ..." line. Off: compiled away.
-inline constexpr bool kSceneGridVerify = false;
+// The contact broad phase (TerrainGame::broadPhaseNear, docs/collision-boxes.md,
+// "The broad phase"). Padding on every box: motion of an object that STARTED
+// moving after this frame's refresh (one that keeps moving is a candidate of
+// every query from the next frame on).
+inline constexpr float kBroadPhaseMargin = 0.5F;
+// Development switch: every walker call also runs over EVERY object and the
+// two are compared, and every query is checked against the objects' CURRENT
+// boxes; a disagreement logs a "[BROADPHASE] ..." line. Off: compiled away.
+inline constexpr bool kBroadPhaseVerify = false;
 inline void updateFrameClock() {
   ++g_frameStamp;
   u32 now;
@@ -6384,7 +6379,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
-  sceneGridInvalidate();  // it joined the world mid-frame
+  broadPhaseInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -6400,7 +6395,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
-  sceneGridInvalidate();  // it left the world mid-frame
+  broadPhaseInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -6440,7 +6435,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
-  sceneGridInvalidate();  // a clone joined the world mid-frame
+  broadPhaseInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet
@@ -8745,7 +8740,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
-  sceneGridInvalidate();  // it joined the world mid-frame
+  broadPhaseInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -8761,7 +8756,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
-  sceneGridInvalidate();  // it left the world mid-frame
+  broadPhaseInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -8801,7 +8796,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
-  sceneGridInvalidate();  // a clone joined the world mid-frame
+  broadPhaseInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet
@@ -9616,36 +9611,44 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
   const float playerRadius = 0.35F;
-  static bool s_verifyInner = false;  // kSceneGridVerify only
-  if (kSceneGridVerify && !s_verifyInner) {
+  static bool s_verifyInner = false;  // kBroadPhaseVerify only
+  if (kBroadPhaseVerify && !s_verifyInner) {
     // Verify: the same call over EVERY object, then the real one through the
     // grid; they must land the walker in the same place.
     s_verifyInner = true;
     float vx = *nextX, vz = *nextZ, vg = *ground, vc = *ceiling;
-    gridVerifyAll = true;
+    bpVerifyAll = true;
     collidePlayer(prevX, prevZ, &vx, &vz, feetY, eyeHeight, &vg, &vc);
-    gridVerifyAll = false;
+    bpVerifyAll = false;
     collidePlayer(prevX, prevZ, nextX, nextZ, feetY, eyeHeight, ground, ceiling);
     s_verifyInner = false;
     if (*nextX != vx || *nextZ != vz || *ground != vg || *ceiling != vc) {
       char line[160];
       snprintf(line, sizeof(line),
-               "[GRID] walker differs grid=(%.3f %.3f g%.3f c%.3f) all=(%.3f %.3f g%.3f c%.3f)",
+               "[BROADPHASE] walker differs (%.3f %.3f g%.3f c%.3f) all=(%.3f %.3f g%.3f c%.3f)",
                *nextX, *nextZ, *ground, *ceiling, vx, vz, vg, vc);
       TYRA_LOG(line);
     }
     return;
   }
-  // Broad phase: the scene grid's candidates around the walker's next
-  // position - its radius, its step and the 0.6 band a push can travel
-  // (CollisionMesh::resolveSphere). Every test below is unchanged.
+  // Broad phase: the candidates around the walker's next position - its
+  // radius, its step and the 0.6 band a push can travel
+  // (CollisionMesh::resolveSphere) - in a full COLUMN: the box path below
+  // takes any box under the feet as a floor and any box overhead as the jump
+  // ceiling, however far. Every test below is unchanged.
   {
     const float mvx = *nextX - prevX, mvz = *nextZ - prevZ;
     const float reach = playerRadius + 0.6F + sqrtf(mvx * mvx + mvz * mvz);
-    sceneGridNear(*nextX - reach, *nextZ - reach, *nextX + reach, *nextZ + reach,
-                  gridNearWalker);
+    Tyra::BroadBox area;
+    area.mn[0] = *nextX - reach;
+    area.mn[1] = -1e30F;
+    area.mn[2] = *nextZ - reach;
+    area.mx[0] = *nextX + reach;
+    area.mx[1] = 1e30F;
+    area.mx[2] = *nextZ + reach;
+    broadPhaseNear(area, bpNearWalker);
   }
-  for (int oi : gridNearWalker) {
+  for (int oi : bpNearWalker) {
     const RuntimeObject& o = runtimeObjects[oi];
     // The carried object rides in front of the face - letting it block its
     // own carrier would wedge the player against thin air.
@@ -17991,60 +17994,78 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   return b;
 }
 
-// --- the scene grid (docs/collision-boxes.md, "The scene grid") --------------
-// A uniform XZ grid, stored flat (counting sort: gridStart[c]..gridStart[c+1]
-// index gridItems for cell c). Chosen over a BVH or an octree: the worlds are
-// 2.5D (props on a terrain - an octree's Y split buys nothing), a rebuild is
-// one counting pass with no allocation after the first frame, and both query
-// shapes the engine asks - an area (walker, physics, sweep) and a segment
-// (traces) - are flat array walks, which the EE's small data cache likes far
-// better than a tree's pointer chase.
-// (The kSceneGrid* constants live in game_runtime.gen.hpp: the walker, the
-// physics step and the trace world are other translation units.)
+// --- the broad phase (docs/collision-boxes.md, "The broad phase") ------------
+// Every contact query against scene objects - the walker, sweepSphere and the
+// physics statics (and traceLine) - asks Tyra::BroadPhase (the engine,
+// physics/broad_phase) which objects may be near; their exact tests run on
+// those alone. The backend is the project's choice (SCENE_BROADPHASE: a
+// height-aware grid or a loose octree); this side only keeps each obstacle's
+// world box current, once a frame (g_frameStamp) and after any spawn or
+// (de)activation.
 
-void TerrainGame::sceneGridBoxOf(const RuntimeObject& o, float* box) const {
+// Does the segment a -> a + d cross the box padded by `pad`? (slabs; verify)
+static bool broadPhaseSegmentHits(const float* a, const float* d,
+                                  const Tyra::BroadBox& b, float pad) {
+  float t0 = 0.0F, t1 = 1.0F;
+  for (int k = 0; k < 3; ++k) {
+    const float lo = b.mn[k] - pad, hi = b.mx[k] + pad;
+    if (fabsf(d[k]) < 1e-9F) {
+      if (a[k] < lo || a[k] > hi) return false;
+      continue;
+    }
+    float ta = (lo - a[k]) / d[k], tb = (hi - a[k]) / d[k];
+    if (ta > tb) { const float t = ta; ta = tb; tb = t; }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const {
   const CollisionBox cb = objectCollisionBox(o);
   const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, o.data);
   const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, o.data);
   const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, o.data);
   const V3 c = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
-  const float cx = o.data.position[0] + c.x;
-  const float cz = o.data.position[2] + c.z;
-  float hx = fabsf(ax.x) * cb.half[0] + fabsf(ay.x) * cb.half[1] +
-             fabsf(az.x) * cb.half[2];
-  float hz = fabsf(ax.z) * cb.half[0] + fabsf(ay.z) * cb.half[1] +
-             fabsf(az.z) * cb.half[2];
+  const float cw[3] = {o.data.position[0] + c.x, o.data.position[1] + c.y,
+                       o.data.position[2] + c.z};
+  float h[3] = {
+      fabsf(ax.x) * cb.half[0] + fabsf(ay.x) * cb.half[1] + fabsf(az.x) * cb.half[2],
+      fabsf(ax.y) * cb.half[0] + fabsf(ay.y) * cb.half[1] + fabsf(az.y) * cb.half[2],
+      fabsf(ax.z) * cb.half[0] + fabsf(ay.z) * cb.half[1] + fabsf(az.z) * cb.half[2]};
   // A collision MESH pushes the walker out of triangles up to 0.6 mesh units
   // past its radius (CollisionMesh::resolveSphere's capture band).
+  float pad = kBroadPhaseMargin;
   if (o.data.collision == 1) {
-    const float sx = fabsf(o.data.scale[0]), sz = fabsf(o.data.scale[2]);
-    const float band = 0.6F * (sx > sz ? sx : sz);
-    hx += band;
-    hz += band;
+    float s = 0.0F;
+    for (int k = 0; k < 3; ++k) s = fmaxf(s, fabsf(o.data.scale[k]));
+    pad += 0.6F * s;
   }
-  box[0] = cx - hx - kSceneGridMargin;
-  box[1] = cz - hz - kSceneGridMargin;
-  box[2] = cx + hx + kSceneGridMargin;
-  box[3] = cz + hz + kSceneGridMargin;
+  for (int k = 0; k < 3; ++k) {
+    box.mn[k] = cw[k] - h[k] - pad;
+    box.mx[k] = cw[k] + h[k] + pad;
+  }
 }
 
-void TerrainGame::sceneGridRebuild() const {
-  gridFrame = g_frameStamp;
+void TerrainGame::broadPhaseRefresh() const {
+  bpFrame = g_frameStamp;
+  const auto kind = (Tyra::BroadPhase::Kind)SCENE_BROADPHASE;
   const int n = (int)runtimeObjects.size();
-  if (gridGen != sceneGeneration || (int)gridEntries.size() != n) {
-    gridEntries.assign((size_t)n, SceneGridEntry());
-    gridMark.assign((size_t)n, 0u);
-    gridGen = sceneGeneration;
+  if (bpGen != sceneGeneration || (int)bpCache.size() != n ||
+      broadPhase.kind() != kind) {
+    if (broadPhase.kind() != kind) broadPhase = Tyra::BroadPhase(kind);
+    broadPhase.clear();
+    bpCache.assign((size_t)n, BroadPhaseCache());
+    bpGen = sceneGeneration;
   }
-  gridAlways.clear();
-  float mnX = 1e30F, mnZ = 1e30F, mxX = -1e30F, mxZ = -1e30F;
+  broadPhase.begin(n);
   for (int i = 0; i < n; ++i) {
     const RuntimeObject& o = runtimeObjects[i];
-    SceneGridEntry& e = gridEntries[(size_t)i];
     // physObstacle is the widest "can be touched" list (the walker's and the
     // sweep's objectCollides is a subset): every consumer re-applies its own.
-    e.in = o.active && physObstacle(o.data);
-    if (!e.in) continue;
+    if (!o.active || !physObstacle(o.data)) continue;
+    BroadPhaseCache& e = bpCache[(size_t)i];
     const float key[12] = {o.data.position[0], o.data.position[1],
                            o.data.position[2], o.data.rotation[0],
                            o.data.rotation[1], o.data.rotation[2],
@@ -18055,210 +18076,69 @@ void TerrainGame::sceneGridRebuild() const {
     for (int k = 0; k < 12 && same; ++k) same = e.key[k] == key[k];
     const bool moved = e.valid && !same;
     if (!same) {
-      sceneGridBoxOf(o, e.box);
+      broadPhaseBoxOf(o, e.box);
       for (int k = 0; k < 12; ++k) e.key[k] = key[k];
       e.valid = true;
     }
-    // Moving things (physics bodies, anything that moved since the last
-    // frame) are candidates of every query: a box from the last rebuild
-    // would lag them. There are few of them.
-    if (o.data.physics || moved) {
-      gridAlways.push_back(i);
-      continue;
-    }
-    if (e.box[0] < mnX) mnX = e.box[0];
-    if (e.box[1] < mnZ) mnZ = e.box[1];
-    if (e.box[2] > mxX) mxX = e.box[2];
-    if (e.box[3] > mxZ) mxZ = e.box[3];
+    // Moving (a physics body, or moved since the last refresh): a candidate
+    // of every query until it settles - a placed box would lag it.
+    broadPhase.set(i, e.box, o.data.physics || moved);
   }
-  gridNx = gridNz = 0;
-  if (mnX > mxX) return;  // nothing static to bucket
-  // Cells of at least kSceneGridCell, and at most kSceneGridMaxSide a side:
-  // sized so span / cell < side - 1, i.e. every box falls inside the grid.
-  float cell = kSceneGridCell;
-  const float spanX = mxX - mnX, spanZ = mxZ - mnZ;
-  const float span = spanX > spanZ ? spanX : spanZ;
-  if (span / cell > (float)(kSceneGridMaxSide - 2))
-    cell = span / (float)(kSceneGridMaxSide - 2);
-  gridInvCell = 1.0F / cell;
-  gridMinX = mnX;
-  gridMinZ = mnZ;
-  gridNx = (int)(spanX * gridInvCell) + 1;
-  gridNz = (int)(spanZ * gridInvCell) + 1;
-  if (gridNx > kSceneGridMaxSide) gridNx = kSceneGridMaxSide;
-  if (gridNz > kSceneGridMaxSide) gridNz = kSceneGridMaxSide;
-  const auto cellX = [&](float x) {
-    int c = (int)((x - gridMinX) * gridInvCell);
-    return c < 0 ? 0 : (c >= gridNx ? gridNx - 1 : c);
-  };
-  const auto cellZ = [&](float z) {
-    int c = (int)((z - gridMinZ) * gridInvCell);
-    return c < 0 ? 0 : (c >= gridNz ? gridNz - 1 : c);
-  };
-  gridStart.assign((size_t)(gridNx * gridNz + 1), 0);
-  // The objects already in gridAlways (moving, physics) are tagged so neither
-  // pass buckets them; the tag is cleared again below.
-  for (int i : gridAlways) gridMark[(size_t)i] = ~0u;
-  // Pass 1: count each cell's entries (and send over-wide objects to every
-  // query instead). Pass 2: prefix sums. Pass 3: fill.
-  for (int pass = 0; pass < 2; ++pass) {
-    for (int i = 0; i < n; ++i) {
-      const SceneGridEntry& e = gridEntries[(size_t)i];
-      if (!e.in || gridMark[(size_t)i] == ~0u) continue;  // in gridAlways
-      const int x0 = cellX(e.box[0]), x1 = cellX(e.box[2]);
-      const int z0 = cellZ(e.box[1]), z1 = cellZ(e.box[3]);
-      if (pass == 0 && (x1 - x0 + 1) * (z1 - z0 + 1) > kSceneGridMaxSpan) {
-        gridAlways.push_back(i);
-        continue;
-      }
-      if (pass == 1 && (x1 - x0 + 1) * (z1 - z0 + 1) > kSceneGridMaxSpan) continue;
-      for (int z = z0; z <= z1; ++z)
-        for (int x = x0; x <= x1; ++x) {
-          if (pass == 0)
-            ++gridStart[(size_t)(z * gridNx + x + 1)];
-          else
-            gridItems[(size_t)(gridCursor[(size_t)(z * gridNx + x)]++)] = i;
-        }
-    }
-    if (pass == 0) {
-      for (size_t c = 1; c < gridStart.size(); ++c) gridStart[c] += gridStart[c - 1];
-      gridItems.resize((size_t)gridStart.back());
-      gridCursor.assign(gridStart.begin(), gridStart.end() - 1);
-    }
-  }
-  // Clear the tags. 0 never equals a live query stamp (they start at 1 and
-  // only ever grow), so no query can mistake it for "already seen".
-  for (int i : gridAlways) gridMark[(size_t)i] = 0u;
+  broadPhase.commit();
 }
 
-void TerrainGame::sceneGridNear(float minX, float minZ, float maxX, float maxZ,
-                                std::vector<int>& out) const {
-  if (gridFrame != g_frameStamp) sceneGridRebuild();
-  out.clear();
-  if (gridVerifyAll) {  // the verify run's brute-force side
+void TerrainGame::broadPhaseNear(const Tyra::BroadBox& area,
+                                 std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  if (bpVerifyAll) {  // the verify run's brute-force side
+    out.clear();
     for (int i = 0; i < (int)runtimeObjects.size(); ++i) out.push_back(i);
     return;
   }
-  if (++gridStamp == ~0u) {  // never collide with the rebuild's tag
-    std::fill(gridMark.begin(), gridMark.end(), 0u);
-    gridStamp = 1;
-  }
-  for (int i : gridAlways) {
-    gridMark[(size_t)i] = gridStamp;
-    out.push_back(i);
-  }
-  if (gridNx > 0) {
-    int x0 = (int)((minX - gridMinX) * gridInvCell);
-    int x1 = (int)((maxX - gridMinX) * gridInvCell);
-    int z0 = (int)((minZ - gridMinZ) * gridInvCell);
-    int z1 = (int)((maxZ - gridMinZ) * gridInvCell);
-    // Every box lies inside the grid, so a query off it on a side finds
-    // nothing static there.
-    if (maxX >= gridMinX && maxZ >= gridMinZ && x0 < gridNx && z0 < gridNz) {
-      if (x0 < 0) x0 = 0;
-      if (z0 < 0) z0 = 0;
-      if (x1 >= gridNx) x1 = gridNx - 1;
-      if (z1 >= gridNz) z1 = gridNz - 1;
-      for (int z = z0; z <= z1; ++z)
-        for (int x = x0; x <= x1; ++x) {
-          const int c = z * gridNx + x;
-          for (int k = gridStart[(size_t)c]; k < gridStart[(size_t)c + 1]; ++k) {
-            const int i = gridItems[(size_t)k];
-            if (gridMark[(size_t)i] == gridStamp) continue;
-            gridMark[(size_t)i] = gridStamp;
-            const float* b = gridEntries[(size_t)i].box;
-            if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
-            out.push_back(i);
-          }
-        }
-    }
-  }
-  // In object order, as the full walks were: a walker's pushes apply one
-  // after another, so the order is part of the result.
-  std::sort(out.begin(), out.end());
-  if (kSceneGridVerify) sceneGridVerify(minX, minZ, maxX, maxZ, out);
+  broadPhase.queryBox(area, out);
+  if (kBroadPhaseVerify) broadPhaseVerify(&area, nullptr, nullptr, 0.0F, out);
 }
 
-void TerrainGame::sceneGridAlong(float ax, float az, float bx, float bz,
-                                 float radius, std::vector<int>& out) const {
-  // Short (or vertical) segments: their padded bounding box is the query.
-  const float dx = bx - ax, dz = bz - az;
-  const float minX = (ax < bx ? ax : bx) - radius, maxX = (ax > bx ? ax : bx) + radius;
-  const float minZ = (az < bz ? az : bz) - radius, maxZ = (az > bz ? az : bz) + radius;
-  if (gridFrame != g_frameStamp) sceneGridRebuild();
-  if (gridNx == 0 || gridVerifyAll || fabsf(dx) * gridInvCell < 2.0F) {
-    sceneGridNear(minX, minZ, maxX, maxZ, out);
+void TerrainGame::broadPhaseAlong(const float* a, const float* b, float radius,
+                                  std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  if (bpVerifyAll) {
+    out.clear();
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i) out.push_back(i);
     return;
   }
-  // Long ones: column by column, only the Z cells the segment (padded by
-  // `radius`) crosses inside that column - a diagonal trace touches O(length)
-  // cells, not O(length^2).
-  out.clear();
-  if (++gridStamp == ~0u) {
-    std::fill(gridMark.begin(), gridMark.end(), 0u);
-    gridStamp = 1;
-  }
-  for (int i : gridAlways) {
-    gridMark[(size_t)i] = gridStamp;
-    out.push_back(i);
-  }
-  const float cell = 1.0F / gridInvCell;
-  int x0 = (int)((minX - gridMinX) * gridInvCell);
-  int x1 = (int)((maxX - gridMinX) * gridInvCell);
-  if (x0 < 0) x0 = 0;
-  if (x1 >= gridNx) x1 = gridNx - 1;
-  for (int x = x0; x <= x1; ++x) {
-    // The slab of world X this column covers, padded, clipped to the segment.
-    float cx0 = gridMinX + (float)x * cell - radius;
-    float cx1 = cx0 + cell + 2.0F * radius;
-    float t0 = (cx0 - ax) / dx, t1 = (cx1 - ax) / dx;
-    if (t0 > t1) { const float s = t0; t0 = t1; t1 = s; }
-    if (t0 < 0.0F) t0 = 0.0F;
-    if (t1 > 1.0F) t1 = 1.0F;
-    if (t0 > t1) continue;
-    const float za = az + dz * t0, zb = az + dz * t1;
-    const float zlo = (za < zb ? za : zb) - radius, zhi = (za > zb ? za : zb) + radius;
-    int z0 = (int)((zlo - gridMinZ) * gridInvCell);
-    int z1 = (int)((zhi - gridMinZ) * gridInvCell);
-    if (z1 < 0 || z0 >= gridNz) continue;
-    if (z0 < 0) z0 = 0;
-    if (z1 >= gridNz) z1 = gridNz - 1;
-    for (int z = z0; z <= z1; ++z) {
-      const int c = z * gridNx + x;
-      for (int k = gridStart[(size_t)c]; k < gridStart[(size_t)c + 1]; ++k) {
-        const int i = gridItems[(size_t)k];
-        if (gridMark[(size_t)i] == gridStamp) continue;
-        gridMark[(size_t)i] = gridStamp;
-        const float* b = gridEntries[(size_t)i].box;
-        if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
-        out.push_back(i);
-      }
-    }
-  }
-  // In object order, as the full walks were: a walker's pushes apply one
-  // after another, so the order is part of the result.
-  std::sort(out.begin(), out.end());
-  if (kSceneGridVerify) sceneGridVerify(minX, minZ, maxX, maxZ, out);
+  broadPhase.querySegment(a, b, radius, out);
+  if (kBroadPhaseVerify) broadPhaseVerify(nullptr, a, b, radius, out);
 }
 
-void TerrainGame::sceneGridVerify(float minX, float minZ, float maxX, float maxZ,
-                                  const std::vector<int>& out) const {
+void TerrainGame::broadPhaseVerify(const Tyra::BroadBox* area, const float* a,
+                                   const float* b, float radius,
+                                   const std::vector<int>& out) const {
   // Every active obstacle whose CURRENT box (not the cached one) reaches the
-  // area must be in `out`. For a segment the area is its padded bounding box,
-  // which is looser than the walk - a miss there is still a real miss only if
-  // the object also crosses the segment, so segment misses read as a hint.
+  // area or the segment must be in `out`, which must be ascending.
+  for (size_t k = 1; k < out.size(); ++k)
+    if (out[k] <= out[k - 1]) TYRA_LOG("[BROADPHASE] result not ascending");
+  const float d[3] = {b ? b[0] - a[0] : 0.0F, b ? b[1] - a[1] : 0.0F,
+                      b ? b[2] - a[2] : 0.0F};
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active || !physObstacle(o.data)) continue;
-    float b[4];
-    sceneGridBoxOf(o, b);
-    if (b[0] > maxX || b[2] < minX || b[1] > maxZ || b[3] < minZ) continue;
+    Tyra::BroadBox bx;
+    broadPhaseBoxOf(o, bx);
+    bool reach = true;
+    if (area) {
+      for (int k = 0; k < 3; ++k)
+        reach = reach && bx.mn[k] <= area->mx[k] && bx.mx[k] >= area->mn[k];
+    } else {
+      reach = broadPhaseSegmentHits(a, d, bx, radius);
+    }
+    if (!reach) continue;
     bool found = false;
     for (int j : out) found = found || j == i;
     if (!found) {
-      char line[128];
-      snprintf(line, sizeof(line), "[GRID] miss obj=%d area=(%.1f %.1f)-(%.1f %.1f)",
-               i, minX, minZ, maxX, maxZ);
+      char line[96];
+      snprintf(line, sizeof(line), "[BROADPHASE] miss obj=%d (%s)", i,
+               area ? "area" : "segment");
       TYRA_LOG(line);
     }
   }
@@ -18417,9 +18297,13 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
   const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
   const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
 
-  // Broad phase: the scene grid's candidates for that same box.
-  sceneGridNear(sminX, sminZ, smaxX, smaxZ, gridNearSweep);
-  for (int oi : gridNearSweep) {
+  // Broad phase: the candidates the swept sphere (the padded segment) can
+  // reach.
+  {
+    const float sa[3] = {px, py, pz}, sb[3] = {qx, qy, qz};
+    broadPhaseAlong(sa, sb, r, bpNearSweep);
+  }
+  for (int oi : bpNearSweep) {
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
@@ -22507,11 +22391,19 @@ void TerrainGame::updateObjectPhysics() {
     }
 
     const float reach = B.radius + sqrtf(rbDot(S.v, S.v)) + 0.05F;
-    // Broad phase: the scene grid's candidates within the body's reach;
-    // then a centre + reject radius from the collision box, no trigonometry.
-    sceneGridNear(x1.x - reach, x1.z - reach, x1.x + reach, x1.z + reach,
-                  gridNearPhys);
-    for (int j : gridNearPhys) {
+    // Broad phase: the candidates within the body's reach (in 3D); then a
+    // centre + reject radius from the collision box, no trigonometry.
+    {
+      Tyra::BroadBox area;
+      area.mn[0] = x1.x - reach;
+      area.mn[1] = x1.y - reach;
+      area.mn[2] = x1.z - reach;
+      area.mx[0] = x1.x + reach;
+      area.mx[1] = x1.y + reach;
+      area.mx[2] = x1.z + reach;
+      broadPhaseNear(area, bpNearPhys);
+    }
+    for (int j : bpNearPhys) {
       if (j == S.obj) continue;
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || s.data.physics || !physObstacle(s.data)) continue;

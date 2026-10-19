@@ -5515,7 +5515,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 172
+#define TYRAX_VERSION_MINOR 173
+// 1.173.0: THE CONTACT BROAD PHASE.
+// The walker (and game-side actors), the camera/carry sweep, the physics
+// statics and traceLine stopped walking every scene object: one broad phase
+// (vendor/tyra engine physics/broad_phase) names the objects near a query,
+// and Preferences > Game > Physics > Broad phase picks its backend - a
+// height-aware grid (default) or a loose octree (format v95). Results are
+// unchanged (kBroadPhaseVerify cross-checks them against brute force); in a
+// 24-bot game scene collision went from ~11 ms a frame to ~0.25. MINOR.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto
@@ -6138,7 +6146,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 (docs/collision-boxes.md, "The broad phase"): settings "broadPhase"
+// ("octree"), written only when not "grid". Missing = the grid. Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
