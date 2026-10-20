@@ -18,3 +18,13 @@ Results and the first numbers: [docs/vu0-macro-mode.md](../../docs/vu0-macro-mod
 
 For an A/B, build a second copy of the project against the other engine and
 diff the two logs: the `xyz=` hashes must match line for line.
+
+## `vu0_kernels_bench.cpp`
+
+Prototype kernels against the engine's scalar code in the SAME ELF, so no
+second build is needed: `mmi::equal64` against `memcmp` (correctness over every
+single-bit difference, cycles per call), and the VU0 structure-of-arrays
+`frustumCheckAABB` prototype against a verbatim copy of the scalar function
+(an oracle over 163 840 randomized and plane-touching boxes, then cycles). Add
+it beside `vu0_bench.cpp`, declare `void vu0KernelsBenchRun();` and call it after
+`vu0BenchRun()`; it prints `KBENCH ...` lines and `KBENCH done`.

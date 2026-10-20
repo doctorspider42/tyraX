@@ -5,8 +5,9 @@ console's equivalent of SSE: `Vec4` and `M4x4` are thin inline wrappers around
 COP2 instructions (`lqc2`, `vadd`, `vmula`/`vmadd`, `vrsqrt`, `sqc2`), written as
 GCC inline assembly. This page is for anyone writing such a block: why it has to
 be hand-written, the operand rules that keep GCC from miscompiling it, the
-register conventions, and what the inline wrappers measured against the
-out-of-line ones they replaced.
+register conventions, what the inline wrappers measured against the
+out-of-line ones they replaced, the MMI (128-bit integer) helpers, and a kernel
+that was measured and not built.
 
 ## Why it is hand-written
 
@@ -100,9 +101,50 @@ every pixel outside the traced glass is byte-identical between the two engines,
 and the glass differs between arms no more than between two boots of one ELF
 (the trace races the capture).
 
+## MMI: 128-bit integer work in the GPRs
+
+The EE's general registers are 128 bits wide, and the MMI instructions
+(`lq`/`sq`, `pxor`, `por`, `pceqw`, `pextlw`, `pcpyud`...) treat them as packed
+integers - SSE2's integer half. `inc/math/mmi.hpp` holds the engine's helpers.
+GCC models a GPR as 64 bits, so 128-bit values never cross an operand boundary:
+load, work and reduce inside one block, with every GPR it touches a clobber.
+
+`mmi::equal64(a, b)` is `memcmp(a, b, 64) == 0` as eight `lq`, four `pxor` and
+an OR-reduction. The static pipeline's transform cache runs two of those per
+bag (model and view-projection), which the console attribution priced at
+**0.341 ms** of `bounds` a garage-day frame
+([attribution](render-submission-attribution.md)). Bench: 513 cases (equal, and
+one flipped bit at every position), 0 wrong; **~247 -> ~41 cycles** a call in
+PCSX2. Both pointers must be 16-byte aligned - `lq` drops the low four address
+bits - which every `M4x4` already is.
+
+## Measured, not built: a VU0 frustum AABB test
+
+`CoreBBox::frustumCheckAABB` was the obvious next kernel: six plane tests are
+two four-wide `vmula`/`vmadd` chains if the planes are stored as
+structure-of-arrays (NX, NY, NZ, D, |NX|, |NY|, |NZ| per four planes, built once
+per bag). The prototype is in `tools/vu0-bench/vu0_kernels_bench.cpp`, against a
+verbatim copy of the scalar function in the same ELF:
+
+- **speed**: 157-183 -> 134-135 cycles a call (PCSX2, two runs) - 15-27%, on a
+  function whose scalar form exits at the first failing plane and therefore
+  wins on the two thirds of boxes that are outside;
+- **exactness**: 24 classification and 40 mask mismatches in 163 840 trials -
+  every one a box built to touch a plane, within ~1e-5 of it: the VU and the
+  FPU round the same expression differently at the boundary. The scalar
+  function is proven bit-equivalent to its predecessor over 6 000 000 trials;
+  this would not be;
+- **cost**: the plane API through the packager and the transform cache changes
+  from `Plane*` to a structure-of-arrays block.
+
+Not worth it at those numbers. What would change the verdict: a console run of
+the bench showing a much larger gap (cache behaviour PCSX2 does not model), or
+a caller that classifies many boxes against one plane set in a loop, where one
+asm block keeps the planes resident.
+
 ## What comes next
 
 Inline wrappers remove the call; they cannot keep values in VU0 registers
-*between* operators, because GCC cannot. The next step is fused kernels - one
-asm block per hot loop, with its constants resident - starting with the
-frustum AABB classification. See [Backlog](backlog.md), "VU0 macro-mode kernels".
+*between* operators, because GCC cannot. What pays is a block that keeps its
+data in registers across a loop. See [Backlog](backlog.md), "VU0 macro-mode
+kernels".

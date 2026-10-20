@@ -10,6 +10,7 @@
 */
 
 #include "math/math.hpp"
+#include "math/mmi.hpp"
 
 #include <gs_gp.h>
 #include <math.h>
@@ -731,10 +732,12 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
       transformCacheValid &&
       bag->info->transformationType == TyraMVP &&
       transformCacheModelPtr == bag->info->model &&
-      memcmp(transformCacheModel.data, bag->info->model->data,
-             sizeof(transformCacheModel.data)) == 0 &&
-      memcmp(transformCacheViewProj.data, currentViewProj.data,
-             sizeof(transformCacheViewProj.data)) == 0;
+      // Modified by TyraX: the same bit-for-bit test as memcmp(.., 64), in
+      // MMI - ~41 cycles against ~247 a call, twice per bag (the two
+      // memcmps were 0.341 ms of `bounds` on the console;
+      // docs/render-submission-attribution.md, docs/vu0-macro-mode.md).
+      mmi::equal64(transformCacheModel.data, bag->info->model->data) &&
+      mmi::equal64(transformCacheViewProj.data, currentViewProj.data);
   TYRA_ATTRIB_ADD(bdXformTicks, attribXformStart);
 
   StaPipBagPackagesBBox* bbox = nullptr;
