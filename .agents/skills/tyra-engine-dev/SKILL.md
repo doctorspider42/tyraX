@@ -4283,6 +4283,38 @@ instead of polling every 0.5 ms at priority 5, and `RendererCoreEnvMap` can hold
 a second (back) colour target for the two-frame reflection capture
 (`begin(.., clear, intoBack)` / `swap()`, `EngineOptions::envMapDoubleBuffered`).
 
+### Audit 2026-10-20 EE items: owned packets, chain stamps, partial replay
+
+Runtime switches, each A/B'd on the PS2 with one ELF; results and which ship
+are in docs/tyrax2-arch-audit-ee-submission-2026-10-20.md. Traps any edit must
+keep:
+
+- **Owned packets (`Vif1Queue::reservePacket` / `submitOwned`, R3).** A StaPip
+  packet is re-pointed into the frame bank ONLY while empty (`startPacket`);
+  everything that remembers a packet position is set after that. Commit the
+  reservation (`FrameChainArena::shrink`) BEFORE `closeOpenChain()`, or the 2D
+  chain copies over the packet. A `drain()` keeps an open reservation taken
+  (`keepUntil`); a bank switch invalidates it, and a stale packet takes the
+  copying submit. `deallocateOnUse` must restore `packetOrigin` before
+  `packet2_free`.
+- **Chain stamps (`setStampChain`, R1).** The head copies in `stampDmaHeads`
+  and the VP ring are DMA memory: a copy is rewritten only `kStampChainMargin`
+  frames after a chain last named it, counted by `stampFrame` in `onFrameEnd`.
+  The VP block holds `VP * Identity`, not VP: the bytes the bag's own MVP
+  upload carried. A shadow value (fog words, TEX0, single colour) that the
+  replay does not compare is a stale head - add it to the compare.
+- **Partial replay (`setPartialReplay`, R5).** The baked cache tells passes
+  apart by PROGRAM now (`samePass`), so a bag's cull and whole-clip variants
+  coexist; without it the clip acquire replaced the cull entry in place. A run
+  that follows the other program must regenerate its first block's header
+  (GS-state flag at `kPackedCountWord`) and kick (MSCAL); continuing blocks are
+  baked as MSCNT without the flag. The whole-clip variant bakes the plane mask
+  at 0x3F - the only camera-dependent word of a clip block. Mode 3 stamps a
+  whole-clip bag; its stamp replays only while the bag still crosses the view.
+- PCSX2 parked frame grabs at one frame of the cycle fall into clusters (the
+  three-phase reflection probe): compare an arm against the nearest baseline
+  cycle, never against one other cycle.
+
 ### Triangle strips for static geometry (1.95.0)
 
 `StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole

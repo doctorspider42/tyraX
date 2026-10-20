@@ -1432,7 +1432,13 @@ void StaPipQBufferRenderer::sendObjectData(
   bagMayClip = true;
   if (vu1Clipping && mayClip) {
 #if TYRA_STAPIP_STAMP
-    stampOk = false;  // only partial bags clip; stamps are whole bags
+    // Only the shared REF form can be replayed (R5 clip stamps): it names one
+    // block rewritten only after a drain, when its own inputs move.
+#if TYRA_STAPIP_RETAINED_COMMANDS
+    if (!(stampClipArmed && clipBlockVifQw != 0)) stampOk = false;
+#else
+    stampOk = false;
+#endif
 #endif
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
@@ -2764,6 +2770,16 @@ bool StaPipQBufferRenderer::replayWholeClip() {
   TYRA_ASSERT(packet2_get_qw_count(packet) + 4 <= packetSize,
               "No room for a whole-clip bag's REF");
   emitRef(packet, clip->arena, clip->arenaQw);
+#if TYRA_STAPIP_STAMP
+  if (stampArmed && stampOk && stampClipArmed) {
+    StaPipBakedEntry* cull = bakedCurrent;
+    bakedCurrent = clip;  // the stamp's body entry
+    captureStamp();
+    bakedCurrent = cull;
+  }
+  stampArmed = false;
+  stampClipArmed = false;
+#endif
   // Block 0 was baked with MSCAL and the GS-state flag (render() clears the
   // program name per bag, as for every first package).
   lastProgramName =
@@ -3260,8 +3276,10 @@ static inline u32 stampContent(const StaPipBag* bag) {
 }
 
 void StaPipQBufferRenderer::armStampCapture(StaPipBag* bag, const Vec4& lo,
-                                            const Vec4& hi, bool batchSized) {
-  stampArmed = stampEnabled;
+                                            const Vec4& hi, bool batchSized,
+                                            bool clipBody) {
+  stampArmed = stampEnabled && (!clipBody || clipStamps);
+  stampClipArmed = clipBody && clipStamps;
   stampBag = bag;
   stampBatchSized = batchSized;
   stampLo = lo;
@@ -3327,6 +3345,7 @@ void StaPipQBufferRenderer::captureStamp() {
   // no wrap write), the body REF last. The copies' frame tags are kept - a
   // recycled slot's old copies may still be read by chains in flight.
   s->chainOk = 0;
+  s->clipBody = stampClipArmed ? 1 : 0;
   s->headCur = 0xFF;
   s->refTag = stampHead[qw - 1];
   if (stampDmaHeads != nullptr && !stampWrapBlock && stampSpotAt == 0 &&
@@ -3369,7 +3388,10 @@ const qword_t* StaPipQBufferRenderer::vpBlockFor(const M4x4& viewProj) {
     const qword_t& h = unpackHeader(VU1_MVP_MATRIX_ADDR, 4);
     b[0].dw[0] = 0;  // two VIF NOPs where the CNT tag's DMA half was
     b[0].dw[1] = h.dw[1];
-    memcpy(&b[1], viewProj.data, sizeof(viewProj.data));
+    // The product with the identity, not the matrix itself: the bytes an
+    // identity-model bag's own MVP upload carried (zero signs included).
+    const M4x4 mvp = viewProj * M4x4::Identity;
+    memcpy(&b[1], mvp.data, sizeof(mvp.data));
     vpBlockFrame[at] = stampFrame;
     vpCurrent = b;
     vpCurrentMatrix = viewProj;
@@ -3467,7 +3489,14 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   {
     const CoreBBoxFrustum f = CoreBBox::frustumCheckAABB(planes, s->wlo, s->whi);
     if (f == OUTSIDE_FRUSTUM) STAMP_REJECT(5);
-    if (f != IN_FRUSTUM &&
+    if (s->clipBody) {
+      // R5: a whole-clip stamp stands only for the crossing route; a bag the
+      // ordinary path would draw directly goes back to it (and its cull stamp).
+      if (!clipStamps || !vu1Clipping || f == IN_FRUSTUM ||
+          (guardBandPlanes != nullptr &&
+           CoreBBox::activePlaneMaskAABB(guardBandPlanes, s->wlo, s->whi, 8) == 0))
+        STAMP_REJECT(5);
+    } else if (f != IN_FRUSTUM &&
         (guardBandPlanes == nullptr ||
          CoreBBox::activePlaneMaskAABB(guardBandPlanes, s->wlo, s->whi, 8) != 0))
       STAMP_REJECT(5);
@@ -3562,10 +3591,8 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
     startPacket(packet);
     packetWrapSet = false;
   }
-  // MVP: re-derived from the live model. Modified by TyraX (R1): an identity
-  // model's MVP IS the view-projection - no product.
-  const M4x4 mvp =
-      (s->identity && stampChain) ? viewProj : viewProj * s->model;
+  // MVP: re-derived from the live model.
+  const M4x4 mvp = viewProj * s->model;
   // Fog words (options qword 0), re-derived exactly as sendObjectData does.
   u32 fogWords[2];
   {

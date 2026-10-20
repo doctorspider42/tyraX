@@ -333,3 +333,14 @@ The A/B fixture is the `C:\tx\rig` private night drive from the investigation
 page: parked night 18.3 -> 13.5 ms (with the audio idle sleep). Generated games
 enable stamps; the engine default stays off. Visual equivalence on a TV is
 still pending.
+
+## Chain stamps and the stamp slot (2026-10-20)
+
+`StaPipCore::setStampChain` (R1 of the architecture audit): a stamp with the
+plain head layout keeps the head after its MVP in DMA memory and replays as
+three quadwords for a world-space bag - a REF to the frame's shared VP block,
+a REF to the head copy, the body REF. `StaPipBag::stampSlot`
+(`setStampSlotHint`) finds the stamp without the hash probe. A crossing bag
+replayed whole into the clip program can stamp too
+(`StaPipCore::setPartialReplay(3)`). Design, traps and the PS2 numbers:
+[EE submission audit items](tyrax2-arch-audit-ee-submission-2026-10-20.md).

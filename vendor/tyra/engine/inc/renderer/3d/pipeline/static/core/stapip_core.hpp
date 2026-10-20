@@ -104,9 +104,17 @@ class StaPipCore {
    * 1 = runs - per-package classification kept, each run of same-route
    * packages one REF into its baked cull or whole-clip blocks; 2 = whole -
    * the bag is ONE REF into the streamed VU1 clip program with all six planes,
-   * no EE classification (VU1 judges every triangle). VU1 clipping with
-   * whole-package streaming only. See docs/vu1-clipping.md. */
-  void setPartialReplay(u8 mode) { partialReplay = mode; }
+   * no EE classification (VU1 judges every triangle); 3 = whole, and the bag
+   * takes a stamp (its head is replayed too while it keeps crossing). VU1
+   * clipping with whole-package streaming only. See
+   * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R5". */
+  void setPartialReplay(u8 mode) {
+    flushDeferred();
+    partialReplay = mode;
+#if TYRA_STAPIP_STAMP
+    qbufferRenderer.setClipStamps(mode == 3);
+#endif
+  }
   StaPipCore();
   ~StaPipCore();
 

@@ -827,8 +827,13 @@ class StaPipQBufferRenderer {
   /** Arm a capture for the bag about to go through sendObjectData + whole
    * baked replay. `lo`/`hi` are its world-space box (identity model). */
   void armStampCapture(StaPipBag* bag, const Vec4& lo, const Vec4& hi,
-                       bool batchSized);
-  void disarmStampCapture() { stampArmed = false; }
+                       bool batchSized, bool clipBody = false);
+  void disarmStampCapture() { stampArmed = false; stampClipArmed = false; }
+  /** Modified by TyraX (R5): a frustum-crossing bag replayed whole into the
+   * clip program (StaPipCore::setPartialReplay(3)) may take a stamp too: its
+   * head carries the shared clip-constant REF and its body REF names the
+   * whole-clip blocks. Replays only while the bag still crosses the view. */
+  void setClipStamps(bool on) { clipStamps = on; }
   /** Re-emit a valid stamp for `bag`; false = take the ordinary path. */
   bool tryStamp(StaPipBag* bag, const M4x4& viewProj, const Plane* planes,
                 const Plane* guardBandPlanes, bool dynamicLightReceive,
@@ -1179,6 +1184,7 @@ class StaPipQBufferRenderer {
     // copy whose fog / TEX0 / single-colour words went stale is rewritten,
     // into the copy no chain of the last frames can still be reading.
     u8 chainOk = 0;      // head = FLUSHE, MVP, plain CNT blocks, REF
+    u8 clipBody = 0;     // R5: the body is the whole-clip blocks
     u8 identity = 0;     // model == identity: the MVP is the shared VP block
     u8 headCur = 0xFF;   // copy holding the shadow values (0xFF: none)
     u16 headFrom = 0, headQw = 0;
@@ -1234,6 +1240,8 @@ class StaPipQBufferRenderer {
   static const u32 kStampChainMargin = 3;
   bool stampChain = false;
   bool stampSlotHint = false;
+  bool clipStamps = false;
+  bool stampClipArmed = false;  // the armed capture is a whole-clip bag
   u32 stampChainHits = 0, partialWholeHits = 0, partialRunHits = 0;
   qword_t* stampDmaHeads = nullptr;
   qword_t* vpBlocks = nullptr;
