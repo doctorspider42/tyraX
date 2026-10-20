@@ -19100,6 +19100,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (o.data.collision == 3) {
     g.parts.clear();
     g.outlineVerts.clear();
+    g_bakeLocal = false;  // a global: never leave it set for the next bake
     return;
   }
 
@@ -19889,6 +19890,11 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       }
       g_envNormals = nullptr;
       g_aoOff = false;
+      // A global: left set, the next world-space bake comes out local. A
+      // static batch rebuilt after a parked car baked its far tier (the night
+      // windows shown by the district mood script) put every member at the
+      // world origin.
+      g_bakeLocal = false;
       if (tier.vertices.empty()) return;  // nothing to show - keep tier 0
       if (part.envBag) {
         tier.envColors.assign(tier.vertices.size(),
@@ -20292,6 +20298,9 @@ void TerrainGame::buildStaticBatchList() {
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.dirty = false;
+  // A batch is world space by definition, whatever the last bake left in
+  // the global (see applyGeoLod's tier bake).
+  g_bakeLocal = false;
   // The streams are about to change: hand them back first (see the
   // immutableStreams note where the bag is made).
   if (b.bag) b.bag->releaseImmutableStreams();

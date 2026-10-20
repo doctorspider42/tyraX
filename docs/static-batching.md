@@ -263,3 +263,18 @@ about a scene with a broken asset path. Fixture E pins it.
 - Package counts are derived from vertex counts and the package size the
   static programs use (75 vertices, `meshstrip::kRun`). They are what the bag
   submits, not a measurement of a frame.
+
+## Members at the world origin (fixed 1.176.3)
+
+A batch bakes its members in WORLD space through the same `pushVert` the solo
+path uses, and `pushVert` reads the global `g_bakeLocal` to decide between
+world and local (matrix-path) vertices. Two bakes left that global set: a
+matrix-path object's LOD tier (`applyGeoLod`) and a matrix-path invisible wall
+(`rebuildObjectGeometry`'s early return). The next batch rebuild then baked
+every member without its position, and the batch drew them all at (0, 0, 0).
+On the Motor District this showed at night, on foot: the district mood script
+shows the night windows and neon blades, the batch holding them rebuilds, and
+a pink pole with yellow window panes stood in the middle of the central
+crossing. Both bakes now clear the flag, and `rebuildStaticBatch` clears it on
+entry, since a batch is world space by definition. Reproduced in PCSX2 by
+forcing the flag before the mood flip; gone with the fix.

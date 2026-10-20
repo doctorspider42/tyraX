@@ -1,5 +1,11 @@
 #pragma once
 
+// 1.176.3 (docs/static-batching.md, "Members at the world origin"): two bakes left the
+// g_bakeLocal global set (a matrix-path LOD tier, a matrix-path invisible wall),
+// so the next static batch rebuild baked its members without their positions and
+// drew them at (0, 0, 0) - the Motor District's night windows and neon blade in
+// the middle of the central crossing. Both clear it; rebuildStaticBatch clears it
+// on entry. Generated game code only, PATCH.
 // 1.176.2 (docs/stapip-stamps.md, "Light pick"): a stamp keeps its light inputs
 // (world sphere, model inverse) with its world box instead of re-deriving them
 // every frame, and pickDynLight rejects out-of-reach lights from a packed
@@ -5688,7 +5694,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
