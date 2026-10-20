@@ -22,6 +22,7 @@
 #include "./loaders/3d/tskl_loader/tskl_loader.hpp"
 #include "./loaders/texture/png_loader.hpp"
 #include "./packet2/packet2_tyra_utils.hpp"
+#include "./physics/broad_phase.hpp"
 #include "./physics/collision_mesh.hpp"
 #include "./physics/ray.hpp"
 #include "./renderer/3d/pipeline/dynamic/dynamic_pipeline.hpp"

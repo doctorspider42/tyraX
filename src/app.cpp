@@ -16141,6 +16141,15 @@ void App::drawPreferencesWindow() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    {
+        static const char* kBroadPhases[] = {"Grid", "Octree"};
+        int bp = prefSettings_.broadPhase == "octree" ? 1 : 0;
+        if (ImGui::Combo("Broad phase", &bp, kBroadPhases, 2))
+            prefSettings_.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("Finds the objects collision, the camera, physics and traces test.\n"
+                 "Grid: fastest for flat scenes of similar-sized props.\n"
+                 "Octree: also splits by height - stacked or very uneven scenes.");
+    }
     endTab();
     }
 
@@ -17095,6 +17104,18 @@ void App::drawScenePreferencesModal() {
             s.clipping =
                 clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
     });
+
+    // The contact broad phase (docs/collision-boxes.md, "The broad phase"). Its
+    // own toggle wording, so a scripted run can find this category's checkbox.
+    category("Collision", ov.broadPhase, [&] {
+        static const char* kBroadPhases[] = {"Grid", "Octree"};
+        int bp = s.broadPhase == "octree" ? 1 : 0;
+        if (ImGui::Combo("Broad phase##scene", &bp, kBroadPhases, 2))
+            s.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("This level's collision broad phase. Octree suits a level that\n"
+                 "stacks in height (floors, bridges, things in the air) or mixes\n"
+                 "dense blocks with open ground; Grid suits flat levels.");
+    }, "Use its own broad phase");
 
     category("Terrain material", ov.terrainMat, [&] {
         drawTerrainMaterialCombo("Material", s.terrainMaterial);

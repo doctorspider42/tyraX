@@ -968,6 +968,8 @@ constexpr float STICK_EXP_L = {{STICK_EXP_L}};
 constexpr float STICK_EXP_R = {{STICK_EXP_R}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
+// The contact broad phase (docs/collision-boxes.md): 0 grid, 1 octree.
+constexpr int SCENE_BROADPHASE = {{SCENE_BROADPHASE}};
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
 // Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
@@ -2372,6 +2374,44 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
+  };
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -4223,6 +4263,44 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
+  };
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -10277,6 +10355,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         int n = (int)(v * 128.0f + 0.5f);
         return n < 0 ? 0 : (n > 128 ? 128 : n);
     };
+
+    // The contact broad phase per scene (docs/collision-boxes.md): emitted only
+    // when a scene overrides it - a project whose scenes all inherit keeps the
+    // header it had, and the game reads the project's SCENE_BROADPHASE. Keyed
+    // on ANY override, not on disagreement: every scene overriding to the same
+    // backend still differs from the project constant.
+    {
+        bool anyOverride = false;
+        for (const SceneData& sc : p.scenes) anyOverride |= sc.overrides.broadPhase;
+        if (anyOverride) {
+            out << "#define SCENE_BROADPHASE_PER_SCENE 1  // 0 grid, 1 octree\n";
+            sceneInts("SCENE_BROADPHASES",
+                      [&](int si) { return rs[si].broadPhase == "octree" ? 1 : 0; });
+        }
+    }
 
     // The terrain SIZE is also the scene's world bounds (every walker is
     // clamped to it), so it is emitted whether or not the scene has a ground.
@@ -18952,6 +19045,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{P2_JOIN_ON_START}}",
                    st.p2JoinOnStart ? "true" : "false");
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
+    s = replaceAll(s, "{{SCENE_BROADPHASE}}", st.broadPhase == "octree" ? "1" : "0");
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
