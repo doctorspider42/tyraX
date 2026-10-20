@@ -583,3 +583,41 @@ across on a 4-unit terrain. 1.176.0 tessellates roads into error-bounded
 bands (docs/roads.md, "Bands"): VU1 ~48% -> ~36%, parked p50 12.37 ->
 11.70-11.80 ms, the first EE-era change to move it. The rest of the VU1 load
 is objects (~17k vertices) and static batches (~5k).
+
+### Fewer draws: what the bag census says (2026-10-20)
+
+A per-bag census of one parked and one driving frame (rig `--bagcensus`,
+PCSX2, counts only): 125 / 106 StaPip bags, 108 / 84 of them stamps, 38.9k /
+32.9k vertices. Only 20 distinct model matrices - almost every static bag is
+baked in world space - and the same mesh appears in view at most 2-4 times,
+so **instancing has nothing to amortise here**. What stands out is size: 45
+bags of the parked frame carry 60 vertices or fewer, 16 of them road chunks
+(one road texture = 30 bags), cut at every 16 repeats of V.
+
+Road chunks were therefore A/B'd on the PS2 (rig `--roadchunkab`, one ELF,
+8 cycles an arm): V rebased in place at a strip restart instead of a new bag,
+closing a chunk at 72 or 144 dense stations. 61 -> 51 -> 47 chunks, and the
+frame did not move (parked 10.63 / 10.61 / 10.63 ms, driving 11.16 / 11.21 /
+11.12 ms; equal arms spread 0.05 ms). Not done: a few fewer small bags in view
+are below what a frame can show.
+
+### The submission walked every chain four times (2026-10-20)
+
+`Vif1Queue::submit` with frame recording on: preflight (validate + resolve
+every REF), copy of the producer's chain (tags and payloads), REF fixup (copy
+of mutable REF targets), then native emission walking the copy again to
+record REFs into the frame's chain. Measured per pass on the PS2 (rig
+`--submitsegs`, driving, ~30 submits a frame): 0.38 + 0.11 + 0.21 + 0.22 ms,
+q.submit 1.2 ms in all.
+
+The native chain needs only the payloads, never a copy of the tags.
+1.176.1 records in ONE walk (`recordSinglePass`, `TYRA_VIF1_SINGLE_PASS_RECORD`):
+a CNT/END payload goes into the arena and is recorded as a REF to the copy, a
+REF is recorded as itself when the immutable table lends its span and as a
+REF to an arena copy otherwise. Any failure gives back what it took and the
+snapshot route runs as before (it owns the drain/flush recovery) - 1 fallback
+in 680 000 submits. Same-ELF A/B on the PS2 (rig `--singlepassab`, 6 cycles,
+two single-pass arms against the four-pass one): parked work 10.57 -> 10.34 /
+10.35 ms, driving work 11.07 -> 10.73 / 10.76 ms, driving p50 10.62 ->
+10.25 ms. PCSX2 frame shots differ between the routes no more than between
+two runs of the same route (dither noise).

@@ -115,6 +115,16 @@ class FrameChainArena {
       : memory(static_cast<uint8_t*>(memory)), capacity(bytes) {}
   uint32_t used() const { return cursor; }
   void reset() { cursor = 0; }
+  // Bump allocation for a caller that records straight from a producer's
+  // chain (Vif1Queue's single-pass recorder): take `bytes` (16-aligned) or
+  // nothing, and give a failed recording's allocations back with rewind().
+  uint8_t* take(uint32_t bytes) {
+    if (!memory || cursor > capacity || bytes > capacity - cursor) return nullptr;
+    uint8_t* p = memory + cursor;
+    cursor += bytes;
+    return p;
+  }
+  void rewind(uint32_t mark) { if (mark <= cursor) cursor = mark; }
 
   Snapshot copy(const void* base, uint32_t qwords,
                 Vif1ChainCheck::Resolver resolver, void* context,

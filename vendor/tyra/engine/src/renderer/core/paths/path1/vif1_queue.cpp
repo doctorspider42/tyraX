@@ -323,6 +323,81 @@ FrameChainArena::Snapshot copyForNativeRecording(const void* chain, u32 qwords,
   return chainArena->copy(chain, qwords, resolveChainRef, nullptr,
                          reinterpret_cast<u32>(arenaMemory), isImmutableSpan);
 }
+
+#ifndef TYRA_VIF1_SINGLE_PASS_RECORD
+#define TYRA_VIF1_SINGLE_PASS_RECORD 1
+#endif
+// Modified by TyraX: the frame's native chain needs only the producer's
+// PAYLOADS, never a copy of its tags. The snapshot route walks a chain four
+// times (preflight, tag+payload copy, REF fixup, native emission - ~0.9 ms a
+// driving frame on a PS2, docs/tyrax2-night-ee-2026-10-12.md); this walks it
+// once: a CNT/END payload is copied into the arena and recorded as a REF to
+// the copy, a REF is recorded as itself when the immutable table lends its
+// span and as a REF to an arena copy otherwise. Any failure - an unsupported
+// tag, a range the resolver refuses, a full arena or writer - gives back
+// everything this call took and returns false; the caller then takes the
+// snapshot route, which owns the drain/flush recovery.
+struct SinglePassResult { bool ok; u32 bytes, borrowed; };
+SinglePassResult recordSinglePass(const void* chain, u32 qwords) {
+  const SinglePassResult fail = {false, 0, 0};
+  if (!chainArena || !nativeWriter || !chain || !qwords || qwords > 65536 ||
+      (reinterpret_cast<uintptr_t>(chain) & 15))
+    return fail;
+  HardwareTrace::Scope trace("SinglePassRecord", HardwareTrace::Kind::Span, true);
+  const u32 arenaMark = chainArena->used();
+  const u32 writerMark = nativeWriter->checkpoint();
+  const auto* words = static_cast<const u32*>(chain);
+  u32 bytes = 0, borrowed = 0, at = 0;
+  bool ended = false, ok = true;
+  while (at < qwords) {
+    const u32* tag = words + at * 4;
+    const u32 size = tag[0] & 65535, id = (tag[0] >> 28) & 7;
+    if (tag[0] & 0x8c000000u) { ok = false; break; }
+    if (id == 1 || id == 7) {
+      if (size > qwords - at - 1) { ok = false; break; }
+      if (size == 0) {
+        ok = nativeWriter->inlineVif(tag[2], tag[3], nullptr, 0);
+      } else {
+        uint8_t* copy = chainArena->take(size * 16);
+        ok = copy != nullptr &&
+             FrameChainArena::copyQwords(copy, tag + 4, size) &&
+             nativeWriter->referencedVifOwned(tag[2], tag[3],
+                                              reinterpret_cast<u32>(copy), size);
+        bytes += size * 16;
+      }
+      at += 1 + size;
+    } else if (id == 0 || id == 3) {
+      u32 address = tag[1];
+      if (size) {
+        const uint32_t* source = (address & 0x8000000f)
+                                ? nullptr : resolveChainRef(address, size, nullptr);
+        if (!source) { ok = false; break; }
+        if (isImmutableSpan(address, size)) {
+          borrowed += size * 16;
+        } else {
+          uint8_t* copy = chainArena->take(size * 16);
+          if (!copy || !FrameChainArena::copyQwords(copy, source, size)) {
+            ok = false; break;
+          }
+          address = reinterpret_cast<u32>(copy);
+          bytes += size * 16;
+        }
+      }
+      ok = nativeWriter->referencedVifOwned(tag[2], tag[3], address, size);
+      ++at;
+    } else {
+      ok = false;
+    }
+    if (!ok) break;
+    if (id == 0 || id == 7) { ended = true; break; }
+  }
+  if (!ok || !ended || at != qwords) {
+    chainArena->rewind(arenaMark);
+    nativeWriter->rewind(writerMark);
+    return fail;
+  }
+  return {true, bytes, borrowed};
+}
 }
 #endif
 
@@ -351,6 +426,33 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
 #endif
   closeOpenChain();
 #if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+#if TYRA_VIF1_SINGLE_PASS_RECORD
+  if ((TYRA_NATIVE_VIF_RECORD || frameRecording) && sourceCopied) {
+    prepareArena();
+    if (chainArena && nativeWriter) {
+      if (nativeInFlight) {
+        waitFor(nativeInFlight);
+        nativeInFlight = 0;
+        nativeWriter->reset();
+      }
+      const SinglePassResult r = recordSinglePass(chain, qwords);
+      if (r.ok) {
+#if !TYRA_VIF1_QUEUE_LAZY_FLUSH
+        FlushCache(0);  // the arena copies, as after a snapshot
+#endif
+        *sourceCopied = true;
+        if (chainArena->used() > arenaPeak) arenaPeak = chainArena->used();
+        arenaFrameBytes += r.bytes;
+        arenaFrameBorrowed += r.borrowed;
+        u32 sequence = submitted + 1;
+        if (!sequence) sequence = 1;
+        submitted = sequence;
+        nativePendingSequence = sequence;
+        return sequence;
+      }
+    }
+  }
+#endif
   u32 snapshotRecords = 0;
   bool snapshotCounted = false;
 #endif

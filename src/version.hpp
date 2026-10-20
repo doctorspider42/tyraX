@@ -1,5 +1,10 @@
 #pragma once
 
+// 1.176.1 (docs/tyrax2-night-ee-2026-10-12.md, "The submission walked every chain
+// four times"): Vif1Queue::submit records a producer's chain into the frame's
+// native chain in ONE walk - payloads into the arena, REFs straight in - instead
+// of preflight + tag copy + REF fixup + native emission. PS2, same ELF: parked
+// work 10.57 -> 10.35 ms, driving 11.07 -> 10.75 ms. Engine only, PATCH.
 // 1.176.0: roads tessellate into error-bounded bands (docs/roads.md, Bands):
 // scene-0 Motor District roads 19 320 -> 8 018 triangles; PS2 A/B pending.
 // 1.175.5: Show in reflections no longer keeps an object out of static batches;
@@ -5678,7 +5683,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

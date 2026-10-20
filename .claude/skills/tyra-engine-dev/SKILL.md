@@ -990,7 +990,11 @@ ownership, stable resolver/idempotent bank leases, writer rollback and fallback.
 The 18-pass `--submit-fix` trial prices each candidate and their combination;
 host byte equivalence is not physical acceptance. Both default changes were
 removed: fused loses in both measured orders; single lookup is mixed and its
-reverse/combined arms did not run after a phase9 reload stall. Candidate patches
+reverse/combined arms did not run after a phase9 reload stall. 1.176.1 then
+shipped a different shape: `recordSinglePass` drops the preflight AND the tag
+copy (payloads into the arena, REFs straight into the native writer, rewind +
+snapshot fallback on any failure) and won a same-ELF A/B, two arms agreeing
+(driving 11.07 -> 10.75 ms; docs/tyrax2-night-ee-2026-10-12.md). Candidate patches
 are private-fixture inputs only. Burnout debugger evidence
 shows reusable CALL/RET subchains and compact UNPACK formats, not an EE timing
 comparison. Do not mistake idle TADR or PINE MMIO zeroes for a frame chain.

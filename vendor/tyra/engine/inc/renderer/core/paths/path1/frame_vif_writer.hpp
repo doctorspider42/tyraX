@@ -40,6 +40,14 @@ class FrameVifWriter {
     writeTag(words + cursor * 4, 3, qwords, address, first, second);
     ++cursor; return true;
   }
+  // A REF whose source the caller has already resolved and owns (an arena
+  // copy, or a span the immutable table lent for this frame).
+  bool referencedVifOwned(uint32_t first, uint32_t second, uint32_t address,
+                          uint32_t qwords) {
+    if (qwords > 65535 || !room(1) || (address & 0x8000000f)) return false;
+    writeTag(words + cursor * 4, 3, qwords, address, first, second);
+    ++cursor; return true;
+  }
   // Exactly one END is generated here, including its clean TTE NOP words.
   uint32_t finish() {
     if (closed) return cursor;
