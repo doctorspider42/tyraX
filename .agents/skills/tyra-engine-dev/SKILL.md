@@ -2268,6 +2268,15 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**VU0 macro-mode (COP2) asm names its memory.** `"m"`/`"=m"`/`"+m"` operands for a
+quadword, an `"r"` base plus an unprinted dummy `"m"(*(const float(*)[16])p)` for a
+matrix (never `0x10+%1` - GAS rejects `0x10+%lo(sym)`), scalars through `"r"` +
+`qmtc2`/`qmfc2`, no hardcoded GPRs, always `volatile`, no global labels inline. A
+bare `"r"` pointer works only out of line: inlined, GCC dropped the stores feeding
+it (a `Vec4`/`M4x4` result that is garbage only once inlined, or only at another
+`-O` level). Scratch is `$vf1-$vf9`; skinning owns `$vf20/$vf21` across its blocks.
+See docs/vu0-macro-mode.md.
+
 **Inactive outputs are not a bitwise oracle.** `buildSpotForBag` returns after
 setting only `enabled` when the input light is disabled; Tyra's `Vec4` default
 constructor leaves its components uninitialized. Compare only the inactive

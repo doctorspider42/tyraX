@@ -110,6 +110,9 @@ tools/*
 # compile" is a claim, and this is what makes somebody watch the compiler refuse
 # it - so it ships with the repo rather than living in a scratch directory.
 !tools/bag-array-enforcement.sh
+# The VU0 math A/B bench (docs/vu0-macro-mode.md): the bit-exact hashes and
+# cycle counts behind the inline Vec4/M4x4 operators; the console run is owed.
+!tools/vu0-bench/
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/

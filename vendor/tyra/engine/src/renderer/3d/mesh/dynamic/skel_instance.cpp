@@ -501,7 +501,8 @@ void SkelInstance::skinParts(u8 lod) {
       "lqc2         $vf20, 0x00(%[bmin])     \n\t"
       "lqc2         $vf21, 0x00(%[bmax])     \n\t"
       :
-      : [bmin] "r"(bmin), [bmax] "r"(bmax));
+      : [bmin] "r"(bmin), [bmax] "r"(bmax)
+      : "memory");  // reads the two initializers above (TyraX)
 
   const M4x4* pal = palette.data();
   for (size_t pi = 0; pi < partLods.size(); pi++) {
