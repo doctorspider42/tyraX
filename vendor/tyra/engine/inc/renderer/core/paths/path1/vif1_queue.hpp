@@ -75,6 +75,14 @@
 #ifndef TYRA_VIF1_QUEUE_HOLD
 #define TYRA_VIF1_QUEUE_HOLD 0
 #endif
+/** Modified by TyraX: 1 = a producer that asks (StaPipQBufferRenderer) builds
+ * its packet straight in the frame bank (reservePacket/submitOwned), and the
+ * frame's chain REFs the packet's CNT payloads where they lie instead of
+ * copying them into the bank first. Runtime switch: setOwnedPackets. See
+ * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R3". */
+#ifndef TYRA_VIF1_OWNED_PACKETS
+#define TYRA_VIF1_OWNED_PACKETS 1
+#endif
 
 namespace Tyra {
 
@@ -122,6 +130,32 @@ class Vif1Queue {
   // still fences the DMA and must be used for ordering/GS barriers.
   static u32 submit(const void* chain, u32 qwords = 0,
                     bool* sourceCopied = nullptr);
+
+  /**
+   * Modified by TyraX: producer packets written once, into the frame bank.
+   *
+   * reservePacket hands out `bytes` of the current frame bank for a packet
+   * about to be built (nullptr when no frame is being recorded, the switch is
+   * off or the bank is full: build in the producer's own buffer then). One
+   * reservation is open at a time; `current` is the packet's present base,
+   * returned as is while it is still the open, valid reservation (a packet
+   * reset without being sent keeps its space).
+   *
+   * submitOwned submits a chain built in that reservation: the unused tail
+   * goes back to the bank and every CNT payload is recorded as a REF to where
+   * it already lies - no copy. Anything else (a stale reservation after a bank
+   * switch, a full native writer) takes the ordinary submit, which copies.
+   * The packet memory belongs to the bank from then on: the producer must not
+   * write it again, and gets a fresh reservation for its next packet. Bank
+   * reuse already waits for the bank's last chain, so lifetime needs nothing
+   * new; a drain() keeps an open reservation taken across its reset.
+   */
+  static void* reservePacket(u32 bytes, const void* current);
+  static u32 submitOwned(const void* chain, u32 qwords, bool* sourceCopied);
+  static void setOwnedPackets(bool on);
+  static bool ownedPacketsEnabled();
+  /** Owned submits recorded in place / refused (ordinary route), reset. */
+  static void takeOwnedStats(u32* recorded, u32* refused);
 
   /** Blocks until the chain with this sequence number has been transferred. */
   static void waitFor(u32 sequence);

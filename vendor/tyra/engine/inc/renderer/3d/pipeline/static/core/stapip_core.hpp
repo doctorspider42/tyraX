@@ -64,6 +64,16 @@ class StaPipCore {
     qbufferRenderer.setStampEnabled(on);
   }
   void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
+  /** Modified by TyraX (R1): chain stamps - see StaPipQBufferRenderer. */
+  void setStampChain(bool on) {
+    flushDeferred();
+    qbufferRenderer.setStampChain(on);
+  }
+  /** Modified by TyraX: StaPipBag::stampSlot as the first lookup. */
+  void setStampSlotHint(bool on) { qbufferRenderer.setStampSlotHint(on); }
+  void takeReplayStats(u32* chain, u32* whole, u32* runs) {
+    qbufferRenderer.takeReplayStats(chain, whole, runs);
+  }
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
 #endif
@@ -89,6 +99,14 @@ class StaPipCore {
    * the program streams its output with mid-program XGKICKs. False restores
    * the slice / strip-subrange routes for an A/B. Default on. */
   void setStreamClip(bool on) { streamClip = on; }
+  /** Modified by TyraX (R5): a frustum-crossing bag replayed from immutable
+   * blocks (StaPipQBufferRenderer::beginPartialReplay). 0 = the qbuffer loop;
+   * 1 = runs - per-package classification kept, each run of same-route
+   * packages one REF into its baked cull or whole-clip blocks; 2 = whole -
+   * the bag is ONE REF into the streamed VU1 clip program with all six planes,
+   * no EE classification (VU1 judges every triangle). VU1 clipping with
+   * whole-package streaming only. See docs/vu1-clipping.md. */
+  void setPartialReplay(u8 mode) { partialReplay = mode; }
   StaPipCore();
   ~StaPipCore();
 
@@ -312,6 +330,7 @@ class StaPipCore {
   bool sliceClip = true;
   bool partialBatch = true;
   bool streamClip = true;
+  u8 partialReplay = 0;
   bool wholeClip() const {
     return streamClip && qbufferRenderer.isVU1ClippingEnabled();
   }

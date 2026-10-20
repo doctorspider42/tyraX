@@ -125,6 +125,20 @@ class FrameChainArena {
     return p;
   }
   void rewind(uint32_t mark) { if (mark <= cursor) cursor = mark; }
+  // Modified by TyraX: a producer packet written straight into the bank
+  // (Vif1Queue::reservePacket). The reservation is an ordinary take() of the
+  // packet's worst case; finishing it gives back the unused tail, but only
+  // when nothing was taken after it (otherwise the tail is simply wasted).
+  void shrink(const uint8_t* start, uint32_t reserved, uint32_t used) {
+    if (start >= memory && used <= reserved &&
+        static_cast<uint32_t>(start - memory) + reserved == cursor)
+      cursor = static_cast<uint32_t>(start - memory) + used;
+  }
+  // After reset(): keep [memory, end) - an open reservation - taken.
+  void keepUntil(const uint8_t* end) {
+    if (end > memory && end <= memory + capacity)
+      cursor = static_cast<uint32_t>(end - memory);
+  }
 
   Snapshot copy(const void* base, uint32_t qwords,
                 Vif1ChainCheck::Resolver resolver, void* context,

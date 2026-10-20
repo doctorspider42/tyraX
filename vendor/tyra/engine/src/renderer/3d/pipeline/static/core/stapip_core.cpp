@@ -1338,7 +1338,50 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     TYRA_ATTRIB_INC(dsPartialBags);
     u16 packagesCount = 0;
     auto doClip = checkYesFrustumPartialClipYes;
-    if (bag->stripped) {
+    // Modified by TyraX (R5, setPartialReplay): the crossing bag from its
+    // immutable cull and whole-clip blocks - no qbuffers, no per-package
+    // command writing. Mode 2 skips the classification as well.
+    bool replayedPartial = false;
+    if (partialReplay != 0 && doClip && wholeClip() && bakeBag &&
+        bag->billboard == nullptr && !qbufferRenderer.hasProgramOverrides() &&
+        qbufferRenderer.beginPartialReplay(bag, maxVertCount)) {
+      if (partialReplay == 2) {
+        replayedPartial = qbufferRenderer.replayWholeClip();
+      } else {
+        static u8 routes[512];
+        auto packages = packager.create(&packagesCount, bag, maxVertCount);
+        if (packagesCount <= 512) {
+          for (u16 i = 0; i < packagesCount; ++i) {
+            const StaPipBagPackage& p = packages[i];
+            const bool guardBandOnly = isGuardBandOnly(p);
+            u8 route = 0;
+            if (p.isInFrustum == IN_FRUSTUM || guardBandOnly)
+              route = 1;
+            else if (p.isInFrustum == PARTIALLY_IN_FRUSTUM &&
+                     (!bag->stripped || p.size >= 3))
+              route = 2;
+            routes[i] = route;
+          }
+          replayedPartial = qbufferRenderer.emitPartialRuns(routes, packagesCount);
+          for (u16 i = 0; replayedPartial && telemetryEnabled && i < packagesCount;
+               ++i) {
+            recordPackage(packages[i], routes[i] == 1   ? IN_FRUSTUM
+                                       : routes[i] == 2 ? PARTIALLY_IN_FRUSTUM
+                                                        : OUTSIDE_FRUSTUM);
+            if (isGuardBandOnly(packages[i])) recordGuardBandPackage(packages[i]);
+          }
+        }
+        if (!replayedPartial) {
+          // The runs did not fit the packet: the ordinary loop, same packages.
+          if (bag->stripped) renderStrippedPkgs(packages, doClip, packagesCount);
+          else renderPkgs(packages, doClip, packagesCount);
+          replayedPartial = true;
+        }
+      }
+    }
+    if (replayedPartial) {
+      // done
+    } else if (bag->stripped) {
       // Modified by TyraX: packages ARE the baked strip runs here, so the
       // subpackage branch below (which cuts at clipPackageSize, and merges
       // three cuts back into one buffer) must not be reached - either would
