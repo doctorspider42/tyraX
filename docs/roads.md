@@ -874,5 +874,12 @@ along on a 4-unit terrain. Scene 0's roads go from 22 104 strip vertices /
 vertex for vertex. The selected-road outline finds a band's shoulder as the
 triangle edge whose ends share u 0 (or 1) across two rows.
 
-**Not yet done:** PCSX2 screenshot comparison and the PS2 frame A/B were
-stopped before they ran.
+**Measured on a PS2** (Motor District rig, one ELF per arm, three cycles each,
+the GPU timeline sampler on): the parked view's StaPip strip vertices drop
+from 41.7k to 29.3k a frame, VU1 computing from ~48% to ~36% of the frame
+(about 2 ms of VU1 time), GPU idle from 30% to 44.5%, and the parked frame
+p50 from 12.37 to 11.70-11.80 ms - the first change in a week of EE work to
+move the parked view, which is VU1-bound. Driving windows: 12.67 / 13.03 /
+10.92 -> 12.33-12.39 / 12.98 / 10.68-10.70 ms. PCSX2 screenshots of the
+parked and driving views differ in ~70 of 307 200 pixels by more than 8
+levels (dither noise).

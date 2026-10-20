@@ -571,3 +571,15 @@ moved Vehicle_lights from ~500 to ~660 us parked - and left the whole frame
 exactly where it was (parked p50 12.345 ms, driving within 0.1 ms). Reverted.
 **Judge render-side changes by the frame (CLD win work/p50), never by a
 producer scope.** Update-side scopes (G.update, U.*, V.*) are unaffected.
+
+### The parked floor was VU1, and the roads were most of it (2026-10-20)
+
+A whole-frame GPU sampler (timer alarm every ~100 us classifying VU1 / GIF /
+VIF1 state) showed the parked frame VU1-bound: VU1 computing ~48% of the
+frame, GS-only ~13%, idle ~30%. Clip programs were ~1 ms of it (EE clipping
+instead costs ~48 ms - not an option); day/night changed nothing. Of the ~51k
+vertices StaPip hands VU1 per frame, ~21k were roads, sampled every 0.5 units
+across on a 4-unit terrain. 1.176.0 tessellates roads into error-bounded
+bands (docs/roads.md, "Bands"): VU1 ~48% -> ~36%, parked p50 12.37 ->
+11.70-11.80 ms, the first EE-era change to move it. The rest of the VU1 load
+is objects (~17k vertices) and static batches (~5k).
