@@ -6,7 +6,6 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by the TyraX fork.
-# Modified by TyraX: bloom column strips + z test off (bloomFast).
 */
 
 #pragma once
@@ -249,20 +248,7 @@ class RendererCorePostFx {
   qword_t* blit(qword_t* q, int srcVram, int srcBufW, int texW, int texH,
                 int u0, int v0, int u1, int v1, int dstVram, int dstBufW,
                 int x0, int y0, int x1, int y1, bool linear, bool wrap,
-                int abe, u64 alpha, u32 z = 0xFFFFFFFFu, int columnW = 0);
-
-  /**
-   * Modified by TyraX: bloom's two full-screen sprites (the 1/8 downsample
-   * and the add-back) go out as vertical column strips, and the bloom chain
-   * runs with the z test at ALWAYS instead of GEQUAL. Every bloom sprite sits
-   * at z = max with z writes masked, so GEQUAL passed every pixel anyway and
-   * the image is the same; what changes is that the GS no longer reads the
-   * z buffer for those pixels, and that a strip keeps the texture cache and
-   * the frame page on one page at a time - the shape the Hybrid present copy
-   * already uses. false restores the single-sprite, z-tested chain (kept for
-   * the same-ELF A/B).
-   */
-  bool bloomFast = true;
+                int abe, u64 alpha, u32 z = 0xFFFFFFFFu);
 
   // One untextured full-screen sprite: flat RGBAQ color, blended over the
   // frame by `alpha`; `fbmsk` bits protect framebuffer bits from the write

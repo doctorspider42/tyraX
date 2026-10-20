@@ -129,16 +129,8 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
                                   int texW, int texH, int u0, int v0, int u1,
                                   int v1, int dstVram, int dstBufW, int x0,
                                   int y0, int x1, int y1, bool linear,
-                                  bool wrap, int abe, u64 alpha, u32 z,
-                                  int columnW) {
-  // Modified by TyraX: columnW > 0 splits the sprite into vertical strips of
-  // that many destination pixels (see bloomFast). The UVs are interpolated
-  // at each strip edge exactly - every split used divides the span evenly -
-  // so a strip samples the texels the whole sprite would have.
-  const int columns =
-      columnW > 0 && x1 - x0 > columnW ? (x1 - x0 + columnW - 1) / columnW : 1;
-  PACK_GIFTAG(q, GIF_SET_TAG(7 + 4 * columns, 0, 0, 0, GIF_FLG_PACKED, 1),
-              GIF_REG_AD);
+                                  bool wrap, int abe, u64 alpha, u32 z) {
+  PACK_GIFTAG(q, GIF_SET_TAG(11, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   // The previous blit's output is this blit's input - invalidate the cache.
   PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
@@ -167,22 +159,16 @@ qword_t* RendererCorePostFx::blit(qword_t* q, int srcVram, int srcBufW,
   PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 1, 0, abe, 0, 1 /* uv */, 0, 0),
               GS_REG_PRIM);
   q++;
-  for (int c = 0; c < columns; c++) {
-    const int cx0 = columns == 1 ? x0 : x0 + c * columnW;
-    const int cx1 = columns == 1 || cx0 + columnW >= x1 ? x1 : cx0 + columnW;
-    const int cu0 = u0 + (u1 - u0) * (cx0 - x0) / (x1 - x0);
-    const int cu1 = u0 + (u1 - u0) * (cx1 - x0) / (x1 - x0);
-    PACK_GIFTAG(q, GS_SET_UV(cu0, v0), GS_REG_UV);
-    q++;
-    PACK_GIFTAG(q, GS_SET_XYZ((2048 + cx0) << 4, (2048 + y0) << 4, z),
-                GS_REG_XYZ2);
-    q++;
-    PACK_GIFTAG(q, GS_SET_UV(cu1, v1), GS_REG_UV);
-    q++;
-    PACK_GIFTAG(q, GS_SET_XYZ((2048 + cx1) << 4, (2048 + y1) << 4, z),
-                GS_REG_XYZ2);
-    q++;
-  }
+  PACK_GIFTAG(q, GS_SET_UV(u0, v0), GS_REG_UV);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x0) << 4, (2048 + y0) << 4, z),
+              GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q, GS_SET_UV(u1, v1), GS_REG_UV);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + x1) << 4, (2048 + y1) << 4, z),
+              GS_REG_XYZ2);
+  q++;
   return q;
 }
 
@@ -693,27 +679,9 @@ void RendererCorePostFx::apply(int passes) {
 
   if ((passes & PassBloom) && bloom > 0) {
     const int w4 = lowW << 4, h4 = lowH << 4;
-    // Modified by TyraX (bloomFast): z test ALWAYS for the whole chain. All
-    // of it is drawn at z = max under masked z writes, where GEQUAL passes
-    // everywhere, so the only effect is that the GS skips the z reads.
-    // Column widths: the downsample reads 64 source pixels (one PSMCT32
-    // texture page) per strip, i.e. 64/8 destination pixels; the add-back
-    // writes 32-pixel columns, as the Hybrid present copy does. Only splits
-    // that divide the span exactly are taken (see blit).
-    const bool exact8 = fbW == lowW * 8;
-    const int downCol = bloomFast && exact8 && fbW % 64 == 0 ? 8 : 0;
-    const int upCol = bloomFast && exact8 && fbW % 32 == 0 ? 32 : 0;
-    if (bloomFast) {
-      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-      q++;
-      PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
-                  GS_REG_TEST_1);
-      q++;
-    }
     // Downsample the frame to quarter res (bilinear averages 2x2).
     q = blit(q, fbVram, fbBufW, fbW, fbH, 0, 0, fbW << 4, fbH << 4, lowVram[0],
-             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0, 0xFFFFFFFFu,
-             downCol);
+             lowBufW, 0, 0, lowW, lowH, true, false, 0, 0);
     // Bright pass: subtract a flat grey from the downsampled frame,
     // Cv = (0 - Cs) * 128 >> 7 + Cd = Cd - threshold, which the GS clamps at
     // zero. Everything below the threshold becomes black and stops
@@ -749,17 +717,7 @@ void RendererCorePostFx::apply(int passes) {
     // Add the blur back over the frame: Cd + Cs * bloom / 128. bloom may
     // exceed 128 (the editor allows up to 2x) for a hotter re-add.
     q = blit(q, lowVram[src], lowBufW, lowW, lowH, 0, 0, w4, h4, fbVram, fbBufW,
-             0, 0, fbW, fbH, true, false, 1, GS_SET_ALPHA(0, 2, 2, 1, bloom),
-             0xFFFFFFFFu, upCol);
-    if (bloomFast) {  // the passes after bloom keep the pass's GEQUAL
-      PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-      q++;
-      PACK_GIFTAG(q,
-                  GS_SET_TEST(0, 0, 0, 0, 0, 0, 1,
-                              static_cast<int>(gs->zBuffer.method)),
-                  GS_REG_TEST_1);
-      q++;
-    }
+             0, 0, fbW, fbH, true, false, 1, GS_SET_ALPHA(0, 2, 2, 1, bloom));
   }
 
   // Grading between bloom (glows come from the ungraded scene) and grain

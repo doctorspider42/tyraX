@@ -1,5 +1,13 @@
 # Motor District
 
+Version 1.177.0 turns on *Reflect a baked background*: the car's reflection
+probe draws the ground and the box-proxy buildings from an editor-baked
+panorama per road cell instead of re-rendering them
+([the baked background](../../docs/reflective-materials.md#the-baked-background-11770)).
+Bloom is off (0, was 0.12): on a physical PS2 it cost 0.32 ms of GS and
+~0.3 ms of parked EE work for a glow that changed at most 6 colour levels
+([measurement](../../docs/emissive-materials.md#what-the-pass-costs-on-a-ps2-measured-2026-10-20)).
+
 Version 1.173.5 separates terrain residency/LOD focus from visual camera shake,
 avoiding repeated terrain builds while the car sits on a detail snap boundary.
 Roads, normal detail and live reflections remain enabled. Both-order physical
