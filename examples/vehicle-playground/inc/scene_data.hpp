@@ -2974,6 +2974,10 @@ inline bool flashlightTogglePressed(TEngine* engine) {
   }
   return false;
 }
+// The reflection probe's baked background (reflpano/s<scene>.bin).
+#define REFL_PANO_ON 1
+inline constexpr bool REFL_PANO_SCENES[3] = {true, true, true};
+
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 // Uses the MEASURED frame time, not the nominal vsync rate: with vsync
 // disabled the loop free-runs way past 50 FPS and a nominal-rate count would

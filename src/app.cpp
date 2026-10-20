@@ -16136,6 +16136,18 @@ void App::drawPreferencesWindow() {
         "the roads' mean colour instead of the real ground chunks, out to\n"
         "the ground radius or 64 units, whichever is larger.");
 
+    ImGui::Checkbox("Reflect a baked background",
+                    &prefSettings_.reflectionPanorama);
+    prefHelp(
+        "The editor bakes what the probe sees of the static world - the\n"
+        "ground within the radius above and the objects with Reflection box\n"
+        "proxy that cannot move - into one small panorama per 16-unit cell\n"
+        "near a road. The probe then draws that as one textured dome instead\n"
+        "of redrawing the ground and those buildings on every capture. The\n"
+        "sky, cars and other reflected objects stay live. The trade is\n"
+        "parallax: near buildings sit where they were seen from the cell's\n"
+        "centre.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"

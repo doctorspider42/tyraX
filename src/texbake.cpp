@@ -17,6 +17,7 @@
 #include "modelao.hpp"   // automatic per-asset model AO, multiplied into the PNG
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "reflpano.hpp"  // the probe's baked background (reflective-materials.md)
 #include "shadowbake.hpp"  // baked shadow decals - the atlas pages
 #include "skytex.hpp"      // the painted sky's crop (docs/sky-texture.md)
 #include "stochtile.hpp"
@@ -581,7 +582,7 @@ std::string bake(const Project& p,
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
             top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
             top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky" ||
-            top0 == "gshadow")
+            top0 == "gshadow" || top0 == "reflpano")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -816,6 +817,32 @@ std::string bake(const Project& p,
                                                   skytex::kWidth, skytex::kHeight,
                                                   256, err))
             log("[editor] sky texture: " + srs.skyTexture + ": " + err);
+    }
+
+    // The reflection probe's baked background (docs/reflective-materials.md,
+    // "The baked background"): one file per scene, regenerated wholesale like
+    // the skies. Codegen switches the game's half on with the same
+    // reflpano::wanted(), so a scene that cannot be baked drops both sides.
+    fs::remove_all(baked / "reflpano", ec);
+    {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!reflpano::wanted(p, p.scenes[si])) continue;
+            const reflpano::Bake b = reflpano::bake(p, p.scenes[si]);
+            if (!b.ok) continue;
+            const std::vector<unsigned char> bytes = reflpano::serialize(b);
+            const fs::path dst = baked / "reflpano" / ("s" + std::to_string(si) + ".bin");
+            fs::create_directories(dst.parent_path(), ec);
+            std::ofstream f(dst, std::ios::binary);
+            f.write((const char*)bytes.data(), (std::streamsize)bytes.size());
+            if (!f) {
+                log("[editor] reflection panorama: cannot write " + dst.string());
+                continue;
+            }
+            log("[editor] Reflection panorama: scene " + std::to_string(si) + ", " +
+                std::to_string(b.slots()) + " cell(s), " +
+                std::to_string(b.boxObjects.size()) + " baked box(es), " +
+                std::to_string(bytes.size() / 1024) + " KB");
+        }
     }
 
     // Baked shadow decals (docs/shadows.md): the atlas pages, written from the

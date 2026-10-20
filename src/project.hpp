@@ -2080,6 +2080,13 @@ struct ProjectSettings {
     // resident terrain and road chunks - which were 4.65 ms of every capture
     // on the Motor District's outer road (PS2). Off = the real chunks.
     bool reflectionGroundProxy = false;
+    // Shared reflection probe: draw the STATIC world - the ground within the
+    // reflection ground radius and the "Reflection box proxy" objects that
+    // cannot move - as one editor-baked panorama per 16-unit road cell
+    // (docs/reflective-materials.md, "The baked background", src/reflpano.*)
+    // instead of re-rendering it on every capture. The sky and everything that
+    // can change stay live. Off = the live chunks and proxies.
+    bool reflectionPanorama = false;
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2569,6 +2576,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&
            a.reflectionGroundProxy == b.reflectionGroundProxy &&
+           a.reflectionPanorama == b.reflectionPanorama &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&

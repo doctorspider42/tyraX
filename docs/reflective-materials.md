@@ -96,7 +96,9 @@ ugly patches up close. It fades back in as you step away.
 scenery as boxes* draws every static object into the map without marking
 anything - see "Static scenery in the probe" below. *Reflect the ground as flat
 colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
-"The ground stand-in".
+"The ground stand-in". *Reflect a baked background* replaces the ground and the
+unmovable box proxies with one editor-baked panorama per road cell - "The baked
+background".
 
 ## How the PS2 side works
 
@@ -462,6 +464,78 @@ stand-in has no lightmap or AO pass, only `shadeOf()`. The road in the main view
 and the stand-in's road colour agree. Not covered: the reflected-ray probe mode,
 which draws its own subset, and a scene without terrain (no grid - the probe
 then draws no ground at all, as before).
+
+## The baked background (1.177.0)
+
+*Project > Preferences > Rendering > Reflect a baked background*
+(`reflectionPanorama`, format v97, written only when on) stops the probe from
+re-rendering the static world on every capture. The editor bakes, at build
+time, what the probe would draw of it from each 16-unit cell near a road, and
+the probe draws that as **one textured card** instead.
+
+- **What is baked** (`src/reflpano.cpp`, written by texbake to
+  `reflpano/s<scene>.bin`): per cell within 12 units of a road, a 128x32 8-bit
+  panorama - azimuth all the way round at 2.8 degrees a texel, elevation +-64
+  degrees (the probe's square 110-degree view reaches about 63 in its corners) -
+  raytraced from the cell centre, 2 units above the terrain. It holds the ground
+  within the reflection ground radius (plus 10 units, what a chunk box adds) in
+  the stand-in's albedo map lit with the scene's baked light, and the objects
+  with *Show in reflections* **and** *Reflection box proxy* that cannot move, as
+  the world box their live proxy draws. Everything else is transparent.
+- **What stays live:** the sky (drawn first, as before), every other reflected
+  object - the district's night windows, static batches, cars. The probe skips
+  only the baked proxies while it draws a panorama, and only the ground in that
+  frame.
+- **The palette is shared by the scene and partly filled in by the game.** Entry
+  0 is see-through, and the game sets its RGB to the sky colour, so a filtered
+  edge fades into the sky rather than toward black. Entries 1..boxes are the
+  proxies: the game colours each from the real object's mean vertex colour,
+  exactly as `renderReflectionProxy` colours its live box, so the two paths
+  cannot disagree about a building's colour. The rest is the ground, median-cut
+  over every cell of the scene.
+- **Small in RAM:** the cells are run-length coded and one cell (4 KB) is
+  expanded when the probe's eye enters it - the Motor District's 299 cells are
+  82 KB of EE RAM, not 1.2 MB. The file is read on the scene's first capture.
+- **The card** is a 6x6 grid over the probe's frustum, a hair inside its edges
+  so nothing needs clipping, built once in the probe's level frame. The probe
+  camera is always level, so each vertex keeps its elevation and its azimuth
+  relative to the camera: a matrix puts the card at the eye and the yaw, and
+  only the texture u (yaw + the vertex's own azimuth) follows a turn. Two
+  textures alternate on a cell change, so a re-upload never touches RAM or VRAM
+  a frame still in flight reads. Outside a baked cell the live ground draws.
+
+**The trade is parallax.** A building sits where it was seen from the cell's
+centre, and the ground is the stand-in's flat colours rather than the real
+textures; the night ground pools (the emissive terrain lightmap) are not in the
+panorama.
+
+Measured on a physical PS2, `examples/vehicle-playground` at night (lean rig,
+same ELF, arm 0 live / arm 1 panorama, three cycles each, the probe's own EE
+scope per frame by drive window):
+
+| drive window | live | panorama |
+|---|---:|---:|
+| 1 | 0.072 ms | 0.033 |
+| 2 | 0.179 | 0.125 |
+| 3 | 0.353 | 0.274 |
+| 4 | 0.326 | 0.268 |
+
+Driving `work` median 10.80 -> 10.55 ms, p50 10.39 -> 10.07; parked unchanged
+(the reuse budget skips the capture). The first capture of the scene pays the
+file read once (about 0.2 s over ps2link). The picture
+([img/reflection-panorama-ps2.png](img/reflection-panorama-ps2.png): live |
+panorama | difference x4, physical PS2, parked at the spawn) differs only in the
+car's paint, at most 9 levels in 3.6-6.5% of the pixels - the same order as two
+live captures differ from each other (3.1%). The district has it on.
+
+**What did not work:** the first version rebuilt a 10x10 card in world space on
+every capture. Its bag never kept its bounds or a stamp, and it was SLOWER than
+the live ground it replaced (0.21-0.43 ms a frame against 0.18-0.35). The live
+probe had already become cheap: the 1-1.7 ms the architecture audit quoted
+predates the ground radius, stamps and the three-phase split. A panorama that
+also carries the sky is not built - the sky is the probe's largest remaining
+part, but it follows the day/night clock and the grade, which a static image
+cannot.
 
 ## The reuse budget (1.106.0)
 
