@@ -5434,6 +5434,101 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
               sa.z + (sb.z - sa.z) * m.t};
   };
+  // Ground shadows folded into the vertex colour (docs/shadows.md, "Folded
+  // into the vertex colour"): with GROUND_SHADOW_FOLD the sun's shadow does not
+  // get its own pass over the shaded cells - each terrain node takes the mean
+  // of the chunk masks over the half cell around it, and that share of its
+  // shade drops to the ambient-only level. The masks stay the source; only the
+  // representation changes, at one sample per node instead of 4-8 per cell.
+  // Applied AFTER the shade cache (which stays sun-independent), so a sunset
+  // only re-colours chunks (groundShadowFoldWanted / the stale check in
+  // updateTerrainChunks) instead of re-shading the map.
+  const bool foldOn = groundShadowFoldWanted(currentScene);
+#ifdef GROUND_SHADOWS_ON
+  // The chunk masks the fold samples: acquired on first use and held for the
+  // scene (the game already pins them all on a small map).
+  static std::vector<Texture*> foldTex;
+  static std::vector<std::string> foldTexPath;
+  static unsigned int foldTexGeneration = ~0u;
+  if (foldTexGeneration != sceneGeneration) {
+    foldTexGeneration = sceneGeneration;
+    for (const std::string& pth : foldTexPath)
+      if (!pth.empty()) releaseTexture(pth);
+    foldTex.clear();
+    foldTexPath.clear();
+  }
+  auto groundShadowFoldAt = [&](int nx, int nz) -> float {
+    if (!SCENE_GROUND) return 0.0F;
+    const int C = TERRAIN_CHUNK_CELLS;
+    const int chunksX = SCENE_GROUND_CHUNKS_X;
+    const int chunksZ = terrainChunksZ;
+    float sum = 0.0F;
+    // The four cells around the node, each read over its quadrant that touches
+    // the node: together a box of one cell centred on it.
+    for (int q = 0; q < 4; ++q) {
+      const int gx = nx - 1 + (q & 1), gz = nz - 1 + (q >> 1);
+      if (gx < 0 || gz < 0) continue;
+      const int ccx = gx / C, ccz = gz / C;
+      if (ccx >= chunksX || ccz >= chunksZ) continue;
+      const int lx = gx - ccx * C, lz = gz - ccz * C;
+      const unsigned short row = SCENE_GROUND[(ccz * chunksX + ccx) * C + lz];
+      if (!(row & (1U << lx))) continue;
+      const size_t ci = (size_t)(ccz * chunksX + ccx);
+      if (foldTex.size() < (size_t)chunksX * chunksZ) {
+        foldTex.assign((size_t)chunksX * chunksZ, nullptr);
+        foldTexPath.assign((size_t)chunksX * chunksZ, std::string());
+      }
+      if (!foldTex[ci] && foldTexPath[ci].empty()) {
+        foldTexPath[ci] = "gshadow/s" + std::to_string(g_activeScene) + "_" +
+                          std::to_string(ccx) + "_" + std::to_string(ccz) + ".png";
+        foldTex[ci] = acquireTexture(foldTexPath[ci]);
+      }
+      Texture* t = foldTex[ci];
+      if (!t || t->core->bpp != Tyra::bpp4) continue;
+      const int g = t->getWidth();
+      const int per = g / C;  // texels per cell side
+      if (per < 2) continue;
+      // The quadrant of cell (lx, lz) nearest the node.
+      const int x0 = lx * per + ((q & 1) ? 0 : per / 2);
+      const int z0 = lz * per + ((q >> 1) ? 0 : per / 2);
+      const unsigned char* px = t->core->data;
+      unsigned int acc = 0, n = 0;
+      for (int z = z0; z < z0 + per / 2; ++z)
+        for (int x = x0; x < x0 + per / 2; ++x) {
+          const unsigned char b = px[(z * g + x) >> 1];
+          acc += (x & 1) ? (b >> 4) : (b & 15U);  // PSMT4: low nibble first
+          ++n;
+        }
+      if (n) sum += (float)acc / (15.0F * (float)n);
+    }
+    return sum * 0.25F;
+  };
+#else
+  auto groundShadowFoldAt = [](int, int) -> float { return 0.0F; };
+#endif
+  auto shadeAtF = [&](int ix, int iz) -> V3 {
+    if (!foldOn) return shadeAtE(ix, iz);
+    const float amb = SCENE_BRIGHTNESS * SCENE_AMBIENT;
+    auto folded = [&](int nx, int nz) -> V3 {
+      V3 s = shadeAtC(nx, nz);
+      const float a = groundShadowFoldAt(nx, nz);
+      if (a > 0.0F) {
+        s.x += ((s.x < amb ? s.x : amb) - s.x) * a;
+        s.y += ((s.y < amb ? s.y : amb) - s.y) * a;
+        s.z += ((s.z < amb ? s.z : amb) - s.z) * a;
+      }
+      return s;
+    };
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return folded(ix, iz);
+    const V3 sa = m.alongZ ? folded(ix, m.a) : folded(m.a, iz);
+    const V3 sb = m.alongZ ? folded(ix, m.b) : folded(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  if (g_terrainFoldState.size() < terrainChunks.size())
+    g_terrainFoldState.resize(terrainChunks.size(), 0);
+  g_terrainFoldState[(size_t)slot] = (signed char)(foldOn ? 1 : 0);
   // Quads this chunk really emits - the reserve has to follow the stride or a
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
@@ -5576,7 +5671,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     auto emitAt = [&](int ix, int iz) {
       const float wx = startX + ix * stepX;
       const float wz = startZ + iz * stepZ;
-      const V3 s = shadeAtE(ix, iz);
+      const V3 s = shadeAtF(ix, iz);
       ch.vertices.push_back(Vec4(wx, hAtE(ix, iz), wz, 1.0F));
       ch.colors.push_back(
           Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
@@ -5652,8 +5747,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
 
         const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
         const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
-        const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
-        const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
+        const V3 s00 = shadeAtF(x, z), s10 = shadeAtF(xN, z);
+        const V3 s01 = shadeAtF(x, zN), s11 = shadeAtF(xN, zN);
         auto shaded = [&](const V3& s) {
           return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
@@ -5881,7 +5976,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
     ch.gsVerts.clear();
     ch.gsSts.clear();
-    if (ch.gsTexBag.texture && gsRows) {
+    // Folded into the vertex colours above: no pass of its own.
+    if (ch.gsTexBag.texture && gsRows && !foldOn) {
       const float ox = startX + (float)gx0 * stepX;
       const float oz = startZ + (float)gz0 * stepZ;
       const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
@@ -6182,6 +6278,21 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     --budget;
   }
 
+  // Chunks built with the ground shadows folded in for the other side of a
+  // sunrise/sunset (docs/shadows.md, "Folded into the vertex colour"): rebuilt
+  // in place, within the same budget, the old one drawn until then.
+#ifdef GROUND_SHADOWS_ON
+  if (g_groundShadowFold) {
+    const signed char want = groundShadowFoldWanted(currentScene) ? 1 : 0;
+    for (int s = 0; budget > 0 && s < (int)terrainChunks.size(); ++s) {
+      if (terrainChunks[s].cx < 0 || s >= (int)g_terrainFoldState.size() ||
+          g_terrainFoldState[(size_t)s] == want)
+        continue;
+      buildTerrainChunk(s, terrainChunks[s].cx, terrainChunks[s].cz);
+      --budget;
+    }
+  }
+#endif
   // Then the resident chunks whose detail has gone stale - their own band
   // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
   // Missing chunks are built first on purpose: a hole in the ground is a worse

@@ -7555,6 +7555,8 @@ static std::string shadowDataHeader(const Project& p) {
         }
         if (anyGround) {
             out << "\n#define GROUND_SHADOWS_ON 1\n";
+            // docs/shadows.md, "Folded into the vertex colour".
+            if (p.settings.bakedShadowGroundFold) out << "#define GROUND_SHADOW_FOLD 1\n";
             std::vector<int> chunksX(sceneCount, 0);
             for (int si = 0; si < sceneCount; ++si) {
                 const SceneData& sc = p.scenes[si];

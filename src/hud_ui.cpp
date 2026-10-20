@@ -1424,6 +1424,14 @@ void App::drawShadowBakeSection() {
     prefHelp("Every caster's shadow on the terrain as one 4-bit map per\n"
              "terrain chunk - sharp and cheap in VRAM - instead of decals.\n"
              "Decals still land on walls, slabs and models.");
+    if (st.bakedShadowGround != 0) {
+        if (ImGui::Checkbox("Fold into the terrain colour", &st.bakedShadowGroundFold))
+            changed = true;
+        prefHelp("The ground maps darken the terrain's vertex colours instead\n"
+                 "of drawing as one more pass over the shaded cells: no pass\n"
+                 "at all, but one sample per terrain vertex, so shadow edges\n"
+                 "are softer and coarser, more so on far, lower-detail chunks.");
+    }
     ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::SliderFloat("Softness", &st.bakedShadowSunAngle, 0.5f, 8.0f,
                            "%.1f deg"))

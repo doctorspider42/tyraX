@@ -5594,7 +5594,10 @@
 // panorama per 16-unit road cell of what the probe sees of the static world
 // (ground within the radius, unmovable box proxies); the probe draws it as one
 // camera-facing card. Motor District, PS2: probe -0.04..-0.08 ms a driving
-// frame, on in examples/vehicle-playground.
+// frame, on in examples/vehicle-playground. Also Ground shadows > Fold into
+// the terrain colour (opt-in): the ground maps darken terrain vertex colours
+// instead of drawing a pass (-1.1 ms driving by day on the district; 4-unit
+// node edges, so the district keeps the pass).
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -6200,7 +6203,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v97 (docs/reflective-materials.md, "The baked background"):
 // ProjectSettings::reflectionPanorama, written only when true. Missing = off,
 // i.e. the probe redraws the ground and the box proxies live as before.
-// Additive; no migration step.
+// Additive; no migration step. Also ProjectSettings::bakedShadowGroundFold
+// (docs/shadows.md, "Folded into the vertex colour"), written only when true;
+// missing = the ground maps keep their own pass.
 inline constexpr int kFormatVersion = 97;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"

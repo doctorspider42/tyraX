@@ -315,6 +315,27 @@ inline bool assetFileExists(const std::string& cwdRel) {
   return f != nullptr;
 }
 
+// Ground shadows folded into the terrain's vertex colour (docs/shadows.md,
+// "Folded into the vertex colour"). GROUND_SHADOW_FOLD comes from the
+// project (bakedShadowGroundFold); the variable lets a test flip it before a
+// scene (re)builds its chunks. Only while the sun is up - the same gate the
+// mask pass has - and a chunk remembers which way it was built
+// (g_terrainFoldState, per slot) so a sunset re-colours it.
+#ifndef GROUND_SHADOW_FOLD
+#define GROUND_SHADOW_FOLD 0
+#endif
+inline bool g_groundShadowFold = GROUND_SHADOW_FOLD != 0;
+inline std::vector<signed char> g_terrainFoldState;
+inline bool groundShadowFoldWanted(int scene) {
+#ifdef GROUND_SHADOWS_ON
+  return g_groundShadowFold &&
+         (!daynight::active(scene) || daynight::g_sun[1] >= 0.0F);
+#else
+  (void)scene;
+  return false;
+#endif
+}
+
 #ifdef REFL_PANO_ON
 #include <malloc.h>
 // The reflection probe's baked background (docs/reflective-materials.md, "The
