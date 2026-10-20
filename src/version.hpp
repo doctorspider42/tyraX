@@ -5661,7 +5661,12 @@
 // spinner moved after the frame's first query stayed at its old box for the
 // rest of the frame: the loop now refreshes after the script stage and after
 // the spinners (a refresh that changes nothing placed skips the rebuild).
-#define TYRAX_VERSION_PATCH 2
+// 1.173.3: Vec4/M4x4 VU0 math inline, with exact "m" asm operands (the old
+// out-of-line blocks passed bare pointers and only worked because they were
+// calls); +, - and normalize keep w instead of a stale lane; setCamera,
+// lookAt, convertVertices, skinning's AABB setup and atan2 declare what they
+// touch (docs/vu0-macro-mode.md).
+#define TYRAX_VERSION_PATCH 3
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.

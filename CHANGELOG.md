@@ -5,6 +5,14 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 1.173.3 - unreleased
+
+### Engine
+
+- **Faster vector math in every game**: `Vec4` and `M4x4` operations are now inlined VU0 code instead of a function call each - a dot product or a distance costs about half what it did, a particle-style update about a quarter less (measured in PCSX2). [VU0 macro mode](https://github.com/doctorspider42/tyraX/blob/main/docs/vu0-macro-mode.md)
+- `a + b`, `a - b` and `normalize()` now keep the vector's `w` instead of leaving whatever value an earlier calculation left behind.
+- Fixed hand-written VU0 code that the compiler was allowed to reorder around (the matrix camera setup, the perspective helper, skinning's bounds setup and `atan2`); it only worked because nothing was inlined.
+
 ## 1.172.2 - 2026-10-16
 
 ### Releases

@@ -51,9 +51,12 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 12. **audsrv: never block on an audsrv RPC** (it stops the whole library); `SifWriteBackDCache` before any EE→IOP DMA; play sites offset channels by `ScriptContext::reverbBusBase`.
 13. **Loaders soft-fail** (`TYRA_SOFT_ERROR` + fallback), never assert on a missing file; test asset paths on both `host:` and `cdrom0:`.
 14. **Ids from `generateUniqueId()`**, never `rand()`; texture links only via `addLink`/`removeLink*`.
-15. **Verify**: correctness on PCSX2's software renderer; anything touching GS state, DMA timing, caches, dithering, USB or EE exceptions on real hardware (PCSX2 hides those classes). Timings: one ELF toggled at boot, same assembler, same-build control; never trust PCSX2 GS fill numbers (76x off).
+15. **VU0 macro-mode (COP2) asm names its memory**: `"m"`/`"=m"`/`"+m"` operands for a quadword, an `"r"` base plus an unprinted dummy `"m"(*(const float(*)[16])p)` for a matrix (never `0x10+%1` - GAS rejects `0x10+%lo(sym)`), scalars through `"r"` + `qmtc2`/`qmfc2`, no hardcoded GPRs, always `volatile`, no global labels inline. A bare `"r"` pointer works only out of line: inlined, GCC dropped the stores feeding it. Scratch is `$vf1-$vf9`; skinning owns `$vf20/$vf21` across its blocks (docs/vu0-macro-mode.md).
+16. **Verify**: correctness on PCSX2's software renderer; anything touching GS state, DMA timing, caches, dithering, USB or EE exceptions on real hardware (PCSX2 hides those classes). Timings: one ELF toggled at boot, same assembler, same-build control; never trust PCSX2 GS fill numbers (76x off).
 
 ## Pitfalls index (symptom → cause → full story)
+**Math**
+- A `Vec4`/`M4x4` result is garbage only once inlined (or only at `-O3`) → COP2 asm with bare `"r"` pointers and no memory operands; GCC skipped the stores → docs/vu0-macro-mode.md
 **Rendering corruption / missing geometry**
 - Objects render twice, giant smeared polygons → bag with `frustumCulling = None`, GS 4096-px wrap (SW renderer/hardware only) → static-pipeline.md
 - Dashed bands / grey wedges / baked shadows z-fighting → coplanar faces or coplanar passes split at different package sizes → static-pipeline.md

@@ -326,6 +326,10 @@ Developer design docs (internals, not user guides):
   as a yardstick.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,
   generate both sides, run it in the host simulator with no PS2.
+- [VU0 macro mode: the engine's SIMD math](vu0-macro-mode.md) — why GCC never
+  vectorizes for the EE, the operand rules that keep a hand-written COP2 block
+  from being miscompiled once it is inlined, the VU0 register conventions, and
+  what inlining `Vec4`/`M4x4` measured.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
 - [The native PS2 toolchain](native-toolchain.md) — the default Docker-free

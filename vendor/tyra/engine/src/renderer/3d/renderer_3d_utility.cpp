@@ -270,16 +270,16 @@ Vec4 Renderer3DUtility::convertVertices(const Vec4& v, const Vec4& scale) {
 
   /** Perspective divide + add screen scale */
   asm volatile(
-      "lqc2       $vf4, 0x0(%1)         \n\t"
-      "lqc2       $vf5, 0x0(%2)         \n\t"
+      "lqc2       $vf4, %1              \n\t"
+      "lqc2       $vf5, %2              \n\t"
       "vdiv       $Q,   $vf0w,  $vf4w   \n\t"
       "vwaitq                           \n\t"
       "vmulq.xyz  $vf4, $vf4,   $Q      \n\t"
       "vmulaw.xyz $ACC, $vf5,   $vf0w   \n\t"
       "vmadd.xyz  $vf4, $vf4,   $vf5    \n\t"
-      "sqc2       $vf4, 0x0(%0)         \n\t"
-      :
-      : "r"(output.xyzw), "r"(v.xyzw), "r"(scale.xyzw));
+      "sqc2       $vf4, %0              \n\t"
+      : "=m"(output.xyzw)  // Modified by TyraX: exact memory operands
+      : "m"(v.xyzw), "m"(scale.xyzw));
 
   return output;
 }
