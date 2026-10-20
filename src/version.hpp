@@ -5665,7 +5665,8 @@
 // out-of-line blocks passed bare pointers and only worked because they were
 // calls); +, - and normalize keep w instead of a stale lane; setCamera,
 // lookAt, convertVertices, skinning's AABB setup and atan2 declare what they
-// touch (docs/vu0-macro-mode.md).
+// touch (docs/vu0-macro-mode.md). The StaPip transform cache compares its two
+// matrices with mmi::equal64 (MMI lq/pxor) instead of memcmp.
 #define TYRAX_VERSION_PATCH 3
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-

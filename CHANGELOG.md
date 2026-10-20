@@ -10,6 +10,7 @@ history.
 ### Engine
 
 - **Faster vector math in every game**: `Vec4` and `M4x4` operations are now inlined VU0 code instead of a function call each - a dot product or a distance costs about half what it did, a particle-style update about a quarter less (measured in PCSX2). [VU0 macro mode](https://github.com/doctorspider42/tyraX/blob/main/docs/vu0-macro-mode.md)
+- Static meshes check whether their transform changed with a 128-bit (MMI) compare instead of `memcmp` - about six times faster per check, twice per mesh every frame.
 - `a + b`, `a - b` and `normalize()` now keep the vector's `w` instead of leaving whatever value an earlier calculation left behind.
 - Fixed hand-written VU0 code that the compiler was allowed to reorder around (the matrix camera setup, the perspective helper, skinning's bounds setup and `atan2`); it only worked because nothing was inlined.
 

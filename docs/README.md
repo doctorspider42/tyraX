@@ -328,8 +328,9 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [VU0 macro mode: the engine's SIMD math](vu0-macro-mode.md) — why GCC never
   vectorizes for the EE, the operand rules that keep a hand-written COP2 block
-  from being miscompiled once it is inlined, the VU0 register conventions, and
-  what inlining `Vec4`/`M4x4` measured.
+  from being miscompiled once it is inlined, the VU0 register conventions, what
+  inlining `Vec4`/`M4x4` measured, the MMI 128-bit helpers, and a VU0 frustum
+  kernel that was measured and not built.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
 - [The native PS2 toolchain](native-toolchain.md) — the default Docker-free

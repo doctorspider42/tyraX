@@ -12,12 +12,14 @@ asm block each so values stay in VU0 registers. Order by measured cost, and keep
 each one gated on a console A/B (`tools/vu0-bench` for the operator-level
 numbers, one-ELF toggles for the frame):
 
-- **Console timing of the inline operators** - the table in the guide is PCSX2
-  cycles; run `tools/vu0-bench` over ps2link once.
-- **Frustum AABB classification** (`core_bbox.cpp` `frustumCheckAABB` /
-  `activePlaneMaskAABB`): 570 calls, 1.79 ms a garage frame
-  (ee-submission-rearchitecture.md). Planes as structure-of-arrays, two batches
-  of four, `vabs` + `vmula`/`vmadd`; the six planes stay resident for a bag.
+- **Console timing of the inline operators and `mmi::equal64`** - the guide's
+  numbers are PCSX2 cycles; run `tools/vu0-bench` (both files) over ps2link
+  once, and re-split `bounds` with `TYRA_STAPIP_ATTRIB` to see what the
+  transform cache's 0.341 ms became.
+- ~~**Frustum AABB classification** on VU0~~ - measured, not built: 15-27% on
+  the function in PCSX2, not bit-exact at plane boundaries, and a `Plane*` ->
+  structure-of-arrays API change through the packager (guide, "Measured, not
+  built"). Reopen only with a console run that shows a larger gap.
 - **BLSS `runNet`**: 108 MACs a tile, 1.29 ms. Transposed `w1` gives four hidden
   units per `vmadd` - but the host twin expects bit-identical results, and VU0
   rounds toward zero; decide that contract first.
