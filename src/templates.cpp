@@ -2381,12 +2381,17 @@ class TerrainGame : public Tyra::Game {
   // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
   // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
   // grid or loose octree). Refreshed on the first query of a frame
-  // (g_frameStamp) and after any spawn or (de)activation; a query fills `out`
-  // with every object whose box may reach it - never fewer - in ascending
-  // order, and the caller's own exact tests decide.
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
   void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
   void broadPhaseAlong(const float* a, const float* b, float radius,
                        std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
   void broadPhaseInvalidate() const { bpFrame = ~0u; }
   void broadPhaseRefresh() const;
   void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
@@ -2396,6 +2401,10 @@ class TerrainGame : public Tyra::Game {
     float key[12] = {};      // pose + model + collision mode the box was made for
     Tyra::BroadBox box;      // world box, padded
     bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
@@ -4261,12 +4270,17 @@ class TerrainGame : public Tyra::Game {
   // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
   // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
   // grid or loose octree). Refreshed on the first query of a frame
-  // (g_frameStamp) and after any spawn or (de)activation; a query fills `out`
-  // with every object whose box may reach it - never fewer - in ascending
-  // order, and the caller's own exact tests decide.
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
   void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
   void broadPhaseAlong(const float* a, const float* b, float radius,
                        std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
   void broadPhaseInvalidate() const { bpFrame = ~0u; }
   void broadPhaseRefresh() const;
   void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
@@ -4276,6 +4290,10 @@ class TerrainGame : public Tyra::Game {
     float key[12] = {};      // pose + model + collision mode the box was made for
     Tyra::BroadBox box;      // world box, padded
     bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;

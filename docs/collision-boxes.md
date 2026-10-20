@@ -185,19 +185,52 @@ Both return the same objects for the same scene, in ascending object order
 (the order the full walks used, which the walker's order-dependent pushes
 need). Measured on the host over the same random scene: a walker-sized query
 costs the grid ~0.1 us and the octree ~0.4 us, but the octree hands back about
-a fifth of the candidates, so the exact tests behind it do less.
+a fifth of the candidates, so the exact tests behind it do less. A refresh
+of 500 objects (20 of them physics bodies), query included, costs about 60%
+of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
+11-18 us between runs - proportions, not EE timings).
 
 - **When it updates.** On the first query of each frame (`g_frameStamp`,
-  bumped by `updateFrameClock`), and at once after a spawn, despawn or layer
-  (de)activation. An object's box is cached and recomputed only when its
-  position, rotation, scale, model or collision mode changed - or when the
-  model it uses streams in after it was spawned (a clone made before its
-  template's asset was resident is first boxed from the placeholder bounds).
-- **Moving objects** - physics bodies, and anything that moved since the last
-  frame - are candidates of every query rather than placed in the structure,
-  and every box is padded by 0.5 m for an object that only starts moving after
-  the update. So is an object too large to place (more than 64 grid cells, or
-  outside the octree's root).
+  bumped by `updateFrameClock`), at two **refresh boundaries** in the frame
+  loop, and at once after a spawn, despawn or layer (de)activation. The first
+  boundary follows the script stage (scripts, the flow graph, a scene switch,
+  layer streaming, teleports) and comes before the physics step; the second
+  follows the spinners and comes before the vehicles, the portals and the
+  carry sweep. So whatever a stage moves, turns, rescales or switches on or off
+  is where it really is for every stage after it. An object's box is cached
+  and recomputed only when its position, rotation, scale, model or collision
+  mode changed - or when the model it uses streams in after it was spawned (a
+  clone made before its template's asset was resident is first boxed from the
+  placeholder bounds). A refresh that changes nothing in the structure (no
+  object came, went, started or stopped moving, or got a new box) skips the
+  rebuild: a boundary after a quiet stage costs one walk over the objects.
+- **Moving objects** - physics bodies, and anything that moved this frame or
+  the last - are candidates of every query rather than placed in the
+  structure, and every box is padded by 0.5 m for an object that only starts
+  moving after a refresh, within the same stage. So is an object too large to
+  place (more than 64 grid cells, or outside the octree's root). Counting
+  "moving" by frame rather than by refresh keeps something that moves every
+  frame in a late stage (a vehicle) a candidate everywhere, instead of
+  settling it at an early boundary and leaving its box behind.
+- **Moving a collider yourself.** Scripts and flow graphs need nothing: they
+  write `ctx.objects` during the script stage, nothing queries the broad phase
+  inside it, and the boundary after it picks every change up. Game-side C++
+  that moves, turns or rescales a collider (or changes its model or collision
+  mode) and then queries in the SAME stage - one actor after another, say -
+  is covered only for motion within the 0.5 m padding; for a teleport, a
+  large step, a rotation or a scale change, call `broadPhaseInvalidate()`
+  between the change and the next query. It is cheap: the next query
+  refreshes, and rebuilds only if the structure changed. The two boundaries
+  live in the generated frame loop (`src/terrain_game.cpp`); a project that
+  owns that file (its marker line removed) keeps its own loop and adds them
+  itself - `broadPhaseInvalidate();` before `updateObjectPhysics()` and after
+  `updateSpinners()`.
+- **Two shapes per object.** The sweep and the physics statics test an
+  object's box in its full rotation; the walker's box mode stands the same box
+  upright and turns it by yaw alone (a pitched or rolled box collides
+  upright - see above). The stored box covers both, so a long box rolled 90
+  degrees is still a candidate wherever the walker treats it as a wall or a
+  floor.
 - **The walker asks for a whole column.** Its box path takes any box under the
   feet as a floor and any box overhead as the jump ceiling, however far, so
   height cannot narrow its query without changing where it stands. The sweep,

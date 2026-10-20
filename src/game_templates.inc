@@ -249,8 +249,9 @@ inline u32 g_frameStamp = 0;
 
 // The contact broad phase (TerrainGame::broadPhaseNear, docs/collision-boxes.md,
 // "The broad phase"). Padding on every box: motion of an object that STARTED
-// moving after this frame's refresh (one that keeps moving is a candidate of
-// every query from the next frame on).
+// moving after the last refresh - within one stage of the frame, since the
+// loop refreshes after the scripts and after the spinners (one that keeps
+// moving is a candidate of every query from the next refresh on).
 inline constexpr float kBroadPhaseMargin = 0.5F;
 // Development switch: every walker call also runs over EVERY object and the
 // two are compared, and every query is checked against the objects' CURRENT
@@ -4765,11 +4766,17 @@ void TerrainGame::loop() {
     }
   }
 
+  // Broad-phase refresh boundary: what the scripts, streaming and teleports
+  // above changed is seen by everything below (see the FPP loop note).
+  broadPhaseInvalidate();
   if (!menuActive) updateObjectPhysics();
   // Scripted rotation, right after the physics integration: both write
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  // Refresh boundary: the spinners turned colliders after the physics step,
+  // and the vehicles, portals and carry sweep below query them.
+  broadPhaseInvalidate();
 {{VEHICLE_UPDATE}}
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
@@ -7110,6 +7117,13 @@ void TerrainGame::loop() {
     }
   }
 
+  // Broad-phase refresh boundary (docs/collision-boxes.md, "The broad
+  // phase"): the walker's queries refreshed it this frame, and since then the
+  // scripts, the flow graph, a scene switch, layer streaming and teleports may
+  // have moved, turned, rescaled or (de)activated colliders. The physics step,
+  // vehicles, portals and the carry sweep below must see them where they are
+  // now. One walk over the objects; a rebuild only if something changed.
+  broadPhaseInvalidate();
 #if TYRA_FRAME_PROFILE
   { const u32 phT = Tyra::FrameProfile::ticks();
     if (!menuActive) updateObjectPhysics();
@@ -7121,6 +7135,9 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  // Refresh boundary: the spinners turned colliders after the physics step,
+  // and the vehicles, portals and carry sweep below query them.
+  broadPhaseInvalidate();
   UPD_LAP(4);
 {{VEHICLE_UPDATE}}
   UPD_LAP(5);
@@ -18009,8 +18026,11 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
 // those alone. The backend is the project's choice (SCENE_BROADPHASE, or per
 // scene SCENE_BROADPHASES: a
 // height-aware grid or a loose octree); this side only keeps each obstacle's
-// world box current, once a frame (g_frameStamp) and after any spawn or
-// (de)activation.
+// world box current: on the first query of a frame (g_frameStamp), at the
+// frame loop's refresh boundaries (after the script stage, after the
+// spinners) and after any spawn or (de)activation. Each box covers both
+// shapes an obstacle collides as - the full-rotation box (sweep, physics) and
+// the walker's upright yaw-only one.
 
 // Does the segment a -> a + d cross the box padded by `pad`? (slabs; verify)
 static bool broadPhaseSegmentHits(const float* a, const float* d,
@@ -18043,6 +18063,18 @@ void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) c
       fabsf(ax.x) * cb.half[0] + fabsf(ay.x) * cb.half[1] + fabsf(az.x) * cb.half[2],
       fabsf(ax.y) * cb.half[0] + fabsf(ay.y) * cb.half[1] + fabsf(az.y) * cb.half[2],
       fabsf(ax.z) * cb.half[0] + fabsf(ay.z) * cb.half[1] + fabsf(az.z) * cb.half[2]};
+  // That is the box the sweep and the physics statics test (the full
+  // rotation). The walker's box mode stands the same box UPRIGHT about the
+  // same centre, turned by yaw alone (collidePlayer: a pitched/rolled box
+  // collides upright) - a long box rolled 90 degrees is tall here but long on
+  // the ground there. The world box holds both, so neither loses a candidate.
+  {
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+    const float yc = fabsf(cosf(yaw)), ys = fabsf(sinf(yaw));
+    const float up[3] = {yc * cb.half[0] + ys * cb.half[2], cb.half[1],
+                         ys * cb.half[0] + yc * cb.half[2]};
+    for (int k = 0; k < 3; ++k) h[k] = fmaxf(h[k], up[k]);
+  }
   // A collision MESH pushes the walker out of triangles up to 0.6 mesh units
   // past its radius (CollisionMesh::resolveSphere's capture band).
   float pad = kBroadPhaseMargin;
@@ -18069,20 +18101,29 @@ void TerrainGame::broadPhaseRefresh() const {
   const auto kind = (Tyra::BroadPhase::Kind)SCENE_BROADPHASE;
 #endif
   const int n = (int)runtimeObjects.size();
+  bool changed = false;
   if (bpGen != sceneGeneration || (int)bpCache.size() != n ||
       broadPhase.kind() != kind) {
     if (broadPhase.kind() != kind) broadPhase = Tyra::BroadPhase(kind);
     broadPhase.clear();
     bpCache.assign((size_t)n, BroadPhaseCache());
     bpGen = sceneGeneration;
+    changed = true;
   }
-  broadPhase.begin(n);
+  // First bring every entry up to date and see whether the structure would
+  // change at all: an object came or went, started or stopped moving, or a
+  // placed box changed. A refresh boundary after a stage that moved nothing
+  // (or only what is already moving) then costs this walk, not a rebuild.
   for (int i = 0; i < n; ++i) {
     const RuntimeObject& o = runtimeObjects[i];
+    BroadPhaseCache& e = bpCache[(size_t)i];
     // physObstacle is the widest "can be touched" list (the walker's and the
     // sweep's objectCollides is a subset): every consumer re-applies its own.
-    if (!o.active || !physObstacle(o.data)) continue;
-    BroadPhaseCache& e = bpCache[(size_t)i];
+    if (!o.active || !physObstacle(o.data)) {
+      changed = changed || e.present;
+      e.present = false;
+      continue;
+    }
     const float key[12] = {o.data.position[0], o.data.position[1],
                            o.data.position[2], o.data.rotation[0],
                            o.data.rotation[1], o.data.rotation[2],
@@ -18091,15 +18132,34 @@ void TerrainGame::broadPhaseRefresh() const {
                            (float)o.data.model, (float)o.data.collision};
     bool same = e.valid;
     for (int k = 0; k < 12 && same; ++k) same = e.key[k] == key[k];
-    const bool moved = e.valid && !same;
     if (!same) {
-      broadPhaseBoxOf(o, e.box);
+      // A first sighting is not a move: "moved" two frames ago, i.e. never.
+      e.movedAt = e.valid ? g_frameStamp : g_frameStamp - 2u;
       for (int k = 0; k < 12; ++k) e.key[k] = key[k];
       e.valid = true;
+      e.stale = true;
     }
-    // Moving (a physics body, or moved since the last refresh): a candidate
-    // of every query until it settles - a placed box would lag it.
-    broadPhase.set(i, e.box, o.data.physics || moved);
+    // Moving (a physics body, or moved this frame or the last): a candidate
+    // of every query until it settles - a placed box would lag it. By FRAME,
+    // not since the last refresh: something that moves every frame in a late
+    // stage (a vehicle) must not settle at an earlier boundary of the next
+    // frame and then move away from its box. Nothing reads a moving object's
+    // box, so it is rebuilt once, when it settles.
+    const bool moving = o.data.physics || g_frameStamp - e.movedAt <= 1u;
+    if (!moving && e.stale) {
+      broadPhaseBoxOf(o, e.box);
+      e.stale = false;
+      changed = true;
+    }
+    changed = changed || !e.present || moving != e.moving;
+    e.present = true;
+    e.moving = moving;
+  }
+  if (!changed) return;
+  broadPhase.begin(n);
+  for (int i = 0; i < n; ++i) {
+    const BroadPhaseCache& e = bpCache[(size_t)i];
+    if (e.present) broadPhase.set(i, e.box, e.moving);
   }
   broadPhase.commit();
 }

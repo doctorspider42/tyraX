@@ -5654,7 +5654,14 @@
 // 1.173.1: a spawned clone whose model streamed in after the spawn kept a
 // broad-phase box sized from the placeholder bounds - the walker, sweep and
 // physics missed the rest of it. The asset landing now drops that box.
-#define TYRAX_VERSION_PATCH 1
+// 1.173.2: two broad-phase omissions. A pitched/rolled box was boxed by its
+// full rotation, but the walker collides it upright (yaw only): a long box
+// rolled 90 degrees was dropped before the walker's floor/wall test. The box
+// is now the union of both. And a collider a script, a streamed layer or a
+// spinner moved after the frame's first query stayed at its old box for the
+// rest of the frame: the loop now refreshes after the script stage and after
+// the spinners (a refresh that changes nothing placed skips the rebuild).
+#define TYRAX_VERSION_PATCH 2
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.
