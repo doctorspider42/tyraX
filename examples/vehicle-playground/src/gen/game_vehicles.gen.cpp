@@ -10,6 +10,284 @@ namespace Vehicle_playground {
 // small texture tiles the entire street, and the stations are packed into
 // procChunks (owner -3) roughly 12 per chunk - each chunk its own AABB, so
 // the frustum culls a road the way it culls everything else.
+// One sample of a road's dense lateral grid - roadgen::Vertex's twin.
+struct RoadRowV {
+  float x, y, z;
+  float u, v;
+};
+
+// ---- The road band planner (docs/roads.md, "Bands"). TWIN BLOCK: this text
+// is pasted VERBATIM into roadgen.cpp and into the generated buildRoads
+// (templates.cpp); verify-road-twins.py compares the two vertex for vertex.
+// It works on rows of the dense lateral grid (x, y, z, u, v per sample), one
+// row per spline station, and decides two things:
+//   - which samples of a row to KEEP: Douglas-Peucker on the row's height
+//     profile, so a row keeps the points where the ground under the road
+//     actually bends (a terrain crease) and drops the ones in between;
+//   - which STATIONS to keep: the band between two kept stations is the
+//     zipper triangulation of their kept samples, and it may skip the
+//     stations in between only while every dense sample of every skipped row
+//     lies on it within the height, plan and texture budgets.
+// A kept row's samples are shared by both bands that meet at it, so no seam
+// can open between bands (no T-vertex), whatever the budgets.
+struct RoadPlan {
+  std::vector<int> stations;           // kept stations, first 0, last rows-1
+  std::vector<std::vector<int>> keep;  // per station: kept dense sample indices
+};
+
+// Douglas-Peucker over a row's height profile against its u.
+template <class V>
+static void roadRowKeep(const std::vector<V>& d, float tol, std::vector<int>& out) {
+  const int n = (int)d.size();
+  std::vector<unsigned char> mark((size_t)n, 0);
+  mark[0] = 1;
+  mark[(size_t)(n - 1)] = 1;
+  std::vector<int> st;
+  st.push_back(0);
+  st.push_back(n - 1);
+  while (!st.empty()) {
+    const int s1 = st.back();
+    st.pop_back();
+    const int s0 = st.back();
+    st.pop_back();
+    float worst = 0.0F;
+    int wk = -1;
+    const float du = d[(size_t)s1].u - d[(size_t)s0].u;
+    for (int k = s0 + 1; k < s1; ++k) {
+      const float f = du != 0.0F ? (d[(size_t)k].u - d[(size_t)s0].u) / du : 0.0F;
+      const float e = fabsf(d[(size_t)k].y -
+                            (d[(size_t)s0].y + (d[(size_t)s1].y - d[(size_t)s0].y) * f));
+      if (e > worst) {
+        worst = e;
+        wk = k;
+      }
+    }
+    if (wk >= 0 && worst > tol) {
+      mark[(size_t)wk] = 1;
+      st.push_back(s0);
+      st.push_back(wk);
+      st.push_back(wk);
+      st.push_back(s1);
+    }
+  }
+  out.clear();
+  for (int k = 0; k < n; ++k)
+    if (mark[(size_t)k]) out.push_back(k);
+}
+
+// The zipper between two kept rows: 1 = advance the later row (b), 0 = the
+// earlier one (a). Both rows sample the same lateral grid, so the order is
+// decided on the dense INDEX - exact, no float compare. A tie advances b
+// first, which is the diagonal the list stitch has always cut (P[j]-N[j+s]).
+static void roadZipper(const std::vector<int>& A, const std::vector<int>& B,
+                       std::vector<unsigned char>& steps) {
+  steps.clear();
+  size_t i = 0, j = 0;
+  while (i + 1 < A.size() || j + 1 < B.size()) {
+    bool advB;
+    if (i + 1 >= A.size()) advB = true;
+    else if (j + 1 >= B.size()) advB = false;
+    else advB = B[j + 1] <= A[i + 1];
+    steps.push_back(advB ? 1 : 0);
+    if (advB) ++j;
+    else ++i;
+  }
+}
+
+// May the band a..b skip every station in between?
+template <class V>
+static bool roadBandFits(const std::vector<std::vector<V>>& rows, int a, int b,
+                         const std::vector<int>& A, const std::vector<int>& B,
+                         float tolY, float tolXZ, float tolUV,
+                         std::vector<unsigned char>& steps,
+                         std::vector<const V*>& tri, int* failCell = nullptr) {
+  if (failCell) *failCell = -1;
+  roadZipper(A, B, steps);
+  const std::vector<V>& ra = rows[(size_t)a];
+  const std::vector<V>& rb = rows[(size_t)b];
+  tri.clear();
+  size_t i = 0, j = 0;
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if (steps[s]) {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&rb[(size_t)B[j + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++j;
+    } else {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&ra[(size_t)A[i + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++i;
+    }
+  }
+  const size_t tris = tri.size() / 3;
+  const int last = (int)ra.size() - 1;
+  // One test point against the band: located by a walk (the points of a pass
+  // run left to right, and so do the zipper's triangles, each of which
+  // advances one row by at least one sample) and compared in height and in
+  // texture.
+  size_t at = 0;
+  auto fits = [&](float qx, float qy, float qz, float qu, float qv) {
+    float best = -1.0e30F, by = 0.0F, bu = 0.0F, bv = 0.0F;
+    size_t bt = at;
+    const size_t lo = at > 2 ? at - 2 : 0;
+    const size_t hi = at + 5 < tris ? at + 5 : tris;
+    for (size_t c = lo; c < hi; ++c) {
+      const V& t0 = *tri[c * 3];
+      const V& t1 = *tri[c * 3 + 1];
+      const V& t2 = *tri[c * 3 + 2];
+      const float den = (t1.z - t2.z) * (t0.x - t2.x) + (t2.x - t1.x) * (t0.z - t2.z);
+      if (fabsf(den) < 1e-12F) continue;
+      const float l0 = ((t1.z - t2.z) * (qx - t2.x) + (t2.x - t1.x) * (qz - t2.z)) / den;
+      const float l1 = ((t2.z - t0.z) * (qx - t2.x) + (t0.x - t2.x) * (qz - t2.z)) / den;
+      const float l2 = 1.0F - l0 - l1;
+      float mn = l0 < l1 ? l0 : l1;
+      if (l2 < mn) mn = l2;
+      if (mn > best) {
+        best = mn;
+        bt = c;
+        by = l0 * t0.y + l1 * t1.y + l2 * t2.y;
+        bu = l0 * t0.u + l1 * t1.u + l2 * t2.u;
+        bv = l0 * t0.v + l1 * t1.v + l2 * t2.v;
+      }
+    }
+    if (best < -0.05F) return false;
+    at = bt;
+    return fabsf(by - qy) <= tolY && fabsf(bu - qu) <= tolUV &&
+           fabsf(bv - qv) <= tolUV;
+  };
+  // The dense surface's own triangles, by their centroids: two surfaces that
+  // agree at every sample can still part between them, where neither has a
+  // vertex - the difference of two piecewise-linear surfaces peaks where their
+  // edges cross. The centroids are where the verifier measures, too.
+  for (int k = a; k < b; ++k) {
+    const std::vector<V>& r0 = rows[(size_t)k];
+    const std::vector<V>& r1 = rows[(size_t)(k + 1)];
+    at = 0;
+    for (int m = 0; m < last; ++m) {
+      const V& p = r0[(size_t)m];
+      const V& q = r0[(size_t)(m + 1)];
+      const V& r = r1[(size_t)(m + 1)];
+      const V& s = r1[(size_t)m];
+      if (!fits((p.x + q.x + r.x) / 3.0F, (p.y + q.y + r.y) / 3.0F,
+                (p.z + q.z + r.z) / 3.0F, (p.u + q.u + r.u) / 3.0F,
+                (p.v + q.v + r.v) / 3.0F) ||
+          !fits((p.x + r.x + s.x) / 3.0F, (p.y + r.y + s.y) / 3.0F,
+                (p.z + r.z + s.z) / 3.0F, (p.u + r.u + s.u) / 3.0F,
+                (p.v + r.v + s.v) / 3.0F)) {
+        if (failCell) *failCell = m;
+        return false;
+      }
+    }
+  }
+  for (int k = a + 1; k < b; ++k) {
+    const std::vector<V>& rk = rows[(size_t)k];
+    // Plan: the skipped row's shoulders must lie on the band's shoulder chords.
+    for (int side = 0; side < 2; ++side) {
+      const int e = side ? last : 0;
+      const V& p = rk[(size_t)e];
+      const V& q0 = ra[(size_t)e];
+      const V& q1 = rb[(size_t)e];
+      const float dx = q1.x - q0.x, dz = q1.z - q0.z;
+      const float l2 = dx * dx + dz * dz;
+      float t = l2 > 0.0F ? ((p.x - q0.x) * dx + (p.z - q0.z) * dz) / l2 : 0.0F;
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      const float ex = q0.x + dx * t - p.x, ez = q0.z + dz * t - p.z;
+      if (ex * ex + ez * ez > tolXZ * tolXZ) return false;
+    }
+    // Height and texture at every dense sample of the skipped row.
+    at = 0;
+    for (int m = 0; m <= last; ++m) {
+      const V& q = rk[(size_t)m];
+      if (!fits(q.x, q.y, q.z, q.u, q.v)) return false;
+    }
+  }
+  return true;
+}
+
+// The plan for one road: kept samples per row, then kept stations, greedily -
+// a band grows one station at a time while it still fits, up to maxBand.
+template <class V>
+static void roadPlanBands(const std::vector<std::vector<V>>& rows, int maxBand,
+                          float tolY, float tolXZ, float tolUV, RoadPlan& plan) {
+  const int count = (int)rows.size();
+  plan.stations.clear();
+  plan.keep.assign((size_t)count, std::vector<int>());
+  if (count < 2) return;
+  for (int s = 0; s < count; ++s)
+    roadRowKeep(rows[(size_t)s], tolY * 0.5F, plan.keep[(size_t)s]);
+  std::vector<unsigned char> steps;
+  std::vector<const V*> tri;
+  // Every neighbouring station pair must fit on its own before any band may
+  // skip a station. Where the rows converge (a bend) or a crease crosses the
+  // pair at a slant, a long zipper triangle across the whole width drifts in
+  // texture and height between the samples it keeps. The test names the dense
+  // cell that broke the budget; both rows gain that cell's two edges, and the
+  // pairs are re-checked until none fails. Samples are only ever added, and a
+  // cell whose four corners are kept zips into exactly the dense cell, so this
+  // ends - at worst at the dense grid.
+  auto add = [&](std::vector<int>& k, int m) {
+    size_t at = 0;
+    while (at < k.size() && k[at] < m) ++at;
+    if (at < k.size() && k[at] == m) return false;
+    k.insert(k.begin() + (long)at, m);
+    return true;
+  };
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int s = 0; s + 1 < count; ++s) {
+      int cell = -1;
+      while (!roadBandFits(rows, s, s + 1, plan.keep[(size_t)s],
+                           plan.keep[(size_t)(s + 1)], tolY, tolXZ, tolUV, steps,
+                           tri, &cell)) {
+        bool grew = false;
+        if (cell >= 0) {
+          for (int r = s; r <= s + 1; ++r) {
+            if (add(plan.keep[(size_t)r], cell)) grew = true;
+            if (add(plan.keep[(size_t)r], cell + 1)) grew = true;
+          }
+        }
+        if (!grew) {
+          // Nothing left to add at the named cell: the whole rows, dense.
+          for (int r = s; r <= s + 1; ++r) {
+            std::vector<int>& k = plan.keep[(size_t)r];
+            k.clear();
+            for (int m = 0; m < (int)rows[(size_t)r].size(); ++m) k.push_back(m);
+          }
+          break;
+        }
+        changed = true;
+      }
+    }
+  }
+  int a = 0;
+  plan.stations.push_back(0);
+  while (a < count - 1) {
+    int b = a + 1;
+    while (b + 1 < count && b + 1 - a <= maxBand &&
+           roadBandFits(rows, a, b + 1, plan.keep[(size_t)a],
+                        plan.keep[(size_t)(b + 1)], tolY, tolXZ, tolUV, steps, tri))
+      ++b;
+    plan.stations.push_back(b);
+    a = b;
+  }
+}
+
+// Strip vertices one band costs, in the emitter's own currency: the opening
+// pair, the join into an open run, one per zipper step and one for every
+// step that advances the same row as the step before it (the pivot repeat).
+static size_t roadBandStripCost(const std::vector<unsigned char>& steps) {
+  size_t cost = 4 + steps.size();
+  int last = 0;  // the band opens on b[0], a[0]: the last vertex is row a's
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if ((int)steps[s] == last) ++cost;
+    last = steps[s];
+  }
+  return cost;
+}
+// ---- end of the twin block ----
+
 void TerrainGame::buildRoads(int scene) {
   // A scene revisit rebuilds: drop the previous scene's road chunks only.
   for (size_t i = procChunks.size(); i > 0; --i)
@@ -130,16 +408,10 @@ void TerrainGame::buildRoads(int scene) {
       }
       runStart = c->vertices.size();
     };
-    std::vector<float> px0((size_t)crossSteps + 1);
-    std::vector<float> py0((size_t)crossSteps + 1);
-    std::vector<float> pz0((size_t)crossSteps + 1);
-    // Where this station pair is cut laterally. Hoisted out of the station
-    // loop: this runs on the EE at scene load, once per station of every road
-    // in the district, and a per-station heap allocation there is not free.
-    std::vector<int> cuts;
-    cuts.reserve((size_t)crossSteps + 1);
-    float lv0 = 0.0F;
-    bool havePrev = false;
+    // The dense lateral grid, one row per spline station - roadgen.cpp's
+    // buildRows, arithmetic for arithmetic. The band planner needs the rows
+    // a band may skip, so the whole road is sampled before anything is cut.
+    std::vector<std::vector<RoadRowV>> rows;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
     sampleAt(0, 0.0F, &prevX, &prevZ);
     for (int seg = 0; seg < n - 1; ++seg) {
@@ -197,196 +469,113 @@ void TerrainGame::buildRoads(int scene) {
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;
-        std::vector<float> nx((size_t)crossSteps + 1);
-        std::vector<float> ny((size_t)crossSteps + 1);
-        std::vector<float> nz((size_t)crossSteps + 1);
+        std::vector<RoadRowV> row((size_t)crossSteps + 1);
         for (int j = 0; j <= crossSteps; ++j) {
           const float u = (float)j / (float)crossSteps;
           const float side = u * 2.0F - 1.0F;
-          nx[(size_t)j] = cx2 + rxu * side;
-          nz[(size_t)j] = cz2 + rzu * side;
-          ny[(size_t)j] =
-              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F + rd.lift;
+          RoadRowV& q = row[(size_t)j];
+          q.x = cx2 + rxu * side;
+          q.z = cz2 + rzu * side;
+          q.y = terrainHeightAt(q.x, q.z) + 0.12F + rd.lift;
+          q.u = rd.uInset + (1.0F - 2.0F * rd.uInset) * u;
+          q.v = v;
         }
-        if (havePrev) {
-          // Two triangles per lateral cell, CCW seen from above - the twin's
-          // stitch, emitted station by station so a chunk boundary never
-          // leaves a gap (the previous row is re-used as the base).
-          // Exact lateral reduction: every dense sample must lie on the
-          // proposed quad plane, and the quad must be an affine parallelogram
-          // so its two triangles interpolate ST as the cells they replace do.
-          // The reduction is per SUB-SPAN rather than all-or-nothing, because
-          // a road is a decal on a heightfield sampled far more finely than
-          // the heightfield itself - runs of lateral cells inside one terrain
-          // triangle are exactly coplanar even when the full width is not.
-          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
-          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
-          auto spanIsExact = [&](int j0, int j1) {
-            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
-            const float az = pz0[(size_t)j0];
-            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
-            const float bz = pz0[(size_t)j1];
-            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
-            const float dz = nz[(size_t)j0];
-            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
-            const float cz = nz[(size_t)j1];
-            const float ux = bx - ax, uy = by - ay, uz = bz - az;
-            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
-            const float pnx = uy * vz - uz * vy;
-            const float pny = uz * vx - ux * vz;
-            const float pnz = ux * vy - uy * vx;
-            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
-            if (!(pnl > 1e-6F)) return false;
-            const float qax = (bx - ax) - (cx - dx);
-            const float qay = (by - ay) - (cy - dy);
-            const float qaz = (bz - az) - (cz - dz);
-            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
-              return false;
-            for (int r = 0; r < 2; ++r)
-              for (int j = j0; j <= j1; ++j) {
-                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
-                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
-                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
-                                         pnz * (qz - az)) / pnl;
-                if (dist > 0.00001F) return false;
-              }
-            return true;
-          };
-          // Keep the long-standing horizontal reduction, including curved
-          // spans, as the roadgen.cpp twin does. It is the one case that does
-          // NOT owe the affine check.
-          bool flat = true;
-          const float flatY = py0[0];
-          for (int r = 0; r < 2 && flat; ++r)
-            for (int j = 0; j <= crossSteps; ++j) {
-              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
-            }
-          cuts.clear();
-          cuts.push_back(0);
-          if (flat) {
-            cuts.push_back(crossSteps);
-          } else {
-            // Greedy maximal runs. A single cell is the fallback and is never
-            // tested, so this can only remove vertices from the dense mesh.
-            int j0 = 0;
-            while (j0 < crossSteps) {
-              int j1 = j0 + 1;
-              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
-              cuts.push_back(j1);
-              j0 = j1;
-            }
-          }
-          const bool collapsed = cuts.size() == 2;
-          // Amortize EE bag/bounds work on flat streets, without making dense
-          // slopes unbounded or joining a whole road into one culling box.
-          // The budget is in the currency the chunk actually holds, so the
-          // two emitters cut a road into the SAME number of chunks only by
-          // accident - what matters is that a run never straddles one.
-          const size_t spanVertices =
-              useStrips
-                  ? (collapsed
-                         ? (alongOpen ? (size_t)2 : (size_t)4)
-                         : (2 * cuts.size() + 2))
-                  : (cuts.size() - 1) * 6;
-          if (!c || stationsInChunk >= 36 ||
-              v - chunkVBase >= 16.0F ||
-              c->vertices.size() + spanVertices > 1800) {
-            closeChunk();
-            procChunks.push_back(ProcChunk());
-            c = &procChunks.back();
-            c->owner = -3;
-            c->roadTex = tex;
-            c->roadGrip = rd.grip;
-            c->stripRun = useStrips ? (int)stripRun : 0;
-            // Texture repeat is invariant under an integer V offset. Keep the
-            // value local to this bag: long roads otherwise feed ever-growing
-            // ST coordinates into the physical GS/VU path, where the lost
-            // fractional precision can smear one texel over the whole road.
-            chunkVBase = floorf(lv0);
-            stationsInChunk = 0;
-            runStart = 0;
-            alongOpen = false;
-          }
-          // P is the previous station's row, N this one's.
-          auto vAt = [&](int j, bool newRow) {
-            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
-                                       nz[(size_t)j], 1.0F)
-                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
-                                       pz0[(size_t)j], 1.0F);
-          };
-          auto sAt = [&](int j, bool newRow) {
-            return Tyra::Vec4(rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                              (float)j / (float)crossSteps,
-                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
-          };
-          if (!useStrips) {
-            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
-              const int j = cuts[ci], j2 = cuts[ci + 1];
-              const float u0 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j / (float)crossSteps;
-              const float u1 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j2 / (float)crossSteps;
-              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
-                                 pz0[(size_t)j], 1.0F);
-              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
-                                 pz0[(size_t)j2], 1.0F);
-              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
-                                 nz[(size_t)j2], 1.0F);
-              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
-                                 nz[(size_t)j], 1.0F);
-              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
-            }
-          } else if (collapsed) {
-            // A collapsed span is ONE full-width quad, so a street of them is
-            // a grid one cell WIDE and many stations LONG - and a strip has
-            // to run along the long axis or it buys nothing. Taken laterally
-            // a collapsed span is 4 vertices plus a 2-vertex join against the
-            // list's 6: break-even on the EE and 3x the GS primitives, two
-            // thirds of them degenerate. Taken longitudinally it is 2
-            // vertices per STATION, the same 0.35x the dense spans reach.
-            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
-            // span's two triangles, cut along P[0]-N[w], which is the cut the
-            // list stitch above makes. The other interleaving takes the other
-            // diagonal and silently reshapes every non-planar quad.
-            if (!alongOpen) {
-              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
-              pushRaw(vAt(0, false), sAt(0, false));
-              alongOpen = true;
-            }
-            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
-            pushRaw(vAt(0, true), sAt(0, true));
-          } else {
-            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
-            // longer uniformly spaced, which changes nothing here: the walk
-            // visits them in order and the diagonal is the same one.
-            alongOpen = false;
-            startStrip(vAt(0, true), sAt(0, true));
-            pushRaw(vAt(0, false), sAt(0, false));
-            for (size_t ci = 1; ci < cuts.size(); ++ci) {
-              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
-              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
-            }
-          }
-          ++stationsInChunk;
-        }
-        px0.swap(nx);
-        py0.swap(ny);
-        pz0.swap(nz);
-        lv0 = v;
-        havePrev = true;
+        rows.push_back(std::move(row));
       }
+    }
+    // The bands (docs/roads.md "Bands"): roadgen.hpp's kRoadTolY / kRoadTolXZ
+    // / kRoadTolUV / kRoadBandMax as literals - static_asserted at the top of
+    // templates.cpp. A soft-edged road keeps every station: its faded bands
+    // are baked on them and must meet the core exactly.
+    RoadPlan plan;
+    roadPlanBands(rows, rd.uInset > 0.0F ? 1 : 8, 0.01F, 0.01F, 0.006F, plan);
+    std::vector<unsigned char> steps;
+    for (size_t bs = 0; bs + 1 < plan.stations.size(); ++bs) {
+      const int a = plan.stations[bs], b = plan.stations[bs + 1];
+      const std::vector<int>& A = plan.keep[(size_t)a];
+      const std::vector<int>& B = plan.keep[(size_t)b];
+      const std::vector<RoadRowV>& ra = rows[(size_t)a];
+      const std::vector<RoadRowV>& rb = rows[(size_t)b];
+      roadZipper(A, B, steps);
+      const bool collapsed = A.size() == 2 && B.size() == 2;
+      // Amortize EE bag/bounds work on flat streets, without making dense
+      // slopes unbounded or joining a whole road into one culling box. The
+      // budget is in the currency the chunk actually holds.
+      const size_t spanVertices =
+          useStrips ? (collapsed ? (alongOpen ? (size_t)2 : (size_t)4)
+                                 : roadBandStripCost(steps))
+                    : steps.size() * 3;
+      if (!c || stationsInChunk >= 36 || rb[0].v - chunkVBase >= 16.0F ||
+          c->vertices.size() + spanVertices > 1800) {
+        closeChunk();
+        procChunks.push_back(ProcChunk());
+        c = &procChunks.back();
+        c->owner = -3;
+        c->roadTex = tex;
+        c->roadGrip = rd.grip;
+        c->stripRun = useStrips ? (int)stripRun : 0;
+        // Texture repeat is invariant under an integer V offset. Keep the
+        // value local to this bag: long roads otherwise feed ever-growing
+        // ST coordinates into the physical GS/VU path, where the lost
+        // fractional precision can smear one texel over the whole road.
+        chunkVBase = floorf(ra[0].v);
+        stationsInChunk = 0;
+        runStart = 0;
+        alongOpen = false;
+      }
+      auto P = [&](const RoadRowV& q) { return Tyra::Vec4(q.x, q.y, q.z, 1.0F); };
+      auto S = [&](const RoadRowV& q) {
+        return Tyra::Vec4(q.u, q.v - chunkVBase, 1.0F, 0.0F);
+      };
+      if (!useStrips) {
+        // The zipper as a list, CCW seen from above: a step on b is
+        // (a[i], b[j+1], b[j]), a step on a is (a[i], a[i+1], b[j]).
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          const RoadRowV& q0 = ra[(size_t)A[i]];
+          const RoadRowV& q1 = st ? rb[(size_t)B[j + 1]] : ra[(size_t)A[i + 1]];
+          const RoadRowV& q2 = rb[(size_t)B[j]];
+          c->vertices.push_back(P(q0)); c->sts.push_back(S(q0)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q1)); c->sts.push_back(S(q1)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q2)); c->sts.push_back(S(q2)); c->colors.push_back(grey);
+          if (st) ++j;
+          else ++i;
+        }
+      } else if (collapsed) {
+        // A band of two two-sample rows is ONE full-width quad, so a street of
+        // them strips ALONG the road at 2 vertices per band: ... a[w], a[0],
+        // b[w], b[0] ... - successive triples are the zipper's two triangles.
+        if (!alongOpen) {
+          startStrip(P(ra[(size_t)crossSteps]), S(ra[(size_t)crossSteps]));
+          pushRaw(P(ra[0]), S(ra[0]));
+          alongOpen = true;
+        }
+        pushRaw(P(rb[(size_t)crossSteps]), S(rb[(size_t)crossSteps]));
+        pushRaw(P(rb[0]), S(rb[0]));
+      } else {
+        // ACROSS the road: b[0], a[0], then one vertex per zipper step; two
+        // steps on the same row in a row repeat the other row's vertex first
+        // (a zero-area triangle) so the next triple is still the zipper's.
+        alongOpen = false;
+        startStrip(P(rb[0]), S(rb[0]));
+        pushRaw(P(ra[0]), S(ra[0]));
+        int last = 0;
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          if (st) {
+            if (last == 1) pushRaw(P(ra[(size_t)A[i]]), S(ra[(size_t)A[i]]));
+            pushRaw(P(rb[(size_t)B[j + 1]]), S(rb[(size_t)B[j + 1]]));
+            ++j;
+            last = 1;
+          } else {
+            if (last == 0) pushRaw(P(rb[(size_t)B[j]]), S(rb[(size_t)B[j]]));
+            pushRaw(P(ra[(size_t)A[i + 1]]), S(ra[(size_t)A[i + 1]]));
+            ++i;
+            last = 0;
+          }
+        }
+      }
+      ++stationsInChunk;
     }
     // This road's last chunk still has an open run.
     closeChunk();
@@ -2606,6 +2795,7 @@ void TerrainGame::buildVehicleColliders() {
     CollisionBox cb;
     V3 cW = {0.0F, 0.0F, 0.0F};
     float cy = 1.0F, sy = 0.0F;
+    float we[3] = {0.0F, 0.0F, 0.0F};  // world-AABB half extents (full rotation)
     bool valid = false;
   };
   static std::vector<VehColCache> vehColCache_;
@@ -2664,6 +2854,12 @@ void TerrainGame::buildVehicleColliders() {
       const float yr = (o.data.rotation[1] + vc.cb.yaw) * PI / 180.0F;
       vc.cy = cosf(yr);
       vc.sy = sinf(yr);
+      const V3 hxv = boxRotate({vc.cb.half[0], 0.0F, 0.0F}, o.data);
+      const V3 hyv = boxRotate({0.0F, vc.cb.half[1], 0.0F}, o.data);
+      const V3 hzv = boxRotate({0.0F, 0.0F, vc.cb.half[2]}, o.data);
+      vc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+      vc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+      vc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
       for (int k = 0; k < 11; ++k) vc.key[k] = vkey[k];
       vc.valid = true;
     }
@@ -2676,8 +2872,10 @@ void TerrainGame::buildVehicleColliders() {
     e.hz = vc.cb.half[2];
     e.cy = vc.cy;
     e.sy = vc.sy;
+    for (int k = 0; k < 3; ++k) e.we[k] = vc.we[k];
     vehColliders_.push_back(e);
   }
+  vehColFresh_ = true;
 }
 
 // The vehiclesim twin's fixed step, on the console (docs/vehicles.md, "The
@@ -2763,6 +2961,46 @@ void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
   }
 }
 
+// The chase camera's boom against the frame's vehicle collider list instead of
+// every object: buildVehicleColliders already filtered the scene down to the
+// boxes a car can hit and placed them, so a box nowhere near the boom costs
+// a compact-array read - the object itself is touched only for the narrow
+// phase. What the list leaves out goes the general way: physics bodies and
+// mesh colliders (listed by position only) and the other cars (never walls
+// for a car, always walls for the camera). Same answer as sweepSphere; when
+// the list was not built this frame (menu open) it IS sweepSphere.
+float TerrainGame::sweepVehicleCamera(float px, float py, float pz, float dx,
+                                      float dy, float dz, float maxDist,
+                                      int skipIndex) const {
+  if (!vehColFresh_)
+    return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, skipIndex);
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS);
+  const float r = s.r;
+  float best = maxDist;
+  for (const VehColEntry& e : vehColliders_) {
+    if (e.oi == skipIndex) continue;
+    if (e.kind != 0) {
+      best = sweepObject(s, e.oi, best);
+      continue;
+    }
+    const float cy = 0.5F * (e.top + e.bottom);
+    if (e.wx + e.we[0] + r < s.mn[0] || e.wx - e.we[0] - r > s.mx[0] ||
+        cy + e.we[1] + r < s.mn[1] || cy - e.we[1] - r > s.mx[1] ||
+        e.wz + e.we[2] + r < s.mn[2] || e.wz - e.we[2] - r > s.mx[2])
+      continue;  // broad phase: nowhere near the boom
+    best = sweepBoxHit(s, runtimeObjects[(size_t)e.oi].data, e.wx, cy, e.wz,
+                       e.hx, 0.5F * (e.top - e.bottom), e.hz, best);
+  }
+  for (int vk = 0; vk < vehicleCount_; ++vk) {
+    const VehicleRt& o = vehicles_[vk];
+    if (!o.active || o.object < 0 || o.object == skipIndex ||
+        o.object >= (int)runtimeObjects.size())
+      continue;
+    best = sweepObject(s, o.object, best);
+  }
+  return sweepTerrain(s, best);
+}
+
 // Run after camera shake and car-car separation, immediately before drawing.
 void TerrainGame::collideVehicleCamera() {
   vehCamWanted_ = vehCamAllowed_ = 0.0F;
@@ -2783,8 +3021,9 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
     return;
   }
-  vehCamAllowed_ = sweepSphere(px, py, pz, dx / vehCamWanted_,
-      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, CAM_RADIUS, v.object);
+  vehCamAllowed_ = sweepVehicleCamera(px, py, pz, dx / vehCamWanted_,
+      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, v.object);
+  vehColFresh_ = false;
   const float fraction = vehCamAllowed_ / vehCamWanted_;
   cameraPosition.set(px + dx * fraction, py + dy * fraction,
                      pz + dz * fraction, 1.0F);

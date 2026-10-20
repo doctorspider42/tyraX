@@ -622,6 +622,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -1210,12 +1214,19 @@ class TerrainGame : public Tyra::Game {
     int kind = 0;
     float wx = 0.0F, wz = 0.0F, top = 0.0F, bottom = 0.0F;
     float hx = 0.0F, hz = 0.0F, cy = 1.0F, sy = 0.0F, rs = 0.0F;
+    // kind 0: the box's world-AABB half extents (its full rotation), so the
+    // chase camera's sweep can reject it without touching the object.
+    float we[3] = {0.0F, 0.0F, 0.0F};
   };
   std::vector<VehColEntry> vehColliders_;
+  // Built this frame and not yet used by the camera (sweepVehicleCamera).
+  bool vehColFresh_ = false;
   std::vector<unsigned char> vehColIsVeh_;
   unsigned int vehColGen_ = ~0u;
   void buildVehicleColliders();
   void collideVehicleCamera();
+  float sweepVehicleCamera(float px, float py, float pz, float dx, float dy,
+                           float dz, float maxDist, int skipIndex) const;
   float vehCamWanted_ = 0.0F, vehCamAllowed_ = 0.0F;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   // Speed feel (docs/vehicles.md, "Speed feel"): the driven car's eased
@@ -1868,6 +1879,20 @@ class TerrainGame : public Tyra::Game {
   // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+  // Its pieces, shared with the chase camera's sweep over the vehicle
+  // collider list: the segment's broad-phase box, one object (filters, cached
+  // box, broad + narrow phase), one already placed box (narrow phase only)
+  // and the terrain march. Each returns the new nearest distance.
+  struct SweepSeg {
+    float p[3], d[3], r, mn[3], mx[3];
+  };
+  SweepSeg sweepSegment(float px, float py, float pz, float dx, float dy,
+                        float dz, float maxDist, float r) const;
+  float sweepObject(const SweepSeg& s, int oi, float best) const;
+  float sweepBoxHit(const SweepSeg& s, const SceneObjectData& d, float cx,
+                    float cy, float cz, float ex, float ey, float ez,
+                    float best) const;
+  float sweepTerrain(const SweepSeg& s, float best) const;
 
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
