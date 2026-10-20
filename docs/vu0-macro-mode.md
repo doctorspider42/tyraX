@@ -101,6 +101,29 @@ every pixel outside the traced glass is byte-identical between the two engines,
 and the glass differs between arms no more than between two boots of one ELF
 (the trace races the capture).
 
+## What it does to a frame
+
+Whole frames, the repo's frame-timing rig: `TYRA_FRAME_PROFILE 2`,
+quiet-debug profile, frozen camera, two boots per arm interleaved, the first
+500 frames dropped, arms averaged over the same frame indices. One editor
+binary built every arm, the generated game sources byte-identical, only
+`libtyra` different. PCSX2 2.0.2, default EE cycle rate, no EE cache emulation.
+"Noise" is the spread between two boots of one build.
+
+| Scene | EE work, main | branch | change | noise | render submission |
+|---|---:|---:|---:|---:|---:|
+| vehicle-playground (Motor District) | 5.469 ms | 5.165 ms | **-0.304 (-5.6%)** | 0.03 | -5.5% |
+| large-terrain | 2.157 ms | 2.083 ms | **-0.074 (-3.4%)**, p95 -7.7% | 0.01 | -2.6% |
+| physics-playground | 1.900 ms | 1.843 ms | -0.057 (-3.0%) | 0.08 | **-6.0%** |
+| object-spawning | 1.272 ms | 1.263 ms | -0.009 | 0.06 | **-4.1%** |
+
+In Motor District the inline math is worth 0.170 ms and the MMI compare below
+another 0.134 ms (a commit-1-only arm). No pose missed a PAL field in either
+arm, so the frame period stays 20 ms: here the saving is EE idle time, and it
+becomes frames only where a scene is EE-bound. `particle-lab` is not in the
+table - its camera did not hold one view across boots and its spread (0.75 ms)
+is larger than any effect here.
+
 ## MMI: 128-bit integer work in the GPRs
 
 The EE's general registers are 128 bits wide, and the MMI instructions
