@@ -251,6 +251,7 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   l.position.w = 1.0F;
   l.color = color;
   l.range = range;
+  dynLightPack[dynLightCount] = Vec4(l.position.x, l.position.y, l.position.z, range);
   return static_cast<int>(dynLightCount++);
 }
 
@@ -282,6 +283,8 @@ int RendererCore::addDynSpotLight(const Color& color,
   return slot;
 }
 
+bool RendererCore::fastLightPick = true;
+
 const RendererCoreSpotLight* RendererCore::pickDynLight(
     const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
@@ -296,6 +299,16 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
     // Modified by TyraX: the bag's named exclusion (its light is drawn
     // projected, per pixel, by the game's shadow pass instead).
     if ((int)i == skipSlot) continue;
+    // Modified by TyraX: reject out-of-reach lights from the packed copy
+    // (dynLightPack) - the same squared test as below, so the verdict is
+    // unchanged; the full 80-byte entry is only touched for a light in reach.
+    if (fastLightPick) {
+      const Vec4& q = dynLightPack[i];
+      const float dx = q.x - worldCenter.x, dy = q.y - worldCenter.y,
+                  dz = q.z - worldCenter.z;
+      const float reach = q.w + worldRadius;
+      if (dx * dx + dy * dy + dz * dz >= reach * reach) continue;
+    }
     candidates[count++] = &dynLights[i];
   }
 

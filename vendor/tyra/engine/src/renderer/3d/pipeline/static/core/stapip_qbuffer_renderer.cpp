@@ -1061,14 +1061,27 @@ void invertAffine(const float* m, float* inv3x3, float* invT) {
 // light through the inverse model matrix, expresses the range in object
 // units via the (assumed near-uniform) mesh scale, and precomputes the
 // constants the cull VU1 programs and the EE clipper both consume.
+StaPipClipperSpot buildSpotForBagInverse(const RendererCoreSpotLight& spot,
+                                         const float* inv, const float* invT);
+
 StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
                                   const M4x4* model) {
+  if (!spot.enabled) {
+    StaPipClipperSpot out;
+    out.enabled = false;
+    return out;
+  }
+  float inv[9], invT[3];
+  invertAffine(model->data, inv, invT);
+  return buildSpotForBagInverse(spot, inv, invT);
+}
+
+// The same, with the model's inverse already known (a stamp keeps it).
+StaPipClipperSpot buildSpotForBagInverse(const RendererCoreSpotLight& spot,
+                                         const float* inv, const float* invT) {
   StaPipClipperSpot out;
   out.enabled = spot.enabled;
   if (!spot.enabled) return out;
-
-  float inv[9], invT[3];
-  invertAffine(model->data, inv, invT);
 
   out.position.x = inv[0] * spot.position.x + inv[1] * spot.position.y +
                    inv[2] * spot.position.z + invT[0];
@@ -3020,6 +3033,14 @@ void StaPipQBufferRenderer::stampWorldBox(StampEntry& s) {
   }
   s.wlo = Vec4(mn[0], mn[1], mn[2], 1.0F);
   s.whi = Vec4(mx[0], mx[1], mx[2], 1.0F);
+  // The light pick's sphere, exactly as tryStamp derived it per frame.
+  const Vec4 mid(0.5F * (s.lo.x + s.hi.x), 0.5F * (s.lo.y + s.hi.y),
+                 0.5F * (s.lo.z + s.hi.z), 1.0F);
+  s.worldCenter = s.model * mid;
+  const float scale = Math::sqrtNonNegative(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+  const float ex = s.hi.x - s.lo.x, ey = s.hi.y - s.lo.y, ez = s.hi.z - s.lo.z;
+  s.worldRadius = 0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale;
+  invertAffine(m, s.inv, s.invT);
 }
 
 static inline u32 stampContent(const StaPipBag* bag) {
@@ -3182,23 +3203,34 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   // makes. The spot block's PRESENCE is layout, so it must match the capture;
   // its numbers are rewritten below from the live light.
   const RendererCoreSpotLight* light = nullptr;
+  const bool fastLight = RendererCore::fastLightPick;
   if (dynamicLightReceive && bag->info->dynLightPick) {
-    const M4x4& m = s->model;
-    const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
-                   0.5F * (s->lo.z + s->hi.z), 1.0F);
-    const Vec4 worldCenter = m * mid;
-    const float scale = Math::sqrtNonNegative(
-        m.data[0] * m.data[0] + m.data[1] * m.data[1] + m.data[2] * m.data[2]);
-    const float ex = s->hi.x - s->lo.x, ey = s->hi.y - s->lo.y,
-                ez = s->hi.z - s->lo.z;
-    light = rendererCore->pickDynLight(
-        worldCenter,
-        0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
-        bag->info->dynLightSkipSlot);
+    if (fastLight) {
+      // Modified by TyraX: the sphere is the stamp's, derived with its world
+      // box (stampWorldBox) - the same numbers, not re-derived per frame.
+      light = rendererCore->pickDynLight(s->worldCenter, s->worldRadius,
+                                         bag->info->dynLightSkipSlot);
+    } else {
+      const M4x4& m = s->model;
+      const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
+                     0.5F * (s->lo.z + s->hi.z), 1.0F);
+      const Vec4 worldCenter = m * mid;
+      const float scale = Math::sqrtNonNegative(
+          m.data[0] * m.data[0] + m.data[1] * m.data[1] + m.data[2] * m.data[2]);
+      const float ex = s->hi.x - s->lo.x, ey = s->hi.y - s->lo.y,
+                  ez = s->hi.z - s->lo.z;
+      light = rendererCore->pickDynLight(
+          worldCenter,
+          0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
+          bag->info->dynLightSkipSlot);
+    }
   }
   if (!dynamicLightReceive || !bag->info->spotLit) light = noSpot;
   auto meshSpot =
-      buildSpotForBag(light ? *light : rendererCore->spot, bag->info->model);
+      fastLight ? buildSpotForBagInverse(light ? *light : rendererCore->spot,
+                                         s->inv, s->invT)
+                : buildSpotForBag(light ? *light : rendererCore->spot,
+                                  bag->info->model);
   if (meshSpot.enabled && stapipSpotHasNoInfluence(meshSpot, s->lo, s->hi))
     meshSpot.enabled = false;
   if ((meshSpot.enabled ? 1 : 0) != s->spotActive) STAMP_REJECT(7);

@@ -148,6 +148,15 @@ class RendererCore : public RendererCore2dBounds {
   static constexpr u32 DYN_LIGHTS_MAX = 8;
   RendererCoreSpotLight dynLights[DYN_LIGHTS_MAX];
   u32 dynLightCount = 0;
+  // Modified by TyraX: x, y, z, range of each dynLights entry, packed. Every
+  // stamped bag picks a light every frame; the reach test reads 16 bytes a
+  // light from here instead of an 80-byte entry, and only a light in reach is
+  // read in full (docs/stapip-stamps.md, "Light pick"). addDynPointLight is
+  // the only writer of a position or range, and it keeps this in step.
+  alignas(16) Vec4 dynLightPack[DYN_LIGHTS_MAX];
+  // A/B knob for the rig: false = the pre-1.176.2 pick (full entries) and no
+  // per-stamp light cache. Default true.
+  static bool fastLightPick;
 
   // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
   // of the async 3D stream otherwise - see Renderer2D::render). Reset by

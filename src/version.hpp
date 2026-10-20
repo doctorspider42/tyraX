@@ -1,5 +1,10 @@
 #pragma once
 
+// 1.176.2 (docs/stapip-stamps.md, "Light pick"): a stamp keeps its light inputs
+// (world sphere, model inverse) with its world box instead of re-deriving them
+// every frame, and pickDynLight rejects out-of-reach lights from a packed
+// position/range array. PS2: the stamps' light section 443 -> 399 us a driving
+// frame; the frame itself unchanged. Engine only, PATCH.
 // 1.176.1 (docs/tyrax2-night-ee-2026-10-12.md, "The submission walked every chain
 // four times"): Vif1Queue::submit records a producer's chain into the frame's
 // native chain in ONE walk - payloads into the arena, REFs straight in - instead
@@ -5683,7 +5688,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

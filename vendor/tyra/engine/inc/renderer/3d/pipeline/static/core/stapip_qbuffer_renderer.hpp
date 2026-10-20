@@ -1141,6 +1141,12 @@ class StaPipQBufferRenderer {
     StaPipProgramName program = StaPipUndefinedProgram;
     alignas(16) Vec4 lo, hi;     // object-space main box
     alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
+    // The light pick's inputs, derived from `model` with the world box: the
+    // world sphere of the main box and the model's inverse (the spot goes to
+    // object space through it). Static for a static bag, so not per frame.
+    alignas(16) Vec4 worldCenter;
+    float worldRadius = 0.0F;
+    float inv[9] = {}, invT[3] = {};
     alignas(16) M4x4 model;
     // The info bag feeds TEST/ALPHA/TEX1/fog/prim words of the head; scripts
     // (star twinkle, the probe's AllPass sky) change it in place.

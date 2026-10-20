@@ -298,6 +298,27 @@ way). The head costs memory traffic, not instructions, and the replay reads
 about as much as the ordinary path does. See the night EE notes, "Where the EE
 frame actually goes".
 
+## Light pick (1.176.2)
+
+A stamp hit re-derived its light inputs every frame: the world sphere of its
+box (a matrix-vector product and two square roots) and the model's inverse
+(`invertAffine`, inside `buildSpotForBag`), all from a model that a static bag
+never moves. `stampWorldBox` now derives them with the world box, at capture
+and when the model moves, into `StampEntry::worldCenter / worldRadius / inv /
+invT`; the replay calls `pickDynLight` with the cached sphere and
+`buildSpotForBagInverse` with the cached inverse. `pickDynLight` rejects
+out-of-reach lights from `RendererCore::dynLightPack` (x, y, z, range, 16 bytes
+a light, written by `addDynPointLight`) and only reads a full 80-byte entry for
+a light in reach. Same numbers, same verdicts.
+
+Measured on the PS2, same ELF (rig `--lightab --stamplight`, 6 cycles, two
+fast arms against the old one; `RendererCore::fastLightPick` is the knob): the
+light section of ~74 stamp hits a driving frame 443 -> 398 / 399 us, the frame
+unchanged (parked 10.67 / 10.68 ms, driving 11.22 / 11.19-11.22 ms). The
+section was worth 0.74 ms at the heavy night spot earlier; on this fixture it
+is 0.44 ms and most of what is left is the pick over lights in reach, the spot
+constants (divisions, a square root) and the no-influence test.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.
