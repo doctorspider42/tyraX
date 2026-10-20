@@ -9,6 +9,7 @@
 # Modified by TyraX: clearScreen() no longer emits a FINISH giftag, and it
 # re-asserts the GS texture wrap mode for the frame (see clearScreen).
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
+# Modified by TyraX: sendTexture re-syncs CBP0 after a CLUT upload (CLD = 4).
 */
 
 #include "renderer/core/paths/path1/frame_submission.hpp"
@@ -18,6 +19,9 @@
 #include "renderer/core/paths/path3/path3.hpp"
 
 namespace Tyra {
+
+bool gsClutLoadOnChange = true;  // Modified by TyraX: see path3.hpp
+bool gsClutResync = false;
 
 Path3::Path3() {
   drawFinishPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
@@ -134,6 +138,31 @@ void Path3::sendTexture(const Texture* texture,
                  draw_texture_wrapping(
                      texturePacket->next, 0,
                      const_cast<texwrap_t*>(texture->getWrapSettings())));
+  // Modified by TyraX: CLD = 4 bookkeeping (gsClutLoadOnChange, path3.hpp).
+  // The palette just written may sit at the address CBP0 still names - an
+  // evicted texture's CLUT block handed out again, or updateTextureInfo
+  // rewriting a palette in place - and a CLD = 4 TEX0 for it would then skip
+  // the load and draw with the old palette. Load it here instead and make
+  // CBP0 = its address: CLD = 2 through TEX0_2. Context 2 draws nothing in
+  // this engine (every PRIM has CTXT = 0), while the CLUT buffer and CBP0 are
+  // shared by both contexts, so this touches no state any later draw reads -
+  // in particular not TEX0_1, which the 2D chain caches.
+  if (texBuffers.clut != nullptr && gsClutLoadOnChange) {
+    qword_t* q = texturePacket->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q,
+                GS_SET_TEX0(texBuffers.core->address >> 6,
+                            texBuffers.core->width >> 6, texBuffers.core->psm,
+                            texBuffers.core->info.width,
+                            texBuffers.core->info.height, 1, 1,
+                            texBuffers.clut->address >> 6,
+                            texBuffers.clut->psm, CLUT_STORAGE_MODE1, 0,
+                            CLUT_LOAD_COPY_CBP0),
+                GS_REG_TEX0_2);
+    q++;
+    packet2_update(texturePacket, q);
+  }
   packet2_chain_close_tag(texturePacket);
 
   packet2_update(texturePacket, draw_texture_flush(texturePacket->next));

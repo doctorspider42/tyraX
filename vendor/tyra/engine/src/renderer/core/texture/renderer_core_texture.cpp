@@ -112,7 +112,17 @@ void RendererCoreTexture::updateClutBuffer(texbuffer_t* clutBuffer) {
     clut.address = 0;
   } else {
     clut.psm = clutBuffer->psm;
-    clut.load_method = CLUT_LOAD;
+    // Modified by TyraX: CLD = 4 - the GS reloads only when this CBP differs
+    // from the one it loaded last (gsClutLoadOnChange, path3.hpp). Upstream
+    // reloaded the palette on every bag's TEX0, the same texture included.
+    if (!gsClutLoadOnChange) {
+      clut.load_method = CLUT_LOAD;
+    } else if (gsClutResync) {
+      clut.load_method = CLUT_LOAD_COPY_CBP0;
+      gsClutResync = false;
+    } else {
+      clut.load_method = 4;  // ps2sdk names only 0..3
+    }
     clut.address = clutBuffer->address;
   }
 }
