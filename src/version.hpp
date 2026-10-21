@@ -5732,7 +5732,9 @@
 // REPEAT x CLAMP upload (tyre marks) left V clamped for the rest of the frame.
 // The upload now restates the wrap in force. Found with an input recording
 // replayed at 60 Hz, PCSX2 video capture and a multi-frame GS dump.
-#define TYRAX_VERSION_PATCH 4
+// 1.177.5: projects without roads build again - liftLatticeOverRoadStep
+// tested ROAD_COUNT, which only a project with roads generates.
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
