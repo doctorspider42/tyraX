@@ -338,7 +338,11 @@ FrameChainArena::Snapshot copyForNativeRecording(const void* chain, u32 qwords,
 // everything this call took and returns false; the caller then takes the
 // snapshot route, which owns the drain/flush recovery.
 struct SinglePassResult { bool ok; u32 bytes, borrowed; };
-SinglePassResult recordSinglePass(const void* chain, u32 qwords) {
+// Modified by TyraX: InPlace = the chain itself already lives in the frame
+// bank (submitOwned), so a CNT payload is recorded as a REF to where it lies
+// instead of a REF to a copy. Everything else is the same walk.
+template <bool InPlace>
+SinglePassResult recordPass(const void* chain, u32 qwords) {
   const SinglePassResult fail = {false, 0, 0};
   if (!chainArena || !nativeWriter || !chain || !qwords || qwords > 65536 ||
       (reinterpret_cast<uintptr_t>(chain) & 15))
@@ -357,6 +361,9 @@ SinglePassResult recordSinglePass(const void* chain, u32 qwords) {
       if (size > qwords - at - 1) { ok = false; break; }
       if (size == 0) {
         ok = nativeWriter->inlineVif(tag[2], tag[3], nullptr, 0);
+      } else if (InPlace) {
+        ok = nativeWriter->referencedVifOwned(
+            tag[2], tag[3], reinterpret_cast<u32>(tag + 4), size);
       } else {
         uint8_t* copy = chainArena->take(size * 16);
         ok = copy != nullptr &&
@@ -398,6 +405,20 @@ SinglePassResult recordSinglePass(const void* chain, u32 qwords) {
   }
   return {true, bytes, borrowed};
 }
+inline SinglePassResult recordSinglePass(const void* chain, u32 qwords) {
+  return recordPass<false>(chain, qwords);
+}
+
+// Modified by TyraX: the one open producer reservation (reservePacket).
+struct OwnedPacket {
+  FrameChainArena* arena = nullptr;
+  uint8_t* base = nullptr;
+  u32 bytes = 0;
+  bool open = false;
+};
+OwnedPacket ownedPacket;
+bool ownedPacketsOn = false;  // runtime default: see setOwnedPackets
+u32 ownedRecorded = 0, ownedRefused = 0;
 }
 #endif
 
@@ -585,6 +606,138 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
   return sequence;
 }
 
+// Modified by TyraX: R3 - producer packets written once, into the bank. See
+// the header; docs/tyrax2-arch-audit-ee-submission-2026-10-20.md.
+void* Vif1Queue::reservePacket(u32 bytes, const void* current) {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  if (ownedPacket.open && ownedPacket.base == current &&
+      ownedPacket.arena == chainArena && ownedPacket.bytes >= bytes &&
+      frameRecording && ownedPacketsOn)
+    return const_cast<void*>(current);
+  if (ownedPacket.open) {
+    // An abandoned reservation (its packet went back to the producer's own
+    // buffer): give the space back if nothing was taken after it.
+    if (ownedPacket.arena) ownedPacket.arena->shrink(ownedPacket.base,
+                                                     ownedPacket.bytes, 0);
+    ownedPacket.open = false;
+  }
+  if (!ownedPacketsOn || !frameRecording || !chainArena || !nativeWriter ||
+      (bytes & 15) || !bytes)
+    return nullptr;
+  uint8_t* memory = chainArena->take(bytes);
+  if (!memory) return nullptr;  // a full bank is reclaimed by the next drain
+  ownedPacket.arena = chainArena;
+  ownedPacket.base = memory;
+  ownedPacket.bytes = bytes;
+  ownedPacket.open = true;
+  return memory;
+#else
+  (void)bytes; (void)current;
+  return nullptr;
+#endif
+}
+
+u32 Vif1Queue::submitOwned(const void* chain, u32 qwords, bool* sourceCopied) {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  if (sourceCopied) *sourceCopied = false;
+  const bool live = ownedPacket.open && ownedPacket.base == chain &&
+                    ownedPacket.arena == chainArena && frameRecording &&
+                    nativeWriter && qwords && qwords * 16 <= ownedPacket.bytes;
+  if (!live) {
+    // Not (or no longer) this bank's open reservation - a bank switch came
+    // between the packet's start and its send. Its bytes are untouched (an
+    // old bank is not reclaimed before its own fence), so the ordinary route
+    // can still copy them; if even that enqueues the chain itself, finish it
+    // now rather than leave a chain in bank memory nothing will fence.
+    if (ownedPacket.open && ownedPacket.base == chain) ownedPacket.open = false;
+    ++ownedRefused;
+    bool copied = false;
+    const u32 sequence = submit(chain, qwords, &copied);
+    if (!copied) waitFor(sequence);
+    if (sourceCopied) *sourceCopied = true;
+    return sequence;
+  }
+  HardwareTrace::Scope traceSubmit("VIFSubmitOwned", HardwareTrace::Kind::Span, true);
+#if TYRA_VIF1_CHAIN_CHECK
+  {
+    const auto check = Vif1ChainCheck::validate(chain, qwords, resolveChainRef);
+    if (!check) {
+      printf("VIFCHECK owned rejected error=%u tag=%lu cmd=%lu pending=%lu\n",
+             static_cast<unsigned>(check.error), static_cast<unsigned long>(check.tag),
+             static_cast<unsigned long>(check.command),
+             static_cast<unsigned long>(check.pending));
+      fflush(stdout);
+      SleepThread();
+      return 0;
+    }
+  }
+#endif
+  // Commit first: whatever closeOpenChain() submits (the 2D chain) copies into
+  // the bank AFTER this packet, never over it.
+  chainArena->shrink(ownedPacket.base, ownedPacket.bytes, qwords * 16);
+  ownedPacket.open = false;
+  closeOpenChain();
+  if (nativeInFlight) {
+    waitFor(nativeInFlight);
+    nativeInFlight = 0;
+    nativeWriter->reset();
+  }
+  const SinglePassResult r = recordPass<true>(chain, qwords);
+  if (r.ok) {
+#if !TYRA_VIF1_QUEUE_LAZY_FLUSH
+    FlushCache(0);
+#endif
+    ++ownedRecorded;
+    if (sourceCopied) *sourceCopied = true;
+    if (chainArena->used() > arenaPeak) arenaPeak = chainArena->used();
+    arenaFrameBytes += r.bytes;
+    arenaFrameBorrowed += r.borrowed;
+    u32 sequence = submitted + 1;
+    if (!sequence) sequence = 1;
+    submitted = sequence;
+    nativePendingSequence = sequence;
+    return sequence;
+  }
+  // The writer refused (full): the ordinary route records or flushes it. The
+  // chain is committed bank memory, valid until this bank's fence.
+  ++ownedRefused;
+  bool copied = false;
+  const u32 sequence = submit(chain, qwords, &copied);
+  if (!copied) waitFor(sequence);
+  if (sourceCopied) *sourceCopied = true;
+  return sequence;
+#else
+  return submit(chain, qwords, sourceCopied);
+#endif
+}
+
+void Vif1Queue::setOwnedPackets(bool on) {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  ownedPacketsOn = on;
+#else
+  (void)on;
+#endif
+}
+
+bool Vif1Queue::ownedPacketsEnabled() {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  return ownedPacketsOn;
+#else
+  return false;
+#endif
+}
+
+void Vif1Queue::takeOwnedStats(u32* recorded, u32* refused) {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  if (recorded) *recorded = ownedRecorded;
+  if (refused) *refused = ownedRefused;
+  ownedRecorded = ownedRefused = 0;
+#else
+  if (recorded) *recorded = 0;
+  if (refused) *refused = 0;
+#endif
+}
+
 void Vif1Queue::enqueue(const void* chain, u32 sequence) {
 #if TYRA_FRAME_PIPELINE_SUPPORT
   // An oversized/unowned first operation has no prefix to flush. It still
@@ -669,6 +822,11 @@ void Vif1Queue::drain() {
 #endif
       ) {
     chainArena->reset();
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+    // Modified by TyraX: a producer may be mid-packet in its reservation.
+    if (ownedPacket.open && ownedPacket.arena == chainArena)
+      chainArena->keepUntil(ownedPacket.base + ownedPacket.bytes);
+#endif
     immutableSpans.releaseBanks(3);
   }
 #endif
@@ -718,6 +876,8 @@ void Vif1Queue::beginRecordingFrame(bool pipeline) {
       nativeWriter = &nativeStorage[currentBank];
       immutableSpans.releaseBanks(1u << currentBank);
       chainArena->reset();
+      // Modified by TyraX: a reservation belongs to the bank it was cut from.
+      if (ownedPacket.arena == chainArena) ownedPacket.open = false;
     }
   }
   if (!pipeline) drain();

@@ -28,6 +28,7 @@ StaPipBag::StaPipBag() {
   refineStrips = false;  // Generated terrain opts in for all coplanar passes.
   immutableStreams = false;  // Modified by TyraX: see the header
   immutableRegistered = false;
+  stampSlot = -1;  // Modified by TyraX: see StaPipBag::stampSlot
   for (auto& s : immutableSpans) s = nullptr;
 }
 

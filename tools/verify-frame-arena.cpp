@@ -241,5 +241,27 @@ int main() {
   CHECK(fresh.chain&&!fresh.borrowedBytes&&fresh.bytes==48&&fresh.records==2);
   memoOwnership.releaseBanks(1);CHECK(!memoOwnership.collectRetired(0x1000));
   memoOwnership.releaseBanks(2);CHECK(memoOwnership.collectRetired(0x1000));memoReaders=nullptr;
+  // Producer reservations (Vif1Queue::reservePacket / submitOwned, R3): the
+  // unused tail goes back only when nothing was taken behind it, and a drain's
+  // reset keeps an open reservation taken.
+  {
+    alignas(16) uint8_t bank[256] = {};
+    FrameChainArena owned(bank, sizeof bank);
+    uint8_t* r = owned.take(128);
+    CHECK(r == bank && owned.used() == 128);
+    owned.shrink(r, 128, 48);
+    CHECK(owned.used() == 48);
+    uint8_t* r2 = owned.take(64);
+    uint8_t* copy = owned.take(16);  // a copy taken while r2 is open
+    CHECK(r2 == bank + 48 && copy == bank + 112);
+    owned.shrink(r2, 64, 16);        // not the top: the tail stays taken
+    CHECK(owned.used() == 128);
+    uint8_t* r3 = owned.take(96);
+    owned.reset();
+    owned.keepUntil(r3 + 96);
+    CHECK(owned.used() == 224 && owned.take(48) == nullptr && owned.take(32) == bank + 224);
+    owned.shrink(bank + 300, 16, 0);  // foreign pointer: ignored
+    CHECK(owned.used() == 256);
+  }
   std::printf("Frame arena checks passed: %u cases + 10000 malformed streams\n", checks);
 }

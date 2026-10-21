@@ -810,6 +810,15 @@ class StaPipQBufferRenderer {
    * old rule (only bags under the ordinary size cap) for an A/B. */
   void setStampBatchAnySize(bool on) { stampBatchAnySize = on; }
   bool isStampEnabled() const { return stampEnabled; }
+  /** Modified by TyraX: find a stamp through the slot the bag remembers
+   * (StaPipBag::stampSlot) before probing the hash. false = hash only. */
+  void setStampSlotHint(bool on) { stampSlotHint = on; }
+  /** Modified by TyraX: crossing bags replayed as runs since the last call
+   * (diagnostics, reset on read). */
+  void takeReplayStats(u32* runs) {
+    *runs = partialRunHits;
+    partialRunHits = 0;
+  }
   /** Arm a capture for the bag about to go through sendObjectData + whole
    * baked replay. `lo`/`hi` are its world-space box (identity model). */
   void armStampCapture(StaPipBag* bag, const Vec4& lo, const Vec4& hi,
@@ -908,6 +917,23 @@ class StaPipQBufferRenderer {
    */
   bool replayWholeBakedBag();
   void endBakedBag();
+  /**
+   * Modified by TyraX (R5, StaPipCore::setPartialReplay): a frustum-crossing
+   * bag replayed from immutable blocks instead of the qbuffer loop. Besides
+   * its cull blocks (beginBakedBag(.., partial)) the bag gets a second baked
+   * entry: every package formatted for the streamed VU1 clip program with all
+   * six planes - camera independent, so baked once. beginPartialReplay builds
+   * or finds it (call after beginBakedBag succeeded for the same bag; false =
+   * not eligible). Then emitPartialRuns(routes, n): per package 0 skip,
+   * 1 cull block, 2 clip block, consecutive same-route packages one REF.
+   * emitPartialRuns returns false, emitting nothing, when the runs would not
+   * fit the bag's packet reservation (the caller takes the ordinary loop).
+   * clipMasks (per package, optional): clip blocks then carry the package's
+   * own plane mask in a regenerated header instead of the baked six planes.
+   */
+  bool beginPartialReplay(StaPipBag* bag, u32 packageSize);
+  bool emitPartialRuns(const u8* routes, u32 count,
+                       const u8* clipMasks = nullptr);
   u32 takeBakedHits();
   u32 takeBakedBuilds();
   u32 getBakedBytes() const;
@@ -1003,6 +1029,13 @@ class StaPipQBufferRenderer {
    * then has no DMA reader, while the snapshot retains its real sequence. */
   static constexpr u8 kPacketCount = TYRA_VIF1_QUEUE ? Vif1Queue::kDepth : 2;
   u32 packetSequence[kPacketCount] = {};
+  /** Modified by TyraX (R3, TYRA_VIF1_OWNED_PACKETS): each packet's own
+   * buffer. While a frame is recorded, startPacket points the packet at a
+   * reservation in the frame bank instead (Vif1Queue::reservePacket), so it is
+   * written once, where the DMA reads it; sendPacket then hands it over with
+   * submitOwned. The own buffer is the fallback and what packet2_free gets. */
+  qword_t* packetOrigin[kPacketCount] = {};
+  void startPacket(packet2_t* packet);
   StaPipVU1Program** dBufferPrograms;
   StaPipQBuffer** buffers;
   packet2_t* staticDataPacket;
@@ -1173,6 +1206,8 @@ class StaPipQBufferRenderer {
   u16 stampSingleAt = 0;
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
+  bool stampSlotHint = false;
+  u32 partialRunHits = 0;
   StampEntry* findStamp(const StaPipBag* bag, bool create);
   int stampSlot(const StaPipBag* bag) const;
   u32 stampPrimKey(const StaPipBag* bag) const;
@@ -1182,6 +1217,8 @@ class StaPipQBufferRenderer {
   void captureStamp();
 #endif
   bool bakedPartial = false;
+  StaPipBakedEntry* bakedClip = nullptr;  // R5: the bag's whole-clip blocks
+  void finishPartialReplay();
   packet2_t* partialBakePacket = nullptr;
   bool preparePartialBakedBag(StaPipBag* bag, u32 packageSize);
 #if TYRA_STAPIP_PREPARED_STATIC

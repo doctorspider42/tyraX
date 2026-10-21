@@ -171,6 +171,11 @@ class StaPipBag {
   bool immutableRegistered;
   const void* immutableSpans[4];
 
+  /** Modified by TyraX: renderer-owned. The stamp-table slot this bag's
+   * stamp last lived in (-1: none), so a replay finds it without the hash
+   * probe; it is a hint, checked against the slot's own bag pointer. */
+  s16 stampSlot;
+
   /**
    * @param maxVertCount This parameter is available in renderer API.
    */

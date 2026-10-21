@@ -333,3 +333,12 @@ The A/B fixture is the `C:\tx\rig` private night drive from the investigation
 page: parked night 18.3 -> 13.5 ms (with the audio idle sleep). Generated games
 enable stamps; the engine default stays off. Visual equivalence on a TV is
 still pending.
+
+## Chain stamps (tried and removed) and the stamp slot (2026-10-20)
+
+A stamp that REFs the part of its head after the MVP from DMA memory, with
+a shared per-frame VP block for world-space bags, replayed ~80 times a frame
+on the PS2 and moved nothing (parked +0.02, cruise -0.01 ms, inside the
+noise); removed. `StaPipBag::stampSlot` (`StaPipCore::setStampSlotHint`,
+default off) finds the stamp without the hash probe. Numbers:
+[EE submission audit items](tyrax2-arch-audit-ee-submission-2026-10-20.md).

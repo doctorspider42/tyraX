@@ -666,3 +666,15 @@ regenerated and still carry the pre-stream body.
 - [vu-framework.md](vu-framework.md) — `--vu-check`, the host VU1 simulator, and
   the C++ descriptions that generate the clip program family.
 - [vu-authoring.md](vu-authoring.md) — writing a project's own VU1 program.
+
+## Crossing bags from immutable blocks (2026-10-20)
+
+`StaPipCore::setPartialReplay` (default 0) gives a crossing bag a second
+baked entry: all its packages formatted for the streamed clip program with
+all six planes, camera independent and baked once. Mode 1 keeps the
+per-package classification and sends each run of same-route packages as
+one REF; mode 4 does the same with each clip block carrying its package's
+own plane mask. Sending the whole bag as ONE REF into the clip program
+(VU1 judges every triangle) was measured at +0.6 ms parked and +2.5 ms
+driving and removed. Numbers:
+[EE submission audit items](tyrax2-arch-audit-ee-submission-2026-10-20.md).
