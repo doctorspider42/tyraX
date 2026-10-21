@@ -266,7 +266,31 @@ trades ship opt-in until reviewed on a TV.
 | Y VRAM planned residency | not needed (measured) | 607 KB free with pause menu open, 4 uploads/0 evictions; zero uploads/evictions in every park/drive window. |
 | Y terrain passes into vertex colour | shipped (on in example), TV review of building-side shadows advised | DG13 (day, 18 cycles): fold vs pass parked 9.510→9.269 / 9.631→9.399, first drive 10.495→9.366, cruise 10.526→9.465, late 9.184→8.088 ms. Parked PS2 shot 1542 px differ (docs/img/ground-shadow-fold-ps2.png); shadows near buildings soften. |
 | Y stamp slot in the bag | rejected (measured) | BA4: no window improves; switch stays off. |
-| Y larger VU packages (in-place output) | not built (bound below bar); PS2 confirmation run EY2 owed | Only frustum-crossing bags pay per package (33 parked, 37–86 driving); doubling saves ≤0.1–0.2 ms driving, ~0.05 ms parked (≤19 µs/package, R5 runs arm −0.14/−0.27 ms). Clip programs cannot go in place; kRun + all strip emitters would re-bake. |
+| Y larger VU packages (in-place output) | rejected (measured) | Only crossing bags pay per package. EY2 (31 cycles): smaller packages cost ~4 µs of frame work each (parked +0.18..+0.31, cruise +1.08 ms), so doubling saves ~0.07 parked / 0.07–0.18 ms driving; clip programs cannot go in place. |
+
+## Outcome (2026-10-21)
+
+Every row above is closed with a physical-PS2 measurement. Shipped on the
+Motor District: two-state baked lamps (all eight; driving −0.32..−0.67 ms),
+the ground-shadow fold (day driving ~−1.1 ms), kept spot shadow volumes
+(−0.2 ms where used), the static collider grid (driving −0.10..−0.16 ms), the
+baked probe background (driving p50 −0.25 ms), bloom off (parked
+−0.2..−0.27 ms) and crossing-bag replay in runs with per-package masks
+(driving −0.11..−0.19 ms). Gains are per change and not additive.
+
+What the measurements taught:
+
+- **The frame is EE-bound, not VU1- or GS-bound.** The EE waits ~8 µs per
+  frame for the GPU; VU1 idles ~45–50%. Every VU1/GS-side trim (FLUSHE, clip
+  sliding window, V4-8, CLUT, bloom strips, package size) measured at noise.
+- **The wins were "bake what the EE re-derives"**: static lamps lighting
+  static geometry, ground shadows as a separate pass, spot volumes rebuilt
+  every frame, a near-static collider list. Packet-plumbing rewrites (R1
+  chain stamps, R3 owned packets, stamp slot) did not move the frame: the
+  per-bag cost is memory the EE reads, not instructions or bytes written.
+- **Process lesson:** a ps2link reset after a long run regularly wedges the
+  console (`freepad: DMA Busy`); a deploy without reset right after a power
+  cycle never did. Plan one power cycle per long hardware run.
 
 ## Suggested order
 

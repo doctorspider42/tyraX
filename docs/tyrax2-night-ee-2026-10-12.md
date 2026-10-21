@@ -789,3 +789,10 @@ of `CLD win` work on the console. The extra packages are mostly rejected
 ones, so the arm under-prices an in-view package; read its `R.part` /
 `R.strip` route time beside the frame and keep the conclusion only if both
 stay under those thresholds.
+
+**Physical PS2 confirmation (rig EY2, one ELF, 31 cycles, arm 1 cuts crossing
+packages to 24 list / 15 strip vertices, arms 0/2 controls):** parked
++0.18..+0.31 ms, first drive +0.38, cruise +1.08, late drive +0.90 ms -
+about 4 us of whole-frame work per extra package. Doubling the package size
+would therefore save ~0.07 ms parked and ~0.07-0.18 ms driving, under the
+0.9 / 1.2 ms bar set for in-place output. Not built.
