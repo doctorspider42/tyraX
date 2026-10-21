@@ -16583,6 +16583,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
 // nearest `slots` of them render each frame.
 void TerrainGame::setupProjShadows() {
   projShadows.clear();
+  Tyra::Vif1Queue::drain();  // no reader may still hold a cached clamp copy
+  projClampCache.clear();
   projCasters.clear();
   if (!PROJ_SHADOWS_USED) return;
   // The per-object mode overrides the flag both ways: 3 casts a silhouette
@@ -17611,7 +17613,6 @@ void TerrainGame::renderProjShadows() {
     // its underground part, a mesh's underground part flattens to a sliver
     // at floor level. Read the bag's own pointer, not part.vertices - a LOD
     // tier re-aims it.
-    static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
       bool below = false;
@@ -17625,17 +17626,36 @@ void TerrainGame::renderProjShadows() {
         renderWorldBag(bag);
         return;
       }
-      // One shared buffer for every part of every caster, handed to the
-      // pipeline by REFERENCE: the previous part's DMA may still be reading it
-      // when the next part overwrites it (assign() may even reallocate under
-      // the transfer). Only the shadow-slot brackets fence this; between two
-      // parts of one caster nothing does, so wait for the readers first -
-      // ALL of them: with the engine's VIF1 queue a plain channel wait can
-      // return while chains are still queued (vif1_queue.hpp).
-      Tyra::Vif1Queue::drain();
-      projClamp.assign(bag->vertices, bag->vertices + bag->count);
-      for (Vec4& v : projClamp)
-        if (v.y < gy0) v.y = gy0;
+      // ONE CLAMPED COPY PER CASTER BAG, kept between frames. It used to be
+      // one buffer shared by every part of every caster, so rewriting it for
+      // the next part needed every reader gone: Vif1Queue::drain() - with the
+      // VIF1 queue and the frame pipeline that is the whole frame so far. On
+      // Showcase (a patrolling 1 000-triangle caster) that drain was ~20 ms of
+      // a 34 ms frame on a physical PS2 (docs/shadows.md, "The clamp buffer
+      // is per caster"). A bag draws its copy once per frame, and nothing
+      // from the previous frame still reads it when the next one rewrites it
+      // (the pipelined frame snapshots mutable REF payloads into its bank at
+      // submit; without the pipeline the frame ends on a GS finish), so the
+      // copy is rewritten in place with no wait. Only a size change - which
+      // reallocates - still drains. A still caster also keeps its bytes and
+      // its bbox stamp, so its baked stream is not re-built every frame.
+      ProjClampEntry& ce = projClampCache[bag];
+      const u32 content = bag->contentVersion ? *bag->contentVersion : 0U;
+      if (ce.src != bag->vertices || ce.count != bag->count ||
+          ce.bbox != bag->bboxVersion || ce.content != content ||
+          ce.floorY != gy0 || ce.arr.empty()) {
+        if (ce.arr.size() != bag->count) Tyra::Vif1Queue::drain();
+        ce.arr.assign(bag->vertices, bag->vertices + bag->count);
+        for (Vec4& v : ce.arr)
+          if (v.y < gy0) v.y = gy0;
+        ce.src = bag->vertices;
+        ce.count = bag->count;
+        ce.bbox = bag->bboxVersion;
+        ce.content = content;
+        ce.floorY = gy0;
+        ce.stamp = ++g_bboxStamp;
+      }
+      BagArray<Vec4>& projClamp = ce.arr;
       Vec4* const keepVerts = bag->vertices;
       const u32 keepStamp = bag->bboxVersion;
       // The bag is aimed at the shared clamp buffer for ONE render and put
@@ -17648,7 +17668,7 @@ void TerrainGame::renderProjShadows() {
       const unsigned int* const keepContent = bag->contentVersion;
       projClamp.bind(bag);
       bag->count = static_cast<u32>(projClamp.size());
-      bag->bboxVersion = ++g_bboxStamp;
+      bag->bboxVersion = ce.stamp;
       renderWorldBag(bag);
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;

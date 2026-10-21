@@ -2977,6 +2977,16 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
+  // A still caster's below-the-floor clamped copy, per bag, kept between
+  // frames so it is rewritten (behind a queue drain) only when the bag or
+  // the floor moved - renderProjShadows, docs/shadows.md.
+  struct ProjClampEntry {
+    BagArray<Tyra::Vec4> arr;
+    const Tyra::Vec4* src = nullptr;
+    u32 count = 0, bbox = 0, content = 0, stamp = 0;
+    float floorY = 0.0F;
+  };
+  std::map<const Tyra::StaPipBag*, ProjClampEntry> projClampCache;
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
   // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
@@ -4920,6 +4930,16 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
+  // A still caster's below-the-floor clamped copy, per bag, kept between
+  // frames so it is rewritten (behind a queue drain) only when the bag or
+  // the floor moved - renderProjShadows, docs/shadows.md.
+  struct ProjClampEntry {
+    BagArray<Tyra::Vec4> arr;
+    const Tyra::Vec4* src = nullptr;
+    u32 count = 0, bbox = 0, content = 0, stamp = 0;
+    float floorY = 0.0F;
+  };
+  std::map<const Tyra::StaPipBag*, ProjClampEntry> projClampCache;
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
   // The floor a shadow lands on. Terrain OR geometry: an indoor level's real

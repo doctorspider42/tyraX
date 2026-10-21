@@ -5742,7 +5742,11 @@
 // and mmi::equal64 for the StaPip matrix checks (from fireapache/tyraX
 // dev-vu0-simd; docs/vu0-macro-mode.md). PS2: driving -0.04..-0.13 ms, parked
 // unchanged; fixes the -Os hang in src/math.
-#define TYRAX_VERSION_PATCH 7
+// 1.177.8: a projected-shadow caster below its floor keeps its own clamped
+// copy (projClampCache) instead of one shared buffer behind a full
+// Vif1Queue::drain() per part: Showcase on a PS2 28.5 -> 47.7 fps
+// (docs/shadows.md, "The clamp buffer is per caster").
+#define TYRAX_VERSION_PATCH 8
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

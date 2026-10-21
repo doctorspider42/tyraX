@@ -112,6 +112,20 @@ both sides of itself. The silhouette render lifts every vertex below the
 floor up to it, for that render only: a box loses exactly its underground
 part, a model's underground part flattens to a sliver at floor level.
 
+**The clamp buffer is per caster (1.177.8).** The lifted copy used to be one
+buffer shared by every part of every caster, so rewriting it waited for every
+reader with `Vif1Queue::drain()` - with the VIF1 queue and the frame pipeline,
+the whole frame so far. Showcase's patrolling keeper (one ~1 000-triangle part,
+below its floor every frame) paid that drain every frame: on a physical PS2 the
+silhouette took 21.3 ms of a 35 ms frame while the GPU sat idle 42% of the time.
+Each caster bag now keeps its own copy (`projClampCache`), rewritten in place
+with no wait - a bag draws it once per frame, and the previous frame no longer
+reads it (the pipelined frame snapshots mutable REF payloads at submit; without
+the pipeline the frame ends on a GS finish). Only a size change, which
+reallocates, still drains; a still caster keeps its bytes and bbox stamp too.
+Same ELF, Showcase entrance, lean rig: silhouette 21.3 -> 2.7 ms, frame period
+35.1 -> 21.0 ms (28.5 -> 47.7 fps); the frame is now GPU-bound (idle 42% -> 3%).
+
 ## What it costs
 
 The projected system claims its VRAM at boot **only if some object asks for a
