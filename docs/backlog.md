@@ -4,6 +4,31 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## VU0 macro-mode kernels (2026-10-20)
+
+`Vec4`/`M4x4` are inline and correctly constrained now
+([VU0 macro mode](vu0-macro-mode.md)); what is left is fusing hot loops into one
+asm block each so values stay in VU0 registers. Order by measured cost, and keep
+each one gated on a console A/B (`tools/vu0-bench` for the operator-level
+numbers, one-ELF toggles for the frame):
+
+- **Console timing of the inline operators and `mmi::equal64`** - the guide's
+  numbers are PCSX2 cycles; run `tools/vu0-bench` (both files) over ps2link
+  once, and re-split `bounds` with `TYRA_STAPIP_ATTRIB` to see what the
+  transform cache's 0.341 ms became.
+- ~~**Frustum AABB classification** on VU0~~ - measured, not built: 15-27% on
+  the function in PCSX2, not bit-exact at plane boundaries, and a `Plane*` ->
+  structure-of-arrays API change through the packager (guide, "Measured, not
+  built"). Reopen only with a console run that shows a larger gap.
+- **BLSS `runNet`**: 108 MACs a tile, 1.29 ms. Transposed `w1` gives four hidden
+  units per `vmadd` - but the host twin expects bit-identical results, and VU0
+  rounds toward zero; decide that contract first.
+- **Bbox merge constructors** (`core_bbox.cpp`) onto the existing `vmini`/`vmax`
+  loop; **static-pipeline packet emission** (one float at a time through
+  `packet2_add_float`) onto prebuilt qwords and `sq`.
+- **Game-side loops** (particles, flashlight receivers, rigid bodies): the
+  generated `RbV` is 12 bytes and unaligned, which blocks `lqc2` - align it first.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.
