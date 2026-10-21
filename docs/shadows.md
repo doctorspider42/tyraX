@@ -978,6 +978,27 @@ both directions: a light overridden to On in a project with the setting off
 still needs the band, and a project with the setting on but no spot light
 anywhere must not allocate one.
 
+### A still lamp keeps its volumes
+
+A scene spot's shadow volumes are a function of the light, its reach and its
+casters' placement - none of which moves for a street lamp over parked props -
+plus one camera test per triangle that sorts it into the front or the back
+count list (the GS has no face culling). So the carving lamp's world-space
+volume triangles, each with its outward normal and centroid (`VolTri`), are
+captured once (`g_volCapture`) and replayed against every frame's camera
+(`classifyVolTris`), in emission order and with the same 3997-vertex backstop.
+The key is the light position, its range, the picks and each pick's box,
+object index, type, position, scale and model; any change captures afresh. The
+count bracket, its scissor rect and the receiver pass are unchanged - they are
+the GS's work and the camera's. The torch moves with the eye every frame and
+keeps the old path.
+
+`TYRA_SPOT_VOLUME_KEEP` (0 = re-extrude every frame) is the A/B knob and
+`TYRA_SPOT_VOLUME_KEEP_VERIFY` the oracle: the emitters run again and both
+lists are compared to the byte (`SPOTVOLKEEP`). On the night-walk fixture (the
+yard's street light switched to *Shadow volumes: On*, cone 60 degrees, the
+torch off, 250 volume triangles) it compared 0 mismatches in PCSX2.
+
 ## On disk
 
 `SceneObject::shadowMode` — `0` follow the project, `1` none, `2` blob, `3`

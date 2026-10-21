@@ -2439,7 +2439,13 @@ loaders, physics, audio, debug...) ran 240 s clean, so a size build keeps
   `dynLights` index the pick must skip (the generated game's spot receiver
   pass draws that lamp projected instead). `dynLightPick = false` still means
   "no scene light at all", `spotLit = false` "no torch" - three different
-  levers, do not conflate them.
+  levers, do not conflate them. A fourth: `RendererCore::markDynLightBaked`
+  sets bits in `dynBakedMask` (cleared with the registry), and a bag with
+  `PipelineInfoBag::dynLightSkipBaked` skips every such slot - its vertex
+  colours already carry those lamps (the generated game's baked static lamps,
+  docs/dynamic-light-receivers.md "Baked lamp light"). Both pick sites take
+  the mask: `StaPipCore::render` and the stamp replay in
+  `stapip_qbuffer_renderer.cpp`.
 - **A selected light need not contribute to its bag.** Since 1.150.2,
   `stapip_spot_bounds.hpp` checks the existing local AABB against the exact
   `StaPipClipperSpot` constants, after selection/transform. Conservative

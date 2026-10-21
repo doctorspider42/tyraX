@@ -5588,7 +5588,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 176
+// 1.177.0: the architecture audit's bake items (docs/tyrax2-architecture-
+// audit-2026-10-20.md): the vehicles' static collider grid
+// (TYRA_VEH_COLLIDER_GRID, docs/vehicles.md), baked static lamps
+// (settings.bakeStaticLamps, format v113, docs/dynamic-light-receivers.md),
+// lamp coronas as one VU1 billboard bag (TYRA_BEAM_CORONA_VU1,
+// docs/flashlight.md), headlight pools on the wheel-contact plane
+// (TYRA_VEH_POOL_PLANE) and kept spot shadow volumes (TYRA_SPOT_VOLUME_KEEP,
+// docs/shadows.md). MINOR.
+#define TYRAX_VERSION_MINOR 177
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5694,7 +5702,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6191,7 +6199,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v95 defaults new projects to TyraX2 and always writes framePipeline.
 // Missing v94-or-older values remain false; explicit false survives resave.
 // No destructive migration step: legacy files retain their request in memory.
-inline constexpr int kFormatVersion = 96;
+// v113 (docs/dynamic-light-receivers.md, "Baked lamp light"): ProjectSettings::
+// bakeStaticLamps, written only when true. Missing = every dynamic light
+// live, as before. Additive; no migration step. (Numbered well clear of
+// v97..v112 on purpose: several renderer branches were adding formats at the
+// same time - the "arrive-second renumbers" rule still applies on merge.)
+inline constexpr int kFormatVersion = 113;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

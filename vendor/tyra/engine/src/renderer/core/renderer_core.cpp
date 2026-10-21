@@ -286,7 +286,8 @@ int RendererCore::addDynSpotLight(const Color& color,
 bool RendererCore::fastLightPick = true;
 
 const RendererCoreSpotLight* RendererCore::pickDynLight(
-    const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
+    const Vec4& worldCenter, const float& worldRadius, int skipSlot,
+    u32 skipMask) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
   // a big mesh near a torch competes fairly with the camera flashlight.
   const RendererCoreSpotLight* best = &spot;
@@ -299,6 +300,9 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
     // Modified by TyraX: the bag's named exclusion (its light is drawn
     // projected, per pixel, by the game's shadow pass instead).
     if ((int)i == skipSlot) continue;
+    // Modified by TyraX: lights this bag already carries in its vertex
+    // colours (PipelineInfoBag::dynLightSkipBaked / dynBakedMask).
+    if (skipMask & (1u << i)) continue;
     // Modified by TyraX: reject out-of-reach lights from the packed copy
     // (dynLightPack) - the same squared test as below, so the verdict is
     // unchanged; the full 80-byte entry is only touched for a light in reach.

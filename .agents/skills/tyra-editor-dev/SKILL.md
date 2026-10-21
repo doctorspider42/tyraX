@@ -562,6 +562,27 @@ sequences and mirror target lists do) must be added to `batchBlockedNames()`
 exclusion-worthy per-object property (a new special draw path, a new
 streaming mechanism) must be added to `staticBatchEligible()`.
 
+**Two more consumers of "this object cannot move"** (both key on
+`project::objectRuntimeMovable`, so a new movability rule goes THERE):
+- *The vehicles' static collider grid* (docs/vehicles.md, "The static
+  collider grid"): `SCENE_STATIC_COLLIDER_TABLES` marks the objects whose
+  collision box is placed once; the game guards them by the tail flags of
+  `RuntimeObject` (dirty, visible, active, matrix path, spin) and by
+  `g_colStaticRebuilt`, which `rebuildObjectGeometry` raises. Rule (1) above
+  is therefore also a collision rule: a mutation without `dirty` moves
+  neither the picture nor the car's wall.
+- *Baked static lamps* (`ProjectSettings::bakeStaticLamps`, docs/dynamic-light-receivers.md,
+  "Baked lamp light"): a non-flickering dynamic lamp marked static is folded
+  into static vertex colours (`g_bakedLamps`, added in `pushVert` while
+  `g_lampBakeHere` is staged) and static bags skip it in the pick
+  (`PipelineInfoBag::dynLightSkipBaked` against `RendererCore::dynBakedMask`).
+  A NEW builder of static world-space geometry must either stage
+  `g_lampBakeHere` and set `dynLightSkipBaked` on its info bag, or leave both
+  off - a bag that skips the baked lamps without carrying them goes dark under
+  them. Moving geometry that shares `batchInfoBag` (the flag is on there)
+  must use its own info bag - the vehicle wheels and debris use
+  `vehMovingInfo()` for exactly that reason.
+
 **A new exclusion needs a `Reason` too.** `staticbatch::Reason` (src/staticbatch.hpp)
 is the taxonomy *Tools > Static Batches* and `--batch-report` print per object,
 and it is a twin of these rules like everything else here - add a rule to

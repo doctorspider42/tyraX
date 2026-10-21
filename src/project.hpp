@@ -2117,6 +2117,15 @@ struct ProjectSettings {
     // the flashlight costs no second allocation - which is why
     // textureHeapEstimate charges the band once for the pair.
     bool spotShadowVolumes = false;
+    // Baked lamp light (docs/dynamic-light-receivers.md, "Baked lamp light"): a DYNAMIC
+    // point/spot light that the build can see never moves (not referenced by
+    // any flow node, script binding or layer) and never flickers is folded
+    // into the static geometry's vertex colours whenever its state changes
+    // (a day/night switch), instead of being picked and evaluated per bag
+    // every frame. Cars, the player and other moving receivers still take it
+    // live; the pools, beams and coronas are unchanged. false = every
+    // dynamic light live, as every earlier file did.
+    bool bakeStaticLamps = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -2572,6 +2581,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&
+           a.bakeStaticLamps == b.bakeStaticLamps &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.skyTexture == b.skyTexture && a.skyTextureYaw == b.skyTextureYaw &&

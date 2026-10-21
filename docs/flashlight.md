@@ -301,6 +301,24 @@ tighter footprint (instead of 1.5) was worth only another 0.09 ms, so the
 remainder is not mostly fill. It was not shipped: a tilted spot's ellipse
 needs the margin.
 
+### Coronas on VU1
+
+A lamp's corona used to be six EE-built vertices facing the camera, assembled
+into one batch and re-staged on every camera move, then classified and
+clipped per package like any partly visible bag. With `TYRA_BEAM_CORONA_VU1`
+(default on) the coronas are ONE billboard bag on the program family the
+particles use (`StaPipBillboardBag`): a centre, a 2x2 basis weight and a colour
+per lamp, expanded into the camera-facing quad on VU1 - corner = C +/- R x
+chalf +/- U x chalf with the camera's right and up, exactly the four corners
+the EE quad had. The EE keeps only what depends on the camera per lamp: the
+pull toward the camera and its matching shrink, the sub-pixel cull and the
+sphere-against-frustum test. Billboard bags take no EE frustum or clip work;
+the VU1 program drops a quad whose corner leaves the GS raster window, which
+for a corona means a camera inside the lamp head. The cone shafts are world
+geometry and keep their bag.
+
+Physical-PS2 price: pending (the console was down when this landed).
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
