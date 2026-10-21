@@ -146,9 +146,32 @@ Reading it:
   against a baseline cycle, baseline cycles among themselves 1561-8314).
   The physical-PS2 picture and the TV check are owed.
 
+### Run 2: one ELF, six arms (rig `BA4`, 2026-10-21)
+
+Physical PS2, night, lean, deployed without reset after a power cycle,
+73 cycles (12-13 per arm). Median whole-frame work in ms (95% bootstrap CI
+in brackets where it decides):
+
+| Arm | Parked w0 | Parked w1 | First drive | Cruise | Late drive |
+|---|---:|---:|---:|---:|---:|
+| HEAD | 10.149 | 10.300 | 10.409 | 10.776 | 9.111 |
+| R3 owned packets | 10.324 [10.211-10.363] | 10.294 | 10.388 | 10.724 | 9.086 |
+| stamp slot | 10.145 | 10.352 | 10.679 | 10.726 | 9.094 |
+| runs | 10.198 | 10.338 | 10.509 | 10.617 | 8.909 |
+| runs + masks | 10.155 | 10.325 | 10.263 | 10.671 | 8.917 [8.881-8.973] |
+| R3 + runs + masks | 10.158 | 10.249 | 10.270 | 10.636 | 8.940 |
+
+Decisions:
+
+- **Runs + masks (mode 4) is the engine default** (`StaPipCore::partialReplay
+  = 4`): the only arm that is never worse - parked within noise, first drive
+  -0.15, cruise -0.11, late drive -0.19 ms. Plain runs lose the first drive
+  window (+0.10 ms).
+- **R3 stays off.** Alone it is neutral while driving and worse in one parked
+  window (+0.18 ms, CI clear of the control); on top of runs + masks it does
+  not separate from runs + masks alone.
+- **The stamp slot hint stays off:** no window improves.
+
 ### Owed
 
-- Run 2 (rig `C:\tx\vpnBA4`, built, never deployed - the console wedged and
-  awaits a power-cycle): arms HEAD / R3 / stamp slot / runs / runs + masks /
-  R3 + runs + masks. It decides R3 (default stays off until confirmed),
-  prices the stamp slot alone, and separates the VU1 and EE shares of runs.
+- A physical-PS2 picture / TV check of mode 4.

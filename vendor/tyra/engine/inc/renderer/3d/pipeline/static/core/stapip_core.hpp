@@ -328,7 +328,7 @@ class StaPipCore {
   bool sliceClip = true;
   bool partialBatch = true;
   bool streamClip = true;
-  u8 partialReplay = 0;
+  u8 partialReplay = 4;  // runs + per-package masks: PS2 run BA4 (docs/tyrax2-arch-audit-ee-submission-2026-10-20.md)
   bool wholeClip() const {
     return streamClip && qbufferRenderer.isVU1ClippingEnabled();
   }

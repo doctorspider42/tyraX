@@ -255,9 +255,9 @@ trades ship opt-in until reviewed on a TV.
 | B5 baked static spot shadow volumes | implemented (on), PS2 timing owed (CZ14) | Volumes captured once and replayed per camera; SPOTVOLKEEP oracle 0 mismatches in PCSX2. |
 | R1 immutable static chains, VP in VU1 | rejected | BA2 (34 cycles/arm): ~80 chain-form replays/frame, parked 10.341 vs 10.323, cruise 10.907 vs 10.918 ms — the cost is what the replay reads, not writes. Removed. |
 | R2 per-bag FLUSHE (measure, then S2) | rejected | PS2 same-ELF (vpnAR1, 21 cycles): no-FLUSHE ceiling arm 11.50 vs controls 11.49/11.51 ms parked; drains = ~0.1 ms VU1 idle off the critical path. Commit 560ef51c9 (agent A branch). |
-| R3 producers write into the frame bank | implemented, default off, PS2 run 2 owed | BA2: driving −0.06/−0.07 ms (late drive significant), parked +0.04 (noise). Run 2 (vpnBA4) decides the default. |
+| R3 producers write into the frame bank | implemented, kept off (measured) | BA4 (73 cycles): neutral driving, one parked window +0.18 ms; no gain on top of R5 mode 4. Switch `Vif1Queue::setOwnedPackets`. |
 | R4 coronas / pools as matrix or sprite geometry | implemented opt-in; PS2 run CZ17 arms 3–4 owed | Coronas as one VU1 billboard bag; headlight pools on the wheel-contact plane. EE today: beams ~0.47 ms parked (corona bag 0.17), vehicle glow ~0.44 ms. |
-| R5 whole partial bag into the VU1 clip program | whole-bag rejected; runs mode mixed, run 2 owed | Whole bag +0.6 parked / +2.5 ms cruise (VU1). Runs mode: cruise −0.14, late −0.27, parked +0.075, first drive +0.24 ms. Mask variant built, unmeasured. |
+| R5 whole partial bag into the VU1 clip program | shipped: runs + masks (mode 4) default | Whole bag rejected (+0.6/+2.5 ms). BA4: mode 4 parked within noise, first drive −0.15, cruise −0.11, late drive −0.19 ms. |
 | Y clip-program strip sliding window | rejected | Under the 0.2 ms rule: 8 strip packages / 479 tris parked, ceiling 0.05–0.17 ms of VU1, and VU1 is not critical. |
 | Y V4-8 static vertex colours | rejected (VU1) | ≤0.3–0.4 ms of VU1 inside ~7 ms of VU1 idle per frame; EE side not priced. |
 | Y CLUT load method | rejected | CLD=1 reload costs 0.08–0.17 µs; DG4/DG11 parked work 10.16 vs 10.18 ms night, 9.56 vs 9.56 day. Reverted (53a365640). |
@@ -265,7 +265,7 @@ trades ship opt-in until reviewed on a TV.
 | Y Hybrid presentation structure | rejected | Second 32-bit target does not fit; triple (DG5) 59.7/59.2 vs double 59.6/58.8 Hz, all misses from the rig's print stall; work unchanged. Stays double. |
 | Y VRAM planned residency | not needed (measured) | 607 KB free with pause menu open, 4 uploads/0 evictions; zero uploads/evictions in every park/drive window. |
 | Y terrain passes into vertex colour | shipped opt-in, PS2 image review pending | Day sun-shadow pass costs 9.33→9.57 parked, 9.46→10.59 ms driving; night passes free. Fold (bakedShadowGroundFold, v97) softens building shadows (4-unit grid vs 0.5-unit mask) — DG13 PS2 image pair still to run. |
-| Y stamp slot in the bag | implemented, default off, solo PS2 arm owed (run 2) | No gain measured together with R1. |
+| Y stamp slot in the bag | rejected (measured) | BA4: no window improves; switch stays off. |
 | Y larger VU packages (in-place output) | not built (bound below bar); PS2 confirmation run EY2 owed | Only frustum-crossing bags pay per package (33 parked, 37–86 driving); doubling saves ≤0.1–0.2 ms driving, ~0.05 ms parked (≤19 µs/package, R5 runs arm −0.14/−0.27 ms). Clip programs cannot go in place; kRun + all strip emitters would re-bake. |
 
 ## Suggested order
