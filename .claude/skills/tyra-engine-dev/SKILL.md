@@ -3626,6 +3626,16 @@ legacy compatibility mode. See docs/vu1-clipping.md.
   buffers: … x3, z …, drawing into N, showing M`, printed once per layout - a
   game that re-lays prints it twice and the second is the one that matters.
 
+- **Before trimming VU1 cycles, prove VU1 is on the critical path (2026-10-20).**
+  The Motor District night frame was called VU1-bound until road bands and the
+  single-pass submission; on 1.176.3 the EE waits **8 us a frame** for the GPU
+  (`Vif1Queue::waitFor` + the GS tail in `completePipelineFrame`) and the GPU
+  idles ~44-51% of the period. A same-ELF PS2 arm with NO per-bag FLUSHE at all
+  moved work by less than the controls' 0.03 ms spread, which retired S2, the
+  clip strip sliding window, V4-8 colours and larger packages for that frame
+  (docs/tyrax2-night-ee-2026-10-12.md, "VU1 has slack now"). Time the two
+  waits first; only a frame where they are large can gain from VU1 work.
+
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.
 

@@ -621,3 +621,66 @@ two single-pass arms against the four-pass one): parked work 10.57 -> 10.34 /
 10.35 ms, driving work 11.07 -> 10.73 / 10.76 ms, driving p50 10.62 ->
 10.25 ms. PCSX2 frame shots differ between the routes no more than between
 two runs of the same route (dither noise).
+
+### VU1 has slack now: the four VU1 audit items, measured (2026-10-20)
+
+The [architecture audit](tyrax2-architecture-audit-2026-10-20.md) listed four
+ways to recover VU1 time in the parked night frame: R2 (one FLUSHE per bag),
+a sliding window for the strip route of the clip programs, V4-8 static vertex
+colours, and larger VU packages. All four assume that frame is VU1-bound. On
+the current ELF (codex/tyrax2-foundation at 1.176.3, after road bands and the
+single-pass submission) it is not.
+
+**Rig:** lean build, `--gputl` (the whole-frame GPU sampler), a scope around
+the GS-tail wait of `completePipelineFrame` beside the existing
+`q.waitFor`, and one arm that removes the FLUSHE. Arm 1 replaced the FLUSHE
+VIFcode of the StaPip object-data header with a NOP, in ordinary bags and in
+stamp replays alike - unsafe on hardware (the uniform race the FLUSHE exists
+for), so it is a timing ceiling for R2 and never a candidate. Physical PS2,
+one ELF, 21 cycles (7 an arm), arms 0 and 2 identical controls.
+
+| arm | parked work / p50 (ms) | driving work / p50 (ms) |
+| --- | ---: | ---: |
+| 0 control | 11.49 / 11.12 | 12.01 / 11.63 |
+| 1 no FLUSHE | 11.50 / 11.14 | 12.02 / 11.59 |
+| 2 control | 11.51 / 11.14 | 11.98 / 11.56 |
+
+Removing every bag-boundary drain moved nothing. The sampler says why: parked,
+VU1 computes ~32-36% of the frame period and kicks ~5%, the GIF alone ~12%,
+and the GPU is idle ~44-51%; driving it is idle ~51%. The EE waits for the
+GPU **8 us a frame** (`q.waitFor` 6 us, GS tail 2 us), parked and driving
+alike - the previous frame's chain is always finished long before the EE
+needs it. The no-FLUSHE arm did shrink the "VU1 idle while VIF1 works" class
+from 12-16 to 6-8 per mille, i.e. the drains cost about 0.1 ms of VU1 idle a
+frame, and that idle is off the critical path.
+
+What follows for each item:
+
+- **R2 (FLUSHE per bag, S2 bank or scratch copies): rejected.** The ceiling
+  of removing all drains is within the 0.03 ms spread of the two controls. The scratch-copy
+  variant would also not be correct as proposed: a single-buffer bag's
+  preamble can race the next bag's uniform unpack once the FLUSHE is gone (VIF1
+  may write from its FIFO right after the MSCAL), and the S2 bank cannot be
+  signalled per bag through the baked stream, whose MSCAL address and buffer
+  headers are immutable REF payloads.
+- **Clip strip sliding window: skipped by the audit's own rule.** Clip-routed
+  work per frame (rig `--a-cliptel`, PCSX2 counts, same scene): parked 17
+  packages / 704 triangles, of which strips 8 packages / 479 triangles / 495
+  vertices; driving 15-27 packages, 432-829 strip triangles. Two of three
+  corner passes per strip triangle is ~960-1650 corners; at ~15 VU1 cycles a
+  pre-clip corner (loads, clamp, MVP, clip flags, from the openvcl schedule of
+  `stapip_clip_tc_fold_vu1`) that is 0.05-0.08 ms of VU1, ~0.1-0.17 ms even if
+  the window also cached the 17-cycle emit of each corner - below the 0.2 ms
+  bar, and VU1 time is not on the critical path anyway.
+- **V4-8 vertex colours: rejected for VU1 time.** 3 upper ops a vertex is
+  ~0.3-0.4 ms of VU1 at most, inside the ~7 ms of VU1 idle a frame. (Its EE
+  side - 12 fewer bytes per vertex where streams are copied - was not priced.)
+- **Larger VU packages: not built.** The VU1 half of per-package cost is in the
+  same idle; the EE half (classification, packet commands) would need strip
+  runs re-baked (`meshstrip::kRun`, the road/terrain emitters) and in-place
+  output in every program. Not priced on the EE.
+
+The frame is EE-bound: renderScene ~9.9 ms of the 11.3 ms parked work, with
+`StaPipCore::renderNow` ~6.9 ms of it. VU1 trims cannot move this frame until
+the EE side falls below ~7 ms; the GPU slack is rather an argument for moving
+EE work onto VU1 (R1, matrix-driven effects).
