@@ -11,6 +11,7 @@
 */
 
 #include "math/math.hpp"
+#include "math/mmi.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <kernel.h>  // Modified by TyraX: FlushCache for the VIF1 queue
 
@@ -3365,7 +3366,7 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   // A moved model is not a different submission: MVP, fog, light and spot
   // are re-derived from the live matrix below; only the world box used for
   // visibility has to follow it.
-  if (memcmp(&s->model, bag->info->model, sizeof(M4x4)) != 0) {
+  if (!mmi::equal64(s->model.data, bag->info->model->data)) {  // Modified by TyraX: MMI compare (docs/vu0-macro-mode.md)
     s->model = *bag->info->model;
     stampWorldBox(*s);
   }

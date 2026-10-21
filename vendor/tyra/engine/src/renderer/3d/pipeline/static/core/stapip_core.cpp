@@ -561,7 +561,7 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
         !rendererCore->blss.wantsProxies() && qbufferRenderer.hasStamp(bag)) {
       const M4x4& vp = rendererCore->renderer3D.getViewProj();
       bool flush = deferredCount != 0 &&
-                   memcmp(deferredViewProj.data, vp.data, sizeof(vp.data)) != 0;
+                   !mmi::equal64(deferredViewProj.data, vp.data);
       // A bag queued twice would be validated twice against its LAST state.
       for (u32 i = 0; !flush && i < deferredCount; ++i)
         flush = deferred[i].bag == bag;
@@ -609,7 +609,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
       !rendererCore->blss.wantsProxies()) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
     if (!stampClipValid ||
-        memcmp(stampClipViewProj.data, vp.data, sizeof(vp.data)) != 0) {
+        !mmi::equal64(stampClipViewProj.data, vp.data)) {
       computeClipPlanesInto(vp, stampClipPlanes, VU1_CLIP_XY_BAND);
       computeClipPlanesInto(vp, stampClipPlanesTight, VU1_CLIP_XY_BAND_TIGHT);
       stampClipViewProj = vp;
