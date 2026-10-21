@@ -1030,6 +1030,9 @@ keeps the old path.
 lists are compared to the byte (`SPOTVOLKEEP`). On the night-walk fixture (the
 yard's street light switched to *Shadow volumes: On*, cone 60 degrees, the
 torch off, 250 volume triangles) it compared 0 mismatches in PCSX2.
+On the physical PS2 (same fixture, one ELF alternating the keep per cycle,
+17 cycles, PAL) keeping the volumes saves 0.20-0.22 ms of frame work in every
+window (parked 7.557 -> 7.341 ms, walking 7.727 -> 7.515 ms).
 
 ## On disk
 

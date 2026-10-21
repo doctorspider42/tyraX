@@ -252,7 +252,7 @@ trades ship opt-in until reviewed on a TV.
 | B2 night dressing batch / texture | rejected | Already 3 static batches since 1.175.5; hiding all 11 windows saves ~0.07 ms (CZ4). |
 | B3 baked probe background | shipped (on in example) | Per-road-cell 128x32 panorama (v97, 1.177.0). PS2 DG10: probe EE per driving frame up to −0.08 ms, driving work p50 10.80→10.55 ms; only car paint differs (≤9 levels). Agent D branch 98348d980. |
 | B4 static vehicle-collider grid | shipped (on) | CZ9 same ELF: vehicle update 0.52→0.36 parked, 0.58→0.42 ms driving; frame work −0.05 parked, −0.10..−0.16 ms driving; byte-compare oracles 0 mismatches. |
-| B5 baked static spot shadow volumes | implemented (on), PS2 timing owed (CZ14) | Volumes captured once and replayed per camera; SPOTVOLKEEP oracle 0 mismatches in PCSX2. |
+| B5 baked static spot shadow volumes | shipped (on) | CZ14 night-walk, PAL, 17 cycles: kept volumes −0.20..−0.22 ms in every window (e.g. 7.557→7.341, 7.727→7.515 ms; CIs clear); SPOTVOLKEEP oracle 0 mismatches. |
 | R1 immutable static chains, VP in VU1 | rejected | BA2 (34 cycles/arm): ~80 chain-form replays/frame, parked 10.341 vs 10.323, cruise 10.907 vs 10.918 ms — the cost is what the replay reads, not writes. Removed. |
 | R2 per-bag FLUSHE (measure, then S2) | rejected | PS2 same-ELF (vpnAR1, 21 cycles): no-FLUSHE ceiling arm 11.50 vs controls 11.49/11.51 ms parked; drains = ~0.1 ms VU1 idle off the critical path. Commit 560ef51c9 (agent A branch). |
 | R3 producers write into the frame bank | implemented, kept off (measured) | BA4 (73 cycles): neutral driving, one parked window +0.18 ms; no gain on top of R5 mode 4. Switch `Vif1Queue::setOwnedPackets`. |
