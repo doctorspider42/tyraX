@@ -19,6 +19,8 @@ tools/*
 # Source-only investigation tools travel with their evidence and readers.
 # Downloaded runtimes, compiled host tests and tool caches remain ignored.
 !tools/tyrax2-*.py
+# The PS2 timing rig (tools/ps2rig/README.md).
+!tools/ps2rig/
 !tools/tyrax2-*.hpp
 !tools/tyrax2-*.cpp
 !tools/tyrax2-*.inc
