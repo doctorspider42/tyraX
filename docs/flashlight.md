@@ -306,7 +306,7 @@ needs the margin.
 A lamp's corona used to be six EE-built vertices facing the camera, assembled
 into one batch and re-staged on every camera move, then classified and
 clipped per package like any partly visible bag. With `TYRA_BEAM_CORONA_VU1`
-(default on) the coronas are ONE billboard bag on the program family the
+(off by default until it is priced on a physical PS2) the coronas are ONE billboard bag on the program family the
 particles use (`StaPipBillboardBag`): a centre, a 2x2 basis weight and a colour
 per lamp, expanded into the camera-facing quad on VU1 - corner = C +/- R x
 chalf +/- U x chalf with the camera's right and up, exactly the four corners

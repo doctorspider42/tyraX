@@ -190,6 +190,17 @@ and 0.58 to 0.42 ms driving, frame work -0.10 to -0.16 ms in the driving
 windows ([night EE notes](tyrax2-night-ee-2026-10-12.md), "Static collider
 grid").
 
+### Headlight pools
+
+A car's headlight pool is a 3x3 cell patch laid on the ground ahead of it. It
+is rebuilt whenever the car moves, and each rebuild asked `groundSurfaceAt`
+(a road and junction search) for 16 lattice heights - per moving car, per
+frame. `TYRA_VEH_POOL_PLANE` (off by default until priced on a physical PS2)
+takes the heights from the plane the car's four wheel contacts measured this
+step (`v.wheelY`), a multiply-add each, falling back to the searched surface
+when a wheel is off every surface. The trade: a pool reaching past a crest or
+off the road edge follows the car's plane instead of the ground there.
+
 ## Sounds
 
 Choose an imported WAV for **Idle loop**. Its pitch moves from **Pitch at idle**
