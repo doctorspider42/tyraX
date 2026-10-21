@@ -715,3 +715,77 @@ shipped guard reads only the flags at the tail of `RuntimeObject`. Same ELF,
 driving (`buildVehicleColliders` 0.24 -> 0.10 ms, of it guard 0.06, dynamic
 half 0.03); frame work -0.05 parked, -0.10 / -0.16 / -0.13 / -0.13 ms in the
 driving windows.
+
+### Larger VU packages: the EE half, counted (2026-10-21, audit item Y)
+
+The audit's last VU1 item, "larger VU packages (in-place output)", was left
+with its EE half unpriced (above, "VU1 has slack now"). In-place output would
+let a package hold ~150 vertices instead of 75 (output written over the input,
+3 quadwords a vertex instead of 6), halving the package count. What that is
+worth on the EE depends on how many packages go down a route whose EE work is
+per package at all.
+
+**Which routes pay per package.** Read off `StaPipCore::renderNow` and
+`StaPipQBufferRenderer` as shipped (partial replay off):
+
+- **Stamps** (~100 bags a frame): the stamp is ~20 quadwords plus one REF to
+  the bag's immutable baked arena, whatever the bag's size. Zero EE work per
+  package; the per-package unpack headers and MSCNTs live inside the arena and
+  cost VIF1/VU1 only.
+- **Whole replay** (~4 bags): one REF for the whole bag. Zero per package.
+- **Direct loop** (bags not yet baked or refused a replay): per package a
+  qbuffer, `fillByPointer`, `cull` and its packet commands. ~3 bags, 3-6
+  packages a frame.
+- **Crossing bags** (`checkYesFrustumPartial*`): the only real per-package
+  route. `packager.create` (pointer setup, an eight-package coarse box, the
+  six-plane AABB test and the eight-plane clip mask for partial groups), then
+  per in-view package a qbuffer, a baked-block or written command group, a
+  `fillCachedPackage` lookup for clip packages, the 16-buffer half flushes,
+  and one more REF/CNT for `Vif1Queue`'s recorder.
+
+**How many** (rig `EY2`, PCSX2, counts only, deterministic across cycles;
+packages per frame on the crossing route, cull / clip / out):
+
+| window | list packages | strip packages | total | crossing bags |
+| --- | --- | --- | ---: | ---: |
+| parked | 2 / 9 / 12 | 0 / 8 / 2 | 33 | 9 |
+| first drive | 2 / 9 / 12 | 1 / 7 / 5 | 37 | 9 |
+| cruise | 6 / 11 / 24 | 5 / 10 / 29 | 86 | 13 |
+| late drive | 2 / 16 / 17 | 2 / 11 / 19 | 66-67 | 12-13 |
+
+So doubling the package size removes **~17 packages a frame parked and
+18-43 driving**, about half of them packages that are already rejected by a
+box test (the "out" column, a few microseconds each).
+
+**What a package costs, from what is already measured on the PS2.** The
+route profile ("R5" baseline in
+[tyrax2-arch-audit-ee-submission-2026-10-20.md](tyrax2-arch-audit-ee-submission-2026-10-20.md))
+puts a crossing bag at 175-184 us against 84 us for a whole-replayed bag that
+does all the same per-bag work (bounds, light pick, `sendObjectData`). At
+most ~95 us of a crossing bag is therefore per package, i.e. at most ~1.2 ms
+over ~65 packages while driving, under 19 us each - a ceiling that also holds
+the crossing-only per-bag work. The per-package SUBMISSION half of it was
+removed outright by R5 "runs" (no qbuffers, no per-package commands, one REF
+per run): -0.14 / -0.27 ms in the cruise / late drive windows, +0.075 ms
+parked. Halving the package count halves that term, ~0.07-0.14 ms driving
+and nothing parked; the classification term (2.45 us a package in the
+September attribution) halves to ~0.04-0.08 ms. **Expected saving 0.1-0.2 ms
+driving, ~0.05 ms parked, below the 0.2 ms bar.** Against it: every cull and
+as-is microprogram rewritten for in-place output, the clip programs unable to
+go in place (their fan-out needs the separate area, so clip packages do not
+grow), `meshstrip::kRun` and every road/terrain strip emitter re-baked to
+150, and coarser rejection handing VU1 more vertices.
+
+**Decision: not built.** Same-ELF PS2 confirmation is owed (the console is
+wedged at the time of writing): rig `C:\tx\vpnEY2`, three arms (0 and 2
+controls). Arm 1 cuts every crossing bag's packages smaller - lists 75 -> 24,
+strips 75 -> 15 (run-aligned; the size must stay a multiple of 3: a first
+attempt at 25 made the VU1 programs emit broken GIF packets in PCSX2 from
+then on, in every arm) - which ADDS 75 packages a frame parked and 90-252
+driving. A halving saves `delta_work x (N0 / 2) / (N1 - N0)`, about 0.22 x
+the arm's cost parked and 0.17 x in the cruise window, so in-place output
+reaches 0.2 ms only if arm 1 costs at least ~0.9 ms parked / ~1.2 ms cruise
+of `CLD win` work on the console. The extra packages are mostly rejected
+ones, so the arm under-prices an in-view package; read its `R.part` /
+`R.strip` route time beside the frame and keep the conclusion only if both
+stay under those thresholds.
