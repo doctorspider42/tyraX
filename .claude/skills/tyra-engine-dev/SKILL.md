@@ -4297,20 +4297,19 @@ keep:
   (`keepUntil`); a bank switch invalidates it, and a stale packet takes the
   copying submit. `deallocateOnUse` must restore `packetOrigin` before
   `packet2_free`.
-- **Chain stamps (`setStampChain`, R1).** The head copies in `stampDmaHeads`
-  and the VP ring are DMA memory: a copy is rewritten only `kStampChainMargin`
-  frames after a chain last named it, counted by `stampFrame` in `onFrameEnd`.
-  The VP block holds `VP * Identity`, not VP: the bytes the bag's own MVP
-  upload carried. A shadow value (fog words, TEX0, single colour) that the
-  replay does not compare is a stale head - add it to the compare.
+- **Chain stamps (R1) and the whole-bag clip replay (R5 modes 2/3) were
+  measured and removed.** A stamp replay that REFs its head from DMA
+  memory instead of copying ~14 qwords changed nothing (the cost is the
+  memory the replay reads, not what it writes); a crossing bag sent whole
+  into the clip program cost +0.6 ms parked / +2.5 ms driving of VU1.
 - **Partial replay (`setPartialReplay`, R5).** The baked cache tells passes
   apart by PROGRAM now (`samePass`), so a bag's cull and whole-clip variants
   coexist; without it the clip acquire replaced the cull entry in place. A run
   that follows the other program must regenerate its first block's header
   (GS-state flag at `kPackedCountWord`) and kick (MSCAL); continuing blocks are
   baked as MSCNT without the flag. The whole-clip variant bakes the plane mask
-  at 0x3F - the only camera-dependent word of a clip block. Mode 3 stamps a
-  whole-clip bag; its stamp replays only while the bag still crosses the view.
+  baked at 0x3F - the only camera-dependent word of a clip block; mode 4
+  patches each clip block's own mask into a regenerated header.
 - PCSX2 parked frame grabs at one frame of the cycle fall into clusters (the
   three-phase reflection probe): compare an arm against the nearest baseline
   cycle, never against one other cycle.

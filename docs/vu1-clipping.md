@@ -669,10 +669,12 @@ regenerated and still carry the pre-stream body.
 
 ## Crossing bags from immutable blocks (2026-10-20)
 
-`StaPipCore::setPartialReplay` gives a crossing bag a second baked entry: all
-its packages formatted for the streamed clip program with all six planes,
-camera independent and baked once. Mode 2 sends the whole bag as ONE REF into
-the clip program (VU1 judges every triangle); mode 1 keeps the per-package
-classification and sends each run of same-route packages as one REF; mode 3 is
-mode 2 plus a stamp. Measurements:
+`StaPipCore::setPartialReplay` (default 0) gives a crossing bag a second
+baked entry: all its packages formatted for the streamed clip program with
+all six planes, camera independent and baked once. Mode 1 keeps the
+per-package classification and sends each run of same-route packages as
+one REF; mode 4 does the same with each clip block carrying its package's
+own plane mask. Sending the whole bag as ONE REF into the clip program
+(VU1 judges every triangle) was measured at +0.6 ms parked and +2.5 ms
+driving and removed. Numbers:
 [EE submission audit items](tyrax2-arch-audit-ee-submission-2026-10-20.md).

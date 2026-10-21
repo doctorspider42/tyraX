@@ -78,7 +78,8 @@
 /** Modified by TyraX: 1 = a producer that asks (StaPipQBufferRenderer) builds
  * its packet straight in the frame bank (reservePacket/submitOwned), and the
  * frame's chain REFs the packet's CNT payloads where they lie instead of
- * copying them into the bank first. Runtime switch: setOwnedPackets. See
+ * copying them into the bank first. Runtime switch setOwnedPackets, default
+ * off until its second PS2 run confirms the -0.06..-0.07 ms. See
  * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R3". */
 #ifndef TYRA_VIF1_OWNED_PACKETS
 #define TYRA_VIF1_OWNED_PACKETS 1

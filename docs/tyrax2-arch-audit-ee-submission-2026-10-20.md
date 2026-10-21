@@ -50,24 +50,19 @@ producer's own buffer.
 
 Result: see "Measurements".
 
-## R1: chain stamps and the shared VP block
+## R1: chain stamps and the shared VP block (removed)
 
-What changed (`StaPipCore::setStampChain`, default on):
-
-- A stamp whose head is the plain layout - FLUSHE, the MVP unpack, CNT blocks
-  (no spot block, no wrap write), the body REF - keeps the part after the MVP
-  as a VIF stream in DMA memory: two copies per stamp slot
-  (`stampDmaHeads`, 12 qwords each, registered as an immutable span).
-- A replay emits three quadwords for an identity-model bag: a REF to the
-  frame's **VP block** (FLUSHE rides the REF tag; the block is the MVP unpack
-  with the view-projection), a REF to the head copy, and the body REF. A bag
-  with its own model matrix still inlines FLUSHE and its MVP (6 qwords).
-- The replay keeps the fog words, TEX0 and the single colour as shadow values
-  in the entry. When one changes, the OTHER copy is rewritten - only if no
-  chain of the last three frames named it - otherwise the replay copies the
-  head as before. VP blocks come from a 32-entry ring under the same rule.
-- No VU1 address or microprogram changed; the VIF word stream differs only by
-  VIF NOPs.
+Built and measured (run 1), then removed. A stamp with the plain head layout
+kept the part after its MVP as a VIF stream in DMA memory (two copies per
+slot, rewritten only when fog / TEX0 / single colour changed and no chain of
+the last three frames named the copy) and replayed as three quadwords: a REF
+to the frame's VP block (FLUSHE in the REF tag, `VP * Identity` in the
+block), a REF to the head, the body REF. No VU1 address or program changed.
+PCSX2 images matched within the run-to-run noise. On the PS2 ~80 replays a
+frame took the chain form and the frame did not move. The replay's cost is
+the memory it READS (bag, info, model, light, texture, entry), which a
+smaller write does not touch - the same lesson as the crossing-bag head
+stamps of 1.175.0.
 
 ## Stamp slot in the bag
 
@@ -85,8 +80,8 @@ What changed (`StaPipCore::setPartialReplay`):
   so the variant is baked once (`beginPartialReplay`). The baked cache now
   tells passes apart by program as well, so the cull and clip variants of one
   array coexist.
-- Mode 2, **whole**: the bag is ONE REF into the clip program. No EE
-  classification at all; VU1 judges every triangle.
+- Modes 2/3, **whole** (removed after run 1): the bag as ONE REF into the
+  clip program, no EE classification (3: plus a stamp).
 - Mode 1, **runs**: the packager still classifies per package (rejection pays
   for itself), but each run of same-route packages is one REF into the cull or
   the clip blocks. A run that follows the other program regenerates its first
@@ -136,3 +131,24 @@ Reading it:
   and the first drive window +0.24 ms. Run 2 prices a variant that keeps each
   clip block's own plane mask (mode 4) to separate the VU1 share (six planes
   baked) from the EE share.
+
+### Correctness evidence
+
+- VIF1 chain guard (`TYRA_VIF1_CHAIN_CHECK`) on in PCSX2 for every arm of
+  every variant (rigs BX1-BX6): ~1.4 M chains accepted, none rejected; the
+  final code alone (BX6) 0.95 M chains, all arms.
+- `tools/verify-frame-arena.cpp` gained the reservation cases (shrink only
+  at the top, `keepUntil` after a reset); they pass. Cases 1061/1062 of the
+  harness fail on this Windows host with or without the change.
+- PCSX2 parked grabs (one per cycle) cluster by the three-phase reflection
+  probe; every arm lies within the same-arm spread of a baseline cycle
+  (e.g. BX6: runs 1561 / runs+mask 1697 / owned+mask 1541 differing pixels
+  against a baseline cycle, baseline cycles among themselves 1561-8314).
+  The physical-PS2 picture and the TV check are owed.
+
+### Owed
+
+- Run 2 (rig `C:\tx\vpnBA4`, built, never deployed - the console wedged and
+  awaits a power-cycle): arms HEAD / R3 / stamp slot / runs / runs + masks /
+  R3 + runs + masks. It decides R3 (default stays off until confirmed),
+  prices the stamp slot alone, and separates the VU1 and EE shares of runs.
