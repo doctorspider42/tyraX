@@ -266,7 +266,7 @@ trades ship opt-in until reviewed on a TV.
 | Y VRAM planned residency | not needed (measured) | 607 KB free with pause menu open, 4 uploads/0 evictions; zero uploads/evictions in every park/drive window. |
 | Y terrain passes into vertex colour | shipped opt-in, PS2 image review pending | Day sun-shadow pass costs 9.33→9.57 parked, 9.46→10.59 ms driving; night passes free. Fold (bakedShadowGroundFold, v97) softens building shadows (4-unit grid vs 0.5-unit mask) — DG13 PS2 image pair still to run. |
 | Y stamp slot in the bag | implemented, default off, solo PS2 arm owed (run 2) | No gain measured together with R1. |
-| Y larger VU packages (in-place output) | open (EE half) | VU1 half is in idle time; the EE per-package half is unpriced. |
+| Y larger VU packages (in-place output) | not built (bound below bar); PS2 confirmation run EY2 owed | Only frustum-crossing bags pay per package (33 parked, 37–86 driving); doubling saves ≤0.1–0.2 ms driving, ~0.05 ms parked (≤19 µs/package, R5 runs arm −0.14/−0.27 ms). Clip programs cannot go in place; kRun + all strip emitters would re-bake. |
 
 ## Suggested order
 
