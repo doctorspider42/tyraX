@@ -168,9 +168,9 @@ Context contextFor(const Project& p, const SceneData& sc) {
 }
 
 Verdict judge(const Project& p, const SceneData& sc, int i, const Context& c,
-              aobake::Occluder* shape) {
+              aobake::Occluder* shape, bool ignoreReflected = false) {
     const SceneObject& o = sc.objects[(size_t)i];
-    if (o.reflected) return Verdict::Explicit;
+    if (o.reflected && !ignoreReflected) return Verdict::Explicit;
     switch (o.type) {
         case PrimitiveType::Box:
         case PrimitiveType::Sphere:
@@ -326,6 +326,33 @@ Verdict verdictFor(const Project& p, const SceneData& sc, int index) {
     if (index < 0 || index >= (int)sc.objects.size()) return Verdict::NotSolid;
     const Context c = contextFor(p, sc);
     return judge(p, sc, index, c, nullptr);
+}
+
+std::vector<Box> collectProxies(const Project& p, const SceneData& sc) {
+    std::vector<Box> out;
+    const Context c = contextFor(p, sc);
+    for (int i = 0; i < (int)sc.objects.size(); ++i) {
+        const SceneObject& o = sc.objects[(size_t)i];
+        if (!o.reflected || !o.reflectionProxy) continue;
+        aobake::Occluder oc;
+        // Size does not matter here: the game draws a proxy whatever its size.
+        const Verdict v = judge(p, sc, i, c, &oc, true);
+        if (v == Verdict::TooSmall) {
+            if (!aobake::objectShape(o, i, c.aabb, oc)) continue;
+        } else if (v != Verdict::Box) {
+            continue;
+        }
+        Box b;
+        for (int k = 0; k < 3; ++k) b.center[k] = oc.pos[k];
+        for (int ax = 0; ax < 3; ++ax)
+            for (int k = 0; k < 3; ++k)
+                b.axis[ax][k] = oc.sphere ? (ax == k ? oc.half[0] : 0.0f)
+                                          : oc.axis[ax][k] * oc.half[ax];
+        b.layer = layerIndex(sc, o.layer);
+        b.object = i;
+        out.push_back(b);
+    }
+    return out;
 }
 
 std::vector<Box> collect(const Project& p, const SceneData& sc) {

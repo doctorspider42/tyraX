@@ -743,6 +743,38 @@ older cache still reads. texbake writes them to `.res-baked/gshadow/` as
 chunk flag table in `shadow_data.gen.hpp`, but only when some scene has a map,
 so other projects regenerate byte for byte.
 
+#### Folded into the vertex colour (1.177.0, opt-in)
+
+*Ambience Editor > Baked lighting > Ground shadows > Fold into the terrain
+colour* (`bakedShadowGroundFold`, format v97, written only when on) keeps the
+maps as the source and drops the pass: while the terrain chunk is built, each
+heightmap node takes the masks' mean over the cell-sized box around it, and that
+share of its shade falls to the ambient-only level (`brightness x ambient`).
+Base and splat layers both shade through it. The shade cache stays
+sun-independent, so a sunset (the same `daynight` gate the pass has) only
+re-colours the chunks, inside the streaming budget; at night the chunks build
+without the fold and the pass stays gated off as before. Codegen emits
+`GROUND_SHADOW_FOLD`; `g_groundShadowFold` is the runtime switch the test rig
+flips before a scene rebuild.
+
+What the pass costs, measured on a physical PS2 (2026-10-20, Motor District,
+day, lean rig, same ELF, pass / no pass alternating per cycle): parked work
+9.57 -> 9.33 ms, **driving work 10.59 -> 9.46 ms**. A folded chunk draws exactly
+what the no-pass arm drew, so that is also the fold's price. At night every
+terrain pass is already free (the sun's pass is gated, the AO and emissive
+terrain passes cost nothing measurable there: 10.36 / 10.50 / 10.32 ms driving).
+
+What it costs in the picture is resolution: the district's heightmap is 81x81
+over 320 units, **4 units a node**, against the masks' 0.5-unit texels, and
+LOD chunks take every 2nd or 4th node. Building shadows become soft blobs
+with ~4-unit edges; a lamp post's shadow disappears. Over the most shaded
+chunk the folded alpha is off by more than a quarter on 2.6% of the texels
+(mean error 0.04). At the rig's parked spawn view the frame differs in 0.8% of
+the pixels, much like leaving the shadows out entirely (0.7%) - that view
+holds almost no ground shadow, so it cannot judge the trade. The district
+keeps the pass; the fold is the option for a scene whose terrain grid is fine
+enough for its shadows, or one that needs the millisecond more than the edges.
+
 ### A caster that is too big
 
 The 512-triangle cap is about what the shadow **lands on**, not about how

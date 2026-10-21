@@ -632,6 +632,62 @@ read the warning under the table before treating any palettization as free:
 > changes no texture's format and no texture's address — it changes the heap
 > floor — so on this evidence it is the cheapest 384 KB on the list.
 
+### The cliff is gone at 480p Hybrid (2026-10-20, physical PS2)
+
+Everything above is the Pal576i 32-bit layout. The district ships
+**Progressive480p (448x448) in the Hybrid colour depth** now, whose permanent
+region is much smaller, and the architecture audit's question - should the
+scene plan a resident set at load instead of uploading on first bind behind an
+`align3D` barrier - was answered by measuring rather than building. Lean rig,
+release profile, residency counters printed per window, the pause menu opened
+by the rig at a fixed frame and closed 120 frames later, three cycles:
+
+| moment | uploads | re-uploads | evictions | free | largest block |
+|---|---:|---:|---:|---:|---:|
+| scene start (first 150 frames) | 56 | 0 | 0 | 768 KB | 768 KB |
+| pause menu open (120 frames) | 4 | 0 | 0 | 607 KB | 607 KB |
+| the 80 frames after it closes | 0 | 0 | 0 | 607 KB | 607 KB |
+| every park/drive window, day and night | 0 | 0 | 0 | 607 KB | 607 KB |
+| same, Hybrid **triple** buffering | 0 | 0 | 0 | 649 KB* | 649 KB |
+
+\* after the rig's runtime rebuild, which evicts everything and lets the scene
+re-upload only what it draws (31 allocations instead of 59), so it is not
+comparable with the double-buffered row; the third display buffer costs
+392 KB.
+
+So **no residency plan is needed here**: the whole working set, the pause menu
+included, uploads exactly once and nothing is ever evicted; the menu's four
+uploads land while the game is paused. A resident set would move those
+uploads to the loading screen and buy nothing a player can see. The census and
+the counters above remain the instrument to rerun if a scene grows past
+~600 KB of textures.
+
+## CLUT loads (measured 2026-10-20)
+
+Every TEX0 the renderer emits carries `CLD = 1`, so the GS reloads the palette
+on every textured bag's material state - the same texture included. The
+architecture audit priced the alternative at "< 0.2 ms": `CLD = 4` (load only
+when CBP differs from the GS's CBP0, then CBP0 = CBP), with a CLD = 2 re-sync
+after any upload that rewrites a palette at a reused address. It was built
+(the commit before the one that removed it again) and measured on a physical
+PS2:
+
+- **What a load costs the GS**, timed between frames with the GPU idle: 512
+  TEX0 writes at CLD = 1 took 120 us for 8-bit palettes and 73 us for 4-bit,
+  against 31 us with CLD = 0 - **0.17 us per 8-bit load, 0.08 us per 4-bit
+  one.** A district frame has about two hundred textured bags, so the reloads
+  are at most ~0.04 ms of GS time.
+- **What it changes in a frame:** nothing measurable. Same ELF, CLD = 1 and
+  CLD = 4 arms alternating per cycle, night and day: parked work 10.16 vs
+  10.18 ms (night), 9.56 vs 9.56 (day); driving within the cycle-to-cycle
+  spread; presentation identical. The district's frame is EE-bound and the GS
+  is idle for most of it, so GS time this small has nowhere to show.
+
+So CLD = 1 stays. The re-sync rule is the part worth keeping in mind if a GS
+bound scene ever makes this worth doing: CBP0 is GS state shared by both
+contexts, every CLD = 1 load leaves it stale, and an upload into a freed CLUT
+block can put new colours behind an address CBP0 still names.
+
 ## Measured behaviour
 
 All PCSX2, software renderer, PAL, 512×448.

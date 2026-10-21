@@ -2080,6 +2080,13 @@ struct ProjectSettings {
     // resident terrain and road chunks - which were 4.65 ms of every capture
     // on the Motor District's outer road (PS2). Off = the real chunks.
     bool reflectionGroundProxy = false;
+    // Shared reflection probe: draw the STATIC world - the ground within the
+    // reflection ground radius and the "Reflection box proxy" objects that
+    // cannot move - as one editor-baked panorama per 16-unit road cell
+    // (docs/reflective-materials.md, "The baked background", src/reflpano.*)
+    // instead of re-rendering it on every capture. The sky and everything that
+    // can change stay live. Off = the live chunks and proxies.
+    bool reflectionPanorama = false;
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2322,6 +2329,12 @@ struct ProjectSettings {
     // the ground up against ALL casters and drawn as one more pass of the
     // chunk. Then the decals skip the terrain. Written only when non-zero.
     int bakedShadowGround = 0;
+    // The same maps folded into the terrain's VERTEX colour instead of drawn as
+    // a pass (docs/shadows.md, "Folded into the vertex colour"): each terrain
+    // node takes the masks' mean over the half cell around it and that share of
+    // its shade drops to the ambient level. One sample per node (softer, coarser
+    // edges) for no pass at all. Needs bakedShadowGround; written only when on.
+    bool bakedShadowGroundFold = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -2569,6 +2582,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&
            a.reflectionGroundProxy == b.reflectionGroundProxy &&
+           a.reflectionPanorama == b.reflectionPanorama &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&
@@ -2610,6 +2624,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.bakedShadowMaxLength == b.bakedShadowMaxLength &&
            a.bakedShadowAutoBake == b.bakedShadowAutoBake &&
            a.bakedShadowGround == b.bakedShadowGround &&
+           a.bakedShadowGroundFold == b.bakedShadowGroundFold &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&

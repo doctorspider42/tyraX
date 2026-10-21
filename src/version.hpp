@@ -5588,7 +5588,16 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 176
+#define TYRAX_VERSION_MINOR 177
+// 1.177.0: the reflection probe's baked background - Preferences > Rendering >
+// Reflect a baked background (format v97). The editor bakes one 128x32 8-bit
+// panorama per 16-unit road cell of what the probe sees of the static world
+// (ground within the radius, unmovable box proxies); the probe draws it as one
+// camera-facing card. Motor District, PS2: probe -0.04..-0.08 ms a driving
+// frame, on in examples/vehicle-playground. Also Ground shadows > Fold into
+// the terrain colour (opt-in): the ground maps darken terrain vertex colours
+// instead of drawing a pass (-1.1 ms driving by day on the district; 4-unit
+// node edges, so the district keeps the pass).
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5694,7 +5703,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6191,7 +6200,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v95 defaults new projects to TyraX2 and always writes framePipeline.
 // Missing v94-or-older values remain false; explicit false survives resave.
 // No destructive migration step: legacy files retain their request in memory.
-inline constexpr int kFormatVersion = 96;
+// v97 (docs/reflective-materials.md, "The baked background"):
+// ProjectSettings::reflectionPanorama, written only when true. Missing = off,
+// i.e. the probe redraws the ground and the box proxies live as before.
+// Additive; no migration step. Also ProjectSettings::bakedShadowGroundFold
+// (docs/shadows.md, "Folded into the vertex colour"), written only when true;
+// missing = the ground maps keep their own pass.
+inline constexpr int kFormatVersion = 97;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

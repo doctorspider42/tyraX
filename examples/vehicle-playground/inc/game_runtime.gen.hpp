@@ -315,6 +315,143 @@ inline bool assetFileExists(const std::string& cwdRel) {
   return f != nullptr;
 }
 
+// Ground shadows folded into the terrain's vertex colour (docs/shadows.md,
+// "Folded into the vertex colour"). GROUND_SHADOW_FOLD comes from the
+// project (bakedShadowGroundFold); the variable lets a test flip it before a
+// scene (re)builds its chunks. Only while the sun is up - the same gate the
+// mask pass has - and a chunk remembers which way it was built
+// (g_terrainFoldState, per slot) so a sunset re-colours it.
+#ifndef GROUND_SHADOW_FOLD
+#define GROUND_SHADOW_FOLD 0
+#endif
+inline bool g_groundShadowFold = GROUND_SHADOW_FOLD != 0;
+inline std::vector<signed char> g_terrainFoldState;
+inline bool groundShadowFoldWanted(int scene) {
+#ifdef GROUND_SHADOWS_ON
+  return g_groundShadowFold &&
+         (!daynight::active(scene) || daynight::g_sun[1] >= 0.0F);
+#else
+  (void)scene;
+  return false;
+#endif
+}
+
+#ifdef REFL_PANO_ON
+#include <malloc.h>
+// The reflection probe's baked background (docs/reflective-materials.md, "The
+// baked background"; host half: src/reflpano.cpp). One file per scene,
+// reflpano/s<scene>.bin, read once on the scene's first capture: per 16-unit
+// road cell a 128x32 8-bit panorama (azimuth x elevation) of what the probe
+// would draw of the STATIC world from the cell's centre, run-length coded and
+// expanded only when the eye enters the cell, and one palette for the scene. The capture code in renderScene draws it as one camera-facing
+// card instead of the terrain and road chunks and the baked box proxies.
+namespace reflpano_rt {
+struct File {
+  int scene = -1;
+  unsigned char* data = nullptr;
+  int w = 0, h = 0, cellsX = 0, cellsZ = 0, slots = 0, boxes = 0;
+  float minX = 0.0F, minZ = 0.0F, cell = 16.0F, elTop = 64.0F, elBottom = -90.0F;
+  const short* slot = nullptr;
+  const int* boxObject = nullptr;
+  const unsigned char* palette = nullptr;  // 256 x RGBA, logical order
+  const unsigned int* offsets = nullptr;   // slots + 1, into runs
+  const unsigned char* runs = nullptr;     // (count, index) pairs per slot
+  size_t runBytes = 0;
+};
+inline File g_file;
+
+// One cell's w x h indices out of its runs; false = a damaged stream.
+inline bool expand(int slot, unsigned char* dst) {
+  const File& f = g_file;
+  const unsigned int a = f.offsets[slot], b = f.offsets[slot + 1];
+  if (a > b || b > f.runBytes || ((b - a) & 1U)) return false;
+  const size_t total = (size_t)f.w * f.h;
+  size_t at = 0;
+  for (unsigned int i = a; i < b; i += 2) {
+    const size_t n = f.runs[i];
+    if (at + n > total) return false;
+    memset(dst + at, f.runs[i + 1], n);
+    at += n;
+  }
+  return at == total;
+}
+
+// The panorama of the cell (x, z) is in, -1 = none (off the baked roads).
+inline int slotAt(float x, float z) {
+  const File& f = g_file;
+  if (!f.data) return -1;
+  const int cx = (int)floorf((x - f.minX) / f.cell);
+  const int cz = (int)floorf((z - f.minZ) / f.cell);
+  if (cx < 0 || cz < 0 || cx >= f.cellsX || cz >= f.cellsZ) return -1;
+  return f.slot[cz * f.cellsX + cx];
+}
+
+// Is authored object `ri` one the panorama stands in for?
+inline bool baked(int ri) {
+  for (int i = 0; i < g_file.boxes; ++i)
+    if (g_file.boxObject[i] == ri) return true;
+  return false;
+}
+
+// Reads the scene's file once; false = no panorama (the live path draws).
+inline bool load(int scene) {
+  if (g_file.scene == scene) return g_file.data != nullptr;
+  free(g_file.data);
+  g_file = File();
+  g_file.scene = scene;
+  if (scene < 0 || scene >= SCENE_COUNT || !REFL_PANO_SCENES[scene]) return false;
+  char path[32];
+  snprintf(path, sizeof(path), "reflpano/s%d.bin", scene);
+  FILE* fp = fopen(FileUtils::fromCwd(path).c_str(), "rb");
+  if (!fp) return false;
+  fseek(fp, 0, SEEK_END);
+  const long n = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  unsigned char* d = n >= 48 ? static_cast<unsigned char*>(memalign(64, (size_t)n)) : nullptr;
+  const bool ok = d && fread(d, 1, (size_t)n, fp) == (size_t)n;
+  fclose(fp);
+  if (!ok || memcmp(d, "RPAN", 4) != 0) {
+    free(d);
+    TYRA_WARN("Reflection panorama: ", path, " is missing or not readable.");
+    return false;
+  }
+  auto u16 = [&](int at) { unsigned short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto s16 = [&](int at) { short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto f32 = [&](int at) { float v; memcpy(&v, d + at, 4); return v; };
+  File& f = g_file;
+  f.w = u16(8), f.h = u16(10), f.cellsX = u16(12), f.cellsZ = u16(14);
+  f.minX = f32(16), f.minZ = f32(20), f.cell = f32(24);
+  f.slots = u16(32), f.boxes = u16(34);
+  f.elTop = s16(36) / 10.0F, f.elBottom = s16(38) / 10.0F;
+  size_t at = 48;
+  f.slot = reinterpret_cast<const short*>(d + at);
+  at += (size_t)f.cellsX * f.cellsZ * 2;
+  at = (at + 15) & ~(size_t)15;
+  f.boxObject = reinterpret_cast<const int*>(d + at);
+  at += (size_t)f.boxes * 4;
+  at = (at + 15) & ~(size_t)15;
+  f.palette = d + at;
+  at += 256 * 4;
+  f.offsets = reinterpret_cast<const unsigned int*>(d + at);
+  at += ((size_t)f.slots + 1) * 4;
+  f.runs = d + at;
+  f.runBytes = at <= (size_t)n ? (size_t)n - at : 0;
+  unsigned int version;
+  memcpy(&version, d + 4, 4);
+  if (version != 2 || f.w != 128 || f.h != 32 || at > (size_t)n ||
+      f.offsets[f.slots] != f.runBytes) {
+    free(d);
+    f = File();
+    f.scene = scene;
+    TYRA_WARN("Reflection panorama: ", path, " does not match this game.");
+    return false;
+  }
+  f.data = d;
+  return true;
+}
+}  // namespace reflpano_rt
+#endif
+
 /** Per-object rendering cut-off (Properties > Draw distance) measured from
  * the object center - the cheapest LOD. Draw-time only: collision, sounds
  * and scripts elsewhere never consult this. 0 = unlimited. */

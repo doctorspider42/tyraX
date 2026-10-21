@@ -2818,7 +2818,7 @@ inline const char* const SKY_TEXTURE_PATHS[SCENE_COUNT] = {"sky/scene0.png", "sk
 inline constexpr float SKY_TEXTURE_YAWS[SCENE_COUNT] = {-138.4F, -138.4F, -138.4F};
 #define SKY_TEXTURE_PATH SKY_TEXTURE_PATHS[g_activeScene]
 #define SKY_TEXTURE_YAW SKY_TEXTURE_YAWS[g_activeScene]
-inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {15, 15, 15};
+inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0, 0, 0};
 inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {179, 179, 179};
 inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1, 1, 1};
 inline constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0, 0, 0};
@@ -2974,6 +2974,10 @@ inline bool flashlightTogglePressed(TEngine* engine) {
   }
   return false;
 }
+// The reflection probe's baked background (reflpano/s<scene>.bin).
+#define REFL_PANO_ON 1
+inline constexpr bool REFL_PANO_SCENES[3] = {true, true, true};
+
 // Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 // Uses the MEASURED frame time, not the nominal vsync rate: with vsync
 // disabled the loop free-runs way past 50 FPS and a nominal-rate count would

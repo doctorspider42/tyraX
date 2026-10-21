@@ -1518,16 +1518,203 @@ void TerrainGame::renderScene() {
     // 10-15 ms of every capturing frame on a physical PS2 while the camera
     // turned (a turn captures every second frame), and a chunk 100 units away
     // is a few pixels at the horizon of this 128-pixel target.
+    // The baked background (docs/reflective-materials.md, "The baked
+    // background"): in a baked road cell the probe draws ONE camera-facing
+    // card textured with the cell's panorama instead of the terrain and road
+    // chunks and the baked box proxies. The probe camera is level, so every
+    // card vertex keeps its elevation and its azimuth relative to the camera:
+    // the card's vertices are built once in the camera's level frame and a
+    // matrix puts them at the eye and the yaw; only the texture coordinates
+    // follow the yaw. Two textures alternate on a cell change, so a re-upload
+    // never rewrites RAM or VRAM a frame still in flight reads.
+    bool envPanoActive = false;
+    if (TERRAIN_ENABLED && reflpano_rt::load(currentScene)) {
+      const int panoSlot = reflpano_rt::slotAt(probeEye.x, probeEye.z);
+      if (panoSlot >= 0) {
+        envPanoActive = true;
+        if (envDoTerrain) {
+          constexpr int kPanoGrid = 6, kPanoSide = kPanoGrid + 1;
+          static Texture* panoTex[2] = {nullptr, nullptr};
+          static int panoTexSlot[2] = {-1, -1};
+          static unsigned int panoTexKey[2] = {0u, 0u};
+          static int panoUse = 0;
+          static float panoDirs[kPanoSide * kPanoSide][3];
+          static float panoAz[kPanoSide * kPanoSide], panoV[kPanoSide * kPanoSide];
+          static std::unique_ptr<GeoPart> panoCard;
+          static unsigned char panoClut[256 * 4];
+          static unsigned int panoGeneration = ~0u;
+          static M4x4 panoMat;
+          const reflpano_rt::File& pf = reflpano_rt::g_file;
+          if (!panoCard) {
+            // The card's directions, once: a grid over the probe's square
+            // frustum, a hair inside its edges so no vertex needs clipping.
+            const float t = tanf(0.5F * REFLECTION_PROBE_FOV_DEG * 0.01745329252F) * 0.995F;
+            for (int j = 0; j < kPanoSide; ++j)
+              for (int i = 0; i < kPanoSide; ++i) {
+                const float sx = (2.0F * i / kPanoGrid - 1.0F) * t;
+                const float sy = (1.0F - 2.0F * j / kPanoGrid) * t;
+                const float inv = 1.0F / sqrtf(1.0F + sx * sx + sy * sy);
+                float* d = panoDirs[j * kPanoSide + i];
+                d[0] = inv, d[1] = sy * inv, d[2] = sx * inv;  // x forward, z side
+                panoAz[j * kPanoSide + i] = atan2f(d[2], d[0]);
+                const float el = asinf(d[1]) * 57.2957795F;
+                panoV[j * kPanoSide + i] = (pf.elTop - el) / (pf.elTop - pf.elBottom);
+              }
+            panoCard = std::make_unique<GeoPart>();
+            panoCard->infoBag = std::make_unique<StaPipInfoBag>();
+            panoMat.identity();
+            panoCard->infoBag->model = &panoMat;
+            panoCard->infoBag->shadingType = TyraShadingGouraud;
+            panoCard->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+            // Far away, like the sky dome: hardware fog would paint it solid.
+            panoCard->infoBag->fogDisabled = true;
+            panoCard->infoBag->dynLightPick = false;
+            panoCard->colorBag = std::make_unique<StaPipColorBag>();
+            panoCard->texBag = std::make_unique<StaPipTextureBag>();
+            panoCard->bag = std::make_unique<StaPipBag>();
+            panoCard->bag->info = panoCard->infoBag.get();
+            panoCard->bag->color = panoCard->colorBag.get();
+            panoCard->bag->lighting = nullptr;
+            panoCard->bag->texture = panoCard->texBag.get();
+            for (int q = 0; q < kPanoGrid * kPanoGrid * 6; ++q) {
+              panoCard->vertices.push_back(Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+              panoCard->sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+              panoCard->colors.push_back(Color(128.0F, 128.0F, 128.0F, 128.0F));
+            }
+            panoCard->colors.bind(panoCard->colorBag);
+            panoCard->vertices.bind(panoCard->bag);
+            panoCard->sts.bind(panoCard->texBag);
+            panoCard->bag->count = (u32)panoCard->vertices.size();
+            for (int k = 0; k < 2; ++k) {
+              TextureBuilderData td;
+              td.name = "refl-panorama";
+              td.width = pf.w;
+              td.height = pf.h;
+              td.data = static_cast<unsigned char*>(memalign(128, (size_t)pf.w * pf.h));
+              memset(td.data, 0, (size_t)pf.w * pf.h);
+              td.bpp = bpp8;
+              td.gsComponents = TEXTURE_COMPONENTS_RGBA;
+              td.clutWidth = 16;
+              td.clutHeight = 16;
+              td.clut = static_cast<unsigned char*>(memalign(128, 256 * 4));
+              memset(td.clut, 0, 256 * 4);
+              td.clutBpp = bpp32;
+              td.clutGsComponents = TEXTURE_COMPONENTS_RGBA;
+              panoTex[k] = new Texture(&td);
+              // Around the horizon it wraps; top and bottom rows must not
+              // bleed into each other.
+              panoTex[k]->setWrapSettings(Tyra::Repeat, Tyra::Clamp);
+            }
+          }
+          if (panoGeneration != sceneGeneration) {
+            panoGeneration = sceneGeneration;
+            panoTexSlot[0] = panoTexSlot[1] = -1;
+          }
+          // The palette: entry 0 is see-through with the sky's colour (a
+          // filtered edge fades toward the sky), 1..boxes the baked proxies in
+          // the colour renderReflectionProxy would give their live box - the
+          // mean of the real object's vertex colours - and the rest the
+          // ground, as baked.
+          memcpy(panoClut, pf.palette, sizeof(panoClut));
+          panoClut[0] = (unsigned char)scriptCtx.skyColor.r;
+          panoClut[1] = (unsigned char)scriptCtx.skyColor.g;
+          panoClut[2] = (unsigned char)scriptCtx.skyColor.b;
+          panoClut[3] = 0;
+          for (int b = 0; b < pf.boxes; ++b) {
+            const int ri = pf.boxObject[b];
+            float cr = 0, cg = 0, cb = 0, cn = 0;
+            if (ri >= 0 && ri < (int)objectGeometry.size())
+              for (const GeoPart& src : objectGeometry[ri].parts)
+                for (const Color& c : src.colors) { cr += c.r; cg += c.g; cb += c.b; cn += 1.0F; }
+            unsigned char* e = &panoClut[(1 + b) * 4];
+            e[0] = (unsigned char)(cn ? cr / cn : 160.0F);
+            e[1] = (unsigned char)(cn ? cg / cn : 160.0F);
+            e[2] = (unsigned char)(cn ? cb / cn : 160.0F);
+            e[3] = 0x80;
+          }
+          unsigned int key = 2166136261u;
+          for (int b = 0; b < 4 + pf.boxes * 4 + 4; ++b) key = (key ^ panoClut[b]) * 16777619u;
+          if (panoTexSlot[panoUse] != panoSlot || panoTexKey[panoUse] != key) {
+            // The OTHER texture takes the new picture: the current one may
+            // still be read by a frame the GS has not finished.
+            panoUse ^= 1;
+            Texture* tx = panoTex[panoUse];
+            if (!reflpano_rt::expand(panoSlot, tx->core->data))
+              memset(tx->core->data, 0, (size_t)pf.w * pf.h);  // see-through
+            // CSM1 stores an 8-bit palette with entries 8..15 and 16..23 of
+            // every 32 swapped (the PNG loader's "rotate clut").
+            unsigned char* cl = tx->clut->data;
+            for (int i = 0; i < 256; ++i) {
+              const int s = (i & 0x18) == 8 ? i + 8 : ((i & 0x18) == 16 ? i - 8 : i);
+              memcpy(cl + s * 4, panoClut + i * 4, 4);
+            }
+            panoTexSlot[panoUse] = panoSlot;
+            panoTexKey[panoUse] = key;
+            auto& coreTex = engine->renderer.core.texture;
+            if (coreTex.getAllocatedBuffersByTextureId(tx->id).id != 0)
+              coreTex.updateTextureInfo(tx);
+          }
+          // The card: built once, radius inside the sky dome; this capture's
+          // matrix turns it to the yaw and parks it on the eye. Texture u is
+          // the world azimuth (camera yaw + the vertex's own), v baked.
+          static const int kCorner[6][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1}};
+          static bool panoBuilt = false;
+          if (!panoBuilt) {
+            panoBuilt = true;
+            const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+            float rad = diag * 1.5F;
+            rad = (rad < 60.0F ? 60.0F : (rad > 450.0F ? 450.0F : rad)) * 0.9F;
+            int out = 0;
+            for (int j = 0; j < kPanoGrid; ++j)
+              for (int i = 0; i < kPanoGrid; ++i)
+                for (const auto& c : kCorner) {
+                  const float* d = panoDirs[(j + c[1]) * kPanoSide + (i + c[0])];
+                  panoCard->vertices[out++].set(d[0] * rad, d[1] * rad, d[2] * rad, 1.0F);
+                }
+            panoCard->bag->bboxVersion = ++g_bboxStamp;
+          }
+          static float panoYaw = 1e9F;
+          const float yaw = atan2f(probeDir.z, probeDir.x);
+          if (yaw != panoYaw) {
+            panoYaw = yaw;
+            int out = 0;
+            for (int j = 0; j < kPanoGrid; ++j)
+              for (int i = 0; i < kPanoGrid; ++i)
+                for (const auto& c : kCorner) {
+                  const int vi = (j + c[1]) * kPanoSide + (i + c[0]);
+                  panoCard->sts[out++].set((yaw + panoAz[vi]) * 0.159154943F, panoV[vi],
+                                           1.0F, 0.0F);
+                }
+          }
+          // Column-major: local x (forward) -> (cos, 0, sin), local z (side)
+          // -> (-sin, 0, cos), then the eye.
+          const float cy = cosf(yaw), sy = sinf(yaw);
+          panoMat.identity();
+          panoMat.data[0] = cy;
+          panoMat.data[2] = sy;
+          panoMat.data[8] = -sy;
+          panoMat.data[10] = cy;
+          panoMat.data[12] = probeEye.x;
+          panoMat.data[13] = probeEye.y;
+          panoMat.data[14] = probeEye.z;
+          panoCard->texBag->texture = panoTex[panoUse];
+          renderWorldBag(panoCard->bag.get());
+        }
+      }
+    }
+    if (!envPanoActive) {
     g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
     if (envDoTerrain) renderTerrain();
     if (envDoRest) renderRoadChunks();
     g_groundDrawRadius = 0.0F;
+    }
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
     for (int ri = 0; envDoRest && ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      if (envPanoActive && reflpano_rt::baked(ri)) continue;
       // A batched member is drawn by its (reflected) batch below - and must
       // not reach rebuildObjectGeometry here, which would eat the dirty flag
       // renderStaticBatches demotes it on.
@@ -5247,6 +5434,101 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
               sa.z + (sb.z - sa.z) * m.t};
   };
+  // Ground shadows folded into the vertex colour (docs/shadows.md, "Folded
+  // into the vertex colour"): with GROUND_SHADOW_FOLD the sun's shadow does not
+  // get its own pass over the shaded cells - each terrain node takes the mean
+  // of the chunk masks over the half cell around it, and that share of its
+  // shade drops to the ambient-only level. The masks stay the source; only the
+  // representation changes, at one sample per node instead of 4-8 per cell.
+  // Applied AFTER the shade cache (which stays sun-independent), so a sunset
+  // only re-colours chunks (groundShadowFoldWanted / the stale check in
+  // updateTerrainChunks) instead of re-shading the map.
+  const bool foldOn = groundShadowFoldWanted(currentScene);
+#ifdef GROUND_SHADOWS_ON
+  // The chunk masks the fold samples: acquired on first use and held for the
+  // scene (the game already pins them all on a small map).
+  static std::vector<Texture*> foldTex;
+  static std::vector<std::string> foldTexPath;
+  static unsigned int foldTexGeneration = ~0u;
+  if (foldTexGeneration != sceneGeneration) {
+    foldTexGeneration = sceneGeneration;
+    for (const std::string& pth : foldTexPath)
+      if (!pth.empty()) releaseTexture(pth);
+    foldTex.clear();
+    foldTexPath.clear();
+  }
+  auto groundShadowFoldAt = [&](int nx, int nz) -> float {
+    if (!SCENE_GROUND) return 0.0F;
+    const int C = TERRAIN_CHUNK_CELLS;
+    const int chunksX = SCENE_GROUND_CHUNKS_X;
+    const int chunksZ = terrainChunksZ;
+    float sum = 0.0F;
+    // The four cells around the node, each read over its quadrant that touches
+    // the node: together a box of one cell centred on it.
+    for (int q = 0; q < 4; ++q) {
+      const int gx = nx - 1 + (q & 1), gz = nz - 1 + (q >> 1);
+      if (gx < 0 || gz < 0) continue;
+      const int ccx = gx / C, ccz = gz / C;
+      if (ccx >= chunksX || ccz >= chunksZ) continue;
+      const int lx = gx - ccx * C, lz = gz - ccz * C;
+      const unsigned short row = SCENE_GROUND[(ccz * chunksX + ccx) * C + lz];
+      if (!(row & (1U << lx))) continue;
+      const size_t ci = (size_t)(ccz * chunksX + ccx);
+      if (foldTex.size() < (size_t)chunksX * chunksZ) {
+        foldTex.assign((size_t)chunksX * chunksZ, nullptr);
+        foldTexPath.assign((size_t)chunksX * chunksZ, std::string());
+      }
+      if (!foldTex[ci] && foldTexPath[ci].empty()) {
+        foldTexPath[ci] = "gshadow/s" + std::to_string(g_activeScene) + "_" +
+                          std::to_string(ccx) + "_" + std::to_string(ccz) + ".png";
+        foldTex[ci] = acquireTexture(foldTexPath[ci]);
+      }
+      Texture* t = foldTex[ci];
+      if (!t || t->core->bpp != Tyra::bpp4) continue;
+      const int g = t->getWidth();
+      const int per = g / C;  // texels per cell side
+      if (per < 2) continue;
+      // The quadrant of cell (lx, lz) nearest the node.
+      const int x0 = lx * per + ((q & 1) ? 0 : per / 2);
+      const int z0 = lz * per + ((q >> 1) ? 0 : per / 2);
+      const unsigned char* px = t->core->data;
+      unsigned int acc = 0, n = 0;
+      for (int z = z0; z < z0 + per / 2; ++z)
+        for (int x = x0; x < x0 + per / 2; ++x) {
+          const unsigned char b = px[(z * g + x) >> 1];
+          acc += (x & 1) ? (b >> 4) : (b & 15U);  // PSMT4: low nibble first
+          ++n;
+        }
+      if (n) sum += (float)acc / (15.0F * (float)n);
+    }
+    return sum * 0.25F;
+  };
+#else
+  auto groundShadowFoldAt = [](int, int) -> float { return 0.0F; };
+#endif
+  auto shadeAtF = [&](int ix, int iz) -> V3 {
+    if (!foldOn) return shadeAtE(ix, iz);
+    const float amb = SCENE_BRIGHTNESS * SCENE_AMBIENT;
+    auto folded = [&](int nx, int nz) -> V3 {
+      V3 s = shadeAtC(nx, nz);
+      const float a = groundShadowFoldAt(nx, nz);
+      if (a > 0.0F) {
+        s.x += ((s.x < amb ? s.x : amb) - s.x) * a;
+        s.y += ((s.y < amb ? s.y : amb) - s.y) * a;
+        s.z += ((s.z < amb ? s.z : amb) - s.z) * a;
+      }
+      return s;
+    };
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return folded(ix, iz);
+    const V3 sa = m.alongZ ? folded(ix, m.a) : folded(m.a, iz);
+    const V3 sb = m.alongZ ? folded(ix, m.b) : folded(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  if (g_terrainFoldState.size() < terrainChunks.size())
+    g_terrainFoldState.resize(terrainChunks.size(), 0);
+  g_terrainFoldState[(size_t)slot] = (signed char)(foldOn ? 1 : 0);
   // Quads this chunk really emits - the reserve has to follow the stride or a
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
@@ -5389,7 +5671,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     auto emitAt = [&](int ix, int iz) {
       const float wx = startX + ix * stepX;
       const float wz = startZ + iz * stepZ;
-      const V3 s = shadeAtE(ix, iz);
+      const V3 s = shadeAtF(ix, iz);
       ch.vertices.push_back(Vec4(wx, hAtE(ix, iz), wz, 1.0F));
       ch.colors.push_back(
           Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
@@ -5465,8 +5747,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
 
         const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
         const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
-        const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
-        const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
+        const V3 s00 = shadeAtF(x, z), s10 = shadeAtF(xN, z);
+        const V3 s01 = shadeAtF(x, zN), s11 = shadeAtF(xN, zN);
         auto shaded = [&](const V3& s) {
           return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
@@ -5694,7 +5976,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
     ch.gsVerts.clear();
     ch.gsSts.clear();
-    if (ch.gsTexBag.texture && gsRows) {
+    // Folded into the vertex colours above: no pass of its own.
+    if (ch.gsTexBag.texture && gsRows && !foldOn) {
       const float ox = startX + (float)gx0 * stepX;
       const float oz = startZ + (float)gz0 * stepZ;
       const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
@@ -5995,6 +6278,21 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     --budget;
   }
 
+  // Chunks built with the ground shadows folded in for the other side of a
+  // sunrise/sunset (docs/shadows.md, "Folded into the vertex colour"): rebuilt
+  // in place, within the same budget, the old one drawn until then.
+#ifdef GROUND_SHADOWS_ON
+  if (g_groundShadowFold) {
+    const signed char want = groundShadowFoldWanted(currentScene) ? 1 : 0;
+    for (int s = 0; budget > 0 && s < (int)terrainChunks.size(); ++s) {
+      if (terrainChunks[s].cx < 0 || s >= (int)g_terrainFoldState.size() ||
+          g_terrainFoldState[(size_t)s] == want)
+        continue;
+      buildTerrainChunk(s, terrainChunks[s].cx, terrainChunks[s].cz);
+      --budget;
+    }
+  }
+#endif
   // Then the resident chunks whose detail has gone stale - their own band
   // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
   // Missing chunks are built first on purpose: a hole in the ground is a worse

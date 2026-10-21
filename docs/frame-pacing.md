@@ -148,6 +148,36 @@ The substantial gain is pacing, not reduced packet preparation; long display
 intervals remain, so neither stable60 nor lower input-to-photon latency follows.
 Normal-production promotion remains separate from the common private baseline.
 
+### Hybrid double vs triple on the current district (2026-10-20)
+
+The architecture audit asked again whether the Hybrid structure - one 32-bit
+draw target, the copy after the vsync, so the GS cannot start frame N+1 early -
+should change. Three options were weighed: a second 32-bit draw target (784 KB
+at 448x448: does not fit beside the texture heap), copying into the scanned
+16-bit buffer before the vsync (tears; that is what a second display target is
+for), and Hybrid triple, which is exactly "copy before the vsync into the
+unscanned display buffer". Triple was measured, same ELF, on a physical PS2:
+`examples/vehicle-playground` at night, lean rig, the rig rebuilding the
+permanent buffers between cycles (double / triple alternating, three cycles
+each), every `presentFrameBuffer` timestamped (the double flip after its vsync,
+the triple vblank latch):
+
+| | parked work | driving work | presents | mean rate | skipped fields |
+|---|---:|---:|---:|---:|---:|
+| Hybrid double | 10.24 ms | 10.53 ms | 4483 | 59.6 / 58.8 Hz | 12 / 41 |
+| Hybrid triple | 10.12 | 10.66 | 3360 | 59.7 / 59.2 Hz | 6 / 21 |
+
+The copy itself is **0.19 ms of GS** (timed alone between frames). Every
+window, in both arms, holds exactly one late present, and it is the rig's own
+window print over ps2link (~50 ms): double loses 2-3 fields to it, triple 1-2.
+Apart from that **neither arm missed a field** - this frame is ~10.5 ms of EE
+work with an idle GS, so the GS starting N+1 early buys nothing; triple only
+absorbs one more field of a long stall. Against that it costs 392 KB of VRAM
+(1041 -> 649 KB free after the rebuild; no evictions either way, pause menu
+included) and one frame of latency. **The district stays Hybrid double.**
+Triple is the right switch for a scene whose frames sit near the 16.7 ms edge
+(the A38 numbers above), not for this one.
+
 ## The measurements
 
 `examples`-scale fixture (fpp preset, interlaced-field, PAL), with a calibrated

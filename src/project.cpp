@@ -1876,6 +1876,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.reflectionGroundProxy
                  ? "    \"reflectionGroundProxy\": true,\n"
                  : "")
+         << (p.settings.reflectionPanorama
+                 ? "    \"reflectionPanorama\": true,\n"
+                 : "")
          << (p.settings.reflectionScenery ? "    \"reflectionScenery\": true,\n"
                                           : "")
          << (p.settings.flashShadowVolumes
@@ -1984,6 +1987,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.bakedShadowAutoBake
                  ? "    \"bakedShadowAutoBake\": true,\n"
                  : "")
+         << (p.settings.bakedShadowGroundFold
+                 ? std::string("    \"bakedShadowGroundFold\": true,\n")
+                 : std::string())
          << (p.settings.bakedShadowGround != 0
                  ? "    \"bakedShadowGround\": " +
                        std::to_string(p.settings.bakedShadowGround) + ",\n"
@@ -6515,6 +6521,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.reflectionScenery = v->boolOr(false);
         if (const auto* v = s->find("reflectionGroundProxy"))
             st.reflectionGroundProxy = v->boolOr(false);
+        if (const auto* v = s->find("reflectionPanorama"))
+            st.reflectionPanorama = v->boolOr(false);
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))
@@ -6642,6 +6650,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("bakedShadowAutoBake"))
             st.bakedShadowAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("bakedShadowGroundFold"))
+            st.bakedShadowGroundFold = v->boolOr(false);
         if (const auto* v = s->find("bakedShadowGround")) {
             const int g = (int)v->numberOr(0);
             st.bakedShadowGround = (g == 64 || g == 128) ? g : 0;
