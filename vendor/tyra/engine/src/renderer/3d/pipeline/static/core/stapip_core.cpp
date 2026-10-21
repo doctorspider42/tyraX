@@ -1179,20 +1179,6 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
                                     (*bbox->getMainBBox())[7],
                                     bag->count <= maxVertCount * 15 && repeat);
-  } else if (partialReplay == 3 && qbufferRenderer.isStampEnabled() &&
-             frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
-             bag->info->fullClipChecks && wholeClip() && bbox != nullptr &&
-             !blssOn && !telemetryEnabled && bag->billboard == nullptr &&
-             bag->lighting == nullptr &&
-             bag->info->transformationType == TyraMVP &&
-             !qbufferRenderer.hasProgramOverrides()) {
-    // Modified by TyraX (R5): a whole-clip bag stamps too (mode 3).
-    const bool repeat =
-        !hasTexture ||
-        (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
-         bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT);
-    qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
-                                    (*bbox->getMainBBox())[7], repeat, true);
   } else {
     qbufferRenderer.disarmStampCapture();
   }
@@ -1359,10 +1345,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     if (partialReplay != 0 && doClip && wholeClip() && bakeBag &&
         bag->billboard == nullptr && !qbufferRenderer.hasProgramOverrides() &&
         qbufferRenderer.beginPartialReplay(bag, maxVertCount)) {
-      if (partialReplay >= 2) {
-        replayedPartial = qbufferRenderer.replayWholeClip();
-      } else {
+      {
         static u8 routes[512];
+        static u8 masks[512];
         auto packages = packager.create(&packagesCount, bag, maxVertCount);
         if (packagesCount <= 512) {
           for (u16 i = 0; i < packagesCount; ++i) {
@@ -1375,8 +1360,10 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
                      (!bag->stripped || p.size >= 3))
               route = 2;
             routes[i] = route;
+            masks[i] = p.clipPlaneMask;
           }
-          replayedPartial = qbufferRenderer.emitPartialRuns(routes, packagesCount);
+          replayedPartial = qbufferRenderer.emitPartialRuns(
+              routes, packagesCount, partialReplay == 4 ? masks : nullptr);
           for (u16 i = 0; replayedPartial && telemetryEnabled && i < packagesCount;
                ++i) {
             recordPackage(packages[i], routes[i] == 1   ? IN_FRUSTUM

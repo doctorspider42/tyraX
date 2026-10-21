@@ -64,16 +64,9 @@ class StaPipCore {
     qbufferRenderer.setStampEnabled(on);
   }
   void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
-  /** Modified by TyraX (R1): chain stamps - see StaPipQBufferRenderer. */
-  void setStampChain(bool on) {
-    flushDeferred();
-    qbufferRenderer.setStampChain(on);
-  }
   /** Modified by TyraX: StaPipBag::stampSlot as the first lookup. */
   void setStampSlotHint(bool on) { qbufferRenderer.setStampSlotHint(on); }
-  void takeReplayStats(u32* chain, u32* whole, u32* runs) {
-    qbufferRenderer.takeReplayStats(chain, whole, runs);
-  }
+  void takeReplayStats(u32* runs) { qbufferRenderer.takeReplayStats(runs); }
   u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
   u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
 #endif
@@ -102,18 +95,15 @@ class StaPipCore {
   /** Modified by TyraX (R5): a frustum-crossing bag replayed from immutable
    * blocks (StaPipQBufferRenderer::beginPartialReplay). 0 = the qbuffer loop;
    * 1 = runs - per-package classification kept, each run of same-route
-   * packages one REF into its baked cull or whole-clip blocks; 2 = whole -
-   * the bag is ONE REF into the streamed VU1 clip program with all six planes,
-   * no EE classification (VU1 judges every triangle); 3 = whole, and the bag
-   * takes a stamp (its head is replayed too while it keeps crossing). VU1
-   * clipping with whole-package streaming only. See
+   * packages one REF into its baked cull or whole-clip (six-plane) blocks;
+   * 4 = runs, each clip block carrying its package's own plane mask in a
+   * regenerated header. VU1 clipping with whole-package streaming only. The
+   * whole bag as ONE REF into the clip program (no classification) was
+   * measured and removed. See
    * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R5". */
   void setPartialReplay(u8 mode) {
     flushDeferred();
     partialReplay = mode;
-#if TYRA_STAPIP_STAMP
-    qbufferRenderer.setClipStamps(mode == 3);
-#endif
   }
   StaPipCore();
   ~StaPipCore();

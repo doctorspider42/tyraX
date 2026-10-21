@@ -810,30 +810,20 @@ class StaPipQBufferRenderer {
    * old rule (only bags under the ordinary size cap) for an A/B. */
   void setStampBatchAnySize(bool on) { stampBatchAnySize = on; }
   bool isStampEnabled() const { return stampEnabled; }
-  /** Modified by TyraX (R1): chain stamps - a replay REFs its head in DMA
-   * memory and, for an identity model, one shared per-frame VP block, instead
-   * of copying ~14 qwords (docs/tyrax2-arch-audit-ee-submission-2026-10-20.md,
-   * "R1"). Runtime switch, default off; false = the copy. */
-  void setStampChain(bool on) { stampChain = on; }
   /** Modified by TyraX: find a stamp through the slot the bag remembers
    * (StaPipBag::stampSlot) before probing the hash. false = hash only. */
   void setStampSlotHint(bool on) { stampSlotHint = on; }
-  /** Modified by TyraX: chain-stamp replays / whole-clip / run replays of
-   * crossing bags since the last call (diagnostics, reset on read). */
-  void takeReplayStats(u32* chain, u32* whole, u32* runs) {
-    *chain = stampChainHits; *whole = partialWholeHits; *runs = partialRunHits;
-    stampChainHits = partialWholeHits = partialRunHits = 0;
+  /** Modified by TyraX: crossing bags replayed as runs since the last call
+   * (diagnostics, reset on read). */
+  void takeReplayStats(u32* runs) {
+    *runs = partialRunHits;
+    partialRunHits = 0;
   }
   /** Arm a capture for the bag about to go through sendObjectData + whole
    * baked replay. `lo`/`hi` are its world-space box (identity model). */
   void armStampCapture(StaPipBag* bag, const Vec4& lo, const Vec4& hi,
-                       bool batchSized, bool clipBody = false);
-  void disarmStampCapture() { stampArmed = false; stampClipArmed = false; }
-  /** Modified by TyraX (R5): a frustum-crossing bag replayed whole into the
-   * clip program (StaPipCore::setPartialReplay(3)) may take a stamp too: its
-   * head carries the shared clip-constant REF and its body REF names the
-   * whole-clip blocks. Replays only while the bag still crosses the view. */
-  void setClipStamps(bool on) { clipStamps = on; }
+                       bool batchSized);
+  void disarmStampCapture() { stampArmed = false; }
   /** Re-emit a valid stamp for `bag`; false = take the ordinary path. */
   bool tryStamp(StaPipBag* bag, const M4x4& viewProj, const Plane* planes,
                 const Plane* guardBandPlanes, bool dynamicLightReceive,
@@ -934,15 +924,16 @@ class StaPipQBufferRenderer {
    * entry: every package formatted for the streamed VU1 clip program with all
    * six planes - camera independent, so baked once. beginPartialReplay builds
    * or finds it (call after beginBakedBag succeeded for the same bag; false =
-   * not eligible). Then either replayWholeClip() - the whole bag as ONE REF
-   * into the clip program - or emitPartialRuns(routes, n): per package 0 skip,
+   * not eligible). Then emitPartialRuns(routes, n): per package 0 skip,
    * 1 cull block, 2 clip block, consecutive same-route packages one REF.
    * emitPartialRuns returns false, emitting nothing, when the runs would not
    * fit the bag's packet reservation (the caller takes the ordinary loop).
+   * clipMasks (per package, optional): clip blocks then carry the package's
+   * own plane mask in a regenerated header instead of the baked six planes.
    */
   bool beginPartialReplay(StaPipBag* bag, u32 packageSize);
-  bool replayWholeClip();
-  bool emitPartialRuns(const u8* routes, u32 count);
+  bool emitPartialRuns(const u8* routes, u32 count,
+                       const u8* clipMasks = nullptr);
   u32 takeBakedHits();
   u32 takeBakedBuilds();
   u32 getBakedBytes() const;
@@ -1179,22 +1170,8 @@ class StaPipQBufferRenderer {
     u8 fogEligible = 0, hasTex0 = 0, spotActive = 0, batchSized = 0, fogOff = 0;
     u8 wrapBlock = 0;
     u16 singleAt = 0;
-    // Modified by TyraX (R1, chain stamps): the head after the MVP lives in
-    // DMA memory (stampDmaHeads, two copies) and the replay REFs it; only a
-    // copy whose fog / TEX0 / single-colour words went stale is rewritten,
-    // into the copy no chain of the last frames can still be reading.
-    u8 chainOk = 0;      // head = FLUSHE, MVP, plain CNT blocks, REF
-    u8 clipBody = 0;     // R5: the body is the whole-clip blocks
-    u8 identity = 0;     // model == identity: the MVP is the shared VP block
-    u8 headCur = 0xFF;   // copy holding the shadow values (0xFF: none)
-    u16 headFrom = 0, headQw = 0;
-    u32 headFrame[2] = {0, 0};  // stampFrame each copy was last referenced
-    u32 shadowFog[2] = {0, 0};
-    u32 shadowSingle[4] = {0, 0, 0, 0};
-    u64 shadowTex0 = 0;
     texwrap_t wrap = {};
     StaPipProgramName program = StaPipUndefinedProgram;
-    alignas(16) qword_t refTag;  // the head's last qword: the baked body REF
     alignas(16) Vec4 lo, hi;     // object-space main box
     alignas(16) Vec4 wlo, whi;   // world AABB of it (visibility, conservative)
     // The light pick's inputs, derived from `model` with the world box: the
@@ -1229,31 +1206,8 @@ class StaPipQBufferRenderer {
   u16 stampSingleAt = 0;
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
-  // Modified by TyraX (R1): chain stamps. Two head copies per slot of
-  // kStampHeadQw qwords, and a ring of VP blocks (FLUSHE rides the REF tag;
-  // the block is NOP NOP STCYCL UNPACK + the four VP rows). Both are DMA
-  // memory registered as immutable spans: a copy is rewritten only when no
-  // chain of the last kStampChainMargin frames named it.
-  static const u32 kStampHeadQw = 12;
-  static const u32 kVpBlocks = 32;
-  static const u32 kVpBlockQw = 8;  // 5 used, padded to a 128-byte line
-  static const u32 kStampChainMargin = 3;
-  bool stampChain = false;
   bool stampSlotHint = false;
-  bool clipStamps = false;
-  bool stampClipArmed = false;  // the armed capture is a whole-clip bag
-  u32 stampChainHits = 0, partialWholeHits = 0, partialRunHits = 0;
-  qword_t* stampDmaHeads = nullptr;
-  qword_t* vpBlocks = nullptr;
-  u32 vpBlockFrame[kVpBlocks] = {};
-  u32 vpNext = 0;
-  const qword_t* vpCurrent = nullptr;
-  u32 vpCurrentFrame = 0;
-  alignas(16) M4x4 vpCurrentMatrix;
-  u32 stampFrame = kStampChainMargin + 1;
-  const qword_t* vpBlockFor(const M4x4& viewProj);
-  bool writeStampHead(StampEntry& s, u32 copy, const u32 fog[2], u64 tex0,
-                      const u32* single);
+  u32 partialRunHits = 0;
   StampEntry* findStamp(const StaPipBag* bag, bool create);
   int stampSlot(const StaPipBag* bag) const;
   u32 stampPrimKey(const StaPipBag* bag) const;

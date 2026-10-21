@@ -21,7 +21,6 @@
 
 #include <math.h>
 #include <string.h>
-#include <malloc.h>  // Modified by TyraX: memalign for chain-stamp DMA memory
 #include <dma_tags.h>
 #include <algorithm>
 #include "debug/hardware_trace.hpp"
@@ -1432,13 +1431,7 @@ void StaPipQBufferRenderer::sendObjectData(
   bagMayClip = true;
   if (vu1Clipping && mayClip) {
 #if TYRA_STAPIP_STAMP
-    // Only the shared REF form can be replayed (R5 clip stamps): it names one
-    // block rewritten only after a drain, when its own inputs move.
-#if TYRA_STAPIP_RETAINED_COMMANDS
-    if (!(stampClipArmed && clipBlockVifQw != 0)) stampOk = false;
-#else
-    stampOk = false;
-#endif
+    stampOk = false;  // only partial bags clip; stamps are whole bags
 #endif
 #if TYRA_STAPIP_RETAINED_COMMANDS
     // Modified by TyraX: retained command data. These fifteen quadwords are
@@ -2761,43 +2754,26 @@ void StaPipQBufferRenderer::finishPartialReplay() {
     flushPendingPacket();
 }
 
-bool StaPipQBufferRenderer::replayWholeClip() {
-  StaPipBakedEntry* clip = bakedClip;
-  if (clip == nullptr || !clip->complete || clip->arenaQw == 0 ||
-      clip->arenaQw > 0xFFFFu)
-    return false;
-  auto* packet = packets[context];
-  TYRA_ASSERT(packet2_get_qw_count(packet) + 4 <= packetSize,
-              "No room for a whole-clip bag's REF");
-  emitRef(packet, clip->arena, clip->arenaQw);
-#if TYRA_STAPIP_STAMP
-  if (stampArmed && stampOk && stampClipArmed) {
-    StaPipBakedEntry* cull = bakedCurrent;
-    bakedCurrent = clip;  // the stamp's body entry
-    captureStamp();
-    bakedCurrent = cull;
-  }
-  stampArmed = false;
-  stampClipArmed = false;
-#endif
-  // Block 0 was baked with MSCAL and the GS-state flag (render() clears the
-  // program name per bag, as for every first package).
-  lastProgramName =
-      static_cast<StaPipVU1Program*>(const_cast<void*>(clip->program))->getName();
-  baked.countHit();
-  ++partialWholeHits;
-  finishPartialReplay();
-  return true;
+namespace {
+// The clip header's plane mask is stored bit-reversed (stapip_vu1_program.cpp).
+inline u32 reversedPlaneMask(u8 mask) {
+  if (mask == 0) mask = 0x3F;
+  u32 r = 0;
+  for (u32 i = 0; i < 6; ++i)
+    if (mask & (1u << i)) r |= 1u << (5 - i);
+  return r;
 }
+}  // namespace
 
-bool StaPipQBufferRenderer::emitPartialRuns(const u8* routes, u32 count) {
+bool StaPipQBufferRenderer::emitPartialRuns(const u8* routes, u32 count,
+                                            const u8* clipMasks) {
   StaPipBakedEntry* entries[3] = {nullptr, bakedCurrent, bakedClip};
   if (entries[1] == nullptr || entries[2] == nullptr || count == 0 ||
       count > entries[1]->packages || count > entries[2]->packages ||
       entries[1]->arenaQw > 0xFFFFu || entries[2]->arenaQw > 0xFFFFu)
     return false;
-  // Price it first: a run that switches program regenerates its first
-  // block's header and kick (6 qwords), a continuing run is one REF.
+  // Price it first: a block whose header is regenerated costs 5 qwords
+  // (header, body REF, kick), a run of baked blocks one REF.
   auto* packet = packets[context];
   u32 need = 0;
   {
@@ -2807,13 +2783,41 @@ bool StaPipQBufferRenderer::emitPartialRuns(const u8* routes, u32 count) {
       if (r == 0) { ++i; continue; }
       u32 j = i + 1;
       while (j < count && routes[j] == r) ++j;
-      need += (r != last && i > 0) ? 6 : 1;
+      if (r == 2 && clipMasks != nullptr) need += 5 * (j - i);
+      else need += (r != last && i > 0) ? 6 : 1;
       last = r;
       i = j;
     }
   }
   if (packet2_get_qw_count(packet) + need + 4 > packetSize) return false;
   StaPipProgramName lastName = lastProgramName;
+  // One block with a regenerated header: the GS-state flag and MSCAL when the
+  // program changes here, the live plane mask for a clip block.
+  auto emitBlock = [&](StaPipBakedEntry* e, StaPipVU1Program* program, u32 k,
+                       bool switched, int mask) {
+    const qword_t* block = e->arena + e->offsets[k];
+    qword_t* q = packet->next;
+    q[0].dw[0] = 2U | (static_cast<u64>(1) << 28);  // CNT, 2 qwords
+    q[0].dw[1] = block[0].dw[1];  // the header's own VIFcodes
+    q[1] = block[1];
+    q[2] = block[2];
+    u32& packed = reinterpret_cast<u32*>(q)[StaPipVU1Program::kPackedCountWord];
+    packed &= ~static_cast<u32>(VU1_STAPIP_EMIT_STATE_FLAG);
+    if (switched && program->emitsStateFlag(true))
+      packed |= VU1_STAPIP_EMIT_STATE_FLAG;
+    if (mask >= 0) {
+      packed &= ~(0x3Fu << VU1_STAPIP_CLIP_MASK_SHIFT);
+      packed |= reversedPlaneMask(static_cast<u8>(mask))
+                << VU1_STAPIP_CLIP_MASK_SHIFT;
+    }
+    packet->next = q + 3;
+    emitRef(packet, block + 3, e->sizes[k] - 4);
+    if (switched)
+      packet2_utils_vu_add_start_program(packet,
+                                         program->getDestinationAddress());
+    else
+      packet2_utils_vu_add_continue_program(packet);
+  };
   for (u32 i = 0; i < count;) {
     const u8 r = routes[i];
     if (r == 0) { ++i; continue; }
@@ -2822,29 +2826,23 @@ bool StaPipQBufferRenderer::emitPartialRuns(const u8* routes, u32 count) {
     StaPipBakedEntry* e = entries[r];
     auto* program =
         static_cast<StaPipVU1Program*>(const_cast<void*>(e->program));
-    const qword_t* block = e->arena + e->offsets[i];
-    u32 from = i;  // first package REF'd as baked
-    if (program->getName() != lastName && i > 0) {
-      // Baked as a continuation (no GS-state flag, MSCNT); this run starts
-      // after another program, so its first block needs the flag and MSCAL.
-      qword_t* q = packet->next;
-      q[0].dw[0] = 2U | (static_cast<u64>(1) << 28);  // CNT, 2 qwords
-      q[0].dw[1] = block[0].dw[1];  // the header's own VIFcodes
-      q[1] = block[1];
-      q[2] = block[2];
-      if (program->emitsStateFlag(true))
-        reinterpret_cast<u32*>(q)[StaPipVU1Program::kPackedCountWord] |=
-            VU1_STAPIP_EMIT_STATE_FLAG;
-      packet->next = q + 3;
-      emitRef(packet, block + 3, e->sizes[i] - 4);
-      packet2_utils_vu_add_start_program(packet,
-                                         program->getDestinationAddress());
-      from = i + 1;
-    }
-    if (from < j) {
-      u32 qw = 0;
-      for (u32 k = from; k < j; ++k) qw += e->sizes[k];
-      emitRef(packet, e->arena + e->offsets[from], qw);
+    const bool switched = program->getName() != lastName;
+    if (r == 2 && clipMasks != nullptr) {
+      for (u32 k = i; k < j; ++k)
+        emitBlock(e, program, k, switched && k == i, clipMasks[k]);
+    } else {
+      u32 from = i;  // first package REF'd as baked
+      if (switched && i > 0) {
+        // Baked as a continuation (no GS-state flag, MSCNT); this run starts
+        // after another program, so its first block needs both.
+        emitBlock(e, program, i, true, -1);
+        from = i + 1;
+      }
+      if (from < j) {
+        u32 qw = 0;
+        for (u32 k = from; k < j; ++k) qw += e->sizes[k];
+        emitRef(packet, e->arena + e->offsets[from], qw);
+      }
     }
     lastName = program->getName();
     i = j;
@@ -3118,18 +3116,6 @@ StaPipQBufferRenderer::StampEntry* StaPipQBufferRenderer::findStamp(
     stamps = new StampEntry[kStampSlots];
     stampKeys = new const StaPipBag*[kStampSlots]();
     stampBakedOf = new const StaPipBakedEntry*[kStampSlots]();
-    // Modified by TyraX (R1): DMA memory for chain stamps. Registered once as
-    // immutable spans (the frame recorder borrows instead of copying); a
-    // failed allocation or registration only costs the copy.
-    stampDmaHeads = static_cast<qword_t*>(
-        memalign(64, kStampSlots * 2 * kStampHeadQw * sizeof(qword_t)));
-    vpBlocks = static_cast<qword_t*>(
-        memalign(64, kVpBlocks * kVpBlockQw * sizeof(qword_t)));
-    if (stampDmaHeads)
-      Vif1Queue::registerImmutableSpan(stampDmaHeads,
-                                       kStampSlots * 2 * kStampHeadQw);
-    if (vpBlocks)
-      Vif1Queue::registerImmutableSpan(vpBlocks, kVpBlocks * kVpBlockQw);
   }
   // Modified by TyraX: the slot the bag remembers - one compare against the
   // entry the hit reads anyway, no hash and no key line (item "stamp slot").
@@ -3260,11 +3246,6 @@ void StaPipQBufferRenderer::stampWorldBox(StampEntry& s) {
   const float ex = s.hi.x - s.lo.x, ey = s.hi.y - s.lo.y, ez = s.hi.z - s.lo.z;
   s.worldRadius = 0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale;
   invertAffine(m, s.inv, s.invT);
-  // Modified by TyraX (R1): a world-space bag's MVP is the view-projection.
-  static const float kIdentity[16] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F,
-                                      0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F,
-                                      0.0F, 0.0F, 0.0F, 1.0F};
-  s.identity = memcmp(m, kIdentity, sizeof(kIdentity)) == 0 ? 1 : 0;
 }
 
 static inline u32 stampContent(const StaPipBag* bag) {
@@ -3276,10 +3257,8 @@ static inline u32 stampContent(const StaPipBag* bag) {
 }
 
 void StaPipQBufferRenderer::armStampCapture(StaPipBag* bag, const Vec4& lo,
-                                            const Vec4& hi, bool batchSized,
-                                            bool clipBody) {
-  stampArmed = stampEnabled && (!clipBody || clipStamps);
-  stampClipArmed = clipBody && clipStamps;
+                                            const Vec4& hi, bool batchSized) {
+  stampArmed = stampEnabled;
   stampBag = bag;
   stampBatchSized = batchSized;
   stampLo = lo;
@@ -3340,89 +3319,9 @@ void StaPipQBufferRenderer::captureStamp() {
   for (u32 i = 0; i < qw; ++i) s->bytes[i] = stampHead[i];
   s->frame = stampHits + stampCaptures;
   bag->stampSlot = static_cast<s16>(s - stamps);
-  // Modified by TyraX (R1): can the replay REF this head instead of copying
-  // it? Only the plain layout: FLUSHE, the MVP unpack, CNT blocks (spot-free,
-  // no wrap write), the body REF last. The copies' frame tags are kept - a
-  // recycled slot's old copies may still be read by chains in flight.
-  s->chainOk = 0;
-  s->clipBody = stampClipArmed ? 1 : 0;
-  s->headCur = 0xFF;
-  s->refTag = stampHead[qw - 1];
-  if (stampDmaHeads != nullptr && !stampWrapBlock && stampSpotAt == 0 &&
-      stampMvpAt == 1 && qw > 7 &&
-      ((stampHead[qw - 1].dw[0] >> 28) & 7U) == 3U) {
-    const u32 from = 6, end = qw - 1;  // FLUSHE + MVP header + 4 rows
-    u32 i = from;
-    bool plain = end - from <= kStampHeadQw;
-    while (plain && i < end) {
-      const u64 tag = stampHead[i].dw[0];
-      const u32 n = static_cast<u32>(tag & 0xFFFFU);
-      plain = ((tag >> 28) & 7U) == 1U && i + 1 + n <= end;
-      i += 1 + n;
-    }
-    if (plain && i == end && stampOptAt >= from && stampTex0At < end &&
-        (stampSingleAt == 0 || stampSingleAt >= from)) {
-      s->chainOk = 1;
-      s->headFrom = static_cast<u16>(from);
-      s->headQw = static_cast<u16>(end - from);
-    }
-  }
   ++stampCaptures;
 }
 
-// Modified by TyraX (R1): the per-frame VP block of the views drawing
-// identity-model stamps. One block per distinct view-projection; a block is
-// reused only kStampChainMargin frames after a chain last named it.
-const qword_t* StaPipQBufferRenderer::vpBlockFor(const M4x4& viewProj) {
-  if (vpBlocks == nullptr) return nullptr;
-  if (vpCurrent != nullptr &&
-      memcmp(vpCurrentMatrix.data, viewProj.data, sizeof(viewProj.data)) == 0) {
-    vpBlockFrame[(vpCurrent - vpBlocks) / kVpBlockQw] = stampFrame;
-    return vpCurrent;
-  }
-  for (u32 tries = 0; tries < kVpBlocks; ++tries) {
-    const u32 at = vpNext;
-    vpNext = (vpNext + 1) % kVpBlocks;
-    if (vpBlockFrame[at] + kStampChainMargin > stampFrame) continue;
-    qword_t* b = vpBlocks + at * kVpBlockQw;
-    const qword_t& h = unpackHeader(VU1_MVP_MATRIX_ADDR, 4);
-    b[0].dw[0] = 0;  // two VIF NOPs where the CNT tag's DMA half was
-    b[0].dw[1] = h.dw[1];
-    // The product with the identity, not the matrix itself: the bytes an
-    // identity-model bag's own MVP upload carried (zero signs included).
-    const M4x4 mvp = viewProj * M4x4::Identity;
-    memcpy(&b[1], mvp.data, sizeof(mvp.data));
-    vpBlockFrame[at] = stampFrame;
-    vpCurrent = b;
-    vpCurrentMatrix = viewProj;
-    return b;
-  }
-  return nullptr;  // every block named in the last frames: copy this time
-}
-
-// Modified by TyraX (R1): copy `copy` of a chain stamp's head, as the VIF
-// stream the captured CNT blocks deliver, with the live fog / TEX0 / single
-// colour words in place. False: that copy may still be read by a chain.
-bool StaPipQBufferRenderer::writeStampHead(StampEntry& s, u32 copy,
-                                           const u32 fog[2], u64 tex0,
-                                           const u32* single) {
-  if (s.headFrame[copy] + kStampChainMargin > stampFrame) return false;
-  const u32 slot = static_cast<u32>(&s - stamps);
-  qword_t* dst = stampDmaHeads + (slot * 2 + copy) * kStampHeadQw;
-  if (chainToVifStream(&s.bytes[s.headFrom], s.headQw, dst) != s.headQw)
-    return false;
-  qword_t& opt = dst[s.optAt + 1 - s.headFrom];
-  opt.sw[2] = fog[0];
-  opt.sw[3] = fog[1];
-  if (s.hasTex0) dst[s.tex0At - s.headFrom].dw[0] = tex0;
-  if (s.singleAt != 0) memcpy(&dst[s.singleAt + 1 - s.headFrom], single, 16);
-  s.headCur = static_cast<u8>(copy);
-  s.shadowFog[0] = fog[0];
-  s.shadowFog[1] = fog[1];
-  s.shadowTex0 = tex0;
-  if (single != nullptr) memcpy(s.shadowSingle, single, 16);
-  return true;
-}
 
 bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
                                      const Plane* planes,
@@ -3489,14 +3388,7 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   {
     const CoreBBoxFrustum f = CoreBBox::frustumCheckAABB(planes, s->wlo, s->whi);
     if (f == OUTSIDE_FRUSTUM) STAMP_REJECT(5);
-    if (s->clipBody) {
-      // R5: a whole-clip stamp stands only for the crossing route; a bag the
-      // ordinary path would draw directly goes back to it (and its cull stamp).
-      if (!clipStamps || !vu1Clipping || f == IN_FRUSTUM ||
-          (guardBandPlanes != nullptr &&
-           CoreBBox::activePlaneMaskAABB(guardBandPlanes, s->wlo, s->whi, 8) == 0))
-        STAMP_REJECT(5);
-    } else if (f != IN_FRUSTUM &&
+    if (f != IN_FRUSTUM &&
         (guardBandPlanes == nullptr ||
          CoreBBox::activePlaneMaskAABB(guardBandPlanes, s->wlo, s->whi, 8) != 0))
       STAMP_REJECT(5);
@@ -3591,11 +3483,14 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
     startPacket(packet);
     packetWrapSet = false;
   }
-  // MVP: re-derived from the live model.
+  qword_t* dst = packet->next;
+  for (u32 i = 0; i < s->qw; ++i) dst[i] = s->bytes[i];
+  // MVP: identity model was proven above by the matrix compare at capture.
   const M4x4 mvp = viewProj * s->model;
+  memcpy(&dst[s->mvpAt + 1], mvp.data, sizeof(mvp.data));
   // Fog words (options qword 0), re-derived exactly as sendObjectData does.
-  u32 fogWords[2];
   {
+    qword_t& q = dst[s->optAt + 1];
     float fogScale = rendererCore->fog.scale;
     float fogOffset = rendererCore->fog.offset;
     bool fogConstant = s->fogOff != 0;  // as sendObjectData: fog off => 255
@@ -3622,90 +3517,28 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
         memcpy(&fogScale, &bits, 4);
       }
     }
-    memcpy(&fogWords[0], &fogScale, 4);
-    memcpy(&fogWords[1], &fogOffset, 4);
+    memcpy(&q.sw[2], &fogScale, 4);
+    memcpy(&q.sw[3], &fogOffset, 4);
   }
-  u64 tex0 = 0;
   if (s->hasTex0 && tb != nullptr) {
     const clutbuffer_t* cl = &rendererCore->texture.clut;
-    tex0 = GS_SET_TEX0(tb->address >> 6, tb->width >> 6, tb->psm,
-                       tb->info.width, tb->info.height, tb->info.components,
-                       tb->info.function, cl->address >> 6, cl->psm,
-                       cl->storage_mode, cl->start, cl->load_method);
+    dst[s->tex0At].dw[0] = GS_SET_TEX0(
+        tb->address >> 6, tb->width >> 6, tb->psm, tb->info.width,
+        tb->info.height, tb->info.components, tb->info.function,
+        cl->address >> 6, cl->psm, cl->storage_mode, cl->start,
+        cl->load_method);
   }
-  const u32* single =
-      s->singleAt != 0
-          ? reinterpret_cast<const u32*>(bag->color->single->rgba)
-          : nullptr;
-  qword_t* dst = packet->next;
-  bool chained = false;
-  // Modified by TyraX (R1): chain stamps. The head lives in DMA memory; the
-  // packet gets the MVP (one REF to the frame's VP block for an identity
-  // model), a REF to the head copy whose words are current, and the body REF.
-  if (stampChain && s->chainOk && (!s->hasTex0 || tb != nullptr)) {
-    int use = -1;
-    if (s->headCur != 0xFF && s->shadowFog[0] == fogWords[0] &&
-        s->shadowFog[1] == fogWords[1] &&
-        (!s->hasTex0 || s->shadowTex0 == tex0) &&
-        (single == nullptr || memcmp(s->shadowSingle, single, 16) == 0)) {
-      use = s->headCur;
-    } else {
-      const u32 k = s->headCur == 0xFF ? 0U : (s->headCur ^ 1U);
-      if (writeStampHead(*s, k, fogWords, tex0, single))
-        use = static_cast<int>(k);
-      else if (s->headCur == 0xFF &&
-               writeStampHead(*s, 1, fogWords, tex0, single))
-        use = 1;
-    }
-    if (use >= 0) {
-      qword_t* q = dst;
-      const qword_t* vp = s->identity ? vpBlockFor(viewProj) : nullptr;
-      if (vp != nullptr) {
-        // FLUSHE rides the REF tag; the block unpacks the MVP rows.
-        q->dw[0] = 5U | (static_cast<u64>(3) << 28) |
-                   (static_cast<u64>(reinterpret_cast<u32>(vp) & 0x0FFFFFFFU)
-                    << 32);
-        q->dw[1] = flusheHeader().dw[1];
-        ++q;
-      } else {
-        *q++ = flusheHeader();
-        *q++ = unpackHeader(VU1_MVP_MATRIX_ADDR, 4);
-        memcpy(q, mvp.data, sizeof(mvp.data));
-        q += 4;
-      }
-      const qword_t* head =
-          stampDmaHeads +
-          (static_cast<u32>(s - stamps) * 2 + static_cast<u32>(use)) *
-              kStampHeadQw;
-      q->dw[0] = static_cast<u64>(s->headQw) | (static_cast<u64>(3) << 28) |
-                 (static_cast<u64>(reinterpret_cast<u32>(head) & 0x0FFFFFFFU)
-                  << 32);
-      q->dw[1] = 0;
-      ++q;
-      *q++ = s->refTag;
-      s->headFrame[use] = stampFrame;
-      packet->next = q;
-      chained = true;
-      ++stampChainHits;
-    }
+  if (s->spotActive) {
+    alignas(16) const float sp[12] = {
+        meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+        meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+        meshSpot.direction.z, meshSpot.cosCut2,     meshSpot.color[0],
+        meshSpot.color[1],    meshSpot.color[2],    meshSpot.invSoft};
+    memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
   }
-  if (!chained) {
-    for (u32 i = 0; i < s->qw; ++i) dst[i] = s->bytes[i];
-    memcpy(&dst[s->mvpAt + 1], mvp.data, sizeof(mvp.data));
-    dst[s->optAt + 1].sw[2] = fogWords[0];
-    dst[s->optAt + 1].sw[3] = fogWords[1];
-    if (s->hasTex0 && tb != nullptr) dst[s->tex0At].dw[0] = tex0;
-    if (s->spotActive) {
-      alignas(16) const float sp[12] = {
-          meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
-          meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
-          meshSpot.direction.z, meshSpot.cosCut2,     meshSpot.color[0],
-          meshSpot.color[1],    meshSpot.color[2],    meshSpot.invSoft};
-      memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
-    }
-    if (single != nullptr) memcpy(&dst[s->singleAt + 1], single, 16);
-    packet->next = dst + s->qw;
-  }
+  if (s->singleAt != 0)
+    memcpy(&dst[s->singleAt + 1], bag->color->single->rgba, 16);
+  packet->next = dst + s->qw;
   if (s->wrapBlock) {  // the re-emitted CLAMP write is now the packet's state
     packetWrap = wanted;
     packetWrapSet = true;
@@ -3770,8 +3603,7 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag*, const u32&, bool) {
 }
 bool StaPipQBufferRenderer::replayWholeBakedBag() { return false; }
 bool StaPipQBufferRenderer::beginPartialReplay(StaPipBag*, u32) { return false; }
-bool StaPipQBufferRenderer::replayWholeClip() { return false; }
-bool StaPipQBufferRenderer::emitPartialRuns(const u8*, u32) { return false; }
+bool StaPipQBufferRenderer::emitPartialRuns(const u8*, u32, const u8*) { return false; }
 void StaPipQBufferRenderer::finishPartialReplay() {}
 void StaPipQBufferRenderer::endBakedBag() {}
 u32 StaPipQBufferRenderer::takeBakedHits() { return 0; }
@@ -3997,9 +3829,6 @@ void StaPipQBufferRenderer::onFrameEnd() {
   // DMA references into the next frame, where retained source arrays may be
   // updated before VIF1 consumes them.
   flushPendingPacket();
-#if TYRA_STAPIP_STAMP
-  ++stampFrame;  // Modified by TyraX (R1): chain-stamp copy lifetimes
-#endif
   TYRA_ASSERT(!submissionBatchScope,
               "Submission batch must end before the frame ends");
   submissionBatchScope = false;

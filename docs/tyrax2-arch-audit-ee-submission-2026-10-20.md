@@ -95,4 +95,44 @@ What changed (`StaPipCore::setPartialReplay`):
 
 ## Measurements
 
-(filled in below per hardware run)
+### Run 1: one ELF, six arms (rig `BA2`, 2026-10-20/21)
+
+Lean build, night, district spawn, physical PS2. Arms switch every cycle;
+34 cycles per arm (cycle 0 dropped). Median `work` per window position, with
+the bootstrap 95% interval of the median; "parked" is the settled second
+parked window, "cruise" and "late drive" the second and third drive windows.
+
+| Arm | Parked | Cruise | Late drive | First drive window |
+| --- | ---: | ---: | ---: | ---: |
+| HEAD behaviour | 10.323 (10.31-10.36) | 10.918 (10.90-10.96) | 9.252 (9.24-9.28) | 10.521 |
+| R3 owned packets | 10.360 (10.33-10.37) | 10.860 (10.85-10.91) | 9.178 (9.16-9.20) | 10.530 |
+| R1 chain stamps + slot hint | 10.341 (10.31-10.37) | 10.907 (10.89-10.94) | 9.265 (9.25-9.28) | 10.579 |
+| R5 runs | 10.398 (10.35-10.42) | 10.777 (10.73-10.81) | 8.987 (8.96-9.01) | 10.757 |
+| R5 whole (one REF) | 10.939 | 13.419 | 10.354 | 10.928 |
+| R5 whole + stamp | 10.886 | 13.407 | 10.303 | 10.803 |
+
+What engaged (on-console counters, per frame): ~35 owned packets, ~80 chain
+stamp replays, ~8-10 crossing bags replayed as runs. No refused owned submit.
+The ELF ran 204 cycles (~85 minutes, every arm 34 times) before a `freepad:
+DMA Busy` wedge during the warm-up after a HEAD-behaviour (arm 0) drive
+window, i.e. while none of the switches was on.
+
+Reading it:
+
+- **R5 whole is rejected.** Sending a crossing bag whole into the clip program
+  removes the EE classification but makes VU1 transform and judge every
+  triangle with the clip program (strips: every corner three times): +0.6 ms
+  parked, +2.5 ms in the cruise window. The parked frame being EE-bound with
+  VU1 ~45% idle does not mean VU1 can absorb a 2-3x program on the crossing
+  bags' triangles.
+- **R1 chain stamps are rejected.** ~80 replays a frame took the chain form
+  and the frame did not move (parked +0.02, cruise -0.01, late +0.01 ms, all
+  inside the interval). Same lesson as the crossing-bag head stamps: the
+  replay's cost is the memory it touches (bag, info, model, light, texture),
+  not the ~14 qwords it copies.
+- **R3** is small: cruise -0.06, late drive -0.07 ms, parked +0.04 (inside
+  the noise).
+- **R5 runs** is mixed: cruise -0.14, late drive -0.27 ms, but parked +0.075
+  and the first drive window +0.24 ms. Run 2 prices a variant that keeps each
+  clip block's own plane mask (mode 4) to separate the VU1 share (six planes
+  baked) from the EE share.
