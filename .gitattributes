@@ -108,3 +108,6 @@ docs/tyrax2-strip-batch-2026-10-07/** -text whitespace=-trailing-space,-space-be
 docs/tyrax2*/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 tools/tyrax2-* text=auto eol=lf
 tools/verify-* text=auto eol=lf
+
+# Shell scripts run under bash (Git Bash / WSL): LF regardless of autocrlf.
+tools/ps2rig/*.sh text eol=lf

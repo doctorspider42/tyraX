@@ -5,8 +5,9 @@ on a real PS2? Which of that work is "done the PC way rather than the PS2 way"?
 
 ## Rig
 
-The scratch rig lives in `C:\tx\rig`. It is private and not part of the
-repository.
+The rig is in the repository as [`tools/ps2rig`](../tools/ps2rig/README.md)
+(it was the private `C:\tx\rig` until 2026-10-21; arms still default to
+`C:\tx` as the scratch root).
 
 - **Project and build:** a copy of the example in `C:\tx\vpn<arm>` uses the
   release profile. The engine copy in `C:\tx\tyra<arm>` is built with
