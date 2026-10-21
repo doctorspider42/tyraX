@@ -9,6 +9,10 @@ for people building games with it. Internals live in code comments, the git log
 
 **World & objects**
 
+- [TyraX2 architecture audit (2026-10-20)](tyrax2-architecture-audit-2026-10-20.md):
+  where the frame flow was PC-style rather than PS2-style and what to bake
+  instead; every item implemented or priced on the PS2 (see its Goal table).
+
 - [Historical performance lab cleanup](tyrax2-lab-cleanup-2026-10-12.md):
   Scoped removal of regenerable build intermediates and SHA-256-confirmed
   archived duplicates, with retained evidence paths and a deletion manifest.

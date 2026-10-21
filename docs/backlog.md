@@ -1,5 +1,9 @@
 # Backlog
 
+Architecture audit (2026-10-20): [TyraX2 architecture audit](tyrax2-architecture-audit-2026-10-20.md)
+tracks every item and its PS2 result in its Goal table; the rows still marked
+"owed" there are the open work.
+
 Terrain-normal V1 now FULL PS2 physical-v3 PASS after human physical reset,
 no network reset: six657-row trips/54 held rasters/3942 poses/all six rebuilt
 main/env/display endpoints exact. Same-ELF both-order net saves0.050959/
