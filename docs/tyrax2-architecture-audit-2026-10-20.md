@@ -264,7 +264,7 @@ trades ship opt-in until reviewed on a TV.
 | Y bloom strips / ZTEST off | strips rejected; bloom off in district | Strips 0.318 vs 0.317 ms GS. Bloom off: parked work 10.16→9.96 (night), 9.56→9.29 ms (day); ≤6 levels diff. Example bloom 0.12→0. |
 | Y Hybrid presentation structure | rejected | Second 32-bit target does not fit; triple (DG5) 59.7/59.2 vs double 59.6/58.8 Hz, all misses from the rig's print stall; work unchanged. Stays double. |
 | Y VRAM planned residency | not needed (measured) | 607 KB free with pause menu open, 4 uploads/0 evictions; zero uploads/evictions in every park/drive window. |
-| Y terrain passes into vertex colour | shipped opt-in, PS2 image review pending | Day sun-shadow pass costs 9.33→9.57 parked, 9.46→10.59 ms driving; night passes free. Fold (bakedShadowGroundFold, v97) softens building shadows (4-unit grid vs 0.5-unit mask) — DG13 PS2 image pair still to run. |
+| Y terrain passes into vertex colour | shipped (on in example), TV review of building-side shadows advised | DG13 (day, 18 cycles): fold vs pass parked 9.510→9.269 / 9.631→9.399, first drive 10.495→9.366, cruise 10.526→9.465, late 9.184→8.088 ms. Parked PS2 shot 1542 px differ (docs/img/ground-shadow-fold-ps2.png); shadows near buildings soften. |
 | Y stamp slot in the bag | rejected (measured) | BA4: no window improves; switch stays off. |
 | Y larger VU packages (in-place output) | not built (bound below bar); PS2 confirmation run EY2 owed | Only frustum-crossing bags pay per package (33 parked, 37–86 driving); doubling saves ≤0.1–0.2 ms driving, ~0.05 ms parked (≤19 µs/package, R5 runs arm −0.14/−0.27 ms). Clip programs cannot go in place; kRun + all strip emitters would re-bake. |
 

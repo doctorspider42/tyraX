@@ -12,6 +12,12 @@ so all eight district lamps fold into the static vertex colours at the mood
 change. Physical PS2, one ELF (rig CZ17, 10 cycles an arm): parked -0.12 ms,
 driving -0.32..-0.67 ms; under 0.5 % of pixels change, at most 30 levels
 ([baked lamp light](../../docs/dynamic-light-receivers.md)).
+*Fold into the terrain colour* is on for the ground shadow maps: by day the
+shadow pass cost 0.24 ms parked and ~1.1 ms driving on a physical PS2 (rig
+DG13, 6 cycles an arm); the parked shot changes in 1542 pixels (a thin
+planter shadow), the open-road drive shows no difference. Close to buildings
+the folded shadows are softer (4-unit terrain nodes against 0.5-unit mask
+texels) - review on a TV ([shadows](../../docs/shadows.md)).
 
 Version 1.173.5 separates terrain residency/LOD focus from visual camera shake,
 avoiding repeated terrain builds while the car sits on a detail snap boundary.

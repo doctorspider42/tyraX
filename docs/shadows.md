@@ -745,6 +745,13 @@ so other projects regenerate byte for byte.
 
 #### Folded into the vertex colour (1.177.0, opt-in)
 
+Measured on the physical PS2 by day (Motor District, one ELF cycling pass /
+fold / no pass, rig DG13): the fold saves 0.24 ms parked and 1.03-1.13 ms
+driving, the same as removing the pass. The parked shot differs in 1542
+pixels ([pass | fold | diff](img/ground-shadow-fold-ps2.png)); the Motor
+District ships it on. Shadows right beside buildings soften - check those
+views on a TV before relying on the fold elsewhere.
+
 *Ambience Editor > Baked lighting > Ground shadows > Fold into the terrain
 colour* (`bakedShadowGroundFold`, format v97, written only when on) keeps the
 maps as the source and drops the pass: while the terrain chunk is built, each

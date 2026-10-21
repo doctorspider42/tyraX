@@ -95,6 +95,7 @@
     "prelitAutoBake": true,
     "bakedShadows": true,
     "bakedShadowAutoBake": true,
+    "bakedShadowGroundFold": true,
     "bakedShadowGround": 128,
     "terrainMaterial": "res/materials/district-ground.mtl",
     "bloom": 0,
