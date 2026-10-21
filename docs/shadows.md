@@ -748,9 +748,16 @@ so other projects regenerate byte for byte.
 Measured on the physical PS2 by day (Motor District, one ELF cycling pass /
 fold / no pass, rig DG13): the fold saves 0.24 ms parked and 1.03-1.13 ms
 driving, the same as removing the pass. The parked shot differs in 1542
-pixels ([pass | fold | diff](img/ground-shadow-fold-ps2.png)); the Motor
-District ships it on. Shadows right beside buildings soften - check those
-views on a TV before relying on the fold elsewhere.
+pixels ([pass | fold | diff](img/ground-shadow-fold-ps2.png)). Shadows right
+beside buildings soften - check those views on a TV before relying on the fold.
+
+The Motor District shipped it on for a day and it was turned OFF again in
+1.177.6: on a TV the folded building shadows read as "extremely poor" (soft
+blobs on a 4-unit grid, thin ones gone). Re-measured on the PS2 with the
+example's own input recording replayed (`recordings/record.tyrarep`, one ELF
+per arm, fold / pass / fold / pass): mean frame work 6.51 / 6.90 / 6.50 /
+6.91 ms driving, 8.85 / 9.60 / 8.85 / 9.60 ms parked, missed vsyncs 16-18 in
+every arm - the pass costs 0.4-0.75 ms and the district still holds 60 fps.
 
 *Ambience Editor > Baked lighting > Ground shadows > Fold into the terrain
 colour* (`bakedShadowGroundFold`, format v97, written only when on) keeps the

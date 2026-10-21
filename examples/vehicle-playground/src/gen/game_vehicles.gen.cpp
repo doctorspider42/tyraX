@@ -7471,7 +7471,10 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
 // corners (at most 5x5) whose y is groundSurfaceAt + a common lift.
 void TerrainGame::liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx,
                                           int nz) const {
-  if (ROAD_COUNT == 0 || nx > 5 || nz > 5) return;
+  // No ROAD_COUNT test: that constant exists only in projects with roads, and
+  // without them groundSurfaceAt IS the terrain, so every step is equal and
+  // nothing moves.
+  if (nx > 5 || nz > 5) return;
   float terrain[25], step[25];
   for (int i = 0; i < nx * nz; ++i) {
     terrain[i] = terrainHeightAt(grid[i].x, grid[i].z);

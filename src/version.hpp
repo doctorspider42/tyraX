@@ -5734,7 +5734,11 @@
 // replayed at 60 Hz, PCSX2 video capture and a multi-frame GS dump.
 // 1.177.5: projects without roads build again - liftLatticeOverRoadStep
 // tested ROAD_COUNT, which only a project with roads generates.
-#define TYRAX_VERSION_PATCH 5
+// 1.177.6: the Motor District draws its ground shadow maps as a pass again
+// (bakedShadowGroundFold off in examples/vehicle-playground): the fold's
+// 4-unit grid turned building shadows into blobs. PS2, replayed drive: the
+// pass costs 0.4-0.75 ms and the district still holds 60 fps.
+#define TYRAX_VERSION_PATCH 6
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
