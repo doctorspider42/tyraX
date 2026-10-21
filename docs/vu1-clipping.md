@@ -659,6 +659,36 @@ from the generated bases by `tools/derive-fold-images.py` - re-run it after
 `--vu-emit`. The paint images (`*_paint_vu1.vclpp`, default off) were not
 regenerated and still carry the pre-stream body.
 
+## A tight band for big flat triangles (1.177.1)
+
+The guard band has a price the scissor does not show: a triangle that keeps a
+vertex ~1590 px off screen is rasterised from that vertex, and the console's GS
+interpolates S/T/Q across that distance with too little precision. On large
+flat textured geometry seen from close up - the road bands of 1.176.0, up to 8
+stations long - the texture then swims by up to ~6 px from frame to frame on a
+PS2 while the geometry stays put. PCSX2 interpolates in float and shows none of
+it. Measurements: [roads.md](roads.md#texture-swim-on-the-console-11771).
+
+`StaPipInfoBag::tightClipBand` cuts one bag to `VU1_CLIP_XY_BAND_TIGHT`
+(0.25 w, ~256 px past each edge at 512 px) and leaves the rest of the scene at
+0.9. Every place that knows the band follows the bag:
+
+- `StaPipCore::render` classifies against `computeClipObjectSpacePlanes(mvp,
+  band)` - the whole-bag guard-band test and the per-package masks alike;
+- the stamp replay tests against `stampClipPlanesTight`, computed beside
+  `stampClipPlanes` whenever the view-projection moves, so a road bag inside
+  the wide band but not the tight one is not stamped whole;
+- `setClipBandTight` right before `sendObjectData` picks the plane table
+  `addClipChain` uploads, and the retained clip block is captured TWICE
+  (`clipBlock[2]`, `clipBlockVif[2]`), one per band, under the same drain rule.
+
+Why per bag: every bag at 0.25 fixed the swim as well but cost 0.9 ms of EE
+and three times the late frames, because far more packages cross a plane and
+take the clip route. 0.5 for everything was cheap and not enough (4.8 px). The
+generated game sets it on road chunks, spills and soft edges only. A new kind
+of large flat textured surface that shows the same swim on a console is a
+candidate for the flag - measure its cost on the console first.
+
 ## See also
 
 - [profiling.md](profiling.md) — the frame-timing rig, the measurement protocol

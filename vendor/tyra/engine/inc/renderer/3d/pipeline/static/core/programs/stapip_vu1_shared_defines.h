@@ -78,6 +78,15 @@
 // 512x448 picture before anything is cut, and the GS scissor crops the raster
 // instead. Do not read 0.9 as "just inside the screen". C++ side only.
 #define VU1_CLIP_XY_BAND 0.9F
+// Modified by TyraX: the band a bag with StaPipInfoBag::tightClipBand is cut
+// to - twice the screen's half extent at 512 px, ~256 px past each edge. A
+// big flat triangle near the camera (a road band) keeps its far vertices
+// ~1590 px off screen under the wide band, and the console's GS interpolates
+// its texture coordinates from them with too little precision: the texture
+// swims by up to ~6 px from frame to frame (PS2 only - PCSX2 interpolates in
+// float). Per bag because the whole scene at 0.25 costs ~0.9 ms of EE.
+// docs/vu1-clipping.md, "A tight band for big flat triangles". C++ side only.
+#define VU1_CLIP_XY_BAND_TIGHT 0.25F
 
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2

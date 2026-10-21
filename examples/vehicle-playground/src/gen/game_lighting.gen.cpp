@@ -460,6 +460,7 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
       grid[iz][ix] = Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
     }
   }
+  liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
   int v = 0;
   for (int iz = 0; iz < kCells; ++iz) {
     for (int ix = 0; ix < kCells; ++ix) {
@@ -2631,6 +2632,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
+    liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {

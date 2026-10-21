@@ -1779,6 +1779,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -1979,6 +1980,7 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -3720,6 +3722,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -3920,6 +3923,7 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -12716,6 +12720,10 @@ static std::string vehicleMembers(const Project& p) {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
+  // The bumper cam's look pitch (the forward vector's Y), eased toward the
+  // body's: the eye is bolted to the sprung body, the aim follows it a beat
+  // late so a washboard road does not shake the horizon.
+  float vehBumpLookY_ = 0.0F;
   // What one car's four wheels were last BAKED from. The batch is rebuilt
   // slot by slot instead of cleared and refilled, so a rig whose inputs did
   // not move keeps the vertices it already has - and if no slot moves, the
@@ -13522,6 +13530,9 @@ void TerrainGame::renderVehicleGlow() {
           gridCol[iz][ix] = beamColor(t);
         }
       }
+      // The plane pool follows the car's own plane; the searched one has to
+      // clear the road's edge step (liftLatticeOverRoadStep).
+      if (!planeOk) liftLatticeOverRoadStep(&gridP[0][0], kCells + 1, kCells + 1);
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
         for (int ix = 0; ix < kCells; ++ix) {
@@ -17428,15 +17439,43 @@ void TerrainGame::updateVehicles(float dt) {
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {
-        // Bumper: at the nose, low, looking where the CAR points. Pushed out
-        // past the front axle so the body it belongs to does not fill the view.
-        const float nose = (0.5F * s.wheelBase + s.wheelRadius * 1.5F) * SC;
-        players[0].x = v.pos[0] + bodyS * nose;
-        players[0].z = v.pos[2] + bodyC * nose;
-        players[0].y = v.pos[1] + s.camHeight * SC * 0.30F;
+        // Bumper: at the nose, low, looking where the CAR points. The eye is
+        // a point ON THE BODY - the drawn attitude (terrain pitch/roll plus
+        // the lean), the same vehBodyRotation the body's matrix takes - not
+        // a point on the flat yaw plane at chassis height. The flat one
+        // stayed level while the body pitched under it, so a bump swung the
+        // bonnet up through the lens and a dip sank the eye into the road
+        // ahead ("przenika fragment pojazdu, wnika w ziemie na wertepach").
+        // It sits just past the BAKED bumper (bodyOverhang), not a guess
+        // from the wheel radius that a long-nosed body reached past.
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        float reach = s.wheelRadius * 1.5F;
+        if (s.bodyOverhang + 0.15F > reach) reach = s.bodyOverhang + 0.15F;
+        const V3 eye = rotatedBy(
+            {0.0F, s.camHeight * 0.30F * SC, (0.5F * s.wheelBase + reach) * SC},
+            br);
+        const V3 fwd = rotatedBy({0.0F, 0.0F, 1.0F}, br);
+        players[0].x = v.pos[0] + eye.x;
+        players[0].z = v.pos[2] + eye.z;
+        players[0].y = v.pos[1] + eye.y;
+        // The ground backstop: a nose dropping off a kerb, or a crest the
+        // sprung body has not caught up with yet, can still put a point that
+        // far forward under the surface the wheels never touched.
+        const float floorY = groundSurfaceAt(players[0].x, players[0].z) +
+                             0.25F * SC;
+        if (players[0].y < floorY) players[0].y = floorY;
+        // Aim: the body's heading, its pitch eased (never its roll - the
+        // horizon stays level, cameraUp is shared with the chase rigs).
+        float lk = dt * 8.0F;
+        if (lk > 1.0F) lk = 1.0F;
+        vehBumpLookY_ += (fwd.y - vehBumpLookY_) * lk;
         players[0].yaw = v.yaw;
         cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-        cameraLookAt.set(players[0].x + bodyS * 20.0F, players[0].y,
+        cameraLookAt.set(players[0].x + bodyS * 20.0F,
+                         players[0].y + vehBumpLookY_ * 20.0F,
                          players[0].z + bodyC * 20.0F, 1.0F);
       } else {
         // Chase (0) and far (2) differ only in how much rig there is.

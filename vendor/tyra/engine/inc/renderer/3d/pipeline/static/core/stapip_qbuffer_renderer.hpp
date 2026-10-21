@@ -672,6 +672,13 @@ class StaPipQBufferRenderer {
    */
   void setVU1Clipping(const bool& enabled);
 
+  /** Modified by TyraX: the X/Y band the NEXT sendObjectData uploads with
+   * its clip planes - VU1_CLIP_XY_BAND_TIGHT when true, the wide guard band
+   * when false. StaPipCore sets it per bag from StaPipInfoBag::tightClipBand,
+   * right before sendObjectData, so the planes VU1 cuts against are the ones
+   * the bag was classified against. */
+  void setClipBandTight(bool tight) { clipTight = tight; }
+
   /** TyraX addition: which MATERIAL CLASSES keep a resident VU1 program
    * (docs/vu-framework.md). VU1 micro memory holds ~2042 instruction slots and
    * the full set of ten sits right under that ceiling, so a project that never
@@ -1084,6 +1091,7 @@ class StaPipQBufferRenderer {
   // Modified by TyraX: VU1 clipping mode + the clip-space constants the
   // clip programs consume (see VU1_CLIP_CONSTS_ADDR / VU1_CLIP_PLANES_ADDR).
   bool vu1Clipping = false;
+  bool clipTight = false;  // Modified by TyraX: see setClipBandTight
   float clipNearZ = 0.0F, clipFarZ = 0.0F;
   // Modified by TyraX: per-bag dynamic light (see setBagLight).
   const RendererCoreSpotLight* bagLight = nullptr;
@@ -1113,14 +1121,17 @@ class StaPipQBufferRenderer {
    * float stores per bag became a memcpy, and the block is thrown away
    * whenever those inputs could have moved (init, setVU1Clipping).
    */
-  qword_t clipBlock[16] __attribute__((aligned(16)));
-  u16 clipBlockQw = 0;
+  // Modified by TyraX: TWO captures, indexed by clipTight - the wide guard
+  // band and the tight one (StaPipInfoBag::tightClipBand) differ in the four
+  // X/Y planes and in nothing else.
+  qword_t clipBlock[2][16] __attribute__((aligned(16)));
+  u16 clipBlockQw[2] = {0, 0};
   // Modified by TyraX: the same block as a plain VIF stream (its CNT tags'
   // DMA halves turned into VIF NOPs), so every bag REFs this one copy instead
   // of copying fifteen quadwords into its packet. Rebuilt with clipBlock;
   // rewritten only after a VIF1 drain, because in-flight chains REF it.
-  qword_t clipBlockVif[16] __attribute__((aligned(64)));
-  u16 clipBlockVifQw = 0;
+  qword_t clipBlockVif[2][16] __attribute__((aligned(64)));
+  u16 clipBlockVifQw[2] = {0, 0};
 #endif
 
   /** See takeChainQwords(). Accumulated in sendPacket, reset on read. */

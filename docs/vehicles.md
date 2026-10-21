@@ -134,7 +134,11 @@ the other side, behind or in front - the first spot clear of every collision
 box (a walker that starts inside a box cannot move until it jumps out). The
 log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
 clear, so the door spot stands). Chase and far cameras shorten their boom
-against terrain and obstacles.
+against terrain and obstacles. The bumper camera is bolted to the body: it
+takes the drawn pitch, roll and lean, sits just past the front bumper (the
+baked `bodyOverhang`), is kept above the ground surface under it, and follows
+the body's pitch a beat late so a rough road does not shake the horizon. It
+never rolls.
 
 Use enters the car you are **looking at**, not just the nearest one: it must
 be in reach (1.2x wheelbase + 2 units from the player) and under the camera's
@@ -200,6 +204,13 @@ takes the heights from the plane the car's four wheel contacts measured this
 step (`v.wheelY`), a multiply-add each, falling back to the searched surface
 when a wheel is off every surface. The trade: a pool reaching past a crest or
 off the road edge follows the car's plane instead of the ground there.
+
+The searched pool crosses the road's edge step (0.12 over the terrain) with
+cells as wide as half a metre, and a cell with corners on both sides used to
+dip under the asphalt just past the edge - a dark hole in the beam while
+driving along the verge. `liftLatticeOverRoadStep` (1.177.2) raises such
+corners to the road step; blob shadows and lamp pools share it. Details and
+the measurement: [roads.md](roads.md#beams-and-shadows-at-the-road-edge-11772).
 
 ## Sounds
 

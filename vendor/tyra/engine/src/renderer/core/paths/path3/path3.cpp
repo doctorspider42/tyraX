@@ -110,7 +110,8 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
 }
 
 void Path3::sendTexture(const Texture* texture,
-                        const RendererCoreTextureBuffers& texBuffers) {
+                        const RendererCoreTextureBuffers& texBuffers,
+                        const texwrap_t& wrapInForce) {
   packet2_reset(texturePacket, false);
 
   packet2_update(
@@ -129,11 +130,21 @@ void Path3::sendTexture(const Texture* texture,
                               texBuffers.clut->width));
   }
 
+  // Modified by TyraX: upstream wrote the TEXTURE's wrap here, i.e. it set
+  // GS_REG_CLAMP_1 as a side effect of every upload. The wrap is draw state
+  // now: each StaPip bag writes the one it wants in its own chain, against
+  // RendererCoreGS::currentTextureWrap, and that cache never saw this write.
+  // A texture uploaded mid-frame with a non-REPEAT wrap (tyre marks are
+  // REPEAT x CLAMP) therefore left CLAMP in force while the cache said
+  // REPEAT, and every later 3D bag of the frame sampled clamped - the roads
+  // smeared into streaks along their V for one frame (found in a GS dump:
+  // CLAMP_1 = 4 before the terrain and every road draw). The write stays, so
+  // the packet keeps its shape, but it restates the wrap already in force:
+  // beforeMutation() has drained the pipeline, so the cache IS the GS state.
   packet2_chain_open_cnt(texturePacket, 0, 0, 0);
   packet2_update(texturePacket,
-                 draw_texture_wrapping(
-                     texturePacket->next, 0,
-                     const_cast<texwrap_t*>(texture->getWrapSettings())));
+                 draw_texture_wrapping(texturePacket->next, 0,
+                                       const_cast<texwrap_t*>(&wrapInForce)));
   packet2_chain_close_tag(texturePacket);
 
   packet2_update(texturePacket, draw_texture_flush(texturePacket->next));

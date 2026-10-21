@@ -663,6 +663,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -863,6 +864,7 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -1306,6 +1308,10 @@ class TerrainGame : public Tyra::Game {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
+  // The bumper cam's look pitch (the forward vector's Y), eased toward the
+  // body's: the eye is bolted to the sprung body, the aim follows it a beat
+  // late so a washboard road does not shake the horizon.
+  float vehBumpLookY_ = 0.0F;
   // What one car's four wheels were last BAKED from. The batch is rebuilt
   // slot by slot instead of cleared and refilled, so a rig whose inputs did
   // not move keeps the vertices it already has - and if no slot moves, the

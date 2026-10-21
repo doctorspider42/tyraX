@@ -5711,7 +5711,28 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+// 1.177.1: roads no longer swim on a console. Road chunks (and their spills
+// and soft edges) are cut to a tight X/Y clip band, StaPipInfoBag::
+// tightClipBand at 0.25 w instead of the 0.9 w guard band, so a road band's
+// long triangles keep no vertex ~1590 px off screen for the GS to interpolate
+// texture coordinates from. PS2: centre-line swing up to 5.5 px -> 1 px.
+// 1.177.2: no more holes in a headlight beam, a blob shadow or a lamp's light
+// pool at a road edge. Their 3x3/4x4 ground lattices spanned the road's
+// 0.12 step linearly and dipped under the asphalt just past the edge, where
+// the road's own triangle won the z test (GS dump). liftLatticeOverRoadStep
+// raises each corner by the largest road step a neighbouring corner sees.
+// 1.177.3: the bumper camera rides the BODY. Its eye was a point on the flat
+// yaw plane at chassis height, so the pitching body swung the bonnet through
+// the lens and a dip sank it into the road. It now takes the drawn attitude
+// (vehBodyRotation, lean included), sits past the baked bodyOverhang, never
+// drops under the ground surface and eases the body's pitch into its aim.
+// 1.177.4: roads (and everything 3D) no longer smear into streaks for one
+// frame when a texture uploads mid-frame. Path3::sendTexture wrote the
+// TEXTURE's wrap into CLAMP_1 behind RendererCoreGS::currentTextureWrap, so a
+// REPEAT x CLAMP upload (tyre marks) left V clamped for the rest of the frame.
+// The upload now restates the wrap in force. Found with an input recording
+// replayed at 60 Hz, PCSX2 video capture and a multi-frame GS dump.
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

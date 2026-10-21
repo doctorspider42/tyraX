@@ -742,3 +742,22 @@ is the closest proxy available for what the transfers cost a real console.
   `menulayout.cpp` (`gsWords`) for the Menu Editor's "does it fit" check. It
   and `getSize()` must agree, or the editor reports menus as too big when they
   fit.
+- **An upload must not change draw state.** `Path3::sendTexture` used to write
+  the uploaded texture's own wrap into `CLAMP_1` (upstream Tyra did that so a
+  freshly loaded texture drew with its wrap). The wrap is per-bag draw state
+  now, written in each bag's chain against `RendererCoreGS::currentTextureWrap`,
+  and that cache never saw the upload's write. So an upload in the middle of a
+  frame - a texture's first use, or a re-upload after an eviction, which a heap
+  at 3.3 of 4 MB does often - of a REPEAT x CLAMP texture (the tyre marks)
+  left V clamped for every later 3D bag of the frame: the roads smeared into
+  streaks along their length for one frame, on a console and in PCSX2 alike.
+  Found with an input recording (`recordings/record.tyrarep`) replayed at
+  60 Hz in PCSX2 with its video capture on, a frame-outlier detector, and a
+  multi-frame GS dump whose road draws all read `CLAMP_1 = 4` right after the
+  new texture's first draw. Since 1.177.4 the upload restates the wrap already
+  in force (`beforeMutation()` drained the pipeline, so the cache is the GS
+  state). Anything new that writes `CLAMP_1` must either go through the bag
+  wrap path or update the cache with `noteTextureWrap`.
+- Related, still open: `StaPipCore::render` picks a bag's wrap only when the
+  texture's HORIZONTAL axis is not REPEAT, so a REPEAT x CLAMP texture draws
+  with REPEAT on both axes.

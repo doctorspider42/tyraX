@@ -1271,6 +1271,9 @@ void TerrainGame::renderVehicleGlow() {
           gridCol[iz][ix] = beamColor(t);
         }
       }
+      // The plane pool follows the car's own plane; the searched one has to
+      // clear the road's edge step (liftLatticeOverRoadStep).
+      if (!planeOk) liftLatticeOverRoadStep(&gridP[0][0], kCells + 1, kCells + 1);
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
         for (int ix = 0; ix < kCells; ++ix) {
@@ -5177,15 +5180,43 @@ void TerrainGame::updateVehicles(float dt) {
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {
-        // Bumper: at the nose, low, looking where the CAR points. Pushed out
-        // past the front axle so the body it belongs to does not fill the view.
-        const float nose = (0.5F * s.wheelBase + s.wheelRadius * 1.5F) * SC;
-        players[0].x = v.pos[0] + bodyS * nose;
-        players[0].z = v.pos[2] + bodyC * nose;
-        players[0].y = v.pos[1] + s.camHeight * SC * 0.30F;
+        // Bumper: at the nose, low, looking where the CAR points. The eye is
+        // a point ON THE BODY - the drawn attitude (terrain pitch/roll plus
+        // the lean), the same vehBodyRotation the body's matrix takes - not
+        // a point on the flat yaw plane at chassis height. The flat one
+        // stayed level while the body pitched under it, so a bump swung the
+        // bonnet up through the lens and a dip sank the eye into the road
+        // ahead ("przenika fragment pojazdu, wnika w ziemie na wertepach").
+        // It sits just past the BAKED bumper (bodyOverhang), not a guess
+        // from the wheel radius that a long-nosed body reached past.
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        float reach = s.wheelRadius * 1.5F;
+        if (s.bodyOverhang + 0.15F > reach) reach = s.bodyOverhang + 0.15F;
+        const V3 eye = rotatedBy(
+            {0.0F, s.camHeight * 0.30F * SC, (0.5F * s.wheelBase + reach) * SC},
+            br);
+        const V3 fwd = rotatedBy({0.0F, 0.0F, 1.0F}, br);
+        players[0].x = v.pos[0] + eye.x;
+        players[0].z = v.pos[2] + eye.z;
+        players[0].y = v.pos[1] + eye.y;
+        // The ground backstop: a nose dropping off a kerb, or a crest the
+        // sprung body has not caught up with yet, can still put a point that
+        // far forward under the surface the wheels never touched.
+        const float floorY = groundSurfaceAt(players[0].x, players[0].z) +
+                             0.25F * SC;
+        if (players[0].y < floorY) players[0].y = floorY;
+        // Aim: the body's heading, its pitch eased (never its roll - the
+        // horizon stays level, cameraUp is shared with the chase rigs).
+        float lk = dt * 8.0F;
+        if (lk > 1.0F) lk = 1.0F;
+        vehBumpLookY_ += (fwd.y - vehBumpLookY_) * lk;
         players[0].yaw = v.yaw;
         cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-        cameraLookAt.set(players[0].x + bodyS * 20.0F, players[0].y,
+        cameraLookAt.set(players[0].x + bodyS * 20.0F,
+                         players[0].y + vehBumpLookY_ * 20.0F,
                          players[0].z + bodyC * 20.0F, 1.0F);
       } else {
         // Chase (0) and far (2) differ only in how much rig there is.
@@ -7423,6 +7454,40 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
   return road > terrain ? road : terrain;
+}
+
+
+
+// A ground-conforming lattice (headlight beam, light pool, blob shadow) takes
+// its corner heights from groundSurfaceAt. A road is a decal 0.12 over the
+// terrain with a STEP at its edge, and a cell with corners on both sides spans
+// that step linearly: just inside the asphalt its triangles run under the road,
+// deeper than the patch's own lift, so the z test eats them - a hole in the
+// beam or the shadow along the road edge (reported driving on the edge, found
+// in a GS dump: the beam lost GEQUAL to the road's own triangle there).
+// Each corner is raised by the largest road step any corner within one cell of
+// it stands on, measured over the terrain HERE, so a slope lifts nothing and
+// the patch floats at most one step over the verge. `grid` is nz rows of nx
+// corners (at most 5x5) whose y is groundSurfaceAt + a common lift.
+void TerrainGame::liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx,
+                                          int nz) const {
+  if (ROAD_COUNT == 0 || nx > 5 || nz > 5) return;
+  float terrain[25], step[25];
+  for (int i = 0; i < nx * nz; ++i) {
+    terrain[i] = terrainHeightAt(grid[i].x, grid[i].z);
+    step[i] = grid[i].y - terrain[i];
+  }
+  for (int iz = 0; iz < nz; ++iz)
+    for (int ix = 0; ix < nx; ++ix) {
+      float m = step[iz * nx + ix];
+      for (int dz = -1; dz <= 1; ++dz)
+        for (int dx = -1; dx <= 1; ++dx) {
+          const int jz = iz + dz, jx = ix + dx;
+          if (jz < 0 || jx < 0 || jz >= nz || jx >= nx) continue;
+          if (step[jz * nx + jx] > m) m = step[jz * nx + jx];
+        }
+      grid[iz * nx + ix].y = terrain[iz * nx + ix] + m;
+    }
 }
 
 

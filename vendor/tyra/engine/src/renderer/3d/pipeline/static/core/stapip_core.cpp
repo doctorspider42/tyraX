@@ -344,17 +344,18 @@ StaPipTelemetry StaPipCore::takeTelemetry() {
   return result;
 }
 
-void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
-  computeClipPlanesInto(mvp, clipObjectSpacePlanes);
+void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp, float band) {
+  computeClipPlanesInto(mvp, clipObjectSpacePlanes, band);
 }
 
 // Modified by TyraX: the same eight planes into any destination (stamps keep
 // a world-space copy per view - docs/stapip-stamps.md).
-void StaPipCore::computeClipPlanesInto(const M4x4& mvp, Plane* dst) {
+void StaPipCore::computeClipPlanesInto(const M4x4& mvp, Plane* dst,
+                                       float band) {
   const float nearZ = rendererCore->getSettings().getNear() -
                       (-PlanesClipAlgorithm::clipMargin);
   const float farZ = -rendererCore->getSettings().getFar();
-  const float b = VU1_CLIP_XY_BAND;
+  const float b = band;
   const float planes[8][5] = {
       {0.0F, 0.0F, -1.0F, 0.0F, nearZ},  // near
       {0.0F, 0.0F, 1.0F, 0.0F, -farZ},   // far
@@ -608,7 +609,8 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
     if (!stampClipValid ||
         memcmp(stampClipViewProj.data, vp.data, sizeof(vp.data)) != 0) {
-      computeClipPlanesInto(vp, stampClipPlanes);
+      computeClipPlanesInto(vp, stampClipPlanes, VU1_CLIP_XY_BAND);
+      computeClipPlanesInto(vp, stampClipPlanesTight, VU1_CLIP_XY_BAND_TIGHT);
       stampClipViewProj = vp;
       stampClipValid = true;
     }
@@ -620,7 +622,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 #endif
     if (qbufferRenderer.tryStamp(
             bag, vp, rendererCore->renderer3D.frustumPlanes.getAll(),
-            guardBand ? stampClipPlanes : nullptr,
+            guardBand ? (bag->info->tightClipBand ? stampClipPlanesTight
+                                                  : stampClipPlanes)
+                      : nullptr,
             bag->info->dynamicLightReceive &&
                 reception != StaPipLightReception::Suppress,
             &kNoSpotLight))
@@ -827,6 +831,11 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     transformCachePlanesValid = true;
   }
 
+  // Modified by TyraX: the X/Y band this bag is classified against and, for
+  // its crossing packages, cut to (StaPipInfoBag::tightClipBand).
+  const float clipBand = bag->info->tightClipBand ? VU1_CLIP_XY_BAND_TIGHT
+                                                  : VU1_CLIP_XY_BAND;
+
 #if TYRA_STAPIP_GUARD_BAND_BAGS
   // Modified by TyraX: a bag that only straddles the SCREEN edge. Its box
   // crosses the view frustum, but if it is inside all eight VU1 planes (the
@@ -841,7 +850,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // which the guard band guarantees stay inside the raster window.
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled() &&
       bag->info->fullClipChecks && bag->billboard == nullptr) {
-    computeClipObjectSpacePlanes(mvp);
+    computeClipObjectSpacePlanes(mvp, clipBand);
     const CoreBBox* mainBox = bbox->getMainBBox();
     if (CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, (*mainBox)[0],
                                       (*mainBox)[7], 8) == 0) {
@@ -853,7 +862,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   }
 #endif
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled()) {
-    computeClipObjectSpacePlanes(mvp);
+    computeClipObjectSpacePlanes(mvp, clipBand);
     packager.setClipObjectSpacePlanes(clipObjectSpacePlanes);
   } else {
     packager.setClipObjectSpacePlanes(nullptr);
@@ -1184,6 +1193,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     qbufferRenderer.disarmStampCapture();
   }
 #endif
+  qbufferRenderer.setClipBandTight(bag->info->tightClipBand);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);

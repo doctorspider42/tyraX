@@ -972,8 +972,8 @@ void StaPipQBufferRenderer::deallocateOnUse() {
   // reallocation that came back at a DIFFERENT address.
   retainedCurrent = nullptr;
   retained.clear();
-  clipBlockQw = 0;
-  clipBlockVifQw = 0;
+  clipBlockQw[0] = clipBlockQw[1] = 0;
+  clipBlockVifQw[0] = clipBlockVifQw[1] = 0;
 #endif
 #if TYRA_STAPIP_BAKED_STREAM
   // Same reasoning, and one more: a baked block is named by DMA REF tags, so
@@ -1017,8 +1017,9 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
       t_core->getSettings().getNear() - (-PlanesClipAlgorithm::clipMargin);
   clipFarZ = -t_core->getSettings().getFar();
 #if TYRA_STAPIP_RETAINED_COMMANDS
-  clipBlockQw = 0;
-  clipBlockVifQw = 0;  // Modified by TyraX: its inputs were just written.
+  clipBlockQw[0] = clipBlockQw[1] = 0;
+  // Modified by TyraX: their inputs were just written.
+  clipBlockVifQw[0] = clipBlockVifQw[1] = 0;
 #endif
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
@@ -1160,6 +1161,8 @@ StaPipClipperSpot buildSpotForBagInverse(const RendererCoreSpotLight& spot,
 // retained-command path can capture exactly these bytes and replay them (see
 // the call site); nothing in it depends on the mesh.
 void StaPipQBufferRenderer::addClipChain(packet2_t* objectDataPacket) const {
+  // Modified by TyraX: the X/Y band follows the bag (setClipBandTight).
+  const float band = clipTight ? VU1_CLIP_XY_BAND_TIGHT : VU1_CLIP_XY_BAND;
   packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_CONSTS_ADDR, false);
   {
     packet2_add_float(objectDataPacket, clipNearZ - VU1_CLIP_GUARD);
@@ -1174,12 +1177,12 @@ void StaPipQBufferRenderer::addClipChain(packet2_t* objectDataPacket) const {
       {0.0F, 0.0F, -1.0F, 0.0F, clipNearZ, 0.0F, 0.0F, 0.0F},
       // far: z >= clipFarZ (exact, matches the EE clipper)
       {0.0F, 0.0F, 1.0F, 0.0F, -clipFarZ, 0.0F, 0.0F, 0.0F},
-      // guard band X/Y at +/-VU1_CLIP_XY_BAND * w - strictly inside the
-      // GS raster window; the scissor trims the rest of the way
-      {-1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-      {1.0F, 0.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-      {0.0F, -1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
-      {0.0F, 1.0F, 0.0F, VU1_CLIP_XY_BAND, 0.0F, 0.0F, 0.0F, 0.0F},
+      // guard band X/Y at +/-band * w - strictly inside the GS raster
+      // window; the scissor trims the rest of the way
+      {-1.0F, 0.0F, 0.0F, band, 0.0F, 0.0F, 0.0F, 0.0F},
+      {1.0F, 0.0F, 0.0F, band, 0.0F, 0.0F, 0.0F, 0.0F},
+      {0.0F, -1.0F, 0.0F, band, 0.0F, 0.0F, 0.0F, 0.0F},
+      {0.0F, 1.0F, 0.0F, band, 0.0F, 0.0F, 0.0F, 0.0F},
   };
   packet2_utils_vu_open_unpack(objectDataPacket, VU1_CLIP_PLANES_ADDR, false);
   {
@@ -1441,27 +1444,28 @@ void StaPipQBufferRenderer::sendObjectData(
     // replayed with a memcpy afterwards. 52 float stores per bag became one
     // copy. init() and setVU1Clipping() are the only places those inputs can
     // move and both drop the capture.
-    if (clipBlockVifQw != 0) {
+    const int cb = clipTight ? 1 : 0;  // which band's capture
+    if (clipBlockVifQw[cb] != 0) {
       // Modified by TyraX: one REF to the shared VIF-stream copy instead of
       // fifteen quadwords per bag (193 us of a 75-bag frame on a PS2).
-      emitRef(objectDataPacket, clipBlockVif, clipBlockVifQw);
-    } else if (clipBlockQw != 0) {
-      appendChainQwords(objectDataPacket, clipBlock, clipBlockQw);
+      emitRef(objectDataPacket, clipBlockVif[cb], clipBlockVifQw[cb]);
+    } else if (clipBlockQw[cb] != 0) {
+      appendChainQwords(objectDataPacket, clipBlock[cb], clipBlockQw[cb]);
     } else {
       const u32 clipStart = packet2_get_qw_count(objectDataPacket);
       addClipChain(objectDataPacket);
       const u32 qw = packet2_get_qw_count(objectDataPacket) - clipStart;
-      if (qw > 0 && qw <= (sizeof(clipBlock) / sizeof(clipBlock[0]))) {
-        memcpy(clipBlock,
+      if (qw > 0 && qw <= (sizeof(clipBlock[cb]) / sizeof(clipBlock[cb][0]))) {
+        memcpy(clipBlock[cb],
                reinterpret_cast<const u8*>(objectDataPacket->base) +
                    clipStart * 16,
                qw * 16);
-        clipBlockQw = static_cast<u16>(qw);
+        clipBlockQw[cb] = static_cast<u16>(qw);
         // The REF copy: rewritten only here, after every chain that could
         // still read the old one has run.
         frameWaitVif();
-        clipBlockVifQw = static_cast<u16>(
-            chainToVifStream(clipBlock, clipBlockQw, clipBlockVif));
+        clipBlockVifQw[cb] = static_cast<u16>(chainToVifStream(
+            clipBlock[cb], clipBlockQw[cb], clipBlockVif[cb]));
       }
     }
 #else
@@ -1980,8 +1984,8 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
 #if TYRA_STAPIP_RETAINED_COMMANDS
   // Modified by TyraX: the clip chain is either present or absent per mode,
   // and every bag's cull program changes with it.
-  clipBlockQw = 0;
-  clipBlockVifQw = 0;
+  clipBlockQw[0] = clipBlockQw[1] = 0;
+  clipBlockVifQw[0] = clipBlockVifQw[1] = 0;
   retained.clear();
 #endif
 #if TYRA_STAPIP_BAKED_STREAM

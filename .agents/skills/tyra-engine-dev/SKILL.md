@@ -2549,6 +2549,29 @@ loaders, physics, audio, debug...) ran 240 s clean, so a size build keeps
   `GS_SET_CLAMP` from the shadow pass changed nothing measurable - now known to
   be because the pass never drained PATH1 first; clamping the STs fixed it
   exactly, and remains the cheaper answer.)
+- **A console-only texture SWIM on big flat triangles is the guard band, not
+  the geometry** (1.177.1, docs/vu1-clipping.md "A tight band for big flat
+  triangles"). The X/Y clip band at 0.9 w lets a triangle keep a vertex ~1590 px
+  off screen, and the PS2's GS interpolates S/T/Q from it with too little
+  precision: the road bands' centre line stepped up to 6 px a frame on a
+  console, 0.00 px in PCSX2. `StaPipInfoBag::tightClipBand` cuts one bag to
+  0.25 w; classification, the stamp test and the uploaded plane table all
+  follow the bag (two retained clip blocks). Do not tighten the band for the
+  whole scene - that measured +0.9 ms of EE. Find this class with a fixed-step
+  camera walk and VRAM grabs on the console, measuring a feature that must not
+  move (the centre dash under a straight walk), at the REPORTED spot.
+- **A texture UPLOAD wrote CLAMP_1 behind the wrap cache** (fixed 1.177.4,
+  docs/gs-vram.md "Rules for engine work"). Upstream `Path3::sendTexture`
+  wrote the texture's own wrap; with per-bag wrap writes checked against
+  `RendererCoreGS::currentTextureWrap`, a mid-frame upload of a REPEAT x CLAMP
+  texture left V clamped for every later 3D bag - roads smeared into streaks
+  for ONE frame, PS2 and PCSX2 alike. Anything that writes CLAMP_1 must go
+  through the bag wrap path or `noteTextureWrap`. The recipe that found it, for
+  any rare one-frame glitch: an input recording replayed at 60 Hz (in-game
+  grabs slow the game and hid it), PCSX2's own video capture toggled by a
+  hotkey posted to the private instance, a frame-outlier detector, then a
+  GSDumpMultiFrame dump diffed per vsync (TEX0/CLAMP/TEX1 of the glitched
+  draws).
 - **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
   the GS 4096-px raster window → "objects render twice / giant smeared
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real

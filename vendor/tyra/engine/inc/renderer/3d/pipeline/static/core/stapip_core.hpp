@@ -288,12 +288,18 @@ class StaPipCore {
   // path: that program's clipw judgement tests z against +/-w, not against
   // the guard band's near/far constants.
   Plane clipObjectSpacePlanes[8];
-  void computeClipObjectSpacePlanes(const M4x4& mvp);
-  void computeClipPlanesInto(const M4x4& mvp, Plane* dst);
+  // Modified by TyraX: `band` is the X/Y plane distance in units of w -
+  // VU1_CLIP_XY_BAND, or VU1_CLIP_XY_BAND_TIGHT for a bag that asks for it
+  // (StaPipInfoBag::tightClipBand). The same number goes to VU1 through
+  // StaPipQBufferRenderer::setClipBandTight, so classify and cut agree.
+  void computeClipObjectSpacePlanes(const M4x4& mvp, float band);
+  void computeClipPlanesInto(const M4x4& mvp, Plane* dst, float band);
 #if TYRA_STAPIP_STAMP
-  // Modified by TyraX: world-space clip planes for stamps, keyed by the VP.
+  // Modified by TyraX: world-space clip planes for stamps, keyed by the VP,
+  // for the wide band and the tight one.
   M4x4 stampClipViewProj;
   Plane stampClipPlanes[8];
+  Plane stampClipPlanesTight[8];
   bool stampClipValid = false;
 #endif
   // Modified by TyraX: a package that leaves the VIEW frustum but stays inside

@@ -14387,6 +14387,7 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
       grid[iz][ix] = Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
     }
   }
+  liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
   int v = 0;
   for (int iz = 0; iz < kCells; ++iz) {
     for (int ix = 0; ix < kCells; ++ix) {
@@ -16554,6 +16555,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
+    liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {
@@ -21531,6 +21533,22 @@ void TerrainGame::procFinishChunks() {
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
+    if (c.owner == -3 && !c.roadBlend && !c.roadEdge) {
+      // A road chunk: the batch settings plus the TIGHT clip band. Road
+      // bands are long flat triangles, and seen from the road the console's
+      // GS swims their texture by several pixels a frame under the wide
+      // guard band (docs/roads.md, "Texture swim on the console").
+      if (!roadInfoBag) {
+        roadInfoBag = std::make_unique<StaPipInfoBag>();
+        roadInfoBag->model = &model;
+        roadInfoBag->shadingType = TyraShadingGouraud;
+        roadInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadInfoBag->fullClipChecks = true;
+        roadInfoBag->tightClipBand = true;
+      }
+      roadInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
+      c.bag->info = roadInfoBag.get();
+    }
     if (c.roadBlend || c.roadEdge) {
       // A spill is alpha-over by its vertex alpha (the fade) on the road
       // under it, a soft edge on the terrain: the painted terrain layer's
@@ -21542,6 +21560,7 @@ void TerrainGame::procFinishChunks() {
         roadBlendInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         roadBlendInfoBag->fullClipChecks = true;
         roadBlendInfoBag->blendingEnabled = true;
+        roadBlendInfoBag->tightClipBand = true;  // as roadInfoBag
       }
       roadBlendInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
       c.bag->info = roadBlendInfoBag.get();
@@ -22316,6 +22335,40 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
   return road > terrain ? road : terrain;
+}
+
+
+
+// A ground-conforming lattice (headlight beam, light pool, blob shadow) takes
+// its corner heights from groundSurfaceAt. A road is a decal 0.12 over the
+// terrain with a STEP at its edge, and a cell with corners on both sides spans
+// that step linearly: just inside the asphalt its triangles run under the road,
+// deeper than the patch's own lift, so the z test eats them - a hole in the
+// beam or the shadow along the road edge (reported driving on the edge, found
+// in a GS dump: the beam lost GEQUAL to the road's own triangle there).
+// Each corner is raised by the largest road step any corner within one cell of
+// it stands on, measured over the terrain HERE, so a slope lifts nothing and
+// the patch floats at most one step over the verge. `grid` is nz rows of nx
+// corners (at most 5x5) whose y is groundSurfaceAt + a common lift.
+void TerrainGame::liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx,
+                                          int nz) const {
+  if (ROAD_COUNT == 0 || nx > 5 || nz > 5) return;
+  float terrain[25], step[25];
+  for (int i = 0; i < nx * nz; ++i) {
+    terrain[i] = terrainHeightAt(grid[i].x, grid[i].z);
+    step[i] = grid[i].y - terrain[i];
+  }
+  for (int iz = 0; iz < nz; ++iz)
+    for (int ix = 0; ix < nx; ++ix) {
+      float m = step[iz * nx + ix];
+      for (int dz = -1; dz <= 1; ++dz)
+        for (int dx = -1; dx <= 1; ++dx) {
+          const int jz = iz + dz, jx = ix + dx;
+          if (jz < 0 || jx < 0 || jz >= nz || jx >= nx) continue;
+          if (step[jz * nx + jx] > m) m = step[jz * nx + jx];
+        }
+      grid[iz * nx + ix].y = terrain[iz * nx + ix] + m;
+    }
 }
 
 
