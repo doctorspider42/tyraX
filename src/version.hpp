@@ -5738,7 +5738,11 @@
 // (bakedShadowGroundFold off in examples/vehicle-playground): the fold's
 // 4-unit grid turned building shadows into blobs. PS2, replayed drive: the
 // pass costs 0.4-0.75 ms and the district still holds 60 fps.
-#define TYRAX_VERSION_PATCH 6
+// 1.177.7: VU0 macro-mode Vec4/M4x4 math inline with exact "m" asm operands
+// and mmi::equal64 for the StaPip matrix checks (from fireapache/tyraX
+// dev-vu0-simd; docs/vu0-macro-mode.md). PS2: driving -0.04..-0.13 ms, parked
+// unchanged; fixes the -Os hang in src/math.
+#define TYRAX_VERSION_PATCH 7
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -165,6 +165,28 @@ the bench showing a much larger gap (cache behaviour PCSX2 does not model), or
 a caller that classifies many boxes against one plane set in a loop, where one
 asm block keeps the planes resident.
 
+## On the physical PS2 (codex/tyrax2-foundation, 2026-10-21)
+
+Ported onto the TyraX2 renderer branch, with `mmi::equal64` also taking the
+stamp hit's model-matrix check and the two view-projection checks of the stamp
+deferral and stamp clip planes. Motor District night, lean `tools/ps2rig`
+build, two ELFs differing only in `libtyra`, each deployed without reset after
+a power cycle, cycles 1-16, three identical arms each (median whole-frame work,
+ms):
+
+| Window | Old math | Inline VU0 + MMI |
+|---|---:|---:|
+| Parked w0 / w1 | 9.626 / 9.751 | 9.625 / 9.748 |
+| First drive | 9.744 | 9.703 |
+| Cruise | 9.843 | 9.718 |
+| Late drive | 8.79-8.81 | 8.41-8.72 |
+
+Parked is unchanged, driving -0.04..-0.13 ms, late frames identical (64 each,
+the rig's own prints). Small, but never worse. The same ELF pair at `-Os`
+in PCSX2: the old math hangs ~3 700 frames in (the `-Os` crash bisected to
+`src/math` on 2026-10-15), the new math runs on - the bare-`"r"`-operand class
+above was that crash.
+
 ## What comes next
 
 Inline wrappers remove the call; they cannot keep values in VU0 registers
