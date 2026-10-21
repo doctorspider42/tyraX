@@ -745,6 +745,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  if (g_lampRebake) rebakeLampLight();  // baked static lamps changed state
   updateDynLitObjects();
   // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
   // range reduction folds through a 2^23 add, so an unbounded seconds counter

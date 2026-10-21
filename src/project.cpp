@@ -1891,6 +1891,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.spotShadowVolumes
                  ? "    \"spotShadowVolumes\": true,\n"
                  : "")
+         << (p.settings.bakeStaticLamps
+                 ? "    \"bakeStaticLamps\": true,\n"
+                 : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -6527,6 +6530,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))
             st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("bakeStaticLamps"))
+            st.bakeStaticLamps = v->boolOr(false);
         if (const auto* v = s->find("shadowVolumesDebug"))
             st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);

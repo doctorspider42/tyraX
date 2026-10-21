@@ -85,3 +85,39 @@ Its priced windows have approximately 16.6833 ms mean loop-entry cadence; the
 separate motion and portal routes do not sustain 60 fps. This relative price
 includes the private common quieting/observer footprint and does not price
 the pristine default implementation or establish a historical 30-to-60 gain.
+
+## Baked lamp light
+
+*Preferences > Rendering > Bake static lamps into scenery*
+(`settings.bakeStaticLamps`, format v113, default off) takes the static lamps
+out of the per-bag light pick. A dynamic point or spot light is **baked** when
+it never flickers, the build can see nothing that moves or retargets it (the
+same `project::objectRuntimeMovable` test the static collider grid and static
+batching use - no flow-node reference, no layer) and it does not carve shadow
+volumes. A baked lamp stays registered with the engine every frame, so the
+cars, the player, animated and physics models still pick it per vertex; what
+changes is the static geometry:
+
+- Whenever the baked lamps' on/level state changes - the Motor District's
+  day/night switch, a Set Light - `updateDynLights` re-derives `g_bakedLamps`
+  and `TerrainGame::rebakeLampLight` re-bakes everything the old or the new
+  set reaches: solo objects through their ordinary rebuild, static batches by
+  going stale, and generated chunks (roads, procedural volumes, prefabs) by
+  re-colouring them in place from the colours their builder wrote
+  (`ProcChunk::lampBase`). A one-off cost at the switch, never per frame.
+- `pushVert` adds the lamps to the FINISHED vertex colour with the VU1 spot
+  slot's own constants (`bakedLampAdd`, world space - static geometry has an
+  identity model), so a vertex lit by one lamp receives what the live slot gave
+  it. Two lamps reaching one vertex now both land; the slot picked one.
+- Those bags set `PipelineInfoBag::dynLightSkipBaked`, and the engine's pick
+  skips every slot `RendererCore::markDynLightBaked` named. The batch grouping
+  key ignores baked lamps (they cannot split a batch's pick any more).
+- The terrain never picked a scene light; its pools, the beams and the coronas
+  are unchanged. Moving geometry that used to share the batches' info bag (the
+  wheels' and the debris' batches) has its own.
+
+Measured on the Motor District (physical PS2, one ELF, the bake switched per
+scene load): with the seven steady garage lamps baked and lamp 7 - flicker
+0.025 - still live, the frame moved only -0.02..-0.19 ms, because almost
+every static bag in the parked view is still in lamp 7's reach and picks it.
+All eight baked (lamp 7 steady): physical-PS2 price pending.

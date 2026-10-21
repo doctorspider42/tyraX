@@ -154,6 +154,10 @@ class RendererCore : public RendererCore2dBounds {
   // read in full (docs/stapip-stamps.md, "Light pick"). addDynPointLight is
   // the only writer of a position or range, and it keeps this in step.
   alignas(16) Vec4 dynLightPack[DYN_LIGHTS_MAX];
+  // Modified by TyraX: bit i = dynLights[i] is BAKED - its light is already in
+  // the vertex colours of every bag that sets PipelineInfoBag::dynLightSkipBaked,
+  // so pickDynLight skips it for those bags. Cleared with the registry.
+  u32 dynBakedMask = 0;
   // A/B knob for the rig: false = the pre-1.176.2 pick (full entries) and no
   // per-stamp light cache. Default true.
   static bool fastLightPick;
@@ -209,7 +213,16 @@ class RendererCore : public RendererCore2dBounds {
 
   /** Drop all registered scene dynamic lights (TyraX fork). Call once per
    * frame before re-adding - the registry is a per-frame snapshot. */
-  void clearDynLights() { dynLightCount = 0; }
+  void clearDynLights() {
+    dynLightCount = 0;
+    dynBakedMask = 0;
+  }
+
+  /** Mark a slot returned by addDyn*Light as BAKED for this frame (TyraX
+   * fork): bags with PipelineInfoBag::dynLightSkipBaked never pick it. */
+  void markDynLightBaked(int slot) {
+    if (slot >= 0 && slot < (int)DYN_LIGHTS_MAX) dynBakedMask |= 1u << slot;
+  }
 
   /**
    * Register a scene dynamic point (omni) light for this frame (TyraX
@@ -239,9 +252,12 @@ class RendererCore : public RendererCore2dBounds {
    */
   /** skipSlot: a dynLights index this pick must ignore (-1 = none) - see
    * PipelineInfoBag::dynLightSkipSlot. */
+  /** skipMask: further dynLights slots to ignore, as bits (the baked ones,
+   * for a bag whose vertex colours carry them - dynBakedMask). */
   const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
                                             const float& worldRadius,
-                                            int skipSlot = -1) const;
+                                            int skipSlot = -1,
+                                            u32 skipMask = 0) const;
 
   /** Clear screen and update view frustum for frustum culling. NO 3D support */
   void beginFrame();

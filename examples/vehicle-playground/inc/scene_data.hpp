@@ -257,6 +257,11 @@ extern const unsigned long long SCENE_1_OBJECT_ID_HASHES[];
 extern const unsigned long long SCENE_2_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES, SCENE_1_OBJECT_ID_HASHES, SCENE_2_OBJECT_ID_HASHES};
 
+extern const unsigned char SCENE_0_STATIC_COLLIDERS[];
+extern const unsigned char SCENE_1_STATIC_COLLIDERS[];
+extern const unsigned char SCENE_2_STATIC_COLLIDERS[];
+inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES[SCENE_COUNT] = {SCENE_0_STATIC_COLLIDERS, SCENE_1_STATIC_COLLIDERS, SCENE_2_STATIC_COLLIDERS};
+
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
 // SCROLLER_CLONES maps each baked clone object to its scroller +
 // belt phase; SCROLLER_HIDDEN lists the authored member templates

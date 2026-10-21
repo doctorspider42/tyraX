@@ -684,3 +684,34 @@ The frame is EE-bound: renderScene ~9.9 ms of the 11.3 ms parked work, with
 `StaPipCore::renderNow` ~6.9 ms of it. VU1 trims cannot move this frame until
 the EE side falls below ~7 ms; the GPU slack is rather an argument for moving
 EE work onto VU1 (R1, matrix-driven effects).
+
+### Pricing the night's static content (2026-10-20, audit B1/B2/B4/R4)
+
+One lean ELF, six arms switched per cycle (rig `cpatch.py --price6`, 4-5
+cycles an arm, physical PS2, work means in ms; parked = two 300-frame
+windows, driving = four 150-frame windows):
+
+| Arm | Parked | Driving | EE scope it removes |
+| --- | --- | --- | --- |
+| base | 10.35 / 10.35 | 10.64 / 10.93 / 9.27 / 8.21 | - |
+| collider grid (first guard) | 10.17 / 10.32 | 10.60 / 10.84 / 9.14 / 8.08 | vehicle update -0.10 |
+| night dressing hidden | 10.09 / 10.32 | 10.57 / 10.83 / 9.16 / 8.18 | - |
+| no light pools | 9.87 / 10.01 | 10.17 / 10.48 / 8.73 / 7.98 | `Light_pools` 0.37 |
+| static lamps not registered | 9.81 / 9.94 | 10.18 / 10.28 / 8.83 / 7.95 | StaPip core -0.54 |
+| no beams / coronas | 10.08 / 10.19 | 10.34 / 10.53 / 8.88 / 8.02 | `Light_beams` 0.47 / 0.36 |
+
+- The eleven night window boxes are already three static batches (1.175.5
+  batches reflected objects among themselves); hiding all of them is worth
+  ~0.07 ms on average, so merging the three into one could save two submits
+  at most - below what this rig resolves. Audit B2 closed on that number.
+- "Lamps not registered" is the ceiling of a baked night for static
+  receivers, NOT a shippable look (cars and props lose the lamps too).
+
+**Static collider grid** ([vehicles.md](vehicles.md), "The static collider
+grid"). The first guard re-read each static object's transform (2-3 cache
+lines an object) and kept 126 of the 162 us the build still cost; the
+shipped guard reads only the flags at the tail of `RuntimeObject`. Same ELF,
+6 cycles an arm: vehicle update 0.52 -> 0.36 ms parked, 0.58 -> 0.42 ms
+driving (`buildVehicleColliders` 0.24 -> 0.10 ms, of it guard 0.06, dynamic
+half 0.03); frame work -0.05 parked, -0.10 / -0.16 / -0.13 / -0.13 ms in the
+driving windows.

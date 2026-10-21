@@ -729,6 +729,11 @@ class TerrainGame : public Tyra::Game {
     // equal corner colours is the flat result, so a chunk that mixes blocks
     // with ordinary instances loses nothing.
     bool smooth = false;
+    // Baked static lamps (BAKE_STATIC_LAMPS): the colours as built, before
+    // any lamp light was added - applyBakedLampsToChunk re-derives the
+    // chunk from these whenever the lamps change. Empty = never lamp-lit.
+    std::vector<Tyra::Color> lampBase;
+    unsigned int lampStamp = 0;  // colors.stamp() after the last lamp write
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -785,6 +790,9 @@ class TerrainGame : public Tyra::Game {
                            unsigned char faces,
                            const unsigned char* blockAo = nullptr);
   void procFinishChunks();
+  // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
+  void applyBakedLampsToChunk(ProcChunk& c, bool force);
+  void rebakeLampLight();
   void renderProcChunks();
   void renderRoadChunks();
   // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
@@ -1223,7 +1231,50 @@ class TerrainGame : public Tyra::Game {
   bool vehColFresh_ = false;
   std::vector<unsigned char> vehColIsVeh_;
   unsigned int vehColGen_ = ~0u;
+  // The static collider grid (docs/vehicles.md, "The static collider
+  // grid"; TYRA_VEH_COLLIDER_GRID). Objects the build flagged static
+  // (SCENE_STATIC_COLLIDER_TABLES) are placed once into vehColStatic_ and a
+  // cell grid over it; only the rest are re-derived every frame. The
+  // vehColliders_ list every consumer reads is unchanged - same entries, same
+  // object order - it is merged from the two halves and patched in place.
+  struct VehColGrid {
+    float ox = 0.0F, oz = 0.0F, inv = 0.125F;
+    int nx = 0, nz = 0;
+    std::vector<int> start, items;  // CSR: static entry ordinals per cell
+  };
+  struct VehColStaticObj {
+    int oi = -1;
+    unsigned char shown = 0, dirtyFrames = 0;
+  };
+  std::vector<VehColStaticObj> vehColStaticObj_;
+  std::vector<int> vehColDynObj_;           // every other object, ascending
+  std::vector<VehColEntry> vehColStatic_;   // placed static entries
+  std::vector<int> vehColStaticPos_;        // their slot in vehColliders_
+  std::vector<VehColEntry> vehColDynE_;     // this frame's dynamic entries
+  std::vector<int> vehColDynPos_;           // their slot in vehColliders_
+  std::vector<int> vehColDynPrev_;          // last merge's dynamic object list
+  std::vector<unsigned int> vehColSeen_;
+  std::vector<int> vehColCand_;
+  unsigned int vehColQuery_ = 0;
+  unsigned int vehColSetGen_ = ~0u;
+  bool vehColStaticStale_ = true, vehColMergeStale_ = true, vehColGridOn_ = false;
+  VehColGrid vehColGrid_;
+  void vehColCandidates(float x, float z, float r);
   void buildVehicleColliders();
+  // The wheels' and the debris' shared info bag: batchInfoBag's settings,
+  // but a MOVING receiver - it keeps picking the baked static lamps live
+  // (batchInfoBag skips them, its static geometry carries them).
+  std::unique_ptr<Tyra::StaPipInfoBag> vehMovingInfoBag_;
+  Tyra::StaPipInfoBag* vehMovingInfo() {
+    if (!vehMovingInfoBag_) {
+      vehMovingInfoBag_ = std::make_unique<Tyra::StaPipInfoBag>();
+      vehMovingInfoBag_->model = &model;
+      vehMovingInfoBag_->shadingType = Tyra::TyraShadingGouraud;
+      vehMovingInfoBag_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_Precise;
+      vehMovingInfoBag_->fullClipChecks = true;
+    }
+    return vehMovingInfoBag_.get();
+  }
   void collideVehicleCamera();
   float sweepVehicleCamera(float px, float py, float pz, float dx, float dy,
                            float dz, float maxDist, int skipIndex) const;
@@ -1475,7 +1526,7 @@ class TerrainGame : public Tyra::Game {
   // that key moves (TYRA_VEH_LIGHTS_KEEP) - a parked car with its lights on
   // used to pay both every frame.
   struct HeadlightPoolCache {
-    float key[5] = {0, 0, 0, 0, 0};
+    float key[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};  // + wheel heights (plane pool)
     bool valid = false;
     Tyra::Vec4 p[kVehHeadlightCells * 6];
     Tyra::Vec4 st[kVehHeadlightCells * 6];
@@ -2214,6 +2265,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // TYRA_BEAM_CORONA_VU1 (docs/flashlight.md, "Coronas on VU1"): the
+    // coronas as ONE billboard bag - a centre, a 2x2 basis weight and a
+    // colour per lamp, expanded into camera-facing quads by the VU1
+    // billboard program the particles use - instead of six EE-built
+    // vertices a lamp re-staged on every camera move.
+    BagArray<Tyra::Vec4> bbCenters, bbWeights;
+    BagArray<Tyra::Color> bbColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> bbInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> bbColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> bbTexBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> bbBasis;
+    std::unique_ptr<Tyra::StaPipBag> bbBag;
   };
   std::vector<std::unique_ptr<BeamBatch>> beamBatches;
   int beamBatchCall = 0;  // reset by loop() every frame

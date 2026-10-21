@@ -194,6 +194,7 @@ void TerrainGame::renderCollisionBoxes() {
     batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
+    batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;  // batches + chunks carry them
   }
   if (!collisionBoxBag) {
     collisionBoxColorBag = std::make_unique<StaPipColorBag>();
@@ -1165,6 +1166,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  if ((size_t)index < g_colStaticObj.size() && g_colStaticObj[(size_t)index])
+    g_colStaticRebuilt = true;  // the vehicle grid re-places its static half
   g.coarseBoxValid = false;
   g.reflectionProxy.reset();
   g.matrixMode = localSpace;
@@ -1314,6 +1317,15 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // wrote. Staged inside the loops instead.
     for (GeoPart& part : g.parts) part.litNormals.clear();
   }
+  // Baked static lamps (BAKE_STATIC_LAMPS): a world-space bake of a model or
+  // a shaded primitive carries their light in its vertex colours, and its
+  // bags then skip them in the per-bag pick. A matrix-path or dynamically lit
+  // object keeps every lamp live, and so do the builders below that write
+  // their own colours (mirrors, portals, projected decals).
+  const bool lampBaked = BAKE_STATIC_LAMPS && !localSpace && !dynLit &&
+                         (o.data.type == 5 || (o.data.type >= 0 && o.data.type <= 3) ||
+                          o.data.type == 12);
+  g_lampBakeHere = lampBaked;
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
@@ -1457,6 +1469,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g_giLightmap = false;
   g_giProbeShade = false;
   g_litNormals = nullptr;
+  g_lampBakeHere = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -1502,6 +1515,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // sits in world space under the shared identity. Reset on every rebuild
     // (the bag may have been created under the other mode).
     part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+    part.infoBag->dynLightSkipBaked = lampBaked;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -1526,6 +1540,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           if (r.object == fd.src) { ftex = r.texture; break; }
       if (ftex) {
         tex = ftex;
+        part.infoBag->dynLightSkipBaked = false;  // colours flattened below
         auto c128 = [](float v) {
           return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
         };
@@ -1960,6 +1975,9 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       // baked at promotion; objMat applies the motion to every tier alike.
       g_bakeLocal = g.matrixMode;
       g_envNormals = part.envBag ? &tier.envNormals : nullptr;
+      // The tier shares tier 0's info bag, so it must carry the baked lamps
+      // exactly when tier 0 does (rebuildObjectGeometry's lampBaked).
+      g_lampBakeHere = part.infoBag && part.infoBag->dynLightSkipBaked;
       const bool textured = src.texture != nullptr;
       for (size_t k = 0; k + 7 < sv.size(); k += 8) {
         const float* v = &sv[k];
@@ -1967,6 +1985,7 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
                  {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
                  textured);
       }
+      g_lampBakeHere = false;
       g_envNormals = nullptr;
       g_aoOff = false;
       // A global: left set, the next world-space bake comes out local. A
@@ -2127,6 +2146,9 @@ void TerrainGame::buildStaticBatchList() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  // Batches and generated chunks carry the baked static lamps in their
+  // vertex colours (re-stated per scene load, not only at creation).
+  batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
   // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
   // 4x4 grid), but never below 48 units - on a small map a finer grid (or
   // one straddling the origin) splits a handful of objects into
@@ -2187,6 +2209,9 @@ void TerrainGame::buildStaticBatchList() {
     int best = -1;
     float bestD2 = 0.0F;
     for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      // A baked static lamp is not a pick at all for a batch - the batch's
+      // vertex colours carry it - so it splits nothing (BAKE_STATIC_LAMPS).
+      if (g_dynLights[li].baked) continue;
       const SceneObjectData& L = SCENE_OBJECTS[g_dynLights[li].objIndex];
       if (L.lightRadius <= 0.0F) continue;
       const float dx = L.position[0] - d.position[0];
@@ -2393,6 +2418,9 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   // rebuildObjectGeometry left set would shade a whole batch by accident.
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
+  // Baked static lamps land in the batch's vertex colours (batchInfoBag skips
+  // them in the pick - see buildStaticBatchList).
+  g_lampBakeHere = BAKE_STATIC_LAMPS;
   // Strip or list for the WHOLE batch, decided before a single vertex is
   // emitted. It has to be all-or-nothing: the combined array carries one
   // topology, so emitting one member's strip beside another's list would hand
@@ -2527,6 +2555,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_aoOff = false;
   g_prelitTex = false;
   g_giProbeShade = false;
+  g_lampBakeHere = false;
   if (b.vertices.empty()) {
     b.bag.reset();
     return;
@@ -3049,6 +3078,7 @@ void TerrainGame::procFinishChunks() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;  // as buildStaticBatchList
   // Its Gouraud twin, built only once a chunk asks for it - a project with no
   // block world never allocates it.
   for (const ProcChunk& c : procChunks)
@@ -3058,6 +3088,7 @@ void TerrainGame::procFinishChunks() {
       procSmoothInfoBag->shadingType = TyraShadingGouraud;
       procSmoothInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       procSmoothInfoBag->fullClipChecks = true;
+      procSmoothInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
       break;
     }
   for (ProcChunk& c : procChunks) {
@@ -3089,6 +3120,7 @@ void TerrainGame::procFinishChunks() {
         roadBlendInfoBag->fullClipChecks = true;
         roadBlendInfoBag->blendingEnabled = true;
       }
+      roadBlendInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
       c.bag->info = roadBlendInfoBag.get();
     }
     c.colors.bind(c.colorBag);
@@ -3133,7 +3165,139 @@ void TerrainGame::procFinishChunks() {
     }
     for (int a = 0; a < 3; ++a)
       c.centre[a] = 0.5F * (c.aabbMin[a] + c.aabbMax[a]);
+    // Baked static lamps: a chunk the builder just (re)wrote takes the
+    // current lamp light on top of its fresh colours.
+    applyBakedLampsToChunk(c, false);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Baked static lamps (BAKE_STATIC_LAMPS, docs/dynamic-light-receivers.md "Baked lamp light")
+// ---------------------------------------------------------------------------
+// Squared distance from a sphere's centre to a box, against its radius.
+static inline bool lampTouchesBox(const BakedLampRt& L, const float* mn,
+                                  const float* mx) {
+  const float c[3] = {L.pos.x, L.pos.y, L.pos.z};
+  float d2 = 0.0F;
+  for (int a = 0; a < 3; ++a) {
+    const float d = c[a] < mn[a] ? mn[a] - c[a] : (c[a] > mx[a] ? c[a] - mx[a] : 0.0F);
+    d2 += d * d;
+  }
+  return d2 < L.range * L.range;
+}
+
+// Generated chunks (roads, procedural volumes, prefabs) are re-coloured in
+// place rather than rebuilt: the colours the builder wrote are kept the first
+// time a lamp could touch the chunk, and every lamp change re-derives the
+// chunk from them. `force` = re-derive even though the builder did not touch
+// the colours since the last time (the lamps changed).
+void TerrainGame::applyBakedLampsToChunk(ProcChunk& c, bool force) {
+  if (!BAKE_STATIC_LAMPS || c.vertices.empty() ||
+      c.colors.size() != c.vertices.size())
+    return;
+  const bool rebuilt = c.colors.stamp() != c.lampStamp;
+  if (!rebuilt && !force) return;
+  if (rebuilt) {
+    // Fresh builder colours. Remember them only if some baked lamp could
+    // ever reach this chunk - most of a district is out of every lamp's range.
+    bool reachable = false;
+    for (const DynLightRt& D : g_dynLights) {
+      if (!D.baked) continue;
+      const SceneObjectData& L = SCENE_OBJECTS[D.objIndex];
+      BakedLampRt probe;
+      probe.pos = {L.position[0], L.position[1], L.position[2]};
+      probe.range = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
+      if (lampTouchesBox(probe, c.aabbMin, c.aabbMax)) {
+        reachable = true;
+        break;
+      }
+    }
+    c.lampBase.clear();
+    if (reachable)
+      c.lampBase.assign(c.colors.data(), c.colors.data() + c.colors.size());
+    c.lampStamp = c.colors.stamp();
+  }
+  if (c.lampBase.size() != c.colors.size()) return;  // no lamp can reach it
+  // The streams are about to change: hand them back first (rebuildStaticBatch
+  // does the same before it rewrites a batch).
+  if (c.bag) c.bag->releaseImmutableStreams();
+  const size_t n = c.colors.size();
+  auto dst = c.colors.span(0, n);
+  for (size_t i = 0; i < n; ++i) {
+    const Color& b = c.lampBase[i];
+    float r = b.r, g = b.g, bl = b.b;
+    const Vec4& v = c.vertices[i];
+    bakedLampAdd(V3{v.x, v.y, v.z}, r, g, bl);
+    dst[i] = Color(r > 255.0F ? 255.0F : r, g > 255.0F ? 255.0F : g,
+                   bl > 255.0F ? 255.0F : bl, b.a);
+  }
+  c.lampStamp = c.colors.stamp();
+}
+
+// The baked lamps changed state (updateDynLights raised g_lampRebake): every
+// static receiver either set - the one geometry carries now, or the one it
+// must carry - can reach is re-baked. Solo objects and static batches go
+// through their ordinary rebuild (dirty / stale); generated chunks are
+// re-coloured in place. Runs before the frame renders, so no frame shows the
+// new pick mask over the old colours. A one-time cost at the switch (the
+// day/night menu), never a per-frame one.
+void TerrainGame::rebakeLampLight() {
+  g_lampRebake = false;
+  auto touchesSphere = [&](float x, float y, float z, float r) {
+    for (const std::vector<BakedLampRt>* set : {&g_bakedLampsPrev, &g_bakedLamps})
+      for (const BakedLampRt& L : *set) {
+        const float dx = x - L.pos.x, dy = y - L.pos.y, dz = z - L.pos.z;
+        const float rr = r + L.range;
+        if (dx * dx + dy * dy + dz * dz < rr * rr) return true;
+      }
+    return false;
+  };
+  auto touchesBox = [&](const float* mn, const float* mx) {
+    for (const std::vector<BakedLampRt>* set : {&g_bakedLampsPrev, &g_bakedLamps})
+      for (const BakedLampRt& L : *set)
+        if (lampTouchesBox(L, mn, mx)) return true;
+    return false;
+  };
+  int objects = 0, batches = 0, chunks = 0;
+  for (int i = 0; i < (int)runtimeObjects.size() && i < (int)objectGeometry.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || o.dirty) continue;
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
+    bool lit = false;
+    for (const GeoPart& part : objectGeometry[i].parts)
+      if (part.infoBag && part.infoBag->dynLightSkipBaked) {
+        lit = true;
+        break;
+      }
+    if (!lit) continue;
+    // The same bounding sphere rebuildObjectGeometry prunes the AO with.
+    const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
+    float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+    if (o.data.type == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
+      const GameModel& gm = gameModels[o.data.model];
+      const float ex = fmaxf(fabsf(gm.mn[0]), fabsf(gm.mx[0])) * fabsf(sx);
+      const float ey = fmaxf(fabsf(gm.mn[1]), fabsf(gm.mx[1])) * fabsf(sy);
+      const float ez = fmaxf(fabsf(gm.mn[2]), fabsf(gm.mx[2])) * fabsf(sz);
+      rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    }
+    if (!touchesSphere(o.data.position[0], o.data.position[1], o.data.position[2], rad))
+      continue;
+    o.dirty = true;
+    ++objects;
+  }
+  for (StaticBatch& b : staticBatches) {
+    if (b.dirty || !b.bag) continue;
+    if (!touchesBox(b.aabbMin, b.aabbMax)) continue;
+    b.dirty = true;
+    ++batches;
+  }
+  for (ProcChunk& c : procChunks) {
+    if (!c.bag || !touchesBox(c.aabbMin, c.aabbMax)) continue;
+    applyBakedLampsToChunk(c, true);
+    ++chunks;
+  }
+  TYRA_LOG("LAMPBAKE lamps ", (int)g_bakedLamps.size(), " objects ", objects,
+           " batches ", batches, " chunks ", chunks);
 }
 
 
@@ -3587,7 +3751,12 @@ void TerrainGame::renderVehicleGlow() {
         if ((int)headlightCache_.size() < vehicleCount_)
           headlightCache_.resize((size_t)vehicleCount_);
         HeadlightPoolCache& hc = headlightCache_[(size_t)vi];
-        const float hk[5] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def};
+        // The plane pool (TYRA_VEH_POOL_PLANE) also follows the wheel
+        // heights: the plane they span is its ground.
+        const bool pk = TYRA_VEH_POOL_PLANE != 0;
+        const float hk[9] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def,
+                             pk ? v.wheelY[0] : 0.0F, pk ? v.wheelY[1] : 0.0F,
+                             pk ? v.wheelY[2] : 0.0F, pk ? v.wheelY[3] : 0.0F};
         rebuild = !hc.valid || memcmp(hk, hc.key, sizeof(hk)) != 0;
         if (rebuild) {
           memcpy(hc.key, hk, sizeof(hk));
@@ -3617,6 +3786,19 @@ void TerrainGame::renderVehicleGlow() {
       // exact baked road/junction surface inside the beam as well.
       constexpr int kCells = 3;
       const float e = 0.065F;
+      // THE PLANE POOL (TYRA_VEH_POOL_PLANE, docs/vehicles.md "Headlight
+      // pools"): the ground under the beam is the plane the car's four wheel
+      // contacts already measured this step (v.wheelY: FL, FR, RL, RR), so
+      // the 16 lattice heights are a multiply-add each instead of 16
+      // groundSurfaceAt road/junction searches - the pool rebuilds every
+      // frame for every car that moves. A wheel off every surface (the raw
+      // sentinel) falls back to the searched surface.
+      const float hxW = 0.5F * s.track * SC;
+      bool planeOk = TYRA_VEH_POOL_PLANE != 0 && hz > 1e-3F && hxW > 1e-3F;
+      for (int w = 0; w < 4 && planeOk; ++w) planeOk = v.wheelY[w] > -1e5F;
+      const float pyc = 0.25F * (v.wheelY[0] + v.wheelY[1] + v.wheelY[2] + v.wheelY[3]);
+      const float pgF = ((v.wheelY[0] + v.wheelY[1]) - (v.wheelY[2] + v.wheelY[3])) / (4.0F * hz);
+      const float pgS = ((v.wheelY[1] + v.wheelY[3]) - (v.wheelY[0] + v.wheelY[2])) / (4.0F * hxW);
       auto point = [&](float t, float side) {
         const float bx = nx + (fx2 - nx) * t;
         const float bz = nz + (fz2 - nz) * t;
@@ -3624,6 +3806,11 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
+        if (planeOk) {
+          const float dx = x - v.pos[0], dz = z - v.pos[2];
+          const float f = dx * sy + dz * cy, sd = dx * cy - dz * sy;
+          return Vec4(x, pyc + pgF * f + pgS * sd + e, z, 1.0F);
+        }
         return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
@@ -4481,7 +4668,7 @@ void TerrainGame::renderVehicleDebris() {
       b.bag->color = b.colorBag.get();
       b.bag->lighting = nullptr;
     }
-    b.bag->info = batchInfoBag.get();
+    b.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
     b.cols.bind(b.colorBag);
     b.verts.bind(b.bag);
     b.bag->count = static_cast<u32>(b.verts.size());
@@ -5199,7 +5386,6 @@ void TerrainGame::buildVehicleColliders() {
     bool valid = false;
   };
   static std::vector<VehColCache> vehColCache_;
-  vehColliders_.clear();
   if (vehColIsVeh_.size() != runtimeObjects.size() || vehColGen_ != sceneGeneration) {
     vehColIsVeh_.assign(runtimeObjects.size(), 0);
     vehColCache_.assign(runtimeObjects.size(), VehColCache{});
@@ -5213,19 +5399,20 @@ void TerrainGame::buildVehicleColliders() {
     if (vehicles_[vk].active && vehicles_[vk].object >= 0 &&
         vehicles_[vk].object < (int)vehColIsVeh_.size())
       vehColIsVeh_[(size_t)vehicles_[vk].object] = 1;
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-    if (vehColIsVeh_[(size_t)oi]) continue;
+  // One object's entry, or false when a car cannot touch it. The same code
+  // fills the static half once and the dynamic half every frame, so an entry
+  // is bit-identical whichever half placed it.
+  auto entryOf = [&](int oi, VehColEntry& e) -> bool {
     const RuntimeObject& o = runtimeObjects[oi];
-    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-    VehColEntry e;
+    if (!o.active || !o.visible || !objectCollides(o.data)) return false;
+    e = VehColEntry{};
     e.oi = oi;
     if (o.data.physics && physObstacle(o.data)) {
       e.kind = 2;
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -5238,8 +5425,7 @@ void TerrainGame::buildVehicleColliders() {
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     VehColCache& vc = vehColCache_[(size_t)oi];
     const float vkey[11] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
@@ -5273,9 +5459,269 @@ void TerrainGame::buildVehicleColliders() {
     e.cy = vc.cy;
     e.sy = vc.sy;
     for (int k = 0; k < 3; ++k) e.we[k] = vc.we[k];
-    vehColliders_.push_back(e);
-  }
+    return true;
+  };
   vehColFresh_ = true;
+  if (!TYRA_VEH_COLLIDER_GRID) {
+    // The full walk, every frame (what the runtime did before the grid).
+    vehColGridOn_ = false;
+    vehColSetGen_ = ~0u;  // re-seed the static set if the grid comes back
+    g_colStaticObj.clear();
+    vehColliders_.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) vehColliders_.push_back(e);
+    }
+    return;
+  }
+  vehColGridOn_ = true;
+  // (Re)seed on a scene (re)load: which objects the build called static.
+  // A vehicle's own object is never static - inactive cars are walls, active
+  // ones are not, and that flips at runtime.
+  if (vehColSetGen_ != sceneGeneration) {
+    vehColSetGen_ = sceneGeneration;
+    vehColStaticObj_.clear();
+    vehColDynObj_.clear();
+    g_colStaticObj.assign(runtimeObjects.size(), 0);
+    const unsigned char* table = SCENE_STATIC_COLLIDER_TABLES[g_activeScene];
+    const int authored = SCENE_OBJECT_COUNT;
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      bool isStatic = oi < authored && table[oi] != 0;
+      for (int vk = 0; vk < vehicleCount_ && isStatic; ++vk)
+        if (vehicles_[vk].object == oi) isStatic = false;
+      if (isStatic) {
+        VehColStaticObj so;
+        so.oi = oi;
+        vehColStaticObj_.push_back(so);
+        g_colStaticObj[(size_t)oi] = 1;
+      } else {
+        vehColDynObj_.push_back(oi);
+      }
+    }
+    vehColStaticStale_ = true;
+  }
+  // The static half's guard: ONE cache line per static object - the flags at
+  // the tail of RuntimeObject, never the transform (reading that too cost a
+  // second and third miss per object, 0.13 ms a frame on a PS2). A transform
+  // only ever reaches the screen through a rebuild (dirty) or the matrix path
+  // (onMatrixPath / a spin), and both are seen here: a dirty flag re-places the
+  // static half this frame, and a rebuild that consumed one later in a frame
+  // (rebuildObjectGeometry raises g_colStaticRebuilt) re-places it the next -
+  // exactly when the full walk would first have seen the moved box. The
+  // matrix path or a spin demotes the object to the dynamic half for good; a
+  // shown flip only re-places. A global script that writes a static object's
+  // position without dirty is not followed - the renderer does not follow it
+  // either (docs/vehicles.md, "The static collider grid").
+  if (g_colStaticRebuilt) {
+    g_colStaticRebuilt = false;
+    vehColStaticStale_ = true;
+  }
+  for (size_t k = 0; k < vehColStaticObj_.size(); ++k) {
+    VehColStaticObj& so = vehColStaticObj_[k];
+    const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+    bool moved = o.onMatrixPath || o.wantsMatrixPath || o.spinRate[0] != 0.0F ||
+                 o.spinRate[1] != 0.0F || o.spinRate[2] != 0.0F;
+    // A dirty flag that outlives a few frames is something re-dirtying the
+    // object every frame: cheaper on the dynamic side than re-placing.
+    if (o.dirty) {
+      vehColStaticStale_ = true;
+      if (++so.dirtyFrames > 8) moved = true;
+    } else {
+      so.dirtyFrames = 0;
+    }
+    if (moved) {
+      vehColDynObj_.insert(std::lower_bound(vehColDynObj_.begin(), vehColDynObj_.end(), so.oi),
+                           so.oi);
+      if ((size_t)so.oi < g_colStaticObj.size()) g_colStaticObj[(size_t)so.oi] = 0;
+      vehColStaticObj_.erase(vehColStaticObj_.begin() + (long)k);
+      --k;
+      vehColStaticStale_ = true;
+      continue;
+    }
+    if (so.shown != (unsigned char)((o.active && o.visible) ? 1 : 0))
+      vehColStaticStale_ = true;
+  }
+  if (vehColStaticStale_) {
+    vehColStaticStale_ = false;
+    vehColMergeStale_ = true;
+    vehColStatic_.clear();
+    for (VehColStaticObj& so : vehColStaticObj_) {
+      const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+      so.shown = (unsigned char)((o.active && o.visible) ? 1 : 0);
+      VehColEntry e;
+      if (entryOf(so.oi, e)) vehColStatic_.push_back(e);
+    }
+    // The grid: every static entry is listed in each cell its widest gather
+    // reach can touch - a box's footprint plus the wall inflation, a mesh's
+    // radius plus its 2-unit pad (the spans considerCol and the sub-step
+    // recorder test against), plus a small float guard.
+    VehColGrid& g = vehColGrid_;
+    g.nx = g.nz = 0;
+    g.start.clear();
+    g.items.clear();
+    if (!vehColStatic_.empty()) {
+      auto span = [](const VehColEntry& e) {
+        return (e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F) + 0.05F;
+      };
+      float mn[2] = {1e30F, 1e30F}, mx[2] = {-1e30F, -1e30F};
+      for (const VehColEntry& e : vehColStatic_) {
+        const float s = span(e);
+        mn[0] = fminf(mn[0], e.wx - s);
+        mx[0] = fmaxf(mx[0], e.wx + s);
+        mn[1] = fminf(mn[1], e.wz - s);
+        mx[1] = fmaxf(mx[1], e.wz + s);
+      }
+      float cell = 8.0F;
+      const float ext = fmaxf(mx[0] - mn[0], mx[1] - mn[1]);
+      if (ext / cell > 64.0F) cell = ext / 64.0F;
+      g.ox = mn[0];
+      g.oz = mn[1];
+      g.inv = 1.0F / cell;
+      g.nx = (int)((mx[0] - mn[0]) * g.inv) + 1;
+      g.nz = (int)((mx[1] - mn[1]) * g.inv) + 1;
+      g.start.assign((size_t)(g.nx * g.nz + 1), 0);
+      auto range = [&](float c, float s, float o, int n, int& lo, int& hi) {
+        lo = (int)floorf((c - s - o) * g.inv);
+        hi = (int)floorf((c + s - o) * g.inv);
+        if (lo < 0) lo = 0;
+        if (hi > n - 1) hi = n - 1;
+      };
+      for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1) {
+          for (size_t c = 1; c < g.start.size(); ++c) g.start[c] += g.start[c - 1];
+          g.items.assign((size_t)g.start.back(), 0);
+        }
+        std::vector<int> fill;
+        if (pass == 1) fill.assign(g.start.begin(), g.start.end() - 1);
+        for (size_t si = 0; si < vehColStatic_.size(); ++si) {
+          const VehColEntry& e = vehColStatic_[si];
+          const float s = span(e);
+          int x0, x1, z0, z1;
+          range(e.wx, s, g.ox, g.nx, x0, x1);
+          range(e.wz, s, g.oz, g.nz, z0, z1);
+          for (int cz = z0; cz <= z1; ++cz)
+            for (int cx = x0; cx <= x1; ++cx) {
+              const int c = cz * g.nx + cx;
+              if (pass == 0) ++g.start[(size_t)c + 1];
+              else g.items[(size_t)fill[(size_t)c]++] = (int)si;
+            }
+        }
+      }
+    }
+    vehColSeen_.assign(vehColStatic_.size(), 0);
+    vehColQuery_ = 0;
+  }
+  // The dynamic half: the full per-object derivation, but only for objects
+  // the build could not call static (vehicles, bodies, scripted props, the
+  // spawn pool) - a short list instead of every object in the scene.
+  vehColDynE_.clear();
+  for (const int oi : vehColDynObj_) {
+    if (vehColIsVeh_[(size_t)oi]) continue;
+    VehColEntry e;
+    if (entryOf(oi, e)) vehColDynE_.push_back(e);
+  }
+  // Merge into vehColliders_ in object order. While the same dynamic objects
+  // are listed as last frame, their slots are known and only their values
+  // are written; anything else re-merges the whole list.
+  bool sameDyn = !vehColMergeStale_ && vehColDynE_.size() == vehColDynPrev_.size();
+  for (size_t j = 0; j < vehColDynE_.size() && sameDyn; ++j)
+    sameDyn = vehColDynE_[j].oi == vehColDynPrev_[j];
+  if (sameDyn) {
+    for (size_t j = 0; j < vehColDynE_.size(); ++j)
+      vehColliders_[(size_t)vehColDynPos_[j]] = vehColDynE_[j];
+  } else {
+    vehColMergeStale_ = false;
+    vehColliders_.clear();
+    vehColStaticPos_.assign(vehColStatic_.size(), 0);
+    vehColDynPos_.assign(vehColDynE_.size(), 0);
+    vehColDynPrev_.assign(vehColDynE_.size(), 0);
+    size_t a = 0, b = 0;
+    while (a < vehColStatic_.size() || b < vehColDynE_.size()) {
+      const bool takeStatic =
+          b >= vehColDynE_.size() ||
+          (a < vehColStatic_.size() && vehColStatic_[a].oi < vehColDynE_[b].oi);
+      if (takeStatic) {
+        vehColStaticPos_[a] = (int)vehColliders_.size();
+        vehColliders_.push_back(vehColStatic_[a++]);
+      } else {
+        vehColDynPos_[b] = (int)vehColliders_.size();
+        vehColDynPrev_[b] = vehColDynE_[b].oi;
+        vehColliders_.push_back(vehColDynE_[b++]);
+      }
+    }
+  }
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+  // THE ORACLE: the full walk again, compared with the merged list to the
+  // byte. Off in anything measured or shipped.
+  {
+    static std::vector<VehColEntry> full;
+    full.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) full.push_back(e);
+    }
+    static u32 lChecked = 0, lBad = 0, lFrames = 0;
+    ++lChecked;
+    if (full.size() != vehColliders_.size() ||
+        (!full.empty() &&
+         memcmp(full.data(), vehColliders_.data(), sizeof(VehColEntry) * full.size()) != 0))
+      ++lBad;
+    if (++lFrames >= 300) {
+      // printf, not TYRA_LOG: the oracle must also report from a release ELF.
+      printf("VEHCOLGRID list checked %u MISMATCH %u entries %d static %d dynamic %d cells %dx%d\n",
+             (unsigned)lChecked, (unsigned)lBad, (int)vehColliders_.size(),
+             (int)vehColStatic_.size(), (int)vehColDynE_.size(), vehColGrid_.nx,
+             vehColGrid_.nz);
+      lChecked = lBad = lFrames = 0;
+    }
+  }
+#endif
+}
+
+// A gather's candidates (TYRA_VEH_COLLIDER_GRID): into vehColCand_, the
+// vehColliders_ slots, ascending, that a test of reach `r` around (x, z) can
+// accept - every dynamic entry, plus each static entry listed in a grid cell
+// the query box touches. A superset of what the full walk accepts, in the
+// full walk's order, so walking it gives the full walk's lists and caps.
+void TerrainGame::vehColCandidates(float x, float z, float r) {
+  vehColCand_.clear();
+  const VehColGrid& g = vehColGrid_;
+  if (g.nx > 0) {
+    if (++vehColQuery_ == 0) {
+      for (unsigned int& s : vehColSeen_) s = 0;
+      vehColQuery_ = 1;
+    }
+    const float s = r + 0.05F;
+    int x0 = (int)floorf((x - s - g.ox) * g.inv), x1 = (int)floorf((x + s - g.ox) * g.inv);
+    int z0 = (int)floorf((z - s - g.oz) * g.inv), z1 = (int)floorf((z + s - g.oz) * g.inv);
+    if (x0 < 0) x0 = 0;
+    if (z0 < 0) z0 = 0;
+    if (x1 > g.nx - 1) x1 = g.nx - 1;
+    if (z1 > g.nz - 1) z1 = g.nz - 1;
+    for (int cz = z0; cz <= z1; ++cz)
+      for (int cx = x0; cx <= x1; ++cx) {
+        const int c = cz * g.nx + cx;
+        for (int k = g.start[(size_t)c]; k < g.start[(size_t)c + 1]; ++k) {
+          const int si = g.items[(size_t)k];
+          if (vehColSeen_[(size_t)si] == vehColQuery_) continue;
+          vehColSeen_[(size_t)si] = vehColQuery_;
+          vehColCand_.push_back(vehColStaticPos_[(size_t)si]);
+        }
+      }
+  }
+  for (const int p : vehColDynPos_) vehColCand_.push_back(p);
+  // Insertion sort: a handful of candidates, mostly in order already.
+  for (size_t i = 1; i < vehColCand_.size(); ++i) {
+    const int v = vehColCand_[i];
+    size_t j = i;
+    while (j > 0 && vehColCand_[j - 1] > v) {
+      vehColCand_[j] = vehColCand_[j - 1];
+      --j;
+    }
+    vehColCand_[j] = v;
+  }
 }
 
 // The vehiclesim twin's fixed step, on the console (docs/vehicles.md, "The
@@ -6185,13 +6631,21 @@ void TerrainGame::updateVehicles(float dt) {
         gc.reach = reach;
         gc.margin = margin;
         gc.valid = true;
-        for (size_t ci = 0; ci < vehColliders_.size(); ++ci) {
+        // The static collider grid hands over every slot this walk could
+        // record or accept (its query covers the margin too), in order.
+        auto recordCol = [&](size_t ci) {
           const VehColEntry& e = vehColliders_[ci];
           const float dx = e.wx - v.pos[0], dz = e.wz - v.pos[2];
           const float span = e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F;
           const float r = reach + span + margin;
           if (dx * dx + dz * dz < r * r) gc.col.push_back((int)ci);
           considerCol(e);
+        };
+        if (vehColGridOn_) {
+          vehColCandidates(v.pos[0], v.pos[2], reach + margin);
+          for (const int ci : vehColCand_) recordCol((size_t)ci);
+        } else {
+          for (size_t ci = 0; ci < vehColliders_.size(); ++ci) recordCol(ci);
         }
         for (size_t pi = 0; pi < procColliders.size(); ++pi) {
           const StaticBox& b = procColliders[pi];
@@ -6202,6 +6656,42 @@ void TerrainGame::updateVehicles(float dt) {
           if (dx * dx + dz * dz < r * r) gc.proc.push_back((int)pi);
           considerProc(b);
         }
+      } else if (vehColGridOn_) {
+        // The static collider grid (docs/vehicles.md, "The static collider
+        // grid"): only the slots near the car, in the full walk's order.
+        vehColCandidates(v.pos[0], v.pos[2], reach);
+        for (const int ci : vehColCand_) considerCol(vehColliders_[(size_t)ci]);
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+        // THE ORACLE: the full walk again, every list compared to the byte.
+        {
+          VehWallBox w0[12];
+          VehFloorBox f0[8];
+          int m0[4], p0[8];
+          const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
+          memcpy(w0, wallBox, sizeof(w0));
+          memcpy(f0, floorBox, sizeof(f0));
+          memcpy(m0, nearMesh, sizeof(m0));
+          memcpy(p0, pushIdx, sizeof(p0));
+          wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          for (const VehColEntry& e : vehColliders_) considerCol(e);
+          const bool same =
+              wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
+              memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
+              memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
+              memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
+              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+          static u32 gChecked = 0, gBad = 0, gFrames = 0;
+          ++gChecked;
+          if (!same) ++gBad;
+          if (++gFrames >= 300) {
+            printf("VEHCOLGRID gather checked %u MISMATCH %u cand %d of %d\n",
+                   (unsigned)gChecked, (unsigned)gBad, (int)vehColCand_.size(),
+                   (int)vehColliders_.size());
+            gChecked = gBad = gFrames = 0;
+          }
+        }
+#endif
+        for (const StaticBox& b : procColliders) considerProc(b);
       } else {
         for (const VehColEntry& e : vehColliders_) considerCol(e);
         for (const StaticBox& b : procColliders) considerProc(b);
@@ -8870,7 +9360,7 @@ void TerrainGame::renderVehicleWheels() {
     batch.bag->color = batch.colorBag.get();
     batch.bag->lighting = nullptr;
   }
-  batch.bag->info = batchInfoBag.get();
+  batch.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
   batch.cols.bind(batch.colorBag);
   batch.verts.bind(batch.bag);
   batch.bag->count = static_cast<u32>(batch.verts.size());

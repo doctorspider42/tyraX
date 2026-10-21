@@ -16298,6 +16298,19 @@ void App::drawPreferencesWindow() {
         "per-light override is for.\n"
         "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
         "band, so a project with either one on has already paid for it.");
+    ImGui::Checkbox("Bake static lamps into scenery",
+                    &prefSettings_.bakeStaticLamps);
+    prefHelp(
+        "A DYNAMIC light that never moves and never flickers - a street\n"
+        "lamp a day/night script switches - is folded into the static\n"
+        "geometry's vertex colours whenever it switches, instead of being\n"
+        "picked and evaluated for every static mesh every frame\n"
+        "(docs/dynamic-light-receivers.md, 'Baked lamp light'). Cars, the player and other\n"
+        "moving things still take it live; its ground pool, beam and corona\n"
+        "are unchanged. A lamp a flow node refers to, one on a streaming\n"
+        "layer and one that carves shadow volumes stay fully live.\n"
+        "The switch itself re-bakes what the lamps reach - a short hitch at\n"
+        "the moment of the change, never a per-frame cost.");
     // WHAT IT COSTS, in the currency that actually runs out. The count band is
     // 512 KB at 32-bit colour and a 512x512 project has about that much
     // texture heap in the first place, so switching this on can take the last

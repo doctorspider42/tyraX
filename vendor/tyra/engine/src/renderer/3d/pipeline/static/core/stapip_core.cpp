@@ -1001,8 +1001,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 
   const RendererCoreSpotLight* bagLight = nullptr;
   if (wantsLightPick) {
-    bagLight = rendererCore->pickDynLight(worldCenter, worldRadius,
-                                          bag->info->dynLightSkipSlot);
+    bagLight = rendererCore->pickDynLight(
+        worldCenter, worldRadius, bag->info->dynLightSkipSlot,
+        bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
   }
   // Modified by TyraX: a bag may opt out of the camera spot as well
   // (PipelineInfoBag::spotLit - the terrain, whose light comes from the

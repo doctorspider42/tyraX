@@ -3415,8 +3415,9 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
     if (fastLight) {
       // Modified by TyraX: the sphere is the stamp's, derived with its world
       // box (stampWorldBox) - the same numbers, not re-derived per frame.
-      light = rendererCore->pickDynLight(s->worldCenter, s->worldRadius,
-                                         bag->info->dynLightSkipSlot);
+      light = rendererCore->pickDynLight(
+          s->worldCenter, s->worldRadius, bag->info->dynLightSkipSlot,
+          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
     } else {
       const M4x4& m = s->model;
       const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
@@ -3429,7 +3430,8 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
       light = rendererCore->pickDynLight(
           worldCenter,
           0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
-          bag->info->dynLightSkipSlot);
+          bag->info->dynLightSkipSlot,
+          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
     }
   }
   if (!dynamicLightReceive || !bag->info->spotLit) light = noSpot;
