@@ -248,7 +248,7 @@ trades ship opt-in until reviewed on a TV.
 
 | Item | Status | Result |
 | --- | --- | --- |
-| B1 two-state lighting bake (static lamps) | implemented opt-in (bakeStaticLamps, v113); PS2 run CZ17 owed | Ceiling (no static lamps registered) −0.41..−0.65 ms; 7 steady lamps baked only −0.02..−0.19 ms because flickering lamp 7 still reaches most bags. CZ17 arm 2 bakes all 8. Parked PS2 pair differs 978 px. |
+| B1 two-state lighting bake (static lamps) | shipped (on in example) | CZ17 (50 cycles): all 8 lamps baked parked −0.12, first drive −0.48, cruise −0.67, late −0.32 ms; 7 lamps only +0.11 parked / −0.22 cruise. Example: bakeStaticLamps on, lamp 7 flicker 0.025→0; PS2 shots <0.5 % px, max 30. |
 | B2 night dressing batch / texture | rejected | Already 3 static batches since 1.175.5; hiding all 11 windows saves ~0.07 ms (CZ4). |
 | B3 baked probe background | shipped (on in example) | Per-road-cell 128x32 panorama (v97, 1.177.0). PS2 DG10: probe EE per driving frame up to −0.08 ms, driving work p50 10.80→10.55 ms; only car paint differs (≤9 levels). Agent D branch 98348d980. |
 | B4 static vehicle-collider grid | shipped (on) | CZ9 same ELF: vehicle update 0.52→0.36 parked, 0.58→0.42 ms driving; frame work −0.05 parked, −0.10..−0.16 ms driving; byte-compare oracles 0 mismatches. |
@@ -256,7 +256,7 @@ trades ship opt-in until reviewed on a TV.
 | R1 immutable static chains, VP in VU1 | rejected | BA2 (34 cycles/arm): ~80 chain-form replays/frame, parked 10.341 vs 10.323, cruise 10.907 vs 10.918 ms — the cost is what the replay reads, not writes. Removed. |
 | R2 per-bag FLUSHE (measure, then S2) | rejected | PS2 same-ELF (vpnAR1, 21 cycles): no-FLUSHE ceiling arm 11.50 vs controls 11.49/11.51 ms parked; drains = ~0.1 ms VU1 idle off the critical path. Commit 560ef51c9 (agent A branch). |
 | R3 producers write into the frame bank | implemented, kept off (measured) | BA4 (73 cycles): neutral driving, one parked window +0.18 ms; no gain on top of R5 mode 4. Switch `Vif1Queue::setOwnedPackets`. |
-| R4 coronas / pools as matrix or sprite geometry | implemented opt-in; PS2 run CZ17 arms 3–4 owed | Coronas as one VU1 billboard bag; headlight pools on the wheel-contact plane. EE today: beams ~0.47 ms parked (corona bag 0.17), vehicle glow ~0.44 ms. |
+| R4 coronas / pools as matrix or sprite geometry | rejected (kept opt-in) | CZ17: VU1 coronas parked +0.03, cruise −0.06, late −0.06; plane pools parked 0, cruise −0.08, late −0.01 ms — at the noise floor. |
 | R5 whole partial bag into the VU1 clip program | shipped: runs + masks (mode 4) default | Whole bag rejected (+0.6/+2.5 ms). BA4: mode 4 parked within noise, first drive −0.15, cruise −0.11, late drive −0.19 ms. |
 | Y clip-program strip sliding window | rejected | Under the 0.2 ms rule: 8 strip packages / 479 tris parked, ceiling 0.05–0.17 ms of VU1, and VU1 is not critical. |
 | Y V4-8 static vertex colours | rejected (VU1) | ≤0.3–0.4 ms of VU1 inside ~7 ms of VU1 idle per frame; EE side not priced. |

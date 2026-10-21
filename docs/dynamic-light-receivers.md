@@ -120,4 +120,8 @@ Measured on the Motor District (physical PS2, one ELF, the bake switched per
 scene load): with the seven steady garage lamps baked and lamp 7 - flicker
 0.025 - still live, the frame moved only -0.02..-0.19 ms, because almost
 every static bag in the parked view is still in lamp 7's reach and picks it.
-All eight baked (lamp 7 steady): physical-PS2 price pending.
+All eight baked (lamp 7 steady), physical PS2, one ELF (rig CZ17, 10 cycles
+an arm): parked -0.12 ms, first drive -0.48, cruise -0.67, late drive
+-0.32 ms; the parked PS2 shots differ in under 0.5 % of pixels (max 30
+levels). The Motor District therefore ships the setting on with lamp 7's
+flicker set to 0.

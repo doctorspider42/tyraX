@@ -7,6 +7,11 @@ panorama per road cell instead of re-rendering them
 Bloom is off (0, was 0.12): on a physical PS2 it cost 0.32 ms of GS and
 ~0.3 ms of parked EE work for a glow that changed at most 6 colour levels
 ([measurement](../../docs/emissive-materials.md#what-the-pass-costs-on-a-ps2-measured-2026-10-20)).
+*Bake static lamps* is on and night lamp 7 no longer flickers (0.025 → 0),
+so all eight district lamps fold into the static vertex colours at the mood
+change. Physical PS2, one ELF (rig CZ17, 10 cycles an arm): parked -0.12 ms,
+driving -0.32..-0.67 ms; under 0.5 % of pixels change, at most 30 levels
+([baked lamp light](../../docs/dynamic-light-receivers.md)).
 
 Version 1.173.5 separates terrain residency/LOD focus from visual camera shake,
 avoiding repeated terrain builds while the car sits on a detail snap boundary.
