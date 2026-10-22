@@ -24874,9 +24874,29 @@ void TerrainGame::renderScene() {
                                 : runtimeObjects[i].data.meshLod;
       int tier = 0;
       if (lodDist > 0.0F) {
-        const float dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
-        const float dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
-        const float dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        // Measured to the nearest point of the object's world box, not to its
+        // origin. A 34-unit promenade is 15 units from its own centre while
+        // the camera stands ON it, so the centre distance put the far tier
+        // under the player's feet - and a decimated flat slab keeps almost
+        // none of the vertices its baked light lives on, so the whole floor
+        // changed brightness two steps later (docs/model-pipeline.md, "LOD
+        // distance is measured to the box"). A matrix-path body's box is in
+        // its own space; it keeps the origin distance.
+        const ObjectGeometry& lg = objectGeometry[i];
+        float dx, dy, dz;
+        if (lg.coarseBoxValid && !lg.matrixMode) {
+          const Vec4& lo = lg.coarseBox.vertices[0];
+          const Vec4& hi = lg.coarseBox.vertices[7];
+          const float cx = cameraPosition.x, cy = cameraPosition.y,
+                      cz = cameraPosition.z;
+          dx = cx < lo.x ? lo.x - cx : (cx > hi.x ? cx - hi.x : 0.0F);
+          dy = cy < lo.y ? lo.y - cy : (cy > hi.y ? cy - hi.y : 0.0F);
+          dz = cz < lo.z ? lo.z - cz : (cz > hi.z ? cz - hi.z : 0.0F);
+        } else {
+          dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+          dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+          dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        }
         const float d2 = dx * dx + dy * dy + dz * dz;
         const float m2 = lodDist * lodDist;
         tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);

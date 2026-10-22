@@ -5755,7 +5755,10 @@
 // 1.177.11: streamed music no longer turns into a buzz a few seconds in -
 // audsrv's EE callback server ran below the busy-polling game thread and
 // starved, stalling the IOP's playback thread (docs/sound.md).
-#define TYRAX_VERSION_PATCH 11
+// 1.177.12: static mesh LOD picks its level by the distance to the object's
+// world box, not its origin - a big floor no longer swaps to its far level
+// (and changes brightness) under the player's feet (docs/model-pipeline.md).
+#define TYRAX_VERSION_PATCH 12
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
