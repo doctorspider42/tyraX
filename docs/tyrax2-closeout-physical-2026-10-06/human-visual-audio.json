@@ -1,8 +1,0 @@
-{
-  "source": "Direct user reply to current showcase TV question",
-  "run": "tyrax2-closeout-ps2-quiet-showcase-v4-v1",
-  "visual": "Map, portal view and HUD confirmed normal",
-  "audio": "Failed: user reports glitched/repeating sample",
-  "originalReply": "Wygląda poprawnie, ale dźwięk jest jakiś przygliczowany. Jakby jedną próbkę na około odtwarzało",
-  "noPixelEquivalenceClaim": true
-}

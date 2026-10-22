@@ -1,7 +1,0 @@
-read/write allocate memory 4000
-open name rom0:ROMVER flag 1 data 41378
-open fd = 3
-open name rom0:ROMVER flag 1 data 41378
-open fd = 3
-open name rom0:ROMVER flag 1 data 41378
-open fd = 3

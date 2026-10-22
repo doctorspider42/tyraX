@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-loop-balance-v1\analyze-balance.py", line 34, in <module>
-    spans=[gs+r['wholeLoop']-ge,rs-gs,ge-rs];pace=[b['pace'+str(j)]for j in range(3)];assert sum(pace)==r['pacing']
-                                                                                             ^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-paint-lifecycle-analyze.py", line 90, in <module>
-    rows=validate(log)
-         ^^^^^^^^^^^^^
-  File "F:\Projects\tyra-editor\tools\tyrax2-paint-lifecycle-analyze.py", line 88, in validate
-    if driving and phase!=1: assert int(witness[2])==0
-                                    ^^^^^^^^^^^^^^^^^^
-AssertionError

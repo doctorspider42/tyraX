@@ -43,6 +43,18 @@ foreach(_devflag C_FLAGS_DEV CXX_FLAGS_DEV)
     endif()
 endforeach()
 
+# --- Same float results on every platform ---
+# The host bakes write files that are committed (examples' .tmdl, AO atlases,
+# physics hulls, light probes) and hash floats into cache signatures. clang on
+# arm64 (every Mac) fuses a*b+c into one FMA by default, which rounds once
+# instead of twice, so a Mac and a PC baked different bytes from the same
+# project. Off everywhere: plain IEEE add/mul are then bit-identical on x86-64
+# SSE and arm64. Transcendentals (sin, cos, pow) still differ between C
+# libraries - code whose result is hashed or committed uses detmath.hpp.
+if(NOT MSVC)
+    add_compile_options(-ffp-contract=off)
+endif()
+
 # Compile the Windows resource script (app icon). Named GLFW_ICON so GLFW picks
 # it up for the window/taskbar icon too - see resources/app.rc.
 if(WIN32)
@@ -213,10 +225,16 @@ add_custom_command(
 # logs. Baked in like the icon, so every platform draws the same letters
 # whatever the machine has installed; the system font chains stay as the
 # fallback for glyphs Geist does not have.
+#
+# Geist Mono SemiBold is the GAME's default font (menubake::resolveFontPath):
+# a "Default" font with no file used to be the OS's own (Consolas Bold, Arial
+# Bold, DejaVu Sans Bold), so the same project baked a different atlas on
+# every platform.
 set(UI_FONT_GENS)
 foreach(pair "Geist-Regular.ttf|kGeistRegular|geist_regular"
              "Geist-SemiBold.ttf|kGeistSemiBold|geist_semibold"
-             "GeistMono-Regular.ttf|kGeistMonoRegular|geist_mono_regular")
+             "GeistMono-Regular.ttf|kGeistMonoRegular|geist_mono_regular"
+             "GeistMono-SemiBold.ttf|kGeistMonoSemiBold|geist_mono_semibold")
     string(REPLACE "|" ";" parts "${pair}")
     list(GET parts 0 font_file)
     list(GET parts 1 font_symbol)

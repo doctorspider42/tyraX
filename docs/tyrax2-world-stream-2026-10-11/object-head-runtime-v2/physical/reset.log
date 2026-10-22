@@ -1,4 +1,0 @@
-FRAMEARENA frames=91920 peak=1047936 resets=12 fallbacks=0 maxFrameBytes=2576192 maxBorrowed=2296720 freeKiB=11305
-“¤NATIVEVIF frames=91920 batches=91932
-ORDEREDFRAME frames=91920 splitFrames=6
-FRAMEPIPELINE starts=91920 dmaBusyStarts=90218

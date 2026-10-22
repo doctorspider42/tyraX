@@ -108,22 +108,87 @@ static std::string blobShadowFileName(const SceneObject& o) {
     return "res/textures/blob-shadows/" + id + ".png";
 }
 
-// One control for every SceneObject kind. A Vehicle already owns an automatic
-// import-time mask, but may override it here; ordinary renderables may bake
-// directly from their mesh or choose any project PNG.
+// Bakes the object's own top-down silhouette into blobShadowFileName(o).
+static bool bakeBlobShape(Project& project, SceneObject& o, std::string& status) {
+    const std::string path = blobShadowFileName(o);
+    std::string error;
+    float footprint[2] = {};
+    if (!blobshadowbake::bake(project, o, path, footprint, error)) {
+        status = "Blob-shadow bake failed: " + error;
+        return false;
+    }
+    o.blobShadowTexture = path;
+    o.blobShadowSize[0] = footprint[0];
+    o.blobShadowSize[1] = footprint[1];
+    status = "Baked blob-shadow shape for '" + o.name + "'";
+    return true;
+}
+
+// The blob's shape as three choices instead of one combo of every PNG in the
+// project: the round default (a vehicle's import-time silhouette), the
+// object's own mesh baked top-down, or an image picked from res/textures
+// (or imported into it). Which one is in force is read off blobShadowTexture,
+// so existing projects need nothing.
 static bool drawBlobShadowShape(Project& project, SceneObject& o,
                                 std::string& status) {
     bool changed = false;
-    const char* fallback = o.type == PrimitiveType::Vehicle
-                               ? "<automatic vehicle silhouette>"
-                               : "<round fallback>";
-    const char* shown = o.blobShadowTexture.empty()
-                            ? fallback
-                            : o.blobShadowTexture.c_str();
-    if (ui::BeginCombo("Blob shape", shown)) {
+    const bool vehicle = o.type == PrimitiveType::Vehicle;
+    const std::string bakedPath = blobShadowFileName(o);
+    const int kind = o.blobShadowTexture.empty() ? 0
+                     : o.blobShadowTexture == bakedPath ? 1
+                                                        : 2;
+    const char* kinds[] = {vehicle ? "Automatic" : "Round", "From mesh", "Image"};
+    int pick = kind;
+    if (ui::SegmentedRow("Blob shape", kinds, 3, &pick)) {
+        if (pick == 0) {
+            o.blobShadowTexture.clear();
+            o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            changed = true;
+        } else if (pick == 1) {
+            if (!blobshadowbake::canBake(o))
+                status = "This object has no mesh to bake a blob shape from";
+            else if (bakeBlobShape(project, o, status))
+                changed = true;
+        } else {
+            ImGui::OpenPopup("##blobimage");
+        }
+    }
+    ui::RowHelp(vehicle ? "AUTOMATIC - the silhouette the vehicle import baked.\n"
+                          "FROM MESH - bake this object's top-down shape now.\n"
+                          "IMAGE - any alpha mask from res/textures.\n"
+                          "One quad either way: no second model render."
+                        : "ROUND - a soft round spot.\n"
+                          "FROM MESH - bake this object's top-down shape (animated\n"
+                          "models use frame zero); it turns with the object.\n"
+                          "IMAGE - any alpha mask from res/textures.\n"
+                          "One quad either way: no second model render.");
+
+    if (kind == 1 && blobshadowbake::canBake(o)) {
+        if (ImGui::Button("Re-bake from mesh") && bakeBlobShape(project, o, status))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("After editing the model: bake its silhouette again.");
+    } else if (kind == 2) {
+        const std::string shown =
+            std::filesystem::path(o.blobShadowTexture).filename().string() + "  (change...)";
+        if (ImGui::Button(shown.c_str())) ImGui::OpenPopup("##blobimage");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", o.blobShadowTexture.c_str());
+    }
+
+    // The image picker: res/textures only (where masks live - not the fonts,
+    // HUD sprites and atlases a bake writes), filtered as you type, plus an
+    // import that copies a PNG from anywhere into res/textures/blob-shadows.
+    ImGui::SetNextWindowSizeConstraints(ImVec2(260.0f, 0.0f), ImVec2(420.0f, 360.0f));
+    if (ImGui::BeginPopup("##blobimage")) {
+        static char filter[96] = "";
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##blobfilter", "Filter textures", filter, sizeof filter);
+        std::string want = filter;
+        for (char& c : want) c = (char)std::tolower((unsigned char)c);
         std::vector<std::string> pngs;
         const std::filesystem::path root =
-            std::filesystem::path(project.dir) / "res";
+            std::filesystem::path(project.dir) / "res" / "textures";
         std::error_code ec;
         for (std::filesystem::recursive_directory_iterator it(root, ec), end;
              it != end && !ec; it.increment(ec)) {
@@ -131,102 +196,116 @@ static bool drawBlobShadowShape(Project& project, SceneObject& o,
             std::string ext = it->path().extension().string();
             for (char& c : ext) c = (char)std::tolower((unsigned char)c);
             if (ext != ".png") continue;
-            pngs.push_back(std::filesystem::relative(it->path(), project.dir, ec)
-                               .generic_string());
+            std::string rel = std::filesystem::relative(it->path(), project.dir, ec)
+                                  .generic_string();
             if (ec) break;
+            std::string low = rel;
+            for (char& c : low) c = (char)std::tolower((unsigned char)c);
+            if (want.empty() || low.find(want) != std::string::npos)
+                pngs.push_back(std::move(rel));
         }
         std::sort(pngs.begin(), pngs.end());
-        if (ImGui::Selectable(fallback, o.blobShadowTexture.empty()) &&
-            !o.blobShadowTexture.empty()) {
-            o.blobShadowTexture.clear();
-            o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
-            changed = true;
+        if (ImGui::BeginChild("##blobimages", ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 10.0f),
+                              ImGuiChildFlags_None)) {
+            if (pngs.empty()) ImGui::TextDisabled("No PNG in res/textures matches");
+            for (const std::string& path : pngs)
+                if (ImGui::Selectable(path.c_str(), path == o.blobShadowTexture)) {
+                    if (path != o.blobShadowTexture) {
+                        o.blobShadowTexture = path;
+                        o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+                        changed = true;
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
         }
-        for (const std::string& path : pngs)
-            if (ImGui::Selectable(path.c_str(), path == o.blobShadowTexture) &&
-                path != o.blobShadowTexture) {
-                o.blobShadowTexture = path; changed = true;
-                o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
-            }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Alpha mask sampled by the single runtime quad. Pick an existing\n"
-            "project PNG or bake the object's top-down mesh below. This does\n"
-            "not add another model render on the console.");
-
-    if (blobshadowbake::canBake(o)) {
-        if (ImGui::Button("Bake blob shape")) {
-            const std::string path = blobShadowFileName(o);
-            std::string error;
-            float footprint[2] = {};
-            if (blobshadowbake::bake(project, o, path, footprint, error)) {
-                o.blobShadowTexture = path;
-                o.blobShadowSize[0] = footprint[0];
-                o.blobShadowSize[1] = footprint[1];
-                status = "Baked blob-shadow shape for '" + o.name + "'";
-                changed = true;
-            } else {
-                status = "Blob-shadow bake failed: " + error;
+        ImGui::EndChild();
+        if (ImGui::Button("Import image...")) {
+            const std::string src = pickPath(PickKind::Png);
+            if (!src.empty()) {
+                const std::filesystem::path dstRel =
+                    std::filesystem::path("res/textures/blob-shadows") /
+                    std::filesystem::path(src).filename();
+                const std::filesystem::path dst = std::filesystem::path(project.dir) / dstRel;
+                std::filesystem::create_directories(dst.parent_path(), ec);
+                if (!std::filesystem::equivalent(src, dst, ec))
+                    std::filesystem::copy_file(src, dst,
+                                               std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    status = "Could not import " + src + ": " + ec.message();
+                } else {
+                    o.blobShadowTexture = dstRel.generic_string();
+                    o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+                    status = "Imported " + o.blobShadowTexture;
+                    changed = true;
+                    ImGui::CloseCurrentPopup();
+                }
             }
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Bake a soft 128x128 top-down silhouette from this mesh.\n"
-                "Animated models use frame zero; the mask then follows the\n"
-                "object's position and yaw at runtime.");
-    } else if (o.type == PrimitiveType::Vehicle) {
-        ImGui::TextDisabled("Vehicle import already bakes this shape");
-    } else {
-        ImGui::TextDisabled("No drawable mesh to bake; choose a PNG if needed");
+        ImGui::EndPopup();
     }
     return changed;
 }
 
-// Moving vehicles support runtime shadows; baked decals cannot follow them.
-static bool drawDynamicShadowControls(SceneObject& o) {
+// The runtime shadow as one visible choice. It replaced a "Dynamic shadow"
+// combo that also offered "Baked" next to a "Cast shadow" switch that meant
+// ambient occlusion - two controls named alike for different things. The
+// stored values are unchanged (SceneObject::shadowMode 0-4, projShadow).
+//   Auto  0  the project decides (+ the old projShadow switch)
+//   Off   1
+//   Blob  2  one soft quad; its shape below
+//   Live  3  the projected silhouette, rendered again each frame
+//   Baked 4  traced once by the shadow bake (static objects only)
+static bool drawShadowChoice(Project& project, SceneObject& o, std::string& status,
+                             bool allowBaked) {
     bool changed = false;
-    const char* shadowNames[] = {"Default (follow the project)", "None",
-                                 "Blob (baked shape)",
-                                 "Projected silhouette"};
+    const char* modes[] = {"Auto", "Off", "Blob", "Live", "Baked"};
+    const int count = allowBaked ? 5 : 4;
     int mode = o.shadowMode;
-    if (mode < 0 || mode > 3) mode = 0;
-    if (ui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+    if (mode < 0 || mode >= count) mode = 0;
+    if (ui::SegmentedRow("Shadow", modes, count, &mode)) {
         o.shadowMode = mode;
         changed = true;
     }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "What this object casts while the game runs.\n"
-            "DEFAULT - the project decides: a blob under the moving\n"
-            "things (avatar, animated models, physics) if Preferences\n"
-            "has blob shadows on, plus the silhouette below if it is\n"
-            "ticked.\n"
-            "NONE - nothing, whatever the project says.\n"
-            "BLOB - one soft dark quad that follows the ground under\n"
-            "it. A baked top-down mask rotates with the object without\n"
-            "another model render; vehicles receive one on import.\n"
-            "Cheap enough for traffic and crowds.\n"
-            "PROJECTED - the real silhouette: the object renders a\n"
-            "second time each frame (64x64, from the sun). The 4\n"
-            "casters largest on screen are active at a time, so use it\n"
-            "for the player's car and other hero objects.\n"
-            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
-            "shadow - a different thing entirely.");
-    // The old flag still means "projected" while the mode follows the
-    // project, so it stays reachable for existing projects.
+    ui::RowHelp(
+        "What this object casts on the ground in the game.\n"
+        "AUTO - the project decides: a blob under moving things if\n"
+        "Preferences has blob shadows on.\n"
+        "OFF - nothing.\n"
+        "BLOB - one soft dark quad under it. Cheap enough for\n"
+        "traffic and crowds.\n"
+        "LIVE - the real silhouette, rendered again each frame from\n"
+        "the sun; the 4 casters nearest the camera get one, so keep\n"
+        "it for hero objects. Game-only (no preview).\n"
+        "BAKED - the real shape traced once onto what is under it:\n"
+        "free per frame, but the object must stay put.");
+    const char* what[] = {"Follows the project's shadow settings.",
+                          "Casts no shadow.",
+                          "A soft quad under the object - about free.",
+                          "Real silhouette, re-rendered every frame.",
+                          "Real shape, baked - costs nothing per frame."};
+    ImGui::TextDisabled("%s", what[mode]);
     if (o.shadowMode == 0) {
-        if (ui::Switch("Projected shadow (live)", &o.projShadow))
-            changed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "The project-default form of the choice above. Pick\n"
-                "\"Projected silhouette\" in the combo to say it on the\n"
-                "object instead.\n"
-                "With a GI bake a static object's sun shadow is already\n"
-                "baked: the live one then draws only while the day/night\n"
-                "clock runs or under a torch. The combo forces it.");
+        // The pre-choice flag: "projected" while the mode follows the project.
+        if (ui::Switch("Also a live silhouette", &o.projShadow)) changed = true;
+        ui::RowHelp(
+            "Adds the Live silhouette on top of what the project gives.\n"
+            "With a GI bake a static object's sun shadow is already\n"
+            "baked: the live one then draws only while the day/night\n"
+            "clock runs or under a torch. Pick Live above to force it.");
+    } else if (o.shadowMode == 2) {
+        if (drawBlobShadowShape(project, o, status)) changed = true;
+    } else if (o.shadowMode == 4) {
+        // A baked shadow needs the project switch and a caster that stands
+        // still. The sentence comes from shadowbake itself (quickRefusal), so
+        // the panel and the bake cannot disagree about which objects qualify.
+        const std::string why = shadowbake::quickRefusal(o);
+        if (!why.empty())
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "No baked shadow: %s", why.c_str());
+        else if (!project.settings.bakedShadows)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "Baked shadows are off for this project");
+        else
+            ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
     }
     return changed;
 }
@@ -696,6 +775,15 @@ void App::drawPropertiesWindow() {
                                o.vehicleDef.c_str());
             ImGui::PopStyleColor();
         }
+        // Straight to the definition this car is placed from: the Vehicle
+        // Editor opens with it selected.
+        if (ImGui::Button(known && !o.vehicleDef.empty() ? "Edit in Vehicle Editor"
+                                                         : "Open Vehicle Editor")) {
+            showVehicles_ = true;
+            for (size_t vi = 0; vi < project_.vehicles.size(); ++vi)
+                if (project_.vehicles[vi].name == o.vehicleDef) vehicleSel_ = (int)vi;
+            pendingFocusWindow_ = "Vehicle Editor";
+        }
         if (ui::Switch("Player can drive it", &o.vehicleDriveable))
             committed = true;
         prefHelp(
@@ -716,12 +804,10 @@ void App::drawPropertiesWindow() {
                 "player takes it. The player taking THIS car pauses its AI.");
         }
         ImGui::SeparatorText("Rendering");
-        if (drawDynamicShadowControls(o)) committed = true;
-        if (o.shadowMode == 2 &&
-            drawBlobShadowShape(project_, o, statusMessage_))
-            committed = true;
+        // Baked is left out: a baked shadow cannot follow a moving car.
+        if (drawShadowChoice(project_, o, statusMessage_, false)) committed = true;
         ImGui::TextDisabled(
-            "Blob suits traffic; projected silhouette suits the hero car.");
+            "Blob suits traffic; Live suits the hero car.");
     }
     if (o.type == PrimitiveType::Model &&
         section(isAnimatedModelPath(o.modelPath) ? "Animated model" : "Model", true)) {
@@ -1240,11 +1326,15 @@ void App::drawPropertiesWindow() {
                 committed = true;
             }
         } else if (o.type == PrimitiveType::Model) {
-            const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)",
-                                   "None"};
+            // "Box", not "Box (mesh AABB)": with an own collision box below the
+            // box is NOT the mesh's AABB, and the label sent people looking for
+            // the collider in the yellow selection outline (which is the AABB).
+            const char* modes[] = {"Box", "Mesh (walkable triangles)", "None"};
             if (ui::Combo("Collision", &o.collisionMode, modes, 3)) committed = true;
             if (o.collisionMode == 1)
                 ImGui::TextDisabled("Player walks the model's surface (ramps, stairs).");
+            if (o.collisionMode == 0)
+                ImGui::TextDisabled("Red in View > Collision boxes; yellow is the selection.");
             if (o.collisionMode == 0 && !o.modelPath.empty()) {
                 // The MODEL's own box (docs/collision-boxes.md, "A smaller
                 // box"): one setting per asset, so every lamp made from this
@@ -1293,7 +1383,7 @@ void App::drawPropertiesWindow() {
                     if (ui::AxisDrag3("Box max", b.mx, speed, 0.0f, 0.0f, "%.3f"))
                         for (int k = 0; k < 3; ++k) b.mx[k] = std::max(b.mx[k], b.mn[k]);
                     if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
-                    if (ImGui::Button("Fit to post")) {
+                    if (ImGui::Button("Fit to base")) {
                         // The vertices of the lower 40% of the model give the
                         // footprint; the height stays the whole model's. A
                         // lamp, a sign, a tree: the post, not the arm.
@@ -1321,6 +1411,11 @@ void App::drawPropertiesWindow() {
                             }
                         }
                     }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Shrinks the box's footprint to the bottom 40%% of the model -\n"
+                            "a lamp's post, a tree's trunk, a sign's pole - so what hangs\n"
+                            "over the pavement above stops blocking. The height stays.");
                     ImGui::SameLine();
                     if (ImGui::Button("Reset to mesh bounds")) {
                         for (int k = 0; k < 3; ++k) b.mn[k] = bmn[k], b.mx[k] = bmx[k];
@@ -1534,92 +1629,15 @@ void App::drawPropertiesWindow() {
                 ImGui::TextDisabled("In reflections: %s", reflscenery::verdictText(verdict));
             }
 
-            // THE RUNTIME shadow, distinct from the baked ambient-occlusion
-            // "Cast shadow" below - and a choice per object rather than a
-            // project-wide one (docs/shadows.md): a blob is one soft quad that
-            // costs almost nothing and has no shape, a projected silhouette is a
-            // second 64x64 render of this object every frame. "Default" is what
-            // every project did before the choice existed, so an untouched object
-            // behaves exactly as it always has.
-            {
-                const char* shadowNames[] = {"Default (follow the project)",
-                                             "None", "Blob (soft quad)",
-                                             "Projected silhouette",
-                                             "Baked (decal)"};
-                int mode = o.shadowMode;
-                if (mode < 0 || mode > 4) mode = 0;
-                // A real label rather than "##dynshadow" plus a SameLine caption:
-                // it is the idiom the rest of these panels use, and a hidden label
-                // is a widget no UI script can name (docs/ui-scripting.md).
-                if (ui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
-                    o.shadowMode = mode;
-                    committed = true;
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "What this object casts while the game runs.\n"
-                        "DEFAULT - the project decides: a blob under the moving\n"
-                        "things (avatar, animated models, physics) if Preferences\n"
-                        "has blob shadows on, plus the silhouette below if it is\n"
-                        "ticked.\n"
-                        "NONE - nothing, whatever the project says.\n"
-                        "BLOB - one soft dark quad that follows the ground under\n"
-                        "it. Bake or pick a top-down mask below; vehicles also\n"
-                        "receive one automatically during import.\n"
-                        "Cheap enough for traffic and crowds.\n"
-                        "PROJECTED - the real silhouette: the object renders a\n"
-                        "second time each frame (64x64, from the sun) and the\n"
-                        "shape is projected under it. The 4 casters nearest the\n"
-                        "camera are active at a time, so mark hero objects.\n"
-                        "Game-only (no preview).\n"
-                        "BAKED - the real shape, traced once and projected onto\n"
-                        "whatever is under it. Costs no slot and nothing per\n"
-                        "frame, reaches textured walls and models the lightmap\n"
-                        "cannot, and needs a bake (Ambience Editor > Baked\n"
-                        "lighting). The caster and what it falls on must stay\n"
-                        "put. 'Cast shadow' below is the ambient-occlusion one -\n"
-                        "a different thing entirely.");
-                // A baked shadow needs two things this panel can say straight
-                // away: the project switch, and a caster that stands still. The
-                // sentence comes from shadowbake itself (quickRefusal), so the
-                // panel and the bake cannot end up disagreeing about which objects
-                // qualify. Everything else - whether it lands on anything, how
-                // many triangles it costs - needs the bake and is reported there.
-                if (o.shadowMode == 4) {
-                    const std::string why = shadowbake::quickRefusal(o);
-                    if (!why.empty())
-                        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                                           "No baked shadow: %s", why.c_str());
-                    else if (!project_.settings.bakedShadows)
-                        ImGui::TextColored(
-                            ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
-                            "Baked shadows are off for this project");
-                    else
-                        ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
-                }
-                if (o.shadowMode == 2 &&
-                    drawBlobShadowShape(project_, o, statusMessage_))
-                    committed = true;
-                // The old flag still means "projected" while the mode follows the
-                // project, so it stays reachable - and stays the thing every
-                // existing .tyra carries.
-                if (o.shadowMode == 0) {
-                    if (ui::Switch("Projected shadow (live)", &o.projShadow))
-                        committed = true;
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "The project-default form of the choice above. Pick\n"
-                            "\"Projected silhouette\" in the combo to say it on the\n"
-                            "object instead.\n"
-                            "With a GI bake a static object's sun shadow is already\n"
-                            "baked: the live one then draws only while the day/night\n"
-                            "clock runs or under a torch. The combo forces it.");
-                }
-            }
+            // THE shadow the object casts, a choice per object (docs/shadows.md).
+            // "Auto" is what every project did before the choice existed, so an
+            // untouched object behaves exactly as it always has.
+            if (drawShadowChoice(project_, o, statusMessage_, true)) committed = true;
             // Baked ambient occlusion: whether this object darkens nearby
             // terrain/objects (docs/ambient-occlusion.md; global strength in
-            // the Ambience Editor).
-            if (ui::Switch("Cast shadow", &o.castShadow)) committed = true;
+            // the Ambience Editor). Named for what it is - it used to read
+            // "Cast shadow" right under the shadow choice and was taken for it.
+            if (ui::Switch("Contact shadow (AO)", &o.castShadow)) committed = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Bakes a soft contact shadow onto nearby terrain and objects\n"
@@ -3361,14 +3379,14 @@ void App::drawMultiProperties() {
         multiCheck("Never occlude other objects", &SceneObject::occluderExclude);
         multiCheck("Can be occlusion culled", &SceneObject::occlusionCull);
         multiCheck("Projected shadow (live)", &SceneObject::projShadow);
-        multiCheck("Cast shadow", &SceneObject::castShadow);
+        multiCheck("Contact shadow (AO)", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
         if (!anySavePoint) {
             multiCheck("Usable (USE prompt + On Used)", &SceneObject::usable);
             multiCheck("Pickable (USE picks it up)", &SceneObject::pickable);
         }
         if (allModel) {
-            const char* modes[] = {"Box (mesh AABB)", "Mesh (walkable triangles)", "None"};
+            const char* modes[] = {"Box", "Mesh (walkable triangles)", "None"};
             multiCombo("Collision", &SceneObject::collisionMode, modes, 3);
         } else if (!anyModel) {
             // primitives / save points: solid box or none

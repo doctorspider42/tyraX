@@ -1,10 +1,10 @@
 # Shadows
 
 Three shadows an OBJECT can cast, chosen **per object** in *Properties >
-Dynamic shadow* — plus a fourth thing further down this page, which is about a
+Shadow* (**Auto · Off · Blob · Live · Baked**) — plus a fourth thing further down this page, which is about a
 LIGHT rather than an object ("Spot-light shadow volumes"):
 
-| | Blob | Projected silhouette | Baked (decal) |
+| | Blob | Live (projected silhouette) | Baked (decal) |
 | --- | --- | --- | --- |
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
 | Shape | a baked/picked top-down mask per object; round fallback when none is assigned | the real silhouette, animation included | the real silhouette, with a real penumbra |
@@ -12,7 +12,8 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | Cost | one 18-triangle / one-package patch | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
 
-They are not the same thing as **"Cast shadow"** further down that panel, which
+They are not the same thing as **Contact shadow (AO)** further down that panel
+(it was called "Cast shadow" before 2.0 and was taken for this choice), which
 is the *baked* ambient occlusion ([ambient-occlusion.md](ambient-occlusion.md)):
 that one is painted into the lighting at build time and never moves. Nor is it
 the flashlight's own shadow machinery, which is a separate system with its own
@@ -22,28 +23,29 @@ gives it: a torch held at the eye hides its own shadows behind whatever casts
 them, by geometry rather than by any bug (flashlight.md, "How much of a volume
 shadow you will actually SEE").
 
-## The choice, and what "Default" means
+## The choice, and what "Auto" means
 
-*Properties > Dynamic shadow* offers **Default / None / Blob / Projected
-silhouette / Baked (decal)**, and Default is what every project did before the
-choice existed:
+*Properties > Shadow* is one segmented row, **Auto / Off / Blob / Live /
+Baked**, with a line under it saying what the picked one costs (a vehicle gets
+the first four: a baked shadow cannot follow it). Auto is what every project did
+before the choice existed:
 
 - a **blob** under the things that MOVE — the third-person avatar, animated
   models and physics bodies — while *Preferences > Graphics > Blob shadows
   under moving objects* is on;
-- a **projected silhouette** where the object's *Projected shadow (live)*
-  checkbox is ticked (that checkbox is still there, and still what an existing
-  `.tyra` carries).
+- a **projected silhouette** where the object's *Also a live silhouette*
+  switch is on (shown under Auto; it is the old *Projected shadow (live)*
+  checkbox, and still what an existing `.tyra` carries).
 
 Picking anything else overrides both, in both directions:
 
 - **Blob** works on a **static** prop too, and with the project preference
   **off** — the moving-things rule only gates the default. This is the answer
   to "I want this model grounded, but not at the price of a silhouette render".
-- **None** keeps an object out of both systems even when the preference is on
+- **Off** keeps an object out of both systems even when the preference is on
   and the checkbox is ticked.
-- **Projected silhouette** casts one whether or not the old checkbox is set.
-- **Baked (decal)** leaves both runtime systems and takes the static route
+- **Live** casts the projected silhouette whether or not the old switch is on.
+- **Baked** leaves both runtime systems and takes the static route
   below instead. It needs a bake and it needs the caster to stand still.
 
 Lights and markers never cast either kind, whatever the mode says.
@@ -69,9 +71,12 @@ object's height.
 
 ## Baked blob shapes
 
-Choose **Blob**, then use **Blob shape** in the same Rendering section. Every
-renderable scene object can pick an existing project PNG or press **Bake blob
-shape**. The bake rasterises the object's top-down triangles into a soft
+Choose **Blob**, then pick the **Blob shape** right under it: **Round** (a
+vehicle shows **Automatic**, the silhouette its import baked), **From mesh** or
+**Image**. From mesh bakes at once (and offers **Re-bake from mesh** after a
+model edit); Image opens a picker over `res/textures` with a filter field and
+**Import image...**, which copies a PNG from anywhere into
+`res/textures/blob-shadows/`. The bake rasterises the object's top-down triangles into a soft
 128x128 alpha mask under `res/textures/blob-shadows/`; static OBJ models and
 primitives use their authored mesh, while animated GLB/FBX models use frame
 zero. The stored X/Z footprint keeps rectangular objects rectangular after the
@@ -391,7 +396,7 @@ Two things follow from that, and they are the whole reason to reach for it:
 
 1. Turn the feature on in *Ambience Editor > Baked lighting > **Baked
    shadows***.
-2. Set *Properties > Dynamic shadow* to **Baked (decal)** on the objects that
+2. Set *Properties > Shadow* to **Baked** on the objects that
    should cast one.
 3. Press **Bake this scene** (or **Bake all scenes**) in that same section.
 
@@ -937,7 +942,7 @@ nothing stops it.
 Switch it on project-wide in *Preferences > Graphics > **Spot light shadow
 volumes***, and override it on any one light in *Properties > Point light >
 **Shadow volumes*** — **Default (follow the project) / Off / On**, the same
-tri-state idiom as *Dynamic shadow* above. The override only means anything
+tri-state idiom as *Shadow* above. The override only means anything
 while *Spot (cone)* is on; a point light has no cone to carve.
 
 **What gets carved is the lamp's ground pool and its light on the solids in
@@ -1005,7 +1010,7 @@ one you get depend on where the camera happens to be.
   and a lamp's receiver is one patch, so there is nothing to interleave.)
 - **Casters follow the same rules as the torch's**: everything solid inside the
   cone, nearest first, at most four, nothing bigger than a grouping cell, and
-  nothing whose *Dynamic shadow* is **None** — that setting now keeps an object
+  nothing whose *Shadow* is **Off** — that setting now keeps an object
   out of the volumes too, for both lights.
 
 ### In the editor
@@ -1014,8 +1019,8 @@ The viewport previews the carve in **Solid** shading (the default): the spot
 that would hold the slot in the game — the nearest to the editor camera among
 the dynamic spots that resolve to "on" — shadows through the same casters the
 game's `pickVolCasters` would pick (everything solid in its cone, nearest four
-to the light, nothing grouping-cell sized, nothing whose *Dynamic shadow* is
-None), while every other dynamic light keeps the older preview rule (its
+to the light, nothing grouping-cell sized, nothing whose *Shadow* is
+Off), while every other dynamic light keeps the older preview rule (its
 nearest four *Cast shadow (projected)* objects). Two honest differences: the
 preview's shadow is the analytic box or sphere the AO occluders use, where the
 console extrudes a model's real triangles, so a tree throws a box; and there

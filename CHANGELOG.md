@@ -26,6 +26,28 @@ history.
 - The bumper camera rides the car's body instead of swinging the bonnet through the lens.
 - Projects without roads build again.
 
+### The same project bakes the same files on every OS
+
+- **Games have a built-in default font, Geist Mono SemiBold.** A font left on *Default* used to be the OS's own (Consolas Bold on Windows, Arial Bold on macOS, DejaVu Sans Bold on Linux), so every machine baked a different glyph atlas, HUD text sprites and save-busy sprite. Text in games that use the default font looks slightly different from 1.x.
+- Model LODs, AO atlas layouts, physics hulls and the day/night sun no longer depend on the compiler or C library: no fused multiply-add on Apple Silicon, ties in sorts broken explicitly, and the trigonometry that ends up in committed files or bake signatures computed by the editor itself. A Mac no longer reads a Windows-made GI cache as stale (the Showcase lost its light probes that way).
+
+### Editor fixes
+
+- **Properties > Shadow** is one visible choice - *Auto · Off · Blob · Live · Baked* - with a line saying what it costs. The ambient-occlusion switch below it, which read "Cast shadow" and was taken for the same thing, is now **Contact shadow (AO)**.
+- **Blob shape** is *Round* (vehicles: *Automatic*), *From mesh* or *Image*, with an image picker over `res/textures` and an import, instead of a list of every PNG in the project.
+- Collision: the mode reads **Box** (it is not the mesh AABB once the model has its own box), a line says the collider is drawn red and the yellow outline is the selection, and *Fit to post* is **Fit to base**.
+- **The Vehicle Editor says what is inherited.** *Editing: Defaults | <vehicle>* on top of the settings, a line saying how many values are the car's own, and on every row a fixed slot on the right: *Own* with a revert button (and a tick on the slider at the Defaults value), *Defaults* that turns into *Make own* on hover, *Model* for measured values, or why the row is faded ("needs a sample"). In Defaults the slot shows which vehicles follow, with a *Follow* per vehicle; a legacy vehicle gets *Adopt Defaults*. The dot and reset arrow that overlapped long captions are gone. Tabs are grouped by goal - Handling, Engine & sound (with a pitch-against-revs chart and the samples' length and size), Camera & HUD, Damage, Look, Model & cost - each counting the car's own values, and *Show: Own only* filters to them.
+- A vehicle's Properties have **Edit in Vehicle Editor**. The Vehicle Editor's *Drive it* is hidden for 2.0.
+- On Windows the Run button no longer sits under the window's caption buttons.
+- Opening a bundled example shows the loading card at once and copies the example behind it (the vehicle playground used to freeze the window for seconds first).
+- Opening the Asset Browser no longer stalls: thumbnails and model parses are spread over frames by time, and the 1.5-second rescan no longer re-reads every model.
+- The rail's tooltips no longer show "##rail"; the Menu Editor's *Install a copy...* no longer runs off the panel.
+
+### Repository and installer
+
+- The TyraX2 performance investigation is closed: its raw evidence (about 134,000 files, 10.6 GB under `docs/tyrax2-*`) and lab scripts are gone from the tree; the write-ups stay in `docs/`, the evidence in git history.
+- Installers ship only the tools an installed editor runs (`ps2client`, `toolchain`, `ps2link`, `vscode-tyrax`), not the developer scripts in `tools/`.
+
 
 ### A redesigned main window
 

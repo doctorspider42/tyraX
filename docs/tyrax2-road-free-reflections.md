@@ -122,5 +122,5 @@ compiles hardware tracing and legacy profiling off, pauses noon, and drives a
 fixed route. Do not subtract its absolute times from a differently configured
 editor build or call this proof that the devkit caused all previous slowdown.
 
-[Evidence archive](tyrax2-road-free-reflections-2026-10-08/README.md) retains
+Evidence archive retains
 CSV, analyses, logs, launch/input identities, source binding and relevant sources.

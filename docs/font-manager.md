@@ -31,8 +31,12 @@ project is an edit here rather than a hunt through every text.
   font: only then is the atlas baked and shipped. Static texts rasterize
   straight from the TTF at build and cost the atlas nothing.
 - **Inspector** (right). **Name** (the reference key; renaming retargets every
-  text that uses it) and **Source** (the default chain, a project font, or a
-  font of this machine). **Display Text look** - runtime text only: the
+  text that uses it) and **Source** (*Default*, a project font, or a font
+  of this machine). *Default* is **Geist Mono SemiBold**, built into the
+  editor since 2.0, so a project bakes the same atlas on Windows, macOS and
+  Linux; before 2.0 it was the machine's own font (Consolas Bold, Arial Bold
+  or DejaVu Sans Bold). A font of this machine is the one choice that still
+  bakes differently elsewhere - import it into the project instead. **Display Text look** - runtime text only: the
   **Colour** the white glyphs are tinted with and the **Drop shadow**. Static
   texts keep their own colour and shadow. **Atlas**: **Glyph size** is the
   height the glyphs are rasterized at - sharpness against VRAM, not the

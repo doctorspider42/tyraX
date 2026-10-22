@@ -1,1 +1,0 @@
-PASS actual main-loop switch frames=256 positive=1 controls=2

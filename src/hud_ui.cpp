@@ -2465,7 +2465,7 @@ void App::drawBakedLightingSection() {
 }
 
 // Baked shadow decals (docs/shadows.md). Per OBJECT, like pre-lit above it -
-// an object asks for one in Properties > Dynamic shadow and this is where the
+// an object asks for one in Properties > Shadow and this is where the
 // project-wide quality and the bake itself live. Built as a near-twin of
 // drawGiBakeSection, deliberately: it is the same shape of thing (an explicit,
 // content-hashed, cached bake with a stale readout and a pre-build opt-in), and
@@ -2481,7 +2481,7 @@ void App::drawShadowBakeSection() {
     prefHelp(
         "The static directional shadow: traced once on this machine, projected "
         "onto whatever is under the caster and drawn as ordinary triangles. "
-        "Mark a caster with Properties > Dynamic shadow > Baked.");
+        "Mark a caster with Properties > Shadow > Baked.");
     ImGui::TextDisabled(
         "Reaches textured walls and models, which a lightmap cannot.\n"
         "One submit per atlas page, whatever the shadow count.");
@@ -2685,7 +2685,7 @@ void App::drawShadowBakeSection() {
              "stale scene re-bakes before a build. A bake takes seconds.");
     if (totalCasters == 0 && st.bakedShadows)
         ImGui::TextDisabled(
-            "Nothing casts one yet: pick Baked in Properties > Dynamic shadow.");
+            "Nothing casts one yet: pick Baked in Properties > Shadow.");
     // The one thing that makes a perfectly good bake look wrong in the game,
     // and it cannot be seen from the bake itself. Asked cheaply - a preset
     // lookup, not a plan() - so it can sit here every frame; plan() carries

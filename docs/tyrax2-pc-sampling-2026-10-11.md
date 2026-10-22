@@ -75,7 +75,7 @@ followed by another leaf spin to detect late callbacks; export occurs stopped.
 Installed libkernel/header hashes are recorded. Native/target qualification is
 complete as recorded below. This intentionally does not draw or price the scene.
 
-[Calibration evidence](tyrax2-pc-sampling-2026-10-11/calibration-v1/README.md):
+Calibration evidence:
 native490/ELFa87be09e...af2c3, hidden emulator375 samples and physical PS2372.
 Actual callback leaf hit ratios97..100% across997/1733us periods, zero overflow
 and callbacks after release, five reader mutations rejected per target. CP0
@@ -106,7 +106,7 @@ The moving fixture now completes native490/ELF185560b0...e7b9a and BOTH targets.
 Closed hidden30604/physical30492 samples;36 exact OFF/ON/OFF main/env rasters
 each,15 reader controls, no overflow/late callback. Native debug/deployed .text
 equal;623-file archive replays both qualifiers and physical symbolizer exactly:
-[moving-v1](tyrax2-pc-sampling-2026-10-11/moving-v1/README.md).
+moving-v1.
 First symbolization failed on Windows backslash sample-pin paths under WSL;
 canonical POSIX relative keys repair it, no target source/ELF change.
 Initial log watcher failed shell quoting and never observed anything; corrected

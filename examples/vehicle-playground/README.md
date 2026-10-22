@@ -21,7 +21,7 @@ Version 1.173.5 separates terrain residency/LOD focus from visual camera shake,
 avoiding repeated terrain builds while the car sits on a detail snap boundary.
 Roads, normal detail and live reflections remain enabled. Both-order physical
 day/night A/B qualifies the fix, not stable 60 fps. Rebuild with the updated
-editor; see [the qualification](../../docs/tyrax2-terrain-focus-2026-10-11/README.md).
+editor; see the qualification.
 
 Generated paint code includes the default-OFF `TYRA_VU1_EXP_PAINT` experiment.
 Both engine and game must use the same flag. It retains accepted paint basis

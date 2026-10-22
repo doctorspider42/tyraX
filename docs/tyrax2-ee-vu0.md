@@ -10,7 +10,7 @@ The private V5 census completes both PS2 observer orders and both emulator order
 
 All26 original V4 counters match V5 in all24 warm/sample windows. Labels describe successful copied snapshot publication; they grant no immutable lifetime or borrowing permission and zero tagged volume does not prove a producer absent. A follow-up source audit finds active untagged wheel/debris and material-pass constructors, but source presence does not attribute the86,448 bytes to them.
 
-The observer adds1.525626–1.532746ms of inclusive nonpacing time in this serialized fixture, against0.000899/0.001596ms outer spreads. Stage wall means remain33.32655–33.32797ms. These are this observer's paired results, not an optimization or an ordinary production FPS result. Common descriptor initialization, tagging, resets and compiled-on layout remain unpriced. Actual EE layouts are Bag48bytes/Qbuffer76bytes/Metrics616bytes/Scope248bytes, versus compiled-out Bag44/Qbuffer44; class counts and full application footprint are unknown. The [machine record](tyrax2-producer-origin-census-2026-10-04.json) pins the independent four-archive/pair proof and preserves all earlier machine-record hashes.
+The observer adds1.525626–1.532746ms of inclusive nonpacing time in this serialized fixture, against0.000899/0.001596ms outer spreads. Stage wall means remain33.32655–33.32797ms. These are this observer's paired results, not an optimization or an ordinary production FPS result. Common descriptor initialization, tagging, resets and compiled-on layout remain unpriced. Actual EE layouts are Bag48bytes/Qbuffer76bytes/Metrics616bytes/Scope248bytes, versus compiled-out Bag44/Qbuffer44; class counts and full application footprint are unknown. The machine record pins the independent four-archive/pair proof and preserves all earlier machine-record hashes.
 
 The copied-byte partition is complete at its declared coverage. Next rank actual execution with debugger scopes, then validate selected intervals and observer cost on PS2; another broader producer census is not the current next step.
 
@@ -22,7 +22,7 @@ Same-ELF nonpacing On-minus-Off contrasts were +1.043604533/+1.037487295 ms for 
 
 Both PS2 orders and both emulator orders completed 384 sample records with exact three-image RGB/converted-working-alpha parity within each boot. The independent pair audit verifies all 768 physical samples and all four source-launch attestations. Native exit 0, 495 inventoried inputs, 486 actual used native-mirror inputs and nine ancillary metadata files are separately pinned. The initial order-1 launch was explicitly rejected before freeze because root supplied the wrong configuration filename; its log is preserved and contributes no accepted samples. A fresh retry used the same frozen source/ELF and is archived separately.
 
-Actual EE metadata proof records 20,512 B of root tables, 256 B Metrics, 72 B SnapshotScope, 5,120 B atlas, 25,600 B part guards, 112 B object guards and 2,352 B authored snapshots. These are metadata layouts, not net Qbuffer-class ABI or whole-application footprint. Host/source/native/runtime qualifications and the preserved V1a/V2/V3 record hashes are linked in the [machine record](tyrax2-static-owner-census-2026-10-04.json).
+Actual EE metadata proof records 20,512 B of root tables, 256 B Metrics, 72 B SnapshotScope, 5,120 B atlas, 25,600 B part guards, 112 B object guards and 2,352 B authored snapshots. These are metadata layouts, not net Qbuffer-class ABI or whole-application footprint. Host/source/native/runtime qualifications and the preserved V1a/V2/V3 record hashes are linked in the machine record.
 
 No production optimization or immutable lease was introduced. Raw unstamped writes and exact pointer/size/stamp ABA remain outside the private frozen-owner guard contract. The subsequent producer partition above completes that next step, preserving explicit Unknown and Mixed instead of estimating savings from static allocation inventory. This result supports neither 60 FPS nor a universal static-owner conclusion.
 
@@ -37,7 +37,7 @@ All four archives independently validate the actual runtime protocol and exact t
 
 Actual EE metadata proof records four roots20,512 B, Metrics256 B, SnapshotScope72 B, atlas ranges5,120 B and owner guard records23,040 B. This is metadata layout evidence, not net Qbuffer-class ABI or full application footprint. Actual-header host parity ran2,234 cases/44,051 assertions at both O0 and O2; modeled Chunk/array guard controls ran49 assertions. Host/parser scope and raw unstamped-write/pointer-ABA limitations remain explicit in the pinned evidence.
 
-V1a and V2 public machine records are preserved with their current SHA256s in the [machine record](tyrax2-road-owner-census-2026-10-03.json). The Road census is private instrumentation only: no production code was integrated and no owner lifetime/borrowing optimization was accepted. Future append-only storage requires a separate safe frame-bank reuse fence, must not reset on generic queue drain, and must avoid original delete[] ownership conflicts.
+V1a and V2 public machine records are preserved with their current SHA256s in the machine record. The Road census is private instrumentation only: no production code was integrated and no owner lifetime/borrowing optimization was accepted. Future append-only storage requires a separate safe frame-bank reuse fence, must not reset on generic queue drain, and must avoid original delete[] ownership conflicts.
 
 Next measure actual copied ranges from an explicit static GeoPart whitelist.
 Do not implement original-road borrowing on the strength of atlas capacity: this
@@ -66,7 +66,7 @@ The count-only comparison with the accepted V1a record shows 83 REF operations a
 
 Within V2's own physical orders, On increased mean nonpacing inclusive time by 0.944503/0.950303ms against Off in the first boot and 0.948154/0.949142ms in reverse order. Same-state outer spreads were 0.005800ms and 0.000988ms. Mean wall intervals remained near 33.327ms as pacing changed. These are aggregate observer costs under serialized real completion, not pure EE/GPU work, an optimization gain or a constant tax to subtract elsewhere. No 60 FPS or production-performance acceptance follows.
 
-Target metadata remains four root tables totaling 16416 bytes, Metrics 208 bytes, SnapshotScope 56 bytes and 24 additional qbuffer fields bytes; those fields do not establish the full class's net ABI growth. All source/native/asset/ELF, raw archive, attestation, strict parser and independent review pointers are hashed in the [machine record](tyrax2-mutable-ref-retained-census-2026-10-03.json). The previous accepted public V1a record is referenced by its actual repository hash and remains unchanged.
+Target metadata remains four root tables totaling 16416 bytes, Metrics 208 bytes, SnapshotScope 56 bytes and 24 additional qbuffer fields bytes; those fields do not establish the full class's net ABI growth. All source/native/asset/ELF, raw archive, attestation, strict parser and independent review pointers are hashed in the machine record. The previous accepted public V1a record is referenced by its actual repository hash and remains unchanged.
 
 A separate owner audit identifies two plausible bounded directions: sealed generated road-chunk arrays, or an explicit whitelist of nondeforming generated static-model GeoPart allocations. Their contribution to the 129360-byte Bag category is not measured. Registration must cover actual emitted ranges and preserve copied fallback; old allocations must survive pending readers through rebuild/LOD/scene teardown. Public MeshMaterialFrame pointers and shallow aliases permit writes, while VU0 skinning mutates position/normal outputs in place. Therefore neither every Bag nor every static-looking mesh can become borrowed memory by default. Content stamps are cache keys, not reader locks. Any separate append-only owner bank must avoid reuse on generic drain and adapt existing delete[]/dynamic-detach behavior explicitly.
 
@@ -106,7 +106,7 @@ completion fence; qbuffer detachment must preserve allocator ownership.
 The first private build failed because two generated files included a renamed
 header; the corrected fixture changes only those includes. Its source inventory,
 actual used build mirror, ELF/symbol pair, assets, configuration, strict protocol
-and raw pair arithmetic are independently checked. The [machine record](tyrax2-mutable-ref-census-2026-10-03.json)
+and raw pair arithmetic are independently checked. The machine record
 retains hashes, rejected history and limitations. No production renderer change
 or 60 FPS gain is accepted here.
 
@@ -141,7 +141,7 @@ different source workload are not physical performance evidence.
 Actual-header host controls cover snapshot rollback, callback behavior, native
 capacity/output parity and eligibility/retry decisions. Production integration,
 moving-camera acceptance and final quiet controls remain separate checks. The
-[paired record](tyrax2-native-sizing-reuse-2026-10-03.json) retains exact hashes,
+paired record retains exact hashes,
 counts, periods, controls and limitations. No production engine change is part
 of this measurement milestone.
 
@@ -167,7 +167,7 @@ Snapshot and conversion are **inside** submission; do not add them to its total.
 
 Nearly zero explicit waits point toward EE preparation on the observed critical path. They do not establish idle VU1/GS: the consumer runs concurrently, and the 12.779332 ms first-observation upper bound covers DMA/VIF/VU1/GIF/GS together. It is neither VU-only time nor utilization. Current cache timing also means the historical approximately 1.09 ms flush-removal estimate cannot be reused for this runtime and pose.
 
-The [machine record](tyrax2-pipeline-attribution-2026-10-02.json) preserves exact windows, source/ELF/frozen-log hashes, preparation/analysis scripts, build/emulator evidence hashes and the full read-only VU0 audit. The owned ps2client remains serving the healthy night game; freezing evidence does not stop host-file service.
+The machine record preserves exact windows, source/ELF/frozen-log hashes, preparation/analysis scripts, build/emulator evidence hashes and the full read-only VU0 audit. The owned ps2client remains serving the healthy night game; freezing evidence does not stop host-file service.
 
 ## VU0 already has owners
 
@@ -196,7 +196,7 @@ The integrated candidate passed the existing 1,074 arena cases plus 10,000 malfo
 | One-search borrowing | 18.435447 | 29.94 |
 | Baseline restored | 18.556225 | 29.94 |
 
-Apparent savings are 0.032727–0.120778 ms, while the controls themselves differ by 0.088052 ms. One sequential boot does not distinguish a stable small gain from control variation; no production integration or FPS improvement is accepted. The candidate remains private. Prioritize the bounded snapshot/native breakdown rather than calling this enough to restore the night frame budget. The [trial record](tyrax2-immutable-borrow-2026-10-02.json) preserves exact windows, patch, tests, preparation/analysis scripts and hashes. Its frozen log does not stop the owned client serving the restored baseline.
+Apparent savings are 0.032727–0.120778 ms, while the controls themselves differ by 0.088052 ms. One sequential boot does not distinguish a stable small gain from control variation; no production integration or FPS improvement is accepted. The candidate remains private. Prioritize the bounded snapshot/native breakdown rather than calling this enough to restore the night frame budget. The trial record preserves exact windows, patch, tests, preparation/analysis scripts and hashes. Its frozen log does not stop the owned client serving the restored baseline.
 
 ## Bounded snapshot/native breakdown, physical PS2
 
@@ -220,7 +220,7 @@ Entire snapshot includes preflight, chain copy, second-pass fixups and mutable c
 
 Per warm frame, the observed source path visits 1606.33 tags in each pass, calls the readable resolver 964.20 times and the immutable resolver 1086.19 times. It copies 56.16 KiB of original chains and 167.93 KiB of mutable REF payload, while borrowing 2100.61 KiB. Published copied qwords equal full-chain plus mutable-copy qwords; borrowed bytes are excluded rather than subtracted a second time. Enabled windows have matching preflight/second-pass tags and successful snapshot attempts; native sizing and emission visit equal tag counts. Disabled windows retain zero metrics.
 
-The [machine record](tyrax2-snapshot-breakdown-2026-10-02.json) preserves exact raw/profile/count/period windows, observer overhead, source/ELF/frozen-log hashes, preparation/analysis scripts and probe/test evidence. No production behavior changed. Further source changes need quiet physical controls and existing rollback, capacity, callback and bank-lease gates.
+The machine record preserves exact raw/profile/count/period windows, observer overhead, source/ELF/frozen-log hashes, preparation/analysis scripts and probe/test evidence. No production behavior changed. Further source changes need quiet physical controls and existing rollback, capacity, callback and bank-lease gates.
 
 ### What this changes next
 
@@ -248,13 +248,13 @@ Warm exact 512-frame work windows average 18.231584 / 18.250115 / 18.318051 ms; 
 
 At the transform-key seam, 135 calls/frame split into 108.156 reuse hits and 26.844 misses. Plane-cache counts are 105.156 hits / 25.844 misses. Guard attempts number 63, with 52 promotions and 11 repeated eight-plane transforms after a failed promotion. Light selection examines 912 actual candidates/frame across 114 calls. Local spot preparation has 71 enabled and 63 disabled calls. Disabled preparation is not proof that the preceding selection was unnecessary; bags can have different pick flags.
 
-Prioritize exact per-render reuse of already calculated clip planes, with no cross-frame cache, and audit light-selection skips against tie ordering, zero scores, disabled slots, runtime changes and portal views. Compare actual-source boundary/classification/output controls before native, emulator and quiet physical candidate timing. No VU0 micro kernel or production math optimization is accepted. The [machine record](tyrax2-ee-math-2026-10-02.json) retains exact windows, counters, source/ELF/frozen-log hashes and probe/build/emulator evidence; the earlier paused emulator attempt is excluded from acceptance.
+Prioritize exact per-render reuse of already calculated clip planes, with no cross-frame cache, and audit light-selection skips against tie ordering, zero scores, disabled slots, runtime changes and portal views. Compare actual-source boundary/classification/output controls before native, emulator and quiet physical candidate timing. No VU0 micro kernel or production math optimization is accepted. The machine record retains exact windows, counters, source/ELF/frozen-log hashes and probe/build/emulator evidence; the earlier paused emulator attempt is excluded from acceptance.
 
 ### Same-call clip-plane candidate, physical regression observed
 
 The private candidate retains the planes already computed by the whole-bag guard and suppresses only the identical second transform after failed promotion. Its bool lives within one render call; subsequent frames/materials/views recompute as before. Actual-source host differential controls pass 240,328 calls with guard on/off, boundary-adjacent values, changing MVP/settings and nonfinite/signed-zero inputs; planes, masks, classification and packager updates match exactly.
 
-Native compilation and a same-ELF off/on/off PCSX2 trial pass 6,600 frames and two same-scene reloads. A separate always-enabled emulator input fixture confirms vehicle movement/reverse, cameras 0/1/2 and main/dense/procedural/main transitions. Final captures were visually inspected, without a pixel differential claim. The quiet physical ELF and its original source are restored separately from the scripted motion ELF. The 0.377 ms census bucket covers all 74 transforms, not just the 11 duplicates. No production integration or speed gain is accepted. The [candidate record](tyrax2-clip-reuse-2026-10-02.json) preserves these distinct layers and hashes.
+Native compilation and a same-ELF off/on/off PCSX2 trial pass 6,600 frames and two same-scene reloads. A separate always-enabled emulator input fixture confirms vehicle movement/reverse, cameras 0/1/2 and main/dense/procedural/main transitions. Final captures were visually inspected, without a pixel differential claim. The quiet physical ELF and its original source are restored separately from the scripted motion ELF. The 0.377 ms census bucket covers all 74 transforms, not just the 11 duplicates. No production integration or speed gain is accepted. The candidate record preserves these distinct layers and hashes.
 
 The fresh physical same-ELF control/candidate/control trial completes all 6,600 frames. Exact warm 512-frame work means are 18.247767 /19.137065 /18.411139 ms; all delivered-period windows remain 33.403 ms (29.94 Hz). The candidate is 0.889298 /0.725926 ms slower than the controls, whose spread is 0.163373 ms. This falsifies a gain claim for this run despite passing host/emulator equivalence. Keep the candidate private and do not integrate it. Existing update/vehicle summaries do not show a comparable change; the cause still needs attribution, not a guessed VU/register explanation. Preserved hashes/windows in the candidate record distinguish measured regression from unresolved cause.
 
@@ -268,7 +268,7 @@ Native build and a complete 6,600-frame emulator gateoff/on/off run pass with pl
 
 The fresh physical same-ELF run also completes 6,600 frames and all three raw/count windows. Activation matches the emulator exactly: 71 calls, 60 finite repeats, one first and 10 changed, with one actual frame-end reset. Work gateoff/on/off is 18.191/18.492/18.239 ms; enabled work increases by 0.253–0.300 ms against controls whose spread is 0.048 ms. Delivery remains approximately 30 Hz. This prices the instrumented census as a whole, not a future minimal cache key or a pure observer bill: sequential animated-light/time/cache effects remain possible. Matching symbol and stripped archives are retained.
 
-Observer bit loads/comparisons/copies/count increments still cost EE work; gate-off retains compiled scaffold. Price actual inverse and key cost before implementing one-entry reuse. The earlier local preparation bucket includes other work and cannot be multiplied by the repeat fraction as a saving. A future inverse-only cache must keep current light transform, normalization and influence live. The [machine record](tyrax2-ee-inverse-2026-10-02.json) preserves host/native/emulator/physical evidence, source/ELF/frozen-log hashes and the visually normal emulator restored capture; no production engine change is accepted.
+Observer bit loads/comparisons/copies/count increments still cost EE work; gate-off retains compiled scaffold. Price actual inverse and key cost before implementing one-entry reuse. The earlier local preparation bucket includes other work and cannot be multiplied by the repeat fraction as a saving. A future inverse-only cache must keep current light transform, normalization and influence live. The machine record preserves host/native/emulator/physical evidence, source/ELF/frozen-log hashes and the visually normal emulator restored capture; no production engine change is accepted.
 
 
 ### Inverse and conservative-key cost census, physical PS2
@@ -286,7 +286,7 @@ activation agrees: 71 calls/frame, 60 finite repeats, 11 finite misses, zero
 nonfinite misses and one frame-end reset. Off counters and CountOnly ticks
 remain zero. Strict parser controls reject incomplete or mismatched runs.
 Emulator clock values are not physical EE costs. The
-[machine record](tyrax2-ee-inverse-cost-2026-10-02.json) retains exact source,
+machine record retains exact source,
 ELF/symbol and frozen-log hashes. The fresh physical trial also completes all
 11,000 frames with identical warm activation and no hang. Work
 Off/CountOnly/Scoped/CountOnly/Off is 18.681 / 18.857 / 18.928 / 18.961 /
@@ -309,7 +309,7 @@ without a separate candidate comparison.
 
 ## Native reference metadata reuse: paired physical controls, 2026-10-03
 
-The [paired reference-memo record](tyrax2-native-reference-memo-2026-10-03.json)
+The paired reference-memo record
 accepts both orders of the same native ELF, 10,800 loops and 768 samples.
 Keeping the first 16 nonempty reference classifications within one copy avoids
 322 repeated immutable queries and 200 repeated readable-range queries per
@@ -321,7 +321,7 @@ ordinary-game checks; these diagnostic results do not predict a 60 FPS gain.
 
 ## Ordinary-clock cadence control before reference memo, 2026-10-03
 
-The [quiet cadence record](tyrax2-quiet-cadence-2026-10-03.json) preserves the
+The quiet cadence record preserves the
 authored progressive Hybrid output, vehicle HUD, audio, physics and visual
 clocks. FrameProfile and HardwareTrace are compiled out, with no trace ring.
 Both physical orders complete 5,400 loops each. The completed rendered-flip
@@ -350,7 +350,7 @@ Outer-control spreads are 0.076203/0.085018 ms. Ordinary state and adaptive
 interleave drift remain; mixed signs do not establish an isolated observer
 price, zero-cost sampling or a uniform correction. No historical cross-ELF
 subtraction, pure EE cost or 60 FPS gain is accepted. See the
-[paired machine record](tyrax2-postmemo-quiet-2026-10-03.json) and its independent
+paired machine record and its independent
 review for exact windows, provenance and limitations.
 Repository JSON acceptance records use LF checkouts so cross-record SHA-256
 links remain stable on Windows and Linux. Raw private device artifacts keep
@@ -377,7 +377,7 @@ used as an authored Auto performance result. Front/tail values remain inclusive
 elapsed intervals, not pure EE arithmetic or VU/GS utilization. This private
 extension is not enabled in production examples.
 
-Both [physical pinned-plain orders](tyrax2-front-tail-2026-10-03.json) now
+Both physical pinned-plain orders now
 complete 5,400 loops each, 768 common samples and 384 split samples, with
 exact whole/front/tail and pacing partitions. Front means vary from 1.863 to
 4.219 ms while medians stay around 0.75 ms; non-pacing tail means range from
@@ -397,7 +397,7 @@ remains unpriced; see the follow-up below.
 
 ### RemotePad-free front/tail control, 2026-10-03
 
-The [paired physical record](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+The paired physical record
 contains 10,800 loops, 768 common samples and 384 split samples from one
 fresh native ELF. Exactly three source inputs differ from the earlier
 fixture: the generated RemotePad header and CPP become their disabled
@@ -439,7 +439,7 @@ all four actual words and preserves their exact final comparison, so later
 padding mutations remain invalid. V1's exact runtime tag was never captured;
 the diagnostic proves the cause of V2's observed failure.
 
-The [activation record](tyrax2-direct-producer-activation-2026-10-03.json) pins
+The activation record pins
 all failed and successful versions, source/ELF/assets and actual SDK host
 controls. Successful activation is not encoding or raster equivalence. Quiet
 sampler mode changes alongside the producer in this smoke, so its phase times
@@ -474,7 +474,7 @@ warnings/counters and fatal guards remain. Both orders now have zero observed
 host log opens between FREEZE and DONE. Common clocks and apparatus remain
 unpriced; no cross-ELF observer correction is applied.
 
-The [machine record](tyrax2-direct-producer-raster-2026-10-03.json) retains
+The machine record retains
 all four accepted archives, the rejected attempts, raw statistics and source,
 ELF, asset and independent-parser provenance. Motion, scene/resource lifetime,
 native macro profiles and ordinary authored-night/Showcase FPS remain open.
@@ -482,7 +482,7 @@ Keep the gate private and Off by default. Audit remaining passes and native
 encoding before expanding a slower candidate into production.
 
 
-The subsequent [ordinary overlap trial](tyrax2-direct-producer-overlap-2026-10-03.json)
+The subsequent ordinary overlap trial
 also completes both stage orders on PS2 and PCSX2. Sampler mode 0 is held
 constant: six Count boundaries form five 64-loop chunks perphase, with no RAW
 samples. The two physical boots retain 30 chunks/1920 measured loops. Off work
@@ -574,6 +574,6 @@ and mask-bin totals. The final root host qualification record is
 
 The [same-frame Core follow-up](tyrax2-minimal-scopes.md#scene-completion-and-core-aggregate-follow-up) places13.905–14.153ms in135 disjoint Core calls inside Scene17.321–17.445ms. Remaining Scene time is3.284–3.540ms including observer seams. Source-qualified completion minus existing pacing averages0.003120ms inclusive; this is not VU/GS utilisation. Narrow Core internals before selecting an offload kernel. Adaptive contexts change and common instrumentation/layout remain unpriced; these figures are not an optimization gain.
 
-The [inner-work scopes](tyrax2-minimal-scopes.md#selected-inner-work-stripped-packages) and [dated record](tyrax2-inner-work-scopes-2026-10-04.json) qualify V5 stripped-package Work (1.126–1.149 ms) and V6 list-package Work (0.827–0.831 ms), plus the V7 dispatch tail. V7 dispatch-tail Work averages 7.167–7.329 ms; same-frame Scene minus that tail is 10.643–10.698 ms inclusive. Narrow the remaining routes using their own source/caller and dynamic clock controls before selecting an optimization. These are different intervals and apparatus versions: no cross-version gain, pure EE/GPU bill, uniform observer fee or ordinary 60 FPS acceptance.
+The [inner-work scopes](tyrax2-minimal-scopes.md#selected-inner-work-stripped-packages) and dated record qualify V5 stripped-package Work (1.126–1.149 ms) and V6 list-package Work (0.827–0.831 ms), plus the V7 dispatch tail. V7 dispatch-tail Work averages 7.167–7.329 ms; same-frame Scene minus that tail is 10.643–10.698 ms inclusive. Narrow the remaining routes using their own source/caller and dynamic clock controls before selecting an optimization. These are different intervals and apparatus versions: no cross-version gain, pure EE/GPU bill, uniform observer fee or ordinary 60 FPS acceptance.
 
-The [Core prefix and Core-owned submit record](tyrax2-prefix-submit-scopes-2026-10-04.json) qualifies separate V8/V9 both-order physical pairs and emulator controls. Own On windows, actual dynamic reads, tax/chunks and sparse contexts remain bound to each source/ELF. No cross-version subtraction, optimization gain, pure EE/GPU bill, common cost or ordinary 60 FPS acceptance.
+The Core prefix and Core-owned submit record qualifies separate V8/V9 both-order physical pairs and emulator controls. Own On windows, actual dynamic reads, tax/chunks and sparse contexts remain bound to each source/ELF. No cross-version subtraction, optimization gain, pure EE/GPU bill, common cost or ordinary 60 FPS acceptance.

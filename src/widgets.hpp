@@ -165,6 +165,9 @@ bool InputText(const char* label, char* buf, size_t size, ImGuiInputTextFlags fl
                ImGuiInputTextCallback cb = nullptr, void* user = nullptr);
 bool BeginCombo(const char* label, const char* preview, ImGuiComboFlags flags = 0);
 bool Combo(const char* label, int* cur, const char* const items[], int count, int maxHeight = -1);
+/** A Segmented (toolkit.hpp) as a caption-left row: every option visible at
+ * once, for a short choice that a combo would hide behind a click. */
+bool SegmentedRow(const char* label, const char* const items[], int count, int* cur);
 bool Combo(const char* label, int* cur, const char* itemsZeroSeparated, int maxHeight = -1);
 bool DragFloat(const char* label, float* v, float speed = 1.0f, float vmin = 0.0f, float vmax = 0.0f,
                const char* fmt = "%.3f", ImGuiSliderFlags flags = 0);

@@ -2753,14 +2753,14 @@ void App::openExampleCopy(const WelcomeExample& ex) {
     std::error_code ec;
     fs::create_directories(parent, ec);
     const fs::path dest = freeFolder(parent, ex.folder);
-    fs::copy(ex.dir, dest, fs::copy_options::recursive, ec);
-    if (ec) {
-        platform::errorBox("Open example",
-                           "Could not copy " + ex.dir + " to " + dest.string() + ":\n" + ec.message());
-        return;
-    }
-    statusMessage_ = "Copied the " + ex.title + " example to " + dest.string();
+    // The copy runs on the loading card's worker (projectLoadTick, stage 0):
+    // a large example (the vehicle playground) took seconds to copy here, on
+    // the UI thread, before any card appeared.
     openProjectAt(dest.string());
+    if (!projectLoading_) return;
+    projectLoadCopyFrom_ = ex.dir;
+    projectLoadName_ = ex.title;
+    statusMessage_ = "Copying the " + ex.title + " example to " + dest.string();
 }
 
 void App::drawWelcomeScreen() {
@@ -6776,6 +6776,7 @@ void App::openProjectAt(const std::string& dir, bool fromRecent) {
     projectLoadJoin();  // a cancelled read still finishing in the background
 
     projectLoadDir_ = dir;
+    projectLoadCopyFrom_.clear();  // openExampleCopy sets it after this call
     // The manifest's name (what the project is called), else the folder's.
     projectLoadName_ = projectManifestName(dir);
     if (projectLoadName_.empty()) projectLoadName_ = std::filesystem::path(dir).filename().string();
@@ -6864,7 +6865,24 @@ void App::projectLoadTick() {
             projectLoadProgress_.phase = 0;
             projectLoadProgress_.objectsDone = 0;
             projectLoadProgress_.objectsTotal = 0;
-            projectLoadThread_ = std::thread([this, dir = projectLoadDir_] {
+            projectLoadThread_ = std::thread([this, dir = projectLoadDir_,
+                                              copyFrom = projectLoadCopyFrom_] {
+                if (!copyFrom.empty()) {
+                    projectLoadCopying_ = true;
+                    std::error_code ec;
+                    std::filesystem::copy(copyFrom, dir, std::filesystem::copy_options::recursive, ec);
+                    projectLoadCopying_ = false;
+                    if (ec || projectLoadAbort_) {
+                        // Half a copy is not a project: take it away again.
+                        std::error_code rm;
+                        std::filesystem::remove_all(dir, rm);
+                        projectLoadResultErr_ =
+                            ec ? "Could not copy " + copyFrom + " to " + dir + ": " + ec.message()
+                               : std::string("Cancelled");
+                        projectLoadReady_ = true;
+                        return;
+                    }
+                }
                 projectLoadResultErr_ =
                     project::load(*projectLoadResult_, dir, &projectLoadAbort_, &projectLoadProgress_);
                 projectLoadReady_ = true;
@@ -7088,7 +7106,8 @@ void App::drawProjectLoadingScreen() {
         const bool s1 = projectLoadStage_ >= 1;
         // Stage 0's reader reports its phase (project::LoadProgress): the
         // manifest, then the object files (done / total), then heightmaps.
-        const int ph0 = s1 ? 3 : projectLoadProgress_.phase.load();
+        const bool copying = !s1 && projectLoadCopying_.load();
+        const int ph0 = s1 ? 3 : copying ? -1 : projectLoadProgress_.phase.load();
         auto stateOf = [&](int phase) { return ph0 > phase ? 2 : ph0 == phase ? 1 : 0; };
         std::string objCount;
         if (s1)
@@ -7096,7 +7115,10 @@ void App::drawProjectLoadingScreen() {
         else if (ph0 == 1 && projectLoadProgress_.objectsTotal.load() > 0)
             objCount = std::to_string(projectLoadProgress_.objectsDone.load()) + " / " +
                        std::to_string(projectLoadProgress_.objectsTotal.load());
-        const Phase phases[] = {
+        std::vector<Phase> phases;
+        if (!projectLoadCopyFrom_.empty())
+            phases.push_back({"Copying the example", copying ? 1 : 2, ""});
+        const Phase loadPhases[] = {
             {"Project file", stateOf(0), ""},
             {"Objects", stateOf(1), objCount},
             {"Terrain", stateOf(2),
@@ -7105,6 +7127,7 @@ void App::drawProjectLoadingScreen() {
                 : std::string()},
             {"Workspace", s1 ? 1 : 0, s1 ? std::string("meshes, textures") : std::string()},
         };
+        phases.insert(phases.end(), std::begin(loadPhases), std::end(loadPhases));
         for (const Phase& ph : phases) {
             const ImVec2 p = ImGui::GetCursorScreenPos();
             const float w = ImGui::GetContentRegionAvail().x;

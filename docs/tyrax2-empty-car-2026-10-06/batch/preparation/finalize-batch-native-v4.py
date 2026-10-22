@@ -1,5 +1,0 @@
-from pathlib import Path
-import hashlib,json
-r=Path('F:/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1');p=r/'native-proof.py';s=p.read_text(encoding='utf8').replace("'nativeBuildLogSha256':sha(log)","'actualNativeBuildLog':str(log),'nativeBuildLogSha256':sha(log)");p.write_bytes(s.encode());h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-assert (r/'native-build-v2.log').read_bytes()==(r/'native-build-v3.log').read_bytes()
-d={'status':'HISTORICAL_V2_V3_LOG_BYTES_IDENTICAL_PATH_NOT_RECORDED_IN_OLD_PROOF','v2LogSha256':h(r/'native-build-v2.log'),'v3LogSha256':h(r/'native-build-v3.log'),'byteEqual':True,'proofGeneratorSupportsExplicitLogArgument':True,'v3Invocation':'native-proof.py --log native-build-v3.log','scope':'Hashes cannot distinguish identical log content. This is not evidence of a wrong hardcoded log path. Native-v4 records the explicit path; old proof remains untouched. Both historical runtime attempts were rejected independently.'};(r/'rejected-native-v3/log-binding-clarification.json').write_bytes((json.dumps(d,indent=2)+'\n').encode())

@@ -73,7 +73,7 @@ attributing their elapsed time to dynamic-light arithmetic.
 
 ## Evidence and qualification limits
 
-[Archived evidence](tyrax2-core-prefix-partition-2026-10-05/) retains both
+Archived evidence retains both
 physical orders, raw logs, strict reports, source postimages, native provenance,
 ABI checks, release authority and host/physical parser controls. Binary artifacts
 are represented by hashes. An initial ping-responsive launch produced no output;
@@ -109,7 +109,7 @@ this ELF's times from kind14: five brackets change layout and stack footprint.
 The result motivates separately qualified exact matrix-key and clip-plane
 specialization candidates, not blanket removal of culling or assertions.
 
-[Bounds source and evidence](tyrax2-core-bounds-2026-10-05/) includes both
+Bounds source and evidence includes both
 completed orders, the excluded busy boot, native/source/ABI proof and 14
 synthetic parser rejections. No new human image or emulator qualification is
 claimed for the kind15 observer itself. ELF SHA-256:

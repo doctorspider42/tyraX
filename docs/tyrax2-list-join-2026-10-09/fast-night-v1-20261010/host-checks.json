@@ -1,8 +1,0 @@
-{
-  "passed": true,
-  "checks": 304,
-  "sanitizers": ["address", "undefined"],
-  "negativeCorruptGatherReturnCode": -6,
-  "command": "g++ -std=c++17 -g -fsanitize=address,undefined -DVERIFY_FAST_JOIN -I<fixture>/tyra/engine/inc/debug tools/verify-list-join.cpp -o /tmp/verify-fast-join",
-  "scope": "Exact eligibility and bypass helper, metadata, mutable source refresh, fallback and oracle gates; not queue lifetime proof"
-}

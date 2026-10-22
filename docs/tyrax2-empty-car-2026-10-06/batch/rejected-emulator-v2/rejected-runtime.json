@@ -1,7 +1,0 @@
-{
-  "status": "REJECTED_MEMBERSHIP_OBSERVER_SENTINEL",
-  "pid": 9217,
-  "terminalAbsenceConfirmed": true,
-  "hardwareTimingQualified": false,
-  "reason": "Observer incorrectly counted only nonnegative batch indices, missing legitimate -2 multi-batch owners. ON render counts37/80187 correct, valid0 means comparison rejected."
-}

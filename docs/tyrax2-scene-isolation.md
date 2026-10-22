@@ -5,7 +5,7 @@ Scene preparation isolation is a private diagnostic ELF that separates a frozen 
 The experiment changes the question from pricing more nested intervals in the
 ordinary game to checking a deliberately constrained workload. It does not
 change the production renderer or establish 60 FPS. The
-[machine record](tyrax2-scene-isolation-2026-10-03.json) retains exact artifacts,
+machine record retains exact artifacts,
 qualification and outstanding physical gates.
 
 ## Workload and protocol
@@ -95,7 +95,7 @@ fresh starts. The trial does not establish permanent reset reliability.
 
 ## Owned frame capture precursor
 
-The [capture record](tyrax2-frame-capture-2026-10-03.json) qualifies a separate
+The capture record qualifies a separate
 private V4 ELF on PCSX2 and physical PS2. During frozen warm iteration 126,
 before any sampled window, it copies the finalized native prefix and every REF
 payload into its own bounded 4 MiB buffer. Later bank reuse cannot invalidate
@@ -157,7 +157,7 @@ Raster equivalence is a separate gate. One terminal PrintWindow image
 was mostly black, while another unchanged-ELF boot showed the complete scene.
 Neither establishes equality with the original frozen frame. A new private
 V6 fixture reads the ordinary and replay framebuffers directly from GS VRAM,
-outside all timed windows. The [replay record](tyrax2-frame-replay-2026-10-03.json)
+outside all timed windows. The replay record
 qualifies both PCSX2 and physical PS2: each pair contains identical 448-by-448
 rasters, zero RGB differences and zero differences in exported working alpha.
 Both complete the 256 repetitions, 128 samples and real FINISH checks. Alpha
@@ -205,7 +205,7 @@ of repeated validation in this private test. It does not identify pure scanner
 instruction cost. The sealed interval still includes helper setup, VU data
 restoration, submission, cache work, DMA and GS FINISH waits. It is not pure
 VU/GS time, cannot be added to the earlier preparation interval, and certifies
-no ordinary FPS gain. The [pricing record](tyrax2-replay-pricing-2026-10-03.json)
+no ordinary FPS gain. The pricing record
 pins the source, ELF, raw archives and independent reviews. Next measure a
 direct producer in an ordinary renderer fixture with proven activation and
 matching raster/ownership behavior before any production promotion.

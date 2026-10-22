@@ -1,6 +1,7 @@
 #include "widgets.hpp"
 
 #include "theme.hpp"
+#include "toolkit.hpp"  // Segmented, for SegmentedRow
 
 #include <imgui_internal.h>
 
@@ -863,6 +864,9 @@ bool BeginCombo(const char* label, const char* preview, ImGuiComboFlags flags) {
 }
 bool Combo(const char* label, int* cur, const char* const items[], int count, int maxHeight) {
     return rowWidget(label, [&] { return ImGui::Combo(label, cur, items, count, maxHeight); });
+}
+bool SegmentedRow(const char* label, const char* const items[], int count, int* cur) {
+    return rowWidget(label, [&] { return Segmented(label, items, count, cur, ImGui::CalcItemWidth()); });
 }
 bool Combo(const char* label, int* cur, const char* itemsZeroSeparated, int maxHeight) {
     return rowWidget(label, [&] { return ImGui::Combo(label, cur, itemsZeroSeparated, maxHeight); });

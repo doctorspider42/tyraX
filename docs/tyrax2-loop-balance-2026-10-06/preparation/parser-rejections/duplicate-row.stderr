@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-loop-balance-v1\analyze-balance.py", line 15, in <module>
-    raw=rows('CLOSEOUTRAW');bal=rows('CLOSEOUTBAL');assert len(raw)==len(bal)==384
-                                                           ^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

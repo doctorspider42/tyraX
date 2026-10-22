@@ -1,1 +1,0 @@
-PASS: 2000 random strip arrays, 90/150 capacities, controls unchanged, tails/joins, ASan/UBSan; corrupted position rejected

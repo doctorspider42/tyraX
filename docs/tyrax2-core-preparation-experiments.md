@@ -25,4 +25,4 @@ V4 transposes work by matrix row and shares its hardware-rounded0/1/-1/band prod
 
 ## Evidence
 
-[Source and runtime archive](tyrax2-core-preparation-experiments-2026-10-05/) binds private four-file postimages,501-input native manifests,298 assets, actual linked ABI and unchanged resident VU images, both physical matrix/V3/V4 orders, both emulator matrix/V2 orders, host parser controls and rejected V1/V2 evidence. Binaries are hashed rather than committed. No production renderer or default changes are made here. There is no60Hz qualification or general moving/walking/showcase claim.
+Source and runtime archive binds private four-file postimages,501-input native manifests,298 assets, actual linked ABI and unchanged resident VU images, both physical matrix/V3/V4 orders, both emulator matrix/V2 orders, host parser controls and rejected V1/V2 evidence. Binaries are hashed rather than committed. No production renderer or default changes are made here. There is no60Hz qualification or general moving/walking/showcase claim.

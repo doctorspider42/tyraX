@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-drive-analyze.py", line 213, in <module>
-    assert result['startingStateQualified'],result['parkedControlMismatches']
-           ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: {'snapshotBytes': [184128, 375008]}

@@ -1,8 +1,0 @@
-== Building ==
-[0/2] Re-checking globbed directories...
-[1/5] Embedding docs/ pages
-[2/5] Building CXX object CMakeFiles/tyrax-editor.dir/src/vugen.cpp.obj
-[3/5] Building CXX object CMakeFiles/tyrax-editor.dir/src/aichat.cpp.obj
-[4/5] Linking CXX executable tyrax-editor.exe
-OK: build-dev\tyrax-editor.exe
-NOTE: Dev build (-O1) - fast to compile, slow at the host bakes. Not for release or benchmarks.

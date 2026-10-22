@@ -16,7 +16,7 @@ The original SDK/materialized full-body audit remains mandatory. An additional g
 
 ## Physical results
 
-The [sealed machine report](tyrax2-offline-vif-2026-10-20.json) binds the bootstrap and moving sources, ELF, logs, platform assets and complete readers after the owned emulator and file-server processes stopped. Both platforms pass six trips, 54 exact held main/environment/display rasters, six exact reconstructed endpoints and 3942 equal pose rows. Each On phase records 195 actual prepared geometry copies and 36 additional exact SDK geometry audits outside recording; the original full-body SDK oracle also passes. Old queue readers remain positive through replacement, and delivery has no fallback. A physical reference/On image pair was also inspected directly.
+The sealed machine report binds the bootstrap and moving sources, ELF, logs, platform assets and complete readers after the owned emulator and file-server processes stopped. Both platforms pass six trips, 54 exact held main/environment/display rasters, six exact reconstructed endpoints and 3942 equal pose rows. Each On phase records 195 actual prepared geometry copies and 36 additional exact SDK geometry audits outside recording; the original full-body SDK oracle also passes. Old queue readers remain positive through replacement, and delivery has no fallback. A physical reference/On image pair was also inspected directly.
 
 | Measurement | Native producer/compiler | Raw terrain plus final VIF offline |
 | --- | --- | --- |

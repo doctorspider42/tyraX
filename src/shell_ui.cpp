@@ -498,11 +498,13 @@ void App::drawToolbar() {
     }
 
     // The right cluster: right-aligned, unless what is on its left already
-    // reaches there - then it simply follows.
+    // reaches there - then it simply follows. It ends where the Windows
+    // caption buttons begin (titleBarInsetRight), or Run sat under them.
     {
         ImGui::SameLine(0.0f, 0.0f);
         const float curX = ImGui::GetCursorScreenPos().x;
-        const float endX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - scaled(10.0f);
+        const float endX = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() -
+                           titleBarInsetRight() - scaled(10.0f);
         ImGui::SetCursorScreenPos(ImVec2(ImMax(endX - clusterW, curX + gap), ImGui::GetWindowPos().y + y0));
     }
 
@@ -1134,7 +1136,8 @@ void App::drawRail() {
                                                ink.z + (sem.text.z - ink.z) * t, 1.0f);
         ui::DrawGlyph(dl, g, ImVec2(p.x + btn * 0.5f, p.y + btn * 0.5f), btn * 0.44f,
                       ImGui::GetColorU32(ink));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label);
+        if (ImGui::IsItemHovered())  // the text before "##", never the ID suffix
+            ImGui::SetTooltip("%.*s", (int)(ImGui::FindRenderedTextEnd(label) - label), label);
         return clicked;
     };
 

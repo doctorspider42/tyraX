@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-render-audit-v2/analyze-render.py", line 33, in <module>
-    assert sum(ss.values())==sum(ws.values())==render
-AssertionError

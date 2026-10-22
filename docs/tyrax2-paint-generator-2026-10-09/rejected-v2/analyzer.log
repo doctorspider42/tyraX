@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-paint-raster-analyze.py", line 49, in <module>
-    assert len(np.unique(a[:,:,:3].reshape(-1,3),axis=0))>128,'Blank or trivial image'
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: Blank or trivial image

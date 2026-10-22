@@ -75,7 +75,7 @@ Production retains no forced colors, counters, vector snapshots or oracle calls.
 
 ## Evidence
 
-[Payload manifest](tyrax2-sky-retint-2026-10-05/payload-manifest.json) pins the
+Payload manifest pins the
 source blobs, native/ABI audits, completed physical records, rejected attempts,
 strict controls and warm qualification. Source blobs are stored by SHA-256;
 each fixture manifest maps its relative source path to that digest. Full game

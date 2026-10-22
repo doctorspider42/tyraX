@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 27, in <module>
-    phases=index(rows(stdout,'CLOSEOUTPHASE'),'phase',range(3));windows=index(rows(artifact,'CLOSEOUTWINDOW'),'phase',range(3));contexts=rows(stdout,'CLOSEOUTCONTEXT');assert len(contexts)==6
-                                                                                                                                                                               ^^^^^^^^^^^^^^^^
-AssertionError

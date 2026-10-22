@@ -53,9 +53,11 @@ whose arm reaches over the pavement, a sign, a tree - can have **its own
 collision box**. Select any object made from it, keep *Collision* on
 *Box*, and tick **Own collision box** on the Properties **Physics** tab. The box starts as the
 mesh bounds; **Box min** / **Box max** edit it in the mesh's own units,
-before the object's scale. **Fit to post** takes the footprint of the
+before the object's scale. **Fit to base** takes the footprint of the
 model's lower 40% and keeps its full height, so the lamp collides as its
 post. **Reset to mesh bounds** puts it back.
+*View > Collision boxes* draws the collider in red; the yellow outline
+around a selected object is the selection, which is always the mesh bounds.
 
 It is a setting of the MODEL, keyed by its asset path
 (`Project::modelCollision`, `"modelCollision"` in the .tyra, format 92): every

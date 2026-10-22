@@ -1715,6 +1715,11 @@ private:
     double projectLoadShowUntil_ = 0.0;
     std::string projectLoadDir_;
     std::string projectLoadName_;
+    // openExampleCopy: the bundled example the stage-0 worker copies into
+    // projectLoadDir_ before reading it, so the card is up the moment the
+    // example is clicked instead of after a multi-second copy.
+    std::string projectLoadCopyFrom_;
+    std::atomic<bool> projectLoadCopying_{false};
     int projectLoadStage_ = 0;      // 0 = read the files, 1 = migrate + attach
     int projectLoadDrawn_ = 0;      // card frames presented since the stage began
     bool projectLoadCancel_ = false;  // honoured at the next stage boundary
@@ -2325,10 +2330,15 @@ private:
     bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
     bool vehiclePreviewFast_ = false;
     bool vehicleBudgetEdit_ = false;
-    // Vehicle Editor view state: inspector tab (0 Model, 1 Handling, 2 Damage,
-    // 3 Feel, 4 Cost), the "Wheels & measures" overlay, and the wheel row the
-    // pointer is over in the Model tab (-1 none) - the preview rings it.
-    int vehicleTab_ = 1;
+    // Vehicle Editor view state: inspector tab (vehicle_ui.cpp's VehTab:
+    // Handling, Engine & sound, Camera & HUD, Damage, Look, Model & cost), the
+    // "Wheels & measures" overlay, and the wheel row the pointer is over in
+    // the Model & cost tab (-1 none) - the preview rings it.
+    int vehicleTab_ = 0;
+    // The vehicle the "Editing: Defaults | <vehicle>" switch goes back to
+    // from Defaults, and the "Show: Own only" filter.
+    int vehicleScopeVehicle_ = -1;
+    bool vehicleOwnOnly_ = false;
     bool vehicleShowMeasures_ = true;
     // Vehicle Editor preview: Near (tier 0) or Far (the far tier the console
     // swaps to past farDistance). View state.

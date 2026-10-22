@@ -1,8 +1,0 @@
-{
-  "run": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-queue-audit-v1",
-  "executable": "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe",
-  "bin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-queue-audit-v1\\bin",
-  "elf": "vehicle-playground",
-  "pid": 18388,
-  "started": "2026-10-06T21:47:43.2972672Z"
-}

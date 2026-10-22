@@ -1,10 +1,11 @@
 // Tools > Vehicle Editor (docs/vehicles.md) - App:: methods declared in
 // app.hpp, own TU (the prefab_ui.cpp precedent).
 //
-// Layout: list (Global defaults, then vehicles) | preview (the hero: Wheels &
-// measures overlay, Baked cost card, scrubbers) | inspector (Model / Handling /
-// Damage / Feel / Cost, inheritance shown per value). Drive it is the header
-// action.
+// Layout: list (Defaults, then vehicles) | preview (the hero: Wheels &
+// measures overlay, Baked cost card, scrubbers) | inspector (the "Editing:
+// Defaults | vehicle" scope switch, then Handling / Engine & sound / Camera &
+// HUD / Damage / Look / Model & cost; inheritance in a state slot on every
+// row). Drive it is hidden for 2.0.
 //
 // A vehicle is defined ONCE per project and placed as often as you like, so
 // this window edits Project::vehicles and the scene knows only a name. Two
@@ -28,6 +29,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <type_traits>
 
 #include "app.hpp"
 #include "app_internal.hpp"
@@ -138,6 +141,62 @@ tmdl::Model farTierBody(const tmdl::Model& body, const vehbake::Result& r) {
         p.lods.clear();
     }
     return m;
+}
+
+// The inspector's tabs, grouped by goal (docs/vehicles.md, "The Vehicle
+// Editor"). Model & cost is per vehicle only; the rest exist in both scopes.
+enum VehTab { kTabHandling, kTabSound, kTabCamera, kTabDamage, kTabLook, kTabModel, kTabCount };
+
+// Which tab a tuning value lives on, by visitVehicleTuning's section - what
+// the tab badges count.
+int tabOfSection(const char* section) {
+    if (std::strcmp(section, "sounds") == 0) return kTabSound;
+    if (std::strcmp(section, "driver") == 0) return kTabCamera;
+    if (std::strcmp(section, "damage") == 0) return kTabDamage;
+    if (std::strcmp(section, "effects") == 0) return kTabLook;
+    return kTabHandling;
+}
+
+// "1.1 s · 41 KB" for a WAV, from its header alone (cached per path): what a
+// sample costs is part of choosing it.
+std::string wavSummary(const std::string& projectDir, const std::string& rel) {
+    static std::map<std::string, std::string> cache;
+    auto it = cache.find(rel);
+    if (it != cache.end()) return it->second;
+    std::string out;
+    std::ifstream f(std::filesystem::path(projectDir) / rel, std::ios::binary);
+    char hdr[12];
+    if (f.read(hdr, 12) && std::memcmp(hdr, "RIFF", 4) == 0 && std::memcmp(hdr + 8, "WAVE", 4) == 0) {
+        uint32_t rate = 0, dataBytes = 0;
+        uint16_t channels = 0, bits = 0;
+        char ck[8];
+        while (f.read(ck, 8)) {
+            uint32_t size = 0;
+            std::memcpy(&size, ck + 4, 4);
+            if (std::memcmp(ck, "fmt ", 4) == 0 && size >= 16) {
+                char fmt[16];
+                f.read(fmt, 16);
+                std::memcpy(&channels, fmt + 2, 2);
+                std::memcpy(&rate, fmt + 4, 4);
+                std::memcpy(&bits, fmt + 14, 2);
+                f.seekg(size - 16 + (size & 1), std::ios::cur);
+            } else if (std::memcmp(ck, "data", 4) == 0) {
+                dataBytes = size;
+                break;
+            } else {
+                f.seekg(size + (size & 1), std::ios::cur);
+            }
+        }
+        const uint32_t frameBytes = channels * (bits / 8);
+        if (rate > 0 && frameBytes > 0 && dataBytes > 0) {
+            const double secs = (double)dataBytes / frameBytes / rate;
+            char b[48];
+            std::snprintf(b, sizeof b, "%.1f s  %.0f KB", secs, dataBytes / 1024.0);
+            out = b;
+        }
+    }
+    cache[rel] = out;
+    return out;
 }
 
 // The far tier exists to be shown: a far part that actually carries a tier.
@@ -1064,7 +1123,7 @@ void App::drawVehicleWindow() {
         nv.inheritDefaults = true;
         defs.push_back(std::move(nv));
         vehicleSel_ = (int)defs.size() - 1;
-        vehicleTab_ = 0;  // a new car needs its model first
+        vehicleTab_ = kTabModel;  // a new car needs its model first
     };
     int duplicateAt = -1, deleteAt = -1;
 
@@ -1094,6 +1153,10 @@ void App::drawVehicleWindow() {
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("%d vehicle%s", (int)defs.size(), defs.size() == 1 ? "" : "s");
         const bool driving = vehicleDriveObj_ >= 0;
+        // Driving in the editor is hidden for 2.0 (not ready to ship); the
+        // host sim behind it stays, so flipping this brings the button back.
+        constexpr bool kShowDriveIt = false;
+        if (kShowDriveIt || driving) {
         const char* label = driving ? "Stop driving" : "Drive it";
         // Drive it = the design's green "go" primary (Run's colour) with a
         // play triangle; room for the triangle in both states keeps it still.
@@ -1120,23 +1183,35 @@ void App::drawVehicleWindow() {
                                                : "Drive the placed car in the viewport (W/S/A/D, Space, E).\n"
                                                  "Puts it back where it was when you stop.");
         ImGui::SameLine();
+        } else {
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - rowH);
+        }
         ImGui::SetCursorPosY(y0);
         if (ui::HelpButton("Vehicle docs", rowH, "Open docs/vehicles.md"))
             platform::openUrl(std::string("https://github.com/") + update::kRepo + "/blob/main/docs/vehicles.md");
     }
 
     const float bodyH = ImGui::GetContentRegionAvail().y;
-    const float listW = scaled(230), inspW = scaled(380);
+    // The inspector is wide enough for its six goal tabs and the state slot
+    // (the redesign drew it at 600 px); the preview takes what is left.
+    const float listW = scaled(230),
+                inspW = ImClamp(ImGui::GetContentRegionAvail().x * 0.42f, scaled(470), scaled(600));
     const float gap = ImGui::GetStyle().ItemSpacing.x;
 
     // --- the definition list ------------------------------------------------
     ImGui::BeginChild("##vehlist", ImVec2(listW, bodyH), ImGuiChildFlags_None);
     {
-        // Global defaults: the base every vehicle inherits from, pinned on top.
-        if (ui::ListRow("Global defaults", "base", global, ui::Glyph::Layers)) vehicleSel_ = -2;
+        // Defaults: the base every vehicle inherits from, pinned on top.
+        {
+            int followers = 0;
+            for (const VehicleDef& d : defs) followers += d.inheritDefaults ? 1 : 0;
+            char sub[64];
+            std::snprintf(sub, sizeof sub, "base for %d vehicle%s", followers, followers == 1 ? "" : "s");
+            if (ui::ListRow("Defaults", sub, global, ui::Glyph::Layers)) vehicleSel_ = -2;
+        }
         uiscript::markLastItemChecked(global);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Settings every vehicle inherits until it changes them.");
+            ImGui::SetTooltip("Values every vehicle follows until it makes one its own.");
         ImGui::Dummy(ImVec2(0, scaled(6)));
         const float capY = ImGui::GetCursorPosY();
         ui::Caption("Vehicles");
@@ -1204,14 +1279,38 @@ void App::drawVehicleWindow() {
                              ImVec2(t0.x + ts * 1.125f, t0.y + ts), ImVec2(0, 1), ImVec2(1, 0));
             const float tx = t0.x + ts * 1.25f + scaled(10);
             const float fs = ImGui::GetFontSize();
-            int custom = 0;
-            for (const std::string& k : d.tuningOverrides) custom += !vehicleGeometryKey(k);
+            // The sub-line answers "how much of this car is its own": the
+            // badge counts its own values, everything else follows Defaults.
+            int custom = 0, total = 0;
+            {
+                VehicleDef probe = d;
+                visitVehicleTuning(probe, project_.vehicleDefaults,
+                    [&](const std::string& key, const char*, auto&, const auto&) {
+                        ++total;
+                        custom += vehicleTuningOverride(d, key) ? 1 : 0;
+                    });
+            }
             char sub[128];
-            const std::string file = d.modelPath.empty() ? std::string("no model")
-                                                         : std::filesystem::path(d.modelPath).filename().string();
-            if (!d.inheritDefaults) std::snprintf(sub, sizeof sub, "%s", file.c_str());
-            else if (custom == 0) std::snprintf(sub, sizeof sub, "%s - all defaults", file.c_str());
-            else std::snprintf(sub, sizeof sub, "%s - %d custom", file.c_str(), custom);
+            if (!d.inheritDefaults) std::snprintf(sub, sizeof sub, "own values (legacy)");
+            else if (custom == 0) std::snprintf(sub, sizeof sub, "all from Defaults");
+            else std::snprintf(sub, sizeof sub, "%d own - %d from Defaults", custom, total - custom);
+            {
+                // The badge: own-value count, or "legacy" in the warn colour.
+                char badge[16];
+                const bool legacy = !d.inheritDefaults;
+                if (legacy) std::snprintf(badge, sizeof badge, "legacy");
+                else std::snprintf(badge, sizeof badge, "%d", custom);
+                if (legacy || custom > 0) {
+                    const float bfs = ImGui::GetFontSize() * 0.8f;
+                    const float bw = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0, badge).x + bfs;
+                    const ImVec2 b0(p.x + w - bw - scaled(8), p.y + rowH * 0.5f - bfs * 0.65f);
+                    const ImVec4 c = legacy ? sem.warn : sem.accent;
+                    dl->AddRectFilled(b0, ImVec2(b0.x + bw, b0.y + bfs * 1.3f),
+                                      ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.16f)), bfs * 0.65f);
+                    dl->AddText(ImGui::GetFont(), bfs, ImVec2(b0.x + bfs * 0.5f, b0.y + bfs * 0.15f),
+                                ImGui::GetColorU32(c), badge);
+                }
+            }
             dl->PushClipRect(p, ImVec2(p.x + w - 2, p.y + rowH), true);
             {
                 ui::FontScope bold(ui::boldFont());
@@ -1258,24 +1357,108 @@ void App::drawVehicleWindow() {
         if (renamed) renameVehicleDef(vehicleSel_, uniqueName(defs, name));
     } else {
         ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 1.3f);
-        ImGui::TextUnformatted("Global defaults");
+        ImGui::TextUnformatted("Defaults");
         ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("project-wide");
+    }
+    // The scope switch: WHICH values the rows below edit - the project's
+    // Defaults, or this one vehicle - is the first thing on the inspector, so
+    // "where do I change this for every car" is never a guess (the redesign's
+    // decision 01, docs/vehicles.md "Defaults and own values").
+    if (!global) vehicleScopeVehicle_ = vehicleSel_;
+    if (vehicleScopeVehicle_ >= (int)defs.size()) vehicleScopeVehicle_ = defs.empty() ? -1 : 0;
+    if (vehicleScopeVehicle_ < 0 && !defs.empty()) vehicleScopeVehicle_ = 0;
+    int ownCount = 0, tuningCount = 0;
+    int ownPerTab[kTabCount] = {};
+    {
+        VehicleDef probe = v;
+        visitVehicleTuning(probe, project_.vehicleDefaults,
+            [&](const std::string& key, const char* section, auto&, const auto&) {
+                ++tuningCount;
+                if (!global && vehicleTuningOverride(v, key)) {
+                    ++ownCount;
+                    ++ownPerTab[tabOfSection(section)];
+                }
+            });
     }
     {
-        int custom = 0;
-        for (const std::string& k : v.tuningOverrides) custom += !vehicleGeometryKey(k);
-        ImGui::PushTextWrapPos(0.0f);
-        if (global)
-            ImGui::TextDisabled("What every vehicle starts from. A value a vehicle changes is marked there with a dot.");
-        else if (!v.inheritDefaults)
-            ImGui::TextDisabled("Uses its own values (made before global defaults existed).");
-        else if (custom == 0)
-            ImGui::TextDisabled("All values follow Global defaults. Edit one and it gets a dot and a reset.");
-        else
-            ImGui::TextDisabled("%d custom value%s (dot); the rest follow Global defaults.", custom,
-                                custom == 1 ? "" : "s");
-        ImGui::PopTextWrapPos();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("Editing");
+        ImGui::SameLine();
+        if (vehicleScopeVehicle_ >= 0) {
+            const std::string carLabel = defs[vehicleScopeVehicle_].name + "##scope";
+            const char* scopes[] = {"Defaults##scope", carLabel.c_str()};
+            int scope = global ? 0 : 1;
+            if (ui::Segmented("##vehscope", scopes, 2, &scope))
+                vehicleSel_ = scope == 0 ? -2 : vehicleScopeVehicle_;
+        } else {
+            ImGui::TextUnformatted("Defaults");
+        }
+        if (!global && v.inheritDefaults) {
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(12));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Show");
+            ImGui::SameLine();
+            const std::string own = "Own only " + std::to_string(ownCount) + "##own";
+            const char* shows[] = {"All##show", own.c_str()};
+            int show = vehicleOwnOnly_ ? 1 : 0;
+            if (ui::Segmented("##vehshow", shows, 2, &show)) vehicleOwnOnly_ = show == 1;
+        }
     }
+    ImGui::PushTextWrapPos(0.0f);
+    if (global) {
+        // The reach banner: a change here fans out, and to whom.
+        std::string follow, legacy;
+        int follows = 0;
+        for (const VehicleDef& d : defs) {
+            std::string& list = d.inheritDefaults ? follow : legacy;
+            if (!list.empty()) list += ", ";
+            list += d.name;
+            follows += d.inheritDefaults ? 1 : 0;
+        }
+        if (follows == 0)
+            ImGui::TextDisabled("No vehicle follows Defaults yet. New vehicles start from these values.");
+        else
+            ImGui::TextWrapped("A change here reaches every vehicle that follows it: %s.", follow.c_str());
+        if (!legacy.empty()) ImGui::TextDisabled("%s keep%s values of their own (legacy).", legacy.c_str(),
+                                                 legacy.find(',') == std::string::npos ? "s its" : "");
+    } else if (!v.inheritDefaults) {
+        // Made before Defaults existed: one banner, one action (decision 10).
+        int differ = 0;
+        {
+            VehicleDef probe = v;
+            visitVehicleTuning(probe, project_.vehicleDefaults,
+                [&](const std::string&, const char*, auto& value, const auto& base) {
+                    differ += value != base ? 1 : 0;
+                });
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+        ImGui::TextWrapped("%s keeps all %d values of its own (made before Defaults existed).", v.name.c_str(),
+                           tuningCount);
+        ImGui::PopStyleColor();
+        char adopt[64];
+        std::snprintf(adopt, sizeof adopt, "Adopt Defaults (keep %d own)", differ);
+        if (ImGui::Button(adopt)) {
+            // The values that differ stay this car's own; the rest follow.
+            v.tuningOverrides.clear();
+            VehicleDef probe = v;
+            visitVehicleTuning(probe, project_.vehicleDefaults,
+                [&](const std::string& key, const char*, auto& value, const auto& base) {
+                    if (value != base) v.tuningOverrides.push_back(key);
+                });
+            v.inheritDefaults = true;
+        }
+    } else if (ownCount == 0) {
+        ImGui::TextDisabled("Every value follows Defaults - edit one here to make it %s's own.", v.name.c_str());
+    } else {
+        ImGui::TextDisabled("%d value%s %s %s's own. The other %d follow Defaults - edit one to make it own.",
+                            ownCount, ownCount == 1 ? "" : "s", ownCount == 1 ? "is" : "are", v.name.c_str(),
+                            tuningCount - ownCount);
+    }
+    ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, scaled(2)));
 
     const VehicleDef tuningBefore = v;
@@ -1315,61 +1498,198 @@ void App::drawVehicleWindow() {
                 });
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Every custom value in this section follows Global defaults again.");
+            ImGui::SetTooltip("Every own value in this section follows Defaults again.");
     };
     const float capMin = scaled(110), capMax = scaled(150);
-    // One tuned value as an inspector row with its inheritance ON the row: a
-    // dot + reset when this vehicle overrides it, a `model` badge when it is
-    // measured from the model (wheel placement).
-    auto tunedRow = [&](const char* key, const char* label, auto&& widget) {
-        const ImVec2 p = ImGui::GetCursorScreenPos();
-        const float avail = ImGui::GetContentRegionAvail().x;
-        const float cw = IM_TRUNC(ImClamp(avail * 0.34f, capMin, capMax));
+    // The state slot: a fixed column at the right end of every tuned row. The
+    // row's inheritance lives ONLY here - never painted into the caption,
+    // where the old dot and reset arrow collided with long labels.
+    const float slotW = scaled(96);
+    // A small pill; clickable when `id` is given. Returns clicked.
+    auto pill = [&](ImVec2 at, const char* id, const char* text, ImVec4 c, bool filled) {
+        const float pfs = ImGui::GetFontSize() * 0.8f;
+        const float pw = ImGui::GetFont()->CalcTextSizeA(pfs, FLT_MAX, 0, text).x + pfs * 1.1f;
+        const float ph = pfs * 1.5f;
+        bool clicked = false, hov = false;
+        if (id) {
+            ImGui::SetCursorScreenPos(at);
+            clicked = ImGui::InvisibleButton(id, ImVec2(pw, ph));
+            hov = ImGui::IsItemHovered();
+        }
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(at, ImVec2(at.x + pw, at.y + ph),
+                          ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, filled ? (hov ? 0.30f : 0.18f) : (hov ? 0.14f : 0.0f))),
+                          ph * 0.5f);
+        if (!filled) dl->AddRect(at, ImVec2(at.x + pw, at.y + ph), ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, 0.45f)), ph * 0.5f);
+        dl->AddText(ImGui::GetFont(), pfs, ImVec2(at.x + pfs * 0.55f, at.y + (ph - pfs) * 0.5f), ImGui::GetColorU32(c), text);
+        return clicked;
+    };
+    // The revert glyph (an anticlockwise arrow) as a button. Returns clicked.
+    auto revertButton = [&](ImVec2 at, const char* id, const std::string& tip) {
+        const float s = ImGui::GetFontSize() * 1.15f;
+        ImGui::SetCursorScreenPos(at);
+        const bool clicked = ImGui::InvisibleButton(id, ImVec2(s, s));
+        const bool hov = ImGui::IsItemHovered();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tip.c_str());
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (hov) dl->AddRectFilled(at, ImVec2(at.x + s, at.y + s), ImGui::GetColorU32(sem.surface), s * 0.25f);
+        const ImVec2 c(at.x + s * 0.5f, at.y + s * 0.5f);
+        const ImU32 col = ImGui::GetColorU32(hov ? sem.text : sem.textDim);
+        const float r = s * 0.28f;
+        dl->PathArcTo(c, r, 3.14159f * 0.15f, 3.14159f * 1.75f, 12);
+        dl->PathStroke(col, 0, 1.4f);
+        const ImVec2 tp(c.x + r * std::cos(3.14159f * 0.15f), c.y + r * std::sin(3.14159f * 0.15f));
+        dl->AddTriangleFilled(ImVec2(tp.x - s * 0.16f, tp.y - s * 0.02f), ImVec2(tp.x + s * 0.12f, tp.y - s * 0.11f),
+                              ImVec2(tp.x + s * 0.05f, tp.y + s * 0.18f), col);
+        return clicked;
+    };
+    // The Defaults value of a key, as text (the revert button's tooltip).
+    auto defaultText = [&](const std::string& key) {
+        std::string out;
+        VehicleDef d = project_.vehicleDefaults;
+        visitVehicleTuning(d, project_.vehicleDefaults,
+            [&](const std::string& k, const char*, auto& value, const auto&) {
+                if (k != key) return;
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, std::string>) out = value.empty() ? "none" : value;
+                else if constexpr (std::is_same_v<T, bool>) out = value ? "on" : "off";
+                else {
+                    char b[32];
+                    std::snprintf(b, sizeof b, "%.4g", (double)value);
+                    out = b;
+                }
+            });
+        return out;
+    };
+    // The Defaults value of a numeric key (the ghost tick on an own slider).
+    auto defaultFloat = [&](const std::string& key, float& out) {
+        bool found = false;
+        VehicleDef d = project_.vehicleDefaults;
+        visitVehicleTuning(d, project_.vehicleDefaults,
+            [&](const std::string& k, const char*, auto& value, const auto&) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, float>)
+                    if (k == key) out = value, found = true;
+            });
+        return found;
+    };
+    // One tuned value as an inspector row: caption | control | state slot.
+    //   follows Defaults  - dimmed, a "Defaults" pill (hover: "Make own");
+    //   own               - full ink, an "Own" pill and a revert button;
+    //   measured          - a "Model" pill (wheel placement; never inherited);
+    //   Defaults scope    - who follows: one square per vehicle, filled when it
+    //                       follows, outlined when it has its own; click for
+    //                       the list with a Follow per vehicle.
+    // `why` (non-null) fades the row and puts the reason in the slot instead.
+    auto tunedRow = [&](const char* key, const char* label, auto&& widget, const char* why = nullptr) {
         const bool measured = vehicleGeometryKey(key);
         const bool custom = !global && v.inheritDefaults && !measured && vehicleTuningOverride(v, key);
-        const float s = ImGui::GetFontSize() * 0.95f;
+        const bool follows = !global && v.inheritDefaults && !measured && !custom;
+        if (vehicleOwnOnly_ && !global && v.inheritDefaults && !custom) return;
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float rowRight = p.x + ImGui::GetContentRegionAvail().x;
         const float fh = ImGui::GetFrameHeight();
-        if (custom) {
-            ImGui::SetCursorScreenPos(ImVec2(p.x + cw - s - ImGui::GetStyle().ItemInnerSpacing.x, p.y + (fh - s) * 0.5f));
-            const std::string rl = std::string("Reset ") + label + "##rst_" + key;
-            if (ImGui::InvisibleButton(rl.c_str(), ImVec2(s, s))) resetKey(key);
-            const bool hov = ImGui::IsItemHovered();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("Back to Global defaults");
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 c(p.x + cw - s * 0.5f - ImGui::GetStyle().ItemInnerSpacing.x, p.y + fh * 0.5f);
-            const ImU32 col = ImGui::GetColorU32(hov ? sem.text : sem.textDim);
-            dl->PathArcTo(c, s * 0.32f, 3.14159f * 0.15f, 3.14159f * 1.75f, 12);
-            dl->PathStroke(col, 0, 1.4f);
-            const ImVec2 tip(c.x + s * 0.32f * std::cos(3.14159f * 0.15f), c.y + s * 0.32f * std::sin(3.14159f * 0.15f));
-            dl->AddTriangleFilled(ImVec2(tip.x - s * 0.18f, tip.y - s * 0.02f), ImVec2(tip.x + s * 0.14f, tip.y - s * 0.12f),
-                                  ImVec2(tip.x + s * 0.06f, tip.y + s * 0.2f), col);
-            ImGui::SetCursorScreenPos(p);
-        }
-        widget();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const float textW = ImGui::CalcTextSize(label, ImGui::FindRenderedTextEnd(label)).x;
-        if (custom) {
-            // The caption in full ink plus the dot: this value is this car's.
-            const float maxX = p.x + cw - s - ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
-            dl->PushClipRect(p, ImVec2(maxX, p.y + fh), true);
-            dl->AddText(ImVec2(p.x, p.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(sem.text), label,
-                        ImGui::FindRenderedTextEnd(label));
-            dl->PopClipRect();
-            const float dx = std::min(p.x + textW + scaled(7), maxX - scaled(3));
-            dl->AddCircleFilled(ImVec2(dx, p.y + fh * 0.5f), scaled(3), ImGui::GetColorU32(sem.accent), 12);
+        ImGui::PushID(key);
+        ImDrawList* wdl = ImGui::GetWindowDrawList();
+        const float pfs = ImGui::GetFontSize() * 0.8f;
+        const float py = p.y + (fh - pfs * 1.5f) * 0.5f;
+        const float x0 = rowRight - slotW + scaled(8);
+        if (why) {
+            wdl->AddText(ImGui::GetFont(), pfs, ImVec2(x0, p.y + (fh - pfs) * 0.5f), ImGui::GetColorU32(sem.textDim), why);
         } else if (measured && !global) {
-            const char* b = "model";
-            const float bfs = ImGui::GetFontSize() * 0.75f;
-            const float bw = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0, b).x + bfs;
-            const float bx = p.x + cw - bw - ImGui::GetStyle().ItemInnerSpacing.x;
-            if (bx > p.x + textW + scaled(4)) {
-                dl->AddRectFilled(ImVec2(bx, p.y + fh * 0.5f - bfs * 0.6f), ImVec2(bx + bw, p.y + fh * 0.5f + bfs * 0.6f),
-                                  ImGui::GetColorU32(sem.field), bfs * 0.5f);
-                dl->AddText(ImGui::GetFont(), bfs, ImVec2(bx + bfs * 0.5f, p.y + fh * 0.5f - bfs * 0.5f),
-                            ImGui::GetColorU32(sem.textDim), b);
+            pill(ImVec2(x0, py), nullptr, "Model", sem.textDim, false);
+        } else if (custom) {
+            pill(ImVec2(x0, py), nullptr, "Own", sem.accent, true);
+            const std::string tip = "Back to Defaults: " + defaultText(key);
+            if (revertButton(ImVec2(rowRight - ImGui::GetFontSize() * 1.2f, p.y + (fh - ImGui::GetFontSize() * 1.15f) * 0.5f),
+                             "##revert", tip))
+                resetKey(key);
+        } else if (follows) {
+            const std::string pid = std::string("##follow_") + key;
+            ImGui::SetCursorScreenPos(ImVec2(x0, py));
+            const float pw = ImGui::GetFont()->CalcTextSizeA(pfs, FLT_MAX, 0, "Make own").x + pfs * 1.1f;
+            const bool hov = ImGui::IsMouseHoveringRect(ImVec2(p.x, p.y), ImVec2(rowRight, p.y + fh));
+            if (hov) {
+                if (pill(ImVec2(x0, py), pid.c_str(), "Make own", sem.accent, false) &&
+                    !vehicleTuningOverride(v, key))
+                    v.tuningOverrides.push_back(key);
+            } else {
+                pill(ImVec2(x0, py), nullptr, "Defaults", sem.textDim, false);
+            }
+            (void)pw;
+        } else if (global && !measured) {
+            // Followed by: a square per vehicle (filled = follows).
+            float x = x0;
+            const float sq = scaled(9);
+            int n = 0;
+            for (const VehicleDef& d : defs) {
+                if (n++ >= 6) break;
+                const ImVec4 pc = d.paintEnabled ? ImVec4(d.paintColor[0], d.paintColor[1], d.paintColor[2], 1.0f)
+                                                 : sem.textDim;
+                const bool own = !d.inheritDefaults || vehicleTuningOverride(d, key);
+                const ImVec2 a(x, p.y + (fh - sq) * 0.5f), b(x + sq, a.y + sq);
+                if (own) wdl->AddRect(a, b, ImGui::GetColorU32(pc), scaled(3), 0, 1.5f);
+                else wdl->AddRectFilled(a, b, ImGui::GetColorU32(pc), scaled(3));
+                x += sq + scaled(3);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(x0, p.y));
+            const std::string fid = std::string("##followers_") + key;
+            if (ImGui::InvisibleButton(fid.c_str(), ImVec2(ImMax(1.0f, x - x0), fh)))
+                ImGui::OpenPopup("##followers");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Filled = follows this value, outlined = has its own. Click for the list.");
+            if (ImGui::BeginPopup("##followers")) {
+                ImGui::TextUnformatted(label, ImGui::FindRenderedTextEnd(label));
+                ImGui::Separator();
+                for (VehicleDef& d : defs) {
+                    ImGui::PushID(d.id.c_str());
+                    const bool own = !d.inheritDefaults || vehicleTuningOverride(d, key);
+                    ImGui::TextUnformatted(d.name.c_str());
+                    ImGui::SameLine(scaled(150));
+                    if (!own) {
+                        ImGui::TextDisabled("follows");
+                    } else if (!d.inheritDefaults) {
+                        ImGui::TextDisabled("legacy");
+                    } else if (ImGui::SmallButton("Follow")) {
+                        auto& keys = d.tuningOverrides;
+                        keys.erase(std::remove(keys.begin(), keys.end(), key), keys.end());
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndPopup();
             }
         }
+        // The slot first, then the row's own widget from the row's start: the
+        // widget is the last item, so the cursor ends where ImGui expects.
+        ImGui::SetCursorScreenPos(p);
+        if (why) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.55f);
+        if (follows) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::PushStyleColor(ImGuiCol_SliderGrab, sem.textDim);
+            ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, sem.text);
+        }
+        ui::SetNextRowFieldTrim(slotW);
+        widget();
+        if (follows) ImGui::PopStyleColor(3);
+        if (why) ImGui::PopStyleVar();
+        ImGui::PopID();
+    };
+    // A tuned float slider with the Defaults value as a ghost tick on its
+    // track when the value is this car's own (decision 03).
+    auto tunedSlider = [&](const char* key, const char* label, float* value, float mn, float mx, const char* fmt,
+                           const char* why = nullptr) {
+        tunedRow(key, label, [&] {
+            ui::SliderFloat(label, value, mn, mx, fmt);
+            float dv = 0.0f;
+            if (!global && v.inheritDefaults && vehicleTuningOverride(v, key) && mx > mn && defaultFloat(key, dv)) {
+                const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                const float grab = ImGui::GetStyle().GrabMinSize;
+                const float t = ImClamp((dv - mn) / (mx - mn), 0.0f, 1.0f);
+                const float x = a.x + grab * 0.5f + t * (b.x - a.x - grab);
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(x, a.y + 3.0f), ImVec2(x, b.y - 3.0f),
+                                                    ImGui::GetColorU32(sem.textDim), 2.0f);
+            }
+        }, why);
     };
     auto specControl = [&](const vehiclesim::SpecField& f) {
         if (global && vehicleGeometryKey(f.key)) return;
@@ -1392,7 +1712,7 @@ void App::drawVehicleWindow() {
             if (ui::Switch("Has nitrous", &enabled))
                 *f.value = enabled ? 5.0f : 0.0f;
         }
-        tunedRow(f.key, f.label, [&] { ui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g"); });
+        tunedSlider(f.key, f.label, f.value, f.min, f.max, "%.4g");
         if (f.tip && f.tip[0]) vehicleHelp(f.tip);
         ImGui::PopID();
     };
@@ -1400,13 +1720,19 @@ void App::drawVehicleWindow() {
     if (ui::BeginQuietTabBar("##vehtabs")) {
         static int lastFrame = -10;
         const bool force = lastFrame != ImGui::GetFrameCount() - 1;
-        static const char* const kTabs[] = {"Model##vtab", "Handling##vtab", "Damage##vtab", "Feel##vtab",
-                                            "Cost##vtab"};
-        if (global && (vehicleTab_ == 0 || vehicleTab_ == 4)) vehicleTab_ = 1;
-        for (int i = 0; i < 5; ++i) {
-            if (global && (i == 0 || i == 4)) continue;  // per-vehicle only
+        // Grouped by goal; each tab carries how many of its values are this
+        // car's own. The ### id keeps a tab the same tab while its count moves.
+        static const char* const kTabs[kTabCount] = {"Handling", "Engine & sound", "Camera & HUD",
+                                                     "Damage", "Look", "Model & cost"};
+        if (vehicleTab_ < 0 || vehicleTab_ >= kTabCount) vehicleTab_ = kTabHandling;
+        if (global && vehicleTab_ == kTabModel) vehicleTab_ = kTabHandling;
+        for (int i = 0; i < kTabCount; ++i) {
+            if (global && i == kTabModel) continue;  // per vehicle only
+            char lbl[64];
+            if (ownPerTab[i] > 0) std::snprintf(lbl, sizeof lbl, "%s  %d###vtab%d", kTabs[i], ownPerTab[i], i);
+            else std::snprintf(lbl, sizeof lbl, "%s###vtab%d", kTabs[i], i);
             const ImGuiTabItemFlags fl = force && i == vehicleTab_ ? ImGuiTabItemFlags_SetSelected : 0;
-            if (ui::QuietTab(kTabs[i], i == vehicleTab_, fl) && !force) vehicleTab_ = i;
+            if (ui::QuietTab(lbl, i == vehicleTab_, fl) && !force) vehicleTab_ = i;
         }
         ui::EndQuietTabBar();
         lastFrame = ImGui::GetFrameCount();
@@ -1415,7 +1741,7 @@ void App::drawVehicleWindow() {
     {
         ui::InspectorRows rows(capMin, capMax);
         // --- Model ----------------------------------------------------------
-        if (!global && vehicleTab_ == 0) {
+        if (!global && vehicleTab_ == kTabModel) {
             // The same picker shape the Properties panel uses for a Model:
             // the project's own res/models assets, never a free-text path.
             const std::string current =
@@ -1441,23 +1767,6 @@ void App::drawVehicleWindow() {
             vehicleHelp(
                 "One .glb or .fbx holding the body AND the wheels. The wheels are\n"
                 "found by their geometry, so their node names do not matter.");
-
-            ui::Caption("Body paint");
-            ui::Switch("Override paint colour", &v.paintEnabled);
-            if (v.paintEnabled) {
-                ui::ColorHex("Paint colour", v.paintColor);
-                ImGui::TextDisabled("Mask: %s", v.paintMask.empty()
-                    ? "<none>" : v.paintMask.c_str());
-                (void)pickProjectTexture("vehicle-paint-mask", v.paintMask);
-                if (!v.paintMask.empty()) {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Clear mask")) v.paintMask.clear();
-                }
-                vehicleHelp("Grayscale paint mask: white recolours paint; black protects glass, trim and wheels. Untextured paint materials need no mask.");
-                if (v.paintMask.empty() && bake && bake->ok &&
-                    !bake->result.textures.empty())
-                    ImGui::TextDisabled("Choose a mask for textured paint.");
-            }
 
             ui::Caption("Import");
             if (!bake || v.modelPath.empty()) {
@@ -1549,7 +1858,7 @@ void App::drawVehicleWindow() {
         // Widgets are DERIVED from vehiclesim::specFields(), so a tunable added
         // to DriveSpec appears here, saves, loads and gets its tooltip by
         // existing in that one list. Groups collapse; the first two start open.
-        if (vehicleTab_ == 1) {
+        if (vehicleTab_ == kTabHandling) {
             sectionDefaults("driving");
             const std::vector<vehiclesim::SpecField> fields =
                 vehiclesim::specFields(v.drive);
@@ -1599,7 +1908,7 @@ void App::drawVehicleWindow() {
         // The "damage*" spec fields plus test hits: the dent is computed by the
         // same vehiclesim functions the console's twin mirrors, on a copy of
         // the baked body, so what shows here is where the game will dent.
-        if (vehicleTab_ == 2) {
+        if (vehicleTab_ == kTabDamage) {
             sectionDefaults("damage");
             const std::vector<vehiclesim::SpecField> fields =
                 vehiclesim::specFields(v.drive);
@@ -1670,12 +1979,12 @@ void App::drawVehicleWindow() {
         }
 
         // --- Feel: driver, sounds, effects ------------------------------------
-        if (vehicleTab_ == 3) {
-            if (ui::Section("Driver", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (vehicleTab_ == kTabCamera) {
+            {
             sectionDefaults("driver");
-            tunedRow("camDist", "Camera distance", [&] { ui::SliderFloat("Camera distance", &v.camDist, 1.0f, 20.0f, "%.2f"); });
-            tunedRow("camHeight", "Camera height", [&] { ui::SliderFloat("Camera height", &v.camHeight, 0.0f, 10.0f, "%.2f"); });
-            tunedRow("camPitch", "Camera pitch", [&] { ui::SliderFloat("Camera pitch", &v.camPitch, -30.0f, 60.0f, "%.1f"); });
+            tunedSlider("camDist", "Camera distance", &v.camDist, 1.0f, 20.0f, "%.2f");
+            tunedSlider("camHeight", "Camera height", &v.camHeight, 0.0f, 10.0f, "%.2f");
+            tunedSlider("camPitch", "Camera pitch", &v.camPitch, -30.0f, 60.0f, "%.1f");
             ImGui::Separator();
             ImGui::BeginDisabled(global);
             ui::AxisDrag3("Exit offset", v.exitOffset, 0.05f);
@@ -1716,110 +2025,219 @@ void App::drawVehicleWindow() {
             }
 
             }
-            if (ui::Section("Sounds", ImGuiTreeNodeFlags_DefaultOpen)) {
+        }
+        if (vehicleTab_ == kTabSound) {
+            {
             sectionDefaults("sounds");
             const auto& sounds = project_.sounds;
-            const auto loopPicker = [&](const char* label, const char* tid,
-                                        std::string& path, const char* tip) {
-                const std::string cur = path.empty() ? "(none)" : path;
-                if (ImGui::BeginCombo(label, cur.c_str())) {
-                    if (ImGui::Selectable(
-                            (std::string("(none)##") + tid).c_str(),
-                            path.empty()))
-                        path.clear();
-                    for (size_t k = 0; k < sounds.size(); ++k) {
-                        const std::string l =
-                            sounds[k] + "##" + tid + std::to_string(k);
-                        if (ImGui::Selectable(l.c_str(), path == sounds[k]))
-                            path = sounds[k];
+            // A sample picker as an ordinary caption-left row: the file plus
+            // what it costs (length, size) in the field, inheritance in the
+            // slot - the caption is never on the right any more.
+            const auto samplePicker = [&](const char* key, const char* label, std::string& path,
+                                          const char* noneLabel, const char* tip) {
+                tunedRow(key, label, [&] {
+                    std::string cur = path.empty() ? std::string(noneLabel)
+                                                   : std::filesystem::path(path).filename().string();
+                    if (!path.empty()) {
+                        const std::string sum = wavSummary(project_.dir, path);
+                        if (!sum.empty()) cur += "   " + sum;
                     }
-                    ImGui::EndCombo();
-                }
-                vehicleHelp(tip);
+                    if (ui::BeginCombo(label, cur.c_str())) {
+                        if (ImGui::Selectable((std::string(noneLabel) + "##none").c_str(), path.empty()))
+                            path.clear();
+                        for (size_t k = 0; k < sounds.size(); ++k) {
+                            const std::string l = sounds[k] + "##snd" + std::to_string(k);
+                            if (ImGui::Selectable(l.c_str(), path == sounds[k])) path = sounds[k];
+                        }
+                        if (sounds.empty()) ImGui::TextDisabled("No sounds - import a WAV in Project > Audio.");
+                        ImGui::EndCombo();
+                    }
+                    vehicleHelp(tip);
+                });
             };
-            // Selecting a continuous vehicle sound declares loop intent to
-            // both build backends; the source filename is unrestricted.
-            ui::Caption("Engine sound");
-            vehicleHelp("Choose any imported WAV. The build encodes vehicle engine and tyre samples as loops; pitch follows engine speed.");
-            const std::string cur = v.engineSound.empty() ? "(silent)" : v.engineSound;
-            if (ui::BeginCombo("Sample", cur.c_str())) {
-                // No `changed` flag: this window compares Section::Vehicles'
-                // JSON across its whole body, which covers a widget added later
-                // by construction (the repo-wide sectionJson guard).
-                if (ImGui::Selectable("(silent)##vehsndnone", v.engineSound.empty()))
-                    v.engineSound.clear();
-                for (size_t k = 0; k < sounds.size(); ++k) {
-                    const std::string label =
-                        sounds[k] + "##vehsnd" + std::to_string(k);
-                    if (ImGui::Selectable(label.c_str(), v.engineSound == sounds[k]))
-                        v.engineSound = sounds[k];
+
+            // The pitch the engine plays at across the rev range: the idle
+            // loop, the high-rev loop over its crossfade band, and (on a
+            // vehicle) the Defaults' idle curve dashed - the numbers below,
+            // drawn as the sound they make.
+            {
+                const float w = ImGui::GetContentRegionAvail().x;
+                const float h = scaled(84);
+                const ImVec2 o = ImGui::GetCursorScreenPos();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(o, ImVec2(o.x + w, o.y + h), ImGui::GetColorU32(sem.ground), scaled(8));
+                dl->AddRect(o, ImVec2(o.x + w, o.y + h), ImGui::GetColorU32(sem.border), scaled(8));
+                const VehicleDef& D = project_.vehicleDefaults;
+                const bool high = v.engineHighEnabled && !v.engineHighSound.empty();
+                float top = std::max({v.enginePitchIdle, v.enginePitchRedline, D.enginePitchRedline, 1.0f});
+                if (high) top = std::max({top, v.engineHighPitchStart, v.engineHighPitchEnd});
+                top += 0.25f;
+                const float pad = scaled(10);
+                auto P = [&](float rev, float pitch) {
+                    return ImVec2(o.x + pad + rev * (w - pad * 2.0f),
+                                  o.y + h - pad - scaled(10) - pitch / top * (h - pad * 2.0f - scaled(10)));
+                };
+                const ImVec4 special(0.95f, 0.56f, 0.88f, 1.0f);
+                if (high) {
+                    const ImVec2 a = P(v.engineHighStart, top), b = P(1.0f, 0.0f);
+                    dl->AddRectFilled(ImVec2(a.x, o.y + pad * 0.5f), ImVec2(b.x, b.y),
+                                      ImGui::GetColorU32(ImVec4(special.x, special.y, special.z, 0.14f)));
+                    dl->AddText(ImVec2(a.x + scaled(4), o.y + pad * 0.5f), ImGui::GetColorU32(special), "crossfade");
                 }
-                ImGui::EndCombo();
-            }
-            if (sounds.empty())
-                ImGui::TextDisabled(
-                    "No sounds in the project. Import a WAV in Project > Sounds.");
-            if (!v.engineSound.empty()) {
-                tunedRow("enginePitchIdle", "Pitch at idle", [&] { ui::SliderFloat("Pitch at idle", &v.enginePitchIdle, 0.25f, 2.0f,
-                                   "%.2fx"); });
-                vehicleHelp("Playback rate at idle, as a multiple of the sample's own.");
-                tunedRow("enginePitchRedline", "Pitch at redline", [&] { ui::SliderFloat("Pitch at redline", &v.enginePitchRedline, 0.5f,
-                                   4.0f, "%.2fx"); });
-                vehicleHelp(
-                    "Playback rate at the redline. The SPU2 register saturates\n"
-                    "around 4x the sample's own rate.");
-                tunedRow("engineVolume", "Volume", [&] { ui::SliderFloat("Volume", &v.engineVolume, 0.0f, 100.0f, "%.0f"); });
+                if (!global && v.inheritDefaults) {
+                    const ImVec2 a = P(0.0f, D.enginePitchIdle), b = P(1.0f, D.enginePitchRedline);
+                    for (int k = 0; k < 24; k += 2) {
+                        const float t0 = k / 24.0f, t1 = (k + 1) / 24.0f;
+                        dl->AddLine(ImVec2(a.x + (b.x - a.x) * t0, a.y + (b.y - a.y) * t0),
+                                    ImVec2(a.x + (b.x - a.x) * t1, a.y + (b.y - a.y) * t1),
+                                    ImGui::GetColorU32(sem.textDim), 1.5f);
+                    }
+                }
+                if (!v.engineSound.empty())
+                    dl->AddLine(P(0.0f, v.enginePitchIdle), P(1.0f, v.enginePitchRedline),
+                                ImGui::GetColorU32(sem.accent), 2.0f);
+                if (high)
+                    dl->AddLine(P(v.engineHighStart, v.engineHighPitchStart), P(1.0f, v.engineHighPitchEnd),
+                                ImGui::GetColorU32(special), 2.0f);
+                if (vehiclePreviewSound_) {
+                    const ImVec2 r = P(ImClamp(vehiclePreviewRevs_, 0.0f, 1.0f), 0.0f);
+                    dl->AddLine(ImVec2(r.x, o.y + pad * 0.5f), ImVec2(r.x, r.y), ImGui::GetColorU32(ImVec4(sem.text.x, sem.text.y, sem.text.z, 0.5f)));
+                }
+                const float lfs = ImGui::GetFontSize() * 0.8f;
+                dl->AddText(ImGui::GetFont(), lfs, ImVec2(o.x + pad, o.y + h - lfs - scaled(4)),
+                            ImGui::GetColorU32(sem.textDim), "idle");
+                const float rw = ImGui::GetFont()->CalcTextSizeA(lfs, FLT_MAX, 0, "redline").x;
+                dl->AddText(ImGui::GetFont(), lfs, ImVec2(o.x + w - pad - rw, o.y + h - lfs - scaled(4)),
+                            ImGui::GetColorU32(sem.textDim), "redline");
+                ImGui::Dummy(ImVec2(w, h));
+                ImGui::TextColored(sem.accent, "-");
+                ImGui::SameLine(0, scaled(4));
+                ImGui::TextDisabled("idle loop");
+                ImGui::SameLine(0, scaled(12));
+                ImGui::TextColored(special, "-");
+                ImGui::SameLine(0, scaled(4));
+                ImGui::TextDisabled("high-rev loop");
+                if (!global && v.inheritDefaults) {
+                    ImGui::SameLine(0, scaled(12));
+                    ImGui::TextDisabled("- - Defaults");
+                }
             }
 
-            ImGui::Separator();
-            loopPicker("High-rev loop", "vehsndhigh", v.engineHighSound,
-                       "A second engine loop the base one CROSSFADES with as\n"
-                       "the revs rise - the era's two-sample engine. Its pitch\n"
-                       "has its own range. Any imported WAV is looped by the build.");
-            tunedRow("engineHighEnabled", "Enable high-rev loop", [&] { ui::Switch("Enable high-rev loop", &v.engineHighEnabled); });
-            if (!v.engineHighSound.empty()) {
-                tunedRow("engineHighStart", "High-rev starts at", [&] { ui::SliderFloat("High-rev starts at", &v.engineHighStart, 0.0f, 0.95f, "%.2f of rev range"); });
-                vehicleHelp("The high-rev recording fades in from this point to redline.");
-                tunedRow("engineHighPitchStart", "High-rev pitch at start", [&] { ui::SliderFloat("High-rev pitch at start", &v.engineHighPitchStart, 0.25f, 4.0f, "%.2fx"); });
-                tunedRow("engineHighPitchEnd", "High-rev pitch at redline", [&] { ui::SliderFloat("High-rev pitch at redline", &v.engineHighPitchEnd, 0.25f, 4.0f, "%.2fx"); });
+            ui::Caption("Idle loop");
+            samplePicker("engineSound", "Sample##idle", v.engineSound, "(silent)",
+                         "The engine's base loop - any imported WAV; the build\n"
+                         "encodes it as a loop and its pitch follows the revs.");
+            const char* noIdle = v.engineSound.empty() ? "needs a sample" : nullptr;
+            tunedSlider("enginePitchIdle", "Pitch at idle", &v.enginePitchIdle, 0.25f, 2.0f, "%.2fx", noIdle);
+            vehicleHelp("Playback rate at idle, as a multiple of the sample's own.");
+            tunedSlider("enginePitchRedline", "Pitch at redline", &v.enginePitchRedline, 0.5f, 4.0f, "%.2fx", noIdle);
+            vehicleHelp("Playback rate at the redline. The SPU2 register saturates\n"
+                        "around 4x the sample's own rate.");
+            tunedSlider("engineVolume", "Volume##idle", &v.engineVolume, 0.0f, 100.0f, "%.0f", noIdle);
+
+            ui::Caption("High-rev loop");
+            tunedRow("engineHighEnabled", "On##high", [&] { ui::Switch("On##high", &v.engineHighEnabled); });
+            vehicleHelp("A second engine loop the base one CROSSFADES with as the revs\n"
+                        "rise - the era's two-sample engine. Its pitch has its own range.");
+            samplePicker("engineHighSound", "Sample##high", v.engineHighSound, "(none)",
+                         "The high-rev recording. Any imported WAV; the build loops it.");
+            const char* noHigh = !v.engineHighEnabled ? "loop is off"
+                                 : v.engineHighSound.empty() ? "needs a sample" : nullptr;
+            tunedSlider("engineHighStart", "Crossfade starts at", &v.engineHighStart, 0.0f, 0.95f,
+                        "%.2f of revs", noHigh);
+            vehicleHelp("The high-rev recording fades in from this point to the redline.");
+            tunedSlider("engineHighPitchStart", "Pitch at fade start", &v.engineHighPitchStart, 0.25f, 4.0f,
+                        "%.2fx", noHigh);
+            tunedSlider("engineHighPitchEnd", "Pitch at redline##high", &v.engineHighPitchEnd, 0.25f, 4.0f,
+                        "%.2fx", noHigh);
+
+            ui::Caption("Tyre squeal");
+            samplePicker("screechSound", "Sample##squeal", v.screechSound, "(none)",
+                         "Volume rides the tyre slip - the same number the smoke and the\n"
+                         "telemetry read, so they agree about when a tyre has let go.");
+            tunedSlider("screechVolume", "Volume##squeal", &v.screechVolume, 0.0f, 100.0f, "%.0f",
+                        v.screechSound.empty() ? "needs a sample" : nullptr);
+
+            ui::Caption("Gear shift");
+            samplePicker("shiftSound", "Sample##shift", v.shiftSound, "(none)",
+                         "A ONE-SHOT played on every gear change while driving - any\n"
+                         "sound qualifies. It borrows a free script voice (priority\n"
+                         "60), never the engine's.");
+            tunedSlider("shiftVolume", "Volume##shift", &v.shiftVolume, 0.0f, 100.0f, "%.0f",
+                        v.shiftSound.empty() ? "needs a sample" : nullptr);
             }
-            ImGui::Separator();
-            loopPicker("Tyre squeal loop", "vehsndscr", v.screechSound,
-                       "Volume rides the tyre slip - the same number the smoke\n"
-                       "and the telemetry read, so they always agree about when\n"
-                       "a tyre has let go. Any imported WAV is looped by the build.");
-            if (!v.screechSound.empty()) {
-                tunedRow("screechVolume", "Squeal volume", [&] { ui::SliderFloat("Squeal volume", &v.screechVolume, 0.0f,
-                                   100.0f, "%.0f"); });
+        }
+        if (vehicleTab_ == kTabLook) {
+            // Per vehicle (never inherited): paint and the body's surface.
+            if (!global) {
+            ui::Caption("Body paint");
+            ui::Switch("Override paint colour", &v.paintEnabled);
+            if (v.paintEnabled) {
+                ui::ColorHex("Paint colour", v.paintColor);
+                ImGui::TextDisabled("Mask: %s", v.paintMask.empty()
+                    ? "<none>" : v.paintMask.c_str());
+                (void)pickProjectTexture("vehicle-paint-mask", v.paintMask);
+                if (!v.paintMask.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear mask")) v.paintMask.clear();
+                }
+                vehicleHelp("Grayscale paint mask: white recolours paint; black protects glass, trim and wheels. Untextured paint materials need no mask.");
+                if (v.paintMask.empty() && bake && bake->ok &&
+                    !bake->result.textures.empty())
+                    ImGui::TextDisabled("Choose a mask for textured paint.");
             }
-            ImGui::Separator();
-            {
-                const std::string cur =
-                    v.shiftSound.empty() ? "(none)" : v.shiftSound;
-                if (ui::BeginCombo("Gear shift", cur.c_str())) {
-                    if (ImGui::Selectable("(none)##vehsndshift",
-                                          v.shiftSound.empty()))
-                        v.shiftSound.clear();
-                    for (size_t k = 0; k < project_.sounds.size(); ++k) {
-                        const std::string l = project_.sounds[k] +
-                                              "##vehshift" + std::to_string(k);
-                        if (ImGui::Selectable(l.c_str(),
-                                              v.shiftSound == project_.sounds[k]))
-                            v.shiftSound = project_.sounds[k];
+
+            ui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
+            vehicleHelp(
+                "The paint's reflection pass. Rubber and near-black trim\n"
+                "stay MATTE (the bake splits them out - one extra submit),\n"
+                "and the wheels never shine.");
+            if (v.bodyShine > 0.001f) {
+                ImGui::TextUnformatted("Reflection map");
+                ImGui::TextDisabled("%s", v.bodyReflMap.empty() ? "Dynamic sky" :
+                    std::filesystem::path(v.bodyReflMap).filename().string().c_str());
+                static char reflectionFilter[64] = {};
+                if (ImGui::SmallButton("Choose texture...")) {
+                    reflectionFilter[0] = '\0';
+                    ImGui::OpenPopup("Reflection texture");
+                }
+                if (ImGui::BeginPopup("Reflection texture")) {
+                    if (ImGui::Selectable("Dynamic sky", v.bodyReflMap.empty()))
+                        v.bodyReflMap.clear();
+                    ImGui::InputTextWithHint("##reflection-search", "Find texture...", reflectionFilter, sizeof(reflectionFilter));
+                    ImGuiTextFilter filter(reflectionFilter);
+                    ImGui::BeginChild("Reflection choices", ImVec2(scaled(300), scaled(240)));
+                    for (const auto& name : listAssetFiles("textures", ".png")) {
+                        if (!filter.PassFilter(name.c_str())) continue;
+                        const std::string rel = "res/textures/" + name;
+                        const uint32_t thumb = viewport_.assetThumb(rel, true);
+                        if (thumb) {
+                            ImGui::Image((ImTextureID)(intptr_t)thumb, ImVec2(scaled(32), scaled(32)));
+                            ImGui::SameLine();
+                        }
+                        if (ImGui::Selectable(name.c_str(), v.bodyReflMap == rel))
+                            v.bodyReflMap = rel;
                     }
-                    ImGui::EndCombo();
+                    ImGui::EndChild();
+                    ImGui::Separator();
+                    if (ImGui::Selectable("Import PNG...")) {
+                        const auto path = importTextureAsset();
+                        if (!path.empty()) v.bodyReflMap = path;
+                    }
+                    ImGui::EndPopup();
                 }
-                vehicleHelp(
-                    "A ONE-SHOT played on every gear change while driving -\n"
-                    "any sound qualifies, loops make no sense here. It borrows\n"
-                    "a free script voice (priority 60), never the engine's.");
-                if (!v.shiftSound.empty()) {
-                    tunedRow("shiftVolume", "Shift volume", [&] { ui::SliderFloat("Shift volume", &v.shiftVolume, 0.0f,
-                                       100.0f, "%.0f"); });
+                if (!v.bodyReflMap.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Use sky")) v.bodyReflMap.clear();
                 }
+                vehicleHelp("Sphere-map texture for body paint. Choose a PNG, or Use sky for the dynamic sky reflection.");
             }
+            ui::SliderFloat("Glass opacity", &v.glassOpacity, 0.05f, 1.0f, "%.2f");
+            vehicleHelp(
+                "Below 1 the windows turn see-through: glass-named materials\n"
+                "get their own part, drawn last. One extra submit.");
             }
-            if (ui::Section("Effects")) {
+            {
             sectionDefaults("effects");
             ui::Caption("Lighting");
             tunedRow("headlights", "Headlights", [&] { ui::Switch("Headlights", &v.headlights); });
@@ -1832,7 +2250,7 @@ void App::drawVehicleWindow() {
                                  const char* noneLabel) {
                 std::string current = path.empty() ? noneLabel : path;
                 if (current.rfind("res/", 0) == 0) current = current.substr(4);
-                if (ImGui::BeginCombo(label, current.c_str())) {
+                if (ui::BeginCombo(label, current.c_str())) {
                     if (ImGui::Selectable(noneLabel, path.empty())) path.clear();
                     for (const std::string& rel : listMaterialAssets())
                         if (ImGui::Selectable(rel.substr(4).c_str(), rel == path))
@@ -1969,7 +2387,8 @@ void App::drawVehicleWindow() {
         // The number that decides whether a scene can afford this vehicle at
         // all. A PS2 submit is ~1 ms of fixed EE time whatever it holds, so
         // stating the submit count is stating the frame budget.
-        if (!global && vehicleTab_ == 4) {
+        if (!global && vehicleTab_ == kTabModel) {
+            ui::Caption("Cost");
             if (!bake || !bake->ok) {
                 ImGui::TextDisabled("Import a model to see what it costs.");
             } else {
@@ -2082,55 +2501,6 @@ void App::drawVehicleWindow() {
                     "colours in a generated palette texture. This is what takes a\n"
                     "36-part car down to two submits - turning it off is for\n"
                     "seeing what it costs, not for shipping.");
-                ui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
-                vehicleHelp(
-                    "The paint's reflection pass. Rubber and near-black trim\n"
-                    "stay MATTE (the bake splits them out - one extra submit),\n"
-                    "and the wheels never shine.");
-                if (v.bodyShine > 0.001f) {
-                    ImGui::TextUnformatted("Reflection map");
-                    ImGui::TextDisabled("%s", v.bodyReflMap.empty() ? "Dynamic sky" :
-                        std::filesystem::path(v.bodyReflMap).filename().string().c_str());
-                    static char reflectionFilter[64] = {};
-                    if (ImGui::SmallButton("Choose texture...")) {
-                        reflectionFilter[0] = '\0';
-                        ImGui::OpenPopup("Reflection texture");
-                    }
-                    if (ImGui::BeginPopup("Reflection texture")) {
-                        if (ImGui::Selectable("Dynamic sky", v.bodyReflMap.empty()))
-                            v.bodyReflMap.clear();
-                        ImGui::InputTextWithHint("##reflection-search", "Find texture...", reflectionFilter, sizeof(reflectionFilter));
-                        ImGuiTextFilter filter(reflectionFilter);
-                        ImGui::BeginChild("Reflection choices", ImVec2(scaled(300), scaled(240)));
-                        for (const auto& name : listAssetFiles("textures", ".png")) {
-                            if (!filter.PassFilter(name.c_str())) continue;
-                            const std::string rel = "res/textures/" + name;
-                            const uint32_t thumb = viewport_.assetThumb(rel, true);
-                            if (thumb) {
-                                ImGui::Image((ImTextureID)(intptr_t)thumb, ImVec2(scaled(32), scaled(32)));
-                                ImGui::SameLine();
-                            }
-                            if (ImGui::Selectable(name.c_str(), v.bodyReflMap == rel))
-                                v.bodyReflMap = rel;
-                        }
-                        ImGui::EndChild();
-                        ImGui::Separator();
-                        if (ImGui::Selectable("Import PNG...")) {
-                            const auto path = importTextureAsset();
-                            if (!path.empty()) v.bodyReflMap = path;
-                        }
-                        ImGui::EndPopup();
-                    }
-                    if (!v.bodyReflMap.empty()) {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Use sky")) v.bodyReflMap.clear();
-                    }
-                    vehicleHelp("Sphere-map texture for body paint. Choose a PNG, or Use sky for the dynamic sky reflection.");
-                }
-                ui::SliderFloat("Glass opacity", &v.glassOpacity, 0.05f, 1.0f, "%.2f");
-                vehicleHelp(
-                    "Below 1 the windows turn see-through: glass-named materials\n"
-                    "get their own part, drawn last. One extra submit.");
                 ImGui::TextUnformatted("Texture depth");
                 ImGui::SameLine();
                 drawAssetQualityCombo(v.modelPath);

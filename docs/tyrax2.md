@@ -33,15 +33,15 @@ The historical acceptance records below describe their original opt-in builds;
 the default policy and example qualification are implemented. Paired physical
 post-Memo night controls now complete; Showcase reverse controls remain open.
 The existing
-[ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json) measured about
+ordinary-clock quiet record measured about
 30 FPS in its authored pre-Memo night configuration; it is not a post-Memo
 result or 60 FPS acceptance. Physical button-to-TV latency remains unmeasured.
-The [post-Memo quiet record](tyrax2-postmemo-quiet-2026-10-03.json) contains
+The post-Memo quiet record contains
 both fresh physical orders: 10,800 loops, 384 samples and rendered flip-return
 periods of approximately 33.3667 ms (29.97 FPS). Inclusive non-pacing chunk
 means range from 18.924 to 19.038 ms. Sampler deltas change sign, so no uniform
 observer correction or cross-ELF optimization gain is accepted.
-The [RemotePad-free front/tail control](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+The RemotePad-free front/tail control
 also completes both private pinned-plain Showcase orders. Front means are
 0.724–0.744 ms and inclusive non-pacing tail means 36.376–36.384 ms; boundary
 price remains unresolved. This calibration does not close the authored Auto
@@ -80,7 +80,7 @@ hardware FPS, audio quality, pixel identity on every transition frame or TV
 latency. Broad native/example boot checks and the final generated release
 source comparison are separate qualifications.
 
-The [1.171.0 qualification record](tyrax2-release-2026-10-03.json) now contains
+The 1.171.0 qualification record now contains
 44 native example builds and 44 independently reviewed emulator boots/logs/
 actual images. All checked-in examples explicitly request the pipeline and
 have fresh generated sources. The source comparison checks 42 original
@@ -175,7 +175,7 @@ hardware across 200,704 accepted chains without rejection or fallback;
 indexed pinning passed 565,248 hardware chains without rejection. The first indexed pinning
 window reached 20.879 ms: ~0.96 ms above the control, with unchanged authored
 pose/video/quality. It is an ownership experiment, not an accepted gain.
-[The exploratory record](tyrax2-arena-2026-10-02.json) retains the successive
+The exploratory record retains the successive
 arms, hashes and known archive limits. `tools/verify-frame-arena.cpp` checks copied REF rebasing, independence
 from later source mutations, independent snapshots, bounded overflow, rollback,
 and unsafe/unsupported tags. Run it with the same host compiler/sanitizers as
@@ -290,7 +290,7 @@ survives save/reopen; `getFramePipeline()` reports the requested setting, even
 when the current display mode takes a synchronous compatibility path. This
 version does not introduce the reference title's SPR staging scheme.
 
-The [runtime record](tyrax2-runtime-2026-10-02.json) separates final-candidate
+The runtime record separates final-candidate
 results from predecessor experiments and includes local artifact hashes:
 
 | Physical PS2, seated day start | Baseline, two boots | Corrected 1.169.1, two boots |
@@ -334,7 +334,7 @@ boundaries. Software establishes observed-input-to-display-register identity
 and delay, while an external recording is required for button-to-TV-image
 latency. Do not infer a fixed millisecond penalty from N/N-1 alone.
 
-The [preparation record](tyrax2-latency-plan-2026-10-02.json) retains source hashes
+The preparation record retains source hashes
 and the detailed original private plan. A subsequent private implementation
 passes 6,421 actual-header host checks and native compilation. It tags input/game,
 prefix, pending job, FINISH and actual displayed-buffer identity in a bounded
@@ -350,7 +350,7 @@ off block and a stale tag after returning from on to off. The console remained
 healthy. Host checks had modeled the wrong off path and did not establish
 actual target hook coverage. A private V2 observer uses the current render tag
 for legacy synchronous presents and clears queued identity each render revision.
-The [fixture record](tyrax2-latency-fixture-2026-10-02.json) retains the original
+The fixture record retains the original
 build hashes and rejected logs. V2 passes 36,241 actual-header legacy-off and
 36,345 ordered-off host checks, native compilation, and all 39 synthetic edge
 mappings across the full 5,400-loop emulator run. Cold phase-zero renders
@@ -511,7 +511,7 @@ Simulation/input (`pre`), presentation and vsync are part of the full period.
 These are baseline controls, not an optimization result. No plain-build
 transparency or pixel-equivalence acceptance is claimed yet.
 
-[The machine-readable record](tyrax2-baseline-2026-10-01.json) includes ELF hashes,
+The machine-readable record includes ELF hashes,
 per-window periods and repeats; complete stdout and scratch builds remain in
 the recorded local artifact directory. A later candidate must preserve the
 same pose and include full-frame and visual gates as well as these work samples.
@@ -625,7 +625,7 @@ the actual runtime rather than a fixed routing microbenchmark.
 The fixture completed all seven phases on PS2 and returned to normal night;
 the frozen log's latest arena summary reports zero direct fallbacks. Loading
 splits remain exceptional frames outside the warm timing windows. The
-[machine-readable record](tyrax2-night-isolation-2026-10-02.json) contains the
+machine-readable record contains the
 ELF/log hashes, exact windows, source hashes, preparation/analysis scripts and
 emulator evidence. The host server remains alive for subsequent file access.
 
@@ -691,7 +691,7 @@ compare bytes and pixels before timing without counters. The observed beam
 helper bracket is only about 0.25 ms, not a promised path to 60 Hz. Submission
 cost still dominates both functions and needs a separate bounded experiment.
 
-The [split record](tyrax2-light-split-2026-10-02.json) preserves preparation and
+The split record preserves preparation and
 analysis scripts, exact raw/profile/period windows and ELF/log/source hashes.
 The run completed 11,000 measured gameplay frames; the frozen log's later
 arena summary has zero direct fallbacks and five exceptional split frames.
@@ -706,7 +706,7 @@ The [physical pipeline attribution and VU0 audit](tyrax2-ee-vu0.md) measures 2.7
 
 The standard flowgraph and generated FPP/ORBIT loops already use the engine synchronization contracts. Scene unload, texture mutation, display changes, auxiliary passes and live-debugger captures do not require an unconditional wait around every node. Custom raw DMA, resource ownership and CPU readback still require explicit completion/lifetime handling; see [custom flow nodes](custom-flow-nodes.md) and [object scripts](object-scripts.md).
 
-Version 1.169.2 fixes an existing Set Display Mode generator mismatch: legal full-height PAL value 4 was clamped to InterlacedField value 3. Scratch FPP and ORBIT fixtures preserve all five values, clamp outside 0..4 and retain the confirmation timeout. Native builds and PCSX2 runtime markers verify PAL4 at 50 Hz and timed rollback to 0, with the pipeline request retained. This is emulator control-flow validation, not physical video/pixel or latency acceptance. Existing video-modes example nodes only use 0..3, so their generated behavior is unchanged. The [integration record](tyrax2-integration-2026-10-02.json) preserves hashes and limitations.
+Version 1.169.2 fixes an existing Set Display Mode generator mismatch: legal full-height PAL value 4 was clamped to InterlacedField value 3. Scratch FPP and ORBIT fixtures preserve all five values, clamp outside 0..4 and retain the confirmation timeout. Native builds and PCSX2 runtime markers verify PAL4 at 50 Hz and timed rollback to 0, with the pipeline request retained. This is emulator control-flow validation, not physical video/pixel or latency acceptance. Existing video-modes example nodes only use 0..3, so their generated behavior is unchanged. The integration record preserves hashes and limitations.
 
 Set/Get Frame Pipeline nodes are available since 1.172.0 as authoring conveniences. The setter defers its request until before beginFrame in both templates and skips unchanged requests to preserve overlap. The getter reports the requested setting, including during compatibility fallback; an actual-active/fallback query needs an explicit engine API. See [flow nodes](frame-pipeline-flow-nodes.md). Physical button-to-TV latency remains unmeasured. New-project defaults follow the policy above; broad example validation is recorded separately. SPR/CALL staging remains separate work.
 

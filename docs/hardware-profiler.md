@@ -60,7 +60,7 @@ establish free instrumentation. Do not subtract one universal overhead constant.
 A/B/A controls with matching scene/camera/replay/clock/order/window identities,
 one instrumented ELF and declared separate compiled-out layout. See
 [host analysis protocol](../tools/hardware-trace-analysis.md) and the
-[validation record](hardware-timeline-v2-2026-10-02.json). Physical observer cost
+validation record. Physical observer cost
 requires repeated valid matched controls on PS2.
 
 The first instrumented physical calibration completes 15,400 frames and all
@@ -99,7 +99,7 @@ ring is allocated before scene assets and can change their memory placement.
 Next isolate ring reservation using the same ELF and separate boot configuration,
 with capture disabled in every arm and matching independent sample windows.
 
-The [private ring-only control](hardware-timeline-ring-control-2026-10-02.json)
+The private ring-only control
 is built and passes both explicit boot settings in the emulator: one identical
 instrumented ELF, reservation 0 or 1 before assets, three 1,800-frame blocks and
 128 independent samples per block. Trace remains inactive and never exports.
@@ -142,7 +142,7 @@ profiling and real renderer operations. Its result is net routing performance,
 including existing waits, rather than a pure function-call bill or a
 compiler-pruned equivalent.
 
-The [live-dt controls](hardware-timeline-dispatch-control-2026-10-02.json)
+The live-dt controls
 retain both rejected normal/bypass/normal boots: the first phase has a different
 camera digest. Only the reverse bypass/normal/bypass boot passes all 384 samples;
 its local bypass-minus-normal work difference is -0.185 to -0.174 ms. A separate
@@ -151,14 +151,14 @@ and emulator controls differ only in the camera position Y by one float ULP;
 this maps the two observed hashes in that diagnostic, without recovering exact
 values from the older hash-only ELF or repairing its rejected runs.
 
-The [fixed-game-dt controls](hardware-timeline-dispatch-fixed-control-2026-10-02.json)
+The fixed-game-dt controls
 use the same nominal 1/30 s game step in every arm while measurement clocks and
 pacing remain real. Both orders pass all 384 samples, exact state/camera/dt and
 provenance controls, but the work delta reverses sign: +0.698 to +0.762 ms in
 normal/bypass/normal, and -1.013 to -0.946 ms in bypass/normal/bypass. The middle
 phase is heavier in both boots. No stable dispatch cost or gain is accepted.
 
-The [continuous-scene controls](hardware-timeline-dispatch-continuous-control-2026-10-02.json)
+The continuous-scene controls
 retain scene/resources across phases and reuse one 128-sample buffer, exported
 after its final whole-loop timestamp and before reuse. Both orders complete
 5400 loops and pass all 384 samples, exact state/camera/dt checks, constant
@@ -203,7 +203,7 @@ stays reserved before assets in all arms, and configuration bytes are frozen
 before each launch. Camera/state/dt, accessible addresses and export-before-reuse
 controls are required alongside strict complete CSV hierarchy acceptance.
 
-[Two physical boot orders](hardware-timeline-scene-coarse-2026-10-02.json)
+Two physical boot orders
 complete 5400 loops each, with 192 raw/186 uniformly selected independent
 samples in total. All three active captures pass 32 frames/448 events each,
 exactly one authoritative Scene per frame, zero drops/invalid hierarchy or
@@ -273,7 +273,7 @@ DONE. Startup/control stdout and the exact file are validated separately;
 missing rows are never reconstructed or deduplicated. The next phase cannot
 reuse the buffers until the previous export completes.
 
-[Both physical boot orders](hardware-bag-dispatch-census-2026-10-03.json) pass
+Both physical boot orders pass
 5400 loops each and all 768 raw/metrics pairs, with 384 active frames.
 Exact state/camera/dt, accessible addresses and common buffer addresses match
 within and across boots. Every active sample has 135 calls: zero empty, one
@@ -349,7 +349,7 @@ workload, so simulation can visibly run faster even at the emulator's normal
 1x setting. This is diagnostic fixed-workload behavior, not ordinary generated
 game timing or an emulator-derived hardware performance result.
 
-[Both physical orders](hardware-replay-census-2026-10-03.json) complete 5400
+Both physical orders complete 5400
 loops each with all 768 raw/metric pairs; the three active windows provide 384
 observations. Exact selected state/raw-camera/address/common-buffer controls
 match within/across boots, and every active frame has 135 calls: one culled,
@@ -422,7 +422,7 @@ capacity includes pressure handling and existing waits. Post includes buffer
 reuse and bookkeeping. SubmitRest and FlushResidual retain unlabelled work and
 observer commits, so children are never added to their inclusive parents.
 
-The [physical record](hardware-send-census-2026-10-03.json) accepts both complete
+The physical record accepts both complete
 5400-loop orders and all 768 raw/metric pairs. Exact selected state, raw camera,
 dt, accessible addresses and common buffers match across boots. Every active
 PS2 frame has 86 flush/send/submit calls and successful snapshots/native records,

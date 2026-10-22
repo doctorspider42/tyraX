@@ -43,7 +43,7 @@ ledger with only its EE clock substituted, and rejected nine malformed evidence
 inputs against both full runs. No production optimization was applied.
 
 Raw data, analysis, source snapshots and launch authority are in
-[the evidence archive](tyrax2-producer-2026-10-08/README.md).
+the evidence archive.
 
 ## Physical attribution
 

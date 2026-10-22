@@ -1,2 +1,0 @@
-PASS cases=1120 compactedStreams=4770 rejectingControls=8 sourceWords=2676 compactWords=2172 exactVuAtEveryKick=1 restoredRowMask=1
-PASS actualSdkRecords=60 oldWords=54480 compactWords=50280 compactedStreams=75 fallbackStreams=615 exactVuAtEveryKick=1 observedStateStable=1 gpuExecuted=0

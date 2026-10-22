@@ -387,7 +387,7 @@ reason: a few levels of noise make the eye integrate the plateaus away.
 
 ### Shadows
 
-The light is **blocked by solids**. Every object marked *Cast shadow*
+The light is **blocked by solids**. Every object marked *Contact shadow (AO)*
 (Properties — the same flag the ambient occlusion uses) becomes an analytic
 box or sphere, and the light is scaled by how much of the emitter the lit point
 can still see. So a wall stops the glow instead of letting it through.
@@ -403,7 +403,7 @@ does.
 
 What stays hard is the *shape*, not the edge. The caster is still an analytic
 solid, so a wall throws a soft-edged rectangle rather than its silhouette, and a
-detailed mesh shadows as its bounding box. Untick *Cast shadow* on anything that
+detailed mesh shadows as its bounding box. Untick *Contact shadow (AO)* on anything that
 should not stop light (a railing, a grate, foliage) — otherwise its bounding box
 will.
 

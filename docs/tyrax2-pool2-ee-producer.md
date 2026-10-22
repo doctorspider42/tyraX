@@ -27,7 +27,7 @@ The first emulator raster attempt was occluded by an owned SDL audio error modal
 
 The next ordered experiment is package-local unique-point transformation on VU1; GS SPRITE coronas follow it. Neither is covered by this result.
 
-The [preserved source and evidence package](tyrax2-pool2-ee-2026-10-05/README.md)
+The preserved source and evidence package
 contains five pricing postimages, two diagnostic postimages, raw physical logs,
 native/host reviews, actual-output reports and six accepted emulator images.
 Both source-only restorations were exercised against the verified previous

@@ -132,4 +132,6 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 The editor is 2.0.0; the combined project format is 114. Read
 [TyraX2 integration notes](references/tyrax2-integration.md) before changing
 frame ownership, pipeline recording or the associated acceptance tooling.
-The consolidated branch notes retain the full historical qualification record.
+The TyraX2 performance investigation is closed: the notes summarise its
+conclusions and pitfalls, and its lab scripts and raw evidence are only in
+git history.

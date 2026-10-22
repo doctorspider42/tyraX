@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 49, in <module>
-    rs=index([r for r in raw if n(r,'phase')==phase],'i',range(128)if sampler else[]);cs=index([r for r in chunks if n(r,'phase')==phase],'i',range(5));elapsed=pacing=rendered=synthetic=0
-       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 17, in index
-    assert len(rs)==len(expected);result={n(r,key):r for r in rs};assert len(result)==len(rs)and set(result)==set(expected);return result
-           ^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

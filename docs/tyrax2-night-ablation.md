@@ -2,7 +2,7 @@
 
 The joint night ablation experiment tests whether removing several effect families together lets the current renderer meet its ordinary presentation budget.
 
-The [immutable private source snapshot](tyrax2-night-ablation-sources-2026-10-04/README.md) contains exact headers, source patches, analyzers and build/evidence helpers. Its documented reconstruction matched all 497 frozen inputs byte-for-byte. This archive does not add a production renderer setting or change shipped defaults.
+The immutable private source snapshot contains exact headers, source patches, analyzers and build/evidence helpers. Its documented reconstruction matched all 497 frozen inputs byte-for-byte. This archive does not add a production renderer setting or change shipped defaults.
 
 ## Experiment design
 
@@ -24,7 +24,7 @@ Both physical sampler calibration orders completed. Net enabled contrasts were -
 
 Both physical joint orders also completed the strict 5400-loop protocol. In Full/JointOff/Full, elapsed-minus-existing-pacing means were 18.8911/13.3906/18.7552 ms; in JointOff/Full/JointOff they were 13.3716/18.8581/13.3775 ms. Mean engine flip-return periods were approximately 33.3667 ms in full night and 16.6833 ms under the joint cut. The simplified stationary scene reaches the cadence associated with ordinary NTSC 59.94 Hz; this does not qualify production full-night quality at 60 FPS. Nominal configuration metadata reports 60000 mHz. TV photon timing and physical visual restoration remain unverified: the operator was away. Emulator restoration is qualified separately.
 
-Eight completed physical boots are retained in the [dated machine bundle](tyrax2-night-ablation-2026-10-04.json). Each add-back below uses its own joint-off controls; these contrasts are not additive component bills.
+Eight completed physical boots are retained in the dated machine bundle. Each add-back below uses its own joint-off controls; these contrasts are not additive component bills.
 
 | Restored families | Own elapsed-minus-pacing contrasts | Engine flip-return cadence |
 |---|---:|---|
@@ -41,11 +41,11 @@ Original raw evidence and failed attempts remain preserved. Clock intervals are 
 
 Private V3 splits extras into complete pool/receiver, beam/corona and vehicle/lamp glow entry gates while keeping the ordinary family mask zero. It retains the V2 sampler and quiet wrappers byte-for-byte and adds cold activation counters outside measurement windows. Its 497-input native build, target ABI, runtime assets, host controls and negative parser cases passed independent checks. All three extra subsets completed both emulator orders. Three phase captures are available for five boots; the first pool order has only a restored-full capture. Emulator rasters and timings do not qualify physical performance.
 
-The [immutable V3 source archive](tyrax2-night-extras-sources-2026-10-04/README.md) reconstructs all 497 source inputs from V2 byte-for-byte. Its historical external `night-ablation-publication-v2` reference corresponds to the [V2 archive in this repository](tyrax2-night-ablation-sources-2026-10-04/README.md). Neither archive includes native ELF or runtime asset payloads. Archive metadata records the packaging-time state; later completed runs are qualified separately.
+The immutable V3 source archive reconstructs all 497 source inputs from V2 byte-for-byte. Its historical external `night-ablation-publication-v2` reference corresponds to the V2 archive in this repository. Neither archive includes native ELF or runtime asset payloads. Archive metadata records the packaging-time state; later completed runs are qualified separately.
 
-The [six emulator qualification records](tyrax2-night-subsets-2026-10-04.json) bind completed source/ELF evidence and available raster hashes. Their original logs, images and full proofs remain external LAB artifacts. Rear-view glow intensity is subtle in the images; positive entry and suppression witnesses support activation without a pixel-equality claim.
+The six emulator qualification records bind completed source/ELF evidence and available raster hashes. Their original logs, images and full proofs remain external LAB artifacts. Rear-view glow intensity is subtle in the images; positive entry and suppression witnesses support activation without a pixel-equality claim.
 
-All six physical V3 boots completed on October 5, retaining the same ELF, ordinary masks zero and sampler On: 32,400 loops, 2,304 raw samples and 90 bounded chunks. The [dated physical record](tyrax2-night-extras-2026-10-05.json) binds their own full-night controls and sparse positive suppression/restoration witnesses.
+All six physical V3 boots completed on October 5, retaining the same ELF, ordinary masks zero and sampler On: 32,400 loops, 2,304 raw samples and 90 bounded chunks. The dated physical record binds their own full-night controls and sparse positive suppression/restoration witnesses.
 
 | Complete subgroup cut | Own cut-minus-full contrast range |
 |---|---:|
@@ -59,17 +59,17 @@ During the series the user confirmed that the car, map and HUD looked normal wit
 
 ## Appearance-preserving candidate
 
-The [private pool color candidate](tyrax2-pool-color-candidate-2026-10-04/PUBLICATION.md) keeps vertex/ST storage, content stamps and bbox version when only a batch member's RGB/FIX changes. Membership, order and source geometry/ST changes still rebuild all streams. Colors retain the original expression and order and receive a fresh content stamp. Independent source/cache-contract review and exact-function host comparisons passed 1,322 cases and 11,622 checks each at O0/O2. The actual R5900 translation unit also compiled without diagnostics; no linked ELF or runtime acceptance is claimed.
+The private pool color candidate keeps vertex/ST storage, content stamps and bbox version when only a batch member's RGB/FIX changes. Membership, order and source geometry/ST changes still rebuild all streams. Colors retain the original expression and order and receive a fresh content stamp. Independent source/cache-contract review and exact-function host comparisons passed 1,322 cases and 11,622 checks each at O0/O2. The actual R5900 translation unit also compiled without diagnostics; no linked ELF or runtime acceptance is claimed.
 
 Eligibility covers only existing non-volume gobo scene-spot batches, not all receivers or beams. At this October 4 source-only checkpoint, color-only activation was unmeasured. Historical pool preparation residue around 0.18–0.19 ms limits expectations: this candidate cannot be credited with the approximately 1.95 ms whole-extras cut. The separate follow-up below supplies later native/runtime/activation/pricing evidence without rewriting the original archive. Production code and defaults remain unchanged.
 
 ## Same-ELF cache follow-up
 
-The [kind4 source archive](tyrax2-pool-cache-sources-2026-10-05/README.md) preserves a separate dual-arm experiment derived from V3: four changed inputs, 497 total. Its historical external V3 reference corresponds to the [V3 archive here](tyrax2-night-extras-sources-2026-10-04/README.md). Kind4 keeps all ordinary/extra masks zero and sampling enabled, switches baseline/candidate/baseline or the reverse, and preserves warm cache state. Cold reason/action counters run only at 750/1155; common classification, branches and layout remain unpriced.
+The kind4 source archive preserves a separate dual-arm experiment derived from V3: four changed inputs, 497 total. Its historical external V3 reference corresponds to the V3 archive here. Kind4 keeps all ordinary/extra masks zero and sampling enabled, switches baseline/candidate/baseline or the reverse, and preserves warm cache state. Cold reason/action counters run only at 750/1155; common classification, branches and layout remain unpriced.
 
 Independent source/host/native/ABI/assets gates passed. The actual dual-arm oracle passed 1,329 cases and 11,722 checks at O0/O2; 20 complete protocol transcripts and 47 parser negatives passed. Both emulator orders completed with positive old/new action witnesses and qualitatively consistent phase rasters. These gates do not transfer the split-only candidate's earlier target-compile acceptance or establish pixel equality.
 
-The [physical pair](tyrax2-pool-cache-2026-10-05.json) completed 10,800 loops, 768 raw samples and 30 bounded chunks. Candidate-minus-own-baseline contrasts were +0.014512/-0.103727 ms in forward order, with 0.118239 ms outer-control spread, and -0.020342/-0.047215 ms in reverse, with 0.026873 ms spread. Engine flip-return periods remained approximately 33.367 ms. The mixed small responses do not qualify a stable improvement or production promotion; no uniform observer fee or cross-version subtraction is applied.
+The physical pair completed 10,800 loops, 768 raw samples and 30 bounded chunks. Candidate-minus-own-baseline contrasts were +0.014512/-0.103727 ms in forward order, with 0.118239 ms outer-control spread, and -0.020342/-0.047215 ms in reverse, with 0.026873 ms spread. Engine flip-return periods remained approximately 33.367 ms. The mixed small responses do not qualify a stable improvement or production promotion; no uniform observer fee or cross-version subtraction is applied.
 
 Forward cold witnesses captured the old geometry rebuild for a color-only change but missed a new-arm update. Reverse witnesses positively captured the candidate's color-only update with geometry preserved for 768 vertices. Together these qualify actual target actions across the pair, not a full-window hit census or zero-hit claim for the first candidate arm. Earlier unproven-activation evidence remains preserved.
 

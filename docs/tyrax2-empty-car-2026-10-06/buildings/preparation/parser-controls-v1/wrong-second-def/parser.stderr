@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 109, in <module>
-    for k,v in dict(vehicleCount=2,driverDef=0,secondDef=1,driverObject=1,secondObject=3).items():assert n(r,k)==v,k
-                                                                                                         ^^^^^^^^^
-AssertionError: secondDef

@@ -64,7 +64,7 @@ diagnostic rejection evidence, not an appearance-qualified promotion result.
 The candidate is rejected on physical performance, so no production promotion
 or extra emulator replay is required to claim the measured regression.
 
-The [source/evidence checkpoint](tyrax2-far-light-gate-2026-10-05/README.md)
+The source/evidence checkpoint
 preserves both physical orders, four exact source postimages, manifests,
 qualification records, host controls and the excluded emulator startup.
 The [EE audit](tyrax2-ee-performance-audit-2026-10-05.md) identifies broader

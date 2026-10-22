@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-render-audit-v2/analyze-render.py", line 18, in <module>
-    raw=keyed('CLOSEOUTRAW');bal=keyed('CLOSEOUTBAL');aud=keyed('CLOSEOUTRENDER');assert raw.keys()==bal.keys()==aud.keys()
-  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-render-audit-v2/analyze-render.py", line 17, in keyed
-    rs=rows(label);d={(r['phase'],r['i']):r for r in rs};assert len(rs)==len(d)==384;return d
-AssertionError

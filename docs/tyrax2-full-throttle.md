@@ -49,7 +49,7 @@ Both native bindings match466 source files. One startup SIF guarded-completion
 warning occurred on PS2; all routes completed valid with no trap/assert.
 Counters-off retains shared diagnostic footprint and disabled hook branches;
 an uninstrumented production binary's absolute saving remains unpriced.
-Evidence is under [geometry-reuse](tyrax2-full-throttle-2026-10-07/geometry-reuse/).
+Evidence is under geometry-reuse.
 
 `--geometry-sweep` is a separate correctness-only, vehicle-free camera sweep
 with both candidates always enabled. It uses the ordinary six-phase motion
@@ -139,7 +139,7 @@ the analyzer accepts its reference and rejects16 malformed inputs, including
 missing/empty/reordered preparation and preparation leaking into a control.
 The ordinary host suite passes too. No physical trap/assert was logged.
 Evidence and frozen candidate sources are in
-[prepared-static](tyrax2-full-throttle-2026-10-07/prepared-static/).
+prepared-static.
 
 The next useful structural change must reduce live classification/submission
 work for static clusters, rather than merely retain more existing cache entries.
@@ -188,7 +188,7 @@ The initial `F:/Projects/tyrax2-full-throttle-20261007-v1` fixture used only 180
 
 **Reject its TTL benefit estimate:** scene reload does not fully erase previous cache occupancy. The return-to-250 parked control has 8 new misses and 8 budget evictions per frame, 3 failed reserves, approximately 4.18 MB occupied and 329,136 mutable snapshot bytes, versus zero misses/evictions and 126,528 bytes in the first parked control. That is a different starting cache state. It also happens in the counter-disabled return control (30 Hz parked versus approximately 60 Hz before). The valid reproduction remains useful, but these A/B differences must not be sold as an optimization result. The v2 fixture extends warmup beyond the 1000-frame lifetime without forcing a cache clear or changing engine ownership.
 
-Pilot evidence is preserved in [pilot/physical](tyrax2-full-throttle-2026-10-07/pilot/physical/analysis.json) with CSV, logs, launch inputs and native binding; emulator images validate the driven car and road. ELF SHA-256: `355c2f17487d8f60c21341ddecebf5c3cb62f4605d097a149b4229af41ec0f64`. An initial misleading-indentation diagnostic warning was fixed and rebuilt before qualification. The post-build binding, not the earlier preparation manifest, identifies shipped sources.
+Pilot evidence is preserved in pilot/physical with CSV, logs, launch inputs and native binding; emulator images validate the driven car and road. ELF SHA-256: `355c2f17487d8f60c21341ddecebf5c3cb62f4605d097a149b4229af41ec0f64`. An initial misleading-indentation diagnostic warning was fixed and rebuilt before qualification. The post-build binding, not the earlier preparation manifest, identifies shipped sources.
 
 ## Qualified warmup result: physical PS2
 
@@ -245,7 +245,7 @@ Freezing capture improves cadence in both triplets, but **does not restore susta
 
 Private fixture: `F:/Projects/tyrax2-drive-reflection-20261007-v1`. ELF SHA-256: `db59908b822ed2f397b364b814e0d5b8f7acd14fb3645b532e2ac5a1f9ea20a8`. Native binding verifies 465 source mirrors and the shipped ELF; the same ELF completes emulator and console runs. The sampler now retains a 254,400-byte row buffer, including common unpriced overhead in all phases. The freeze parser accepts the reference and rejects 13 malformed controls; the original parser still rejects its ten controls. Emulator imagery confirms the vehicle/road/chase view, not reflection correctness; emulator time is not a hardware measurement. The owned emulator/Xvfb were stopped, while the physical host server remains alive.
 
-[Physical analysis](tyrax2-full-throttle-2026-10-07/reflection-freeze/physical/analysis.json), [CSV](tyrax2-full-throttle-2026-10-07/reflection-freeze/physical/drive-probe.csv) and [console log](tyrax2-full-throttle-2026-10-07/reflection-freeze/physical/ps2client.txt) are archived with launch identity, asset hashes, native binding, parser controls and emulator evidence. No production renderer change was made.
+Physical analysis, CSV and console log are archived with launch identity, asset hashes, native binding, parser controls and emulator evidence. No production renderer change was made.
 
 ### Partial-packet preparation and existing waits
 
@@ -340,10 +340,10 @@ six emulator passes with valid ledger/path checks. The endpoint screenshot shows
 the car and chase view, not a pixel-equivalence proof. Emulator timing is not
 used for physical cost. No production renderer or authored project is changed.
 
-[Physical analysis](tyrax2-full-throttle-2026-10-07/packet-scopes/physical/analysis.json),
-[CSV](tyrax2-full-throttle-2026-10-07/packet-scopes/physical/drive-probe.csv),
-[console log](tyrax2-full-throttle-2026-10-07/packet-scopes/physical/ps2client.txt)
-and [wait-site inventory](tyrax2-full-throttle-2026-10-07/packet-scopes/wait-sites.json)
+Physical analysis,
+CSV,
+console log
+and wait-site inventory
 are retained with native binding, build log, parser/ledger controls and emulator
 evidence. The owned emulator/Xvfb were stopped; physical ps2client stays alive.
 
@@ -382,7 +382,7 @@ The fixture is `F:/Projects/tyrax2-drive-breakdown-20261007-v1`.
 All six emulator passes complete (`DRIVEDONE valid=1`), all 3924 rows validate,
 and the inspected image shows the three vehicles, roadway and chase view.
 This establishes apparatus/path checks, not PS2 timing. The owned emulator and
-Xvfb are stopped. [Emulator evidence and analysis](tyrax2-full-throttle-2026-10-07/packet-breakdown/emulator/analysis.json)
+Xvfb are stopped. Emulator evidence and analysis
 are archived with source binding and parser/ledger controls.
 
 #### Physical breakdown result
@@ -443,9 +443,9 @@ arbitrary mutable buffers, dropping safety checks or claiming a 2 ms saving.
 The separate z=-53 hitch from the preceding scope trial is not explained by
 this breakdown. No production renderer or authored project has changed.
 
-[Physical analysis](tyrax2-full-throttle-2026-10-07/packet-breakdown/physical/analysis.json),
-[CSV](tyrax2-full-throttle-2026-10-07/packet-breakdown/physical/drive-probe.csv)
-and [console log](tyrax2-full-throttle-2026-10-07/packet-breakdown/physical/ps2client.txt)
+Physical analysis,
+CSV
+and console log
 are archived with launch identity and asset hashes. Physical ps2client remains
 alive after the completed test.
 
@@ -479,7 +479,7 @@ Native source agreement covers 465 files; ELF SHA-256:
 The optimized host build also passes AddressSanitizer and UndefinedBehaviorSanitizer.
 
 **Neither candidate is enabled in production.** Their engine and host-test
-patches live in the [experiment archive](tyrax2-full-throttle-2026-10-07/submit-fix/).
+patches live in the experiment archive.
 The fixture generator applies the engine patch only to its private copy, with
 a fail-closed patch check. Reproduction matches all 492 manifest entries except
 the expected directory-derived Docker Compose project/volume names.
@@ -591,9 +591,9 @@ broader scene/mutation/cold-start coverage and pricing of the compiled-off
 footprint against an unmodified build. Unchanged clip/expanded/copied routes
 still account for work the candidate cannot remove.
 
-[Evidence and provenance](tyrax2-full-throttle-2026-10-07/partial-baked/README.md),
-[physical analysis](tyrax2-full-throttle-2026-10-07/partial-baked/physical/analysis.json)
-and [raw CSV](tyrax2-full-throttle-2026-10-07/partial-baked/physical/drive-probe.csv)
+Evidence and provenance,
+physical analysis
+and raw CSV
 retain this result separately from the rejected submission experiments.
 
 ### Clip expansion and reflection ordering follow-up
@@ -688,7 +688,7 @@ The always-on observer is unpriced, and unrelated scenes, mutable legacy
 callers, cold starts and combinations with the earlier partial baked-body
 candidate still need coverage. Do not add the two experiments' savings.
 
-[Archived provenance and results](tyrax2-full-throttle-2026-10-07/clip-followup/README.md)
+Archived provenance and results
 include raw CSVs, native source/ELF hashes, console logs, screenshots, malformed
 analyzer controls and host frame-arena/writer checks. No authored example edits
 or commits were made for this test. The user requested shutdown after this
@@ -725,4 +725,4 @@ Full proprietary RAM/states stay outside the repo in the private fixture.
 
 Private fixture: `F:/Projects/tyrax2-full-throttle-20261007-v2`. Native build succeeded; 465 source files match their native build mirrors, and the shipped ELF matches the native output. ELF SHA-256: `4ac3066d441d3c28c02e3f80690ed8c7705c8d7a103dfa0fa2b015c27d87dce8`. The same ELF completed PCSX2 and PS2 runs. Emulator images were inspected for correct vehicle, chase view and roadway, not pixel-identical raster proof. Emulator timing is not used for hardware performance claims.
 
-[Physical analysis](tyrax2-full-throttle-2026-10-07/qualified/physical/analysis.json), [raw CSV](tyrax2-full-throttle-2026-10-07/qualified/physical/drive-probe.csv) and [console log](tyrax2-full-throttle-2026-10-07/qualified/physical/ps2client.txt) are retained with asset hashes, launch identity, build output, source binding and emulator evidence. The analyzer accepts the reference and rejects ten malformed controls (missing pass, wrong lane, insufficient endpoint, wrong pedal, wrong driver, broken time accounting, counter leakage, inconsistent miss categories, wrong TTL and moving parked control). `git diff --check` passes. The owned emulator was stopped; physical ps2client remains alive. User-owned generated example changes and unrelated files were left intact.
+Physical analysis, raw CSV and console log are retained with asset hashes, launch identity, build output, source binding and emulator evidence. The analyzer accepts the reference and rejects ten malformed controls (missing pass, wrong lane, insufficient endpoint, wrong pedal, wrong driver, broken time accounting, counter leakage, inconsistent miss categories, wrong TTL and moving parked control). `git diff --check` passes. The owned emulator was stopped; physical ps2client remains alive. User-owned generated example changes and unrelated files were left intact.

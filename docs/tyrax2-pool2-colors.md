@@ -39,6 +39,6 @@ The archive preserves three host-control repairs: an initially misfocused Space 
 
 ## Reproduction and remaining work
 
-The [source archive](tyrax2-pool2-source-2026-10-05/README.md) includes exact overlays, host checks, native audits, failed revisions and a verified source-only reconstruction helper. The [evidence archive](tyrax2-pool2-evidence-2026-10-05/README.md) retains raw physical logs, analyses, lifecycle records and decoded capture proofs. Full ELF binaries, SaveStates, images and assets remain external hash-pinned laboratory artifacts. The [checkpoint index](tyrax2-pool2-2026-10-05.json) binds both packages.
+The source archive includes exact overlays, host checks, native audits, failed revisions and a verified source-only reconstruction helper. The evidence archive retains raw physical logs, analyses, lifecycle records and decoded capture proofs. Full ELF binaries, SaveStates, images and assets remain external hash-pinned laboratory artifacts. The checkpoint index binds both packages.
 
 Any future promotion needs a repeatable physical benefit, removal or pricing of remaining EE expansion, and broader precision/clipping/replay coverage. The unique-grid representation remains a separate unimplemented candidate. No additional device run is required to close this experiment's recorded scope.

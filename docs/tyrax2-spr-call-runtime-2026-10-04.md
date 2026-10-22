@@ -4,7 +4,7 @@ The October 4 private experiments implement and physically price direct SPR pref
 
 ## Decision
 
-Neither candidate improves this stationary night fixture. Keep the current production path and preserve these implementations as [immutable experimental sources](tyrax2-spr-call-prototype-sources-2026-10-04/README.md). These are measurements of the implemented policies, not a proof that every possible SPR or CALL design must be slower.
+Neither candidate improves this stationary night fixture. Keep the current production path and preserve these implementations as immutable experimental sources. These are measurements of the implemented policies, not a proof that every possible SPR or CALL design must be slower.
 
 | Candidate | Physical order | Candidate minus baseline, own non-pacing windows (ms) |
 |---|---|---:|
@@ -34,4 +34,4 @@ No target semantic chain validator was enabled in the timed native builds (`TYRA
 
 No-start attempts with empty logs/network failure are preserved and rejected rather than included in timing or described as candidate rendering hangs. Completed raw captures, frozen sources, binaries and native evidence remain in `F:/Projects/tyrax2-lab-20261001`; the repository preserves compact evidence pins and the exact changed source/harness bytes rather than all external assets and SDK inputs.
 
-The [compact runtime record](tyrax2-spr-call-runtime-2026-10-04.json) preserves the accepted capture closures and their own controls. The [V10 batch/texture measurement](tyrax2-batch-texture-scopes-2026-10-04.md) is a separate inclusive interval and cannot be combined with these candidates or earlier overlapping scopes to derive a GPU/EE partition. Cache-flush removal retains the [existing publication gates](tyrax2-spr-staging.md).
+The compact runtime record preserves the accepted capture closures and their own controls. The [V10 batch/texture measurement](tyrax2-batch-texture-scopes-2026-10-04.md) is a separate inclusive interval and cannot be combined with these candidates or earlier overlapping scopes to derive a GPU/EE partition. Cache-flush removal retains the [existing publication gates](tyrax2-spr-staging.md).

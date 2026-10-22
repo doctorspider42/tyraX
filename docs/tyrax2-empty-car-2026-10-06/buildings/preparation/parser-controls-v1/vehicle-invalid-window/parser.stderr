@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 34, in <module>
-    for k,v in dict(sampler=sampler,raw=128 if sampler else 0,chunks=5,valid=1).items():assert n(wr,k)==v
-                                                                                               ^^^^^^^^^^
-AssertionError

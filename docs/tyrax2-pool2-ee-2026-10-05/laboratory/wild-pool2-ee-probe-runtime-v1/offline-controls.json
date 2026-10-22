@@ -1,5 +1,0 @@
-{
-  "status": "PASS_OFFLINE_SYNTHETIC_HELPER_CONTROLS_ONLY",
-  "checks": 134,
-  "limitations": "Synthetic bytes test helper acceptance/rejection, never target output, capture lifecycle or timing."
-}

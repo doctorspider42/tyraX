@@ -573,7 +573,8 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
              "into the project, where it is yours to edit.\n\n"
              "Classic is the look menus had before stylesheets, and it is what\n"
              "every existing project keeps.");
-    ImGui::SameLine();
+    // Own line: beside the combo and its caption the buttons ran off a docked
+    // panel's right edge.
     if (ImGui::SmallButton("Install a copy...")) ImGui::OpenPopup("##installsheet");
     // Deleting a sheet is deleting a FILE, so it only ever applies to the copies
     // a project owns - a built-in has nothing on disk to remove and is where

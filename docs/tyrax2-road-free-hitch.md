@@ -100,7 +100,7 @@ scene changes. Merely moving synchronous loads from render to update moves
 the hitch; preloading every texture without a budget is not a general solution.
 The route-specific two-name intervention is evidence, not shipping policy.
 
-Evidence: [dated archive](tyrax2-road-free-hitch-2026-10-08/README.md).
+Evidence: dated archive.
 The source map remains unchanged. All owned host/emulator processes were
 stopped; final network reset returned zero with a ten-second settle (screen
 not independently verified). No shutdown was requested or performed here.

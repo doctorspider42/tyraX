@@ -91,13 +91,13 @@ recoverable frame-time savings.
 This deprioritizes these three leads for the missing multi-millisecond budget
 in the fixed night view. A bounded static-cone producer change may still be
 useful, but first revisit actual model preparation and additional night passes.
-The previous [Core prefix/submit scopes](tyrax2-prefix-submit-scopes-2026-10-04.json)
+The previous Core prefix/submit scopes
 retain larger inclusive regions; their earlier ELF times must not be subtracted
 from this trial or relabelled as pure EE execution. Moving/walking/showcase
 fixtures are needed to activate the two flashlight routes and other conditional
 audit findings.
 
 Both physical orders and derived numbers are archived in the
-[source/evidence checkpoint](tyrax2-night-producers-2026-10-05/README.md).
+source/evidence checkpoint.
 No emulator timing, raster equivalence or optimized-renderer promotion is
 claimed by this observer experiment.

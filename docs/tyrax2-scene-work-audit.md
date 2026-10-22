@@ -4,7 +4,7 @@ This audit reconstructs the work requested by Vehicle Playground before choosing
 
 ## A15 EE packet preparation walkthrough (2026-10-09)
 
-Follow-up: [A16](tyrax2-ee-preparation-2026-10-09/README.md) fixes and qualifies
+Follow-up: A16 fixes and qualifies
 the TEX1 ordering defect below, and tests target rejection separately. The
 walkthrough records the audited pre-fix order, not the corrected runtime order.
 
@@ -285,8 +285,8 @@ Verified on Windows Python and WSL Python: both pass all six controls and
 produce equal parsed JSON and normalized Markdown. Path keys use POSIX
 separators so provenance is identical on both platforms.
 
-Outputs: [readable ledger](tyrax2-scene-ledger-2026-10-08/scene-ledger.md) and
-[machine-readable ledger](tyrax2-scene-ledger-2026-10-08/scene-ledger.json).
+Outputs: readable ledger and
+machine-readable ledger.
 The JSON preserves per-road/view counters, source hashes and later-cycle peers.
 The whole-scene producer census is included separately and explicitly marked
 historical: it predates integrated terrain refinement. Never sum those costs
@@ -455,7 +455,7 @@ shadow/effect producers and broader camera/night/streaming states. Transport
 snapshot bytes attributed to a triggering bag may contain mixed owners.
 A02b does not establish an EE-only bottleneck or implement a production fix.
 
-Evidence: [frozen captures, sources, ELF and tools](tyrax2-scene-capture-2026-10-09/).
+Evidence: frozen captures, sources, ELF and tools.
 All 1,046 archived files pass the SHA-256 manifest check; both archived
 source trees independently match their 467-file native bindings and ELF hashes.
 V1 generation failed on a commented duplicate method; V2 was rejected by the
@@ -520,7 +520,7 @@ Both target parsers accept 2,520 frame rows and 2,220 bag records, reject the
 base 16 controls, six P06 trace corruptions and four A02a corruptions. The
 first-build payload/header/final arena sizes match on emulator and PS2.
 Evidence, exact ELF, generated source, logs, screenshots and tools are frozen
-in [the A02a archive](tyrax2-first-build-2026-10-08/); all 529 archived files
+in the A02a archive; all 529 archived files
 were checked against its SHA-256 manifest.
 
 | Road / offset | Core elapsed ms | Bake ms | Finalize ms | Bounds prefix ms | Texture prefix ms |

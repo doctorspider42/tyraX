@@ -8,7 +8,7 @@ records why ordinary waitFor cannot be called mid-prefix without protection.
 
 ## Completed V5
 
-[621-file evidence](tyrax2-ready-present-2026-10-11/v5/README.md) binds493 sources,
+621-file evidence binds493 sources,
 ELFcc4eaae5...a5f5b on both targets. Native, actual-method modeled host4099 cases
 optimized/sanitized, six trips,36 exact main/env rasters each,17 negative reader
 controls and real presentation events pass. Three Hybrid buffers in EVERY arm;

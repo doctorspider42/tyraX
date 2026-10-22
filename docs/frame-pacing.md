@@ -84,14 +84,14 @@ result alone cannot distinguish output layout, queue timing and tail variation.
 Burnout's reported two-buffer operation is a reference observation; its actual
 format/schedule and equal workload have not been established here.
 
-Follow-up [offline recheck](tyrax2-burnout-buffers-2026-10-11/README.md) now
+Follow-up offline recheck now
 establishes the sampled format/address layout: fixed CT32 scene/block2240 and
 fixed CT16S display/block0, with a dithered final conversion copy. This resembles
 Hybrid2, NOT ordinary alternating CT32. It strengthens the synchronization/
 submission-schedule question, not a claim that removing the copy matches Burnout.
 Actual EE waits and physical cost remain unknown; prioritize those dependencies.
 
-[Current linked SDK audit](tyrax2-vblank-sdk-2026-10-11/README.md) proves the
+Current linked SDK audit proves the
 double path clears old VSINT and waits for a fresh edge. A latched bit does not
 prove active blank; blindly skipping this wait risks tearing. EE already prepares
 N+1 while N runs, but Hybrid2 old-copy submission waits for main callback arrival.

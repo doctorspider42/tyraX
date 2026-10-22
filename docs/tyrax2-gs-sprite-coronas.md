@@ -116,7 +116,7 @@ measurement. No console deployment, pricing, production promotion or project
 format change was made in this follow-up. Correctness observer waits are not
 part of a pricing implementation.
 
-The [follow-up archive](tyrax2-corona24-2026-10-05/README.md) preserves exact
+The follow-up archive preserves exact
 source deltas, reconstructable inventories, rejected compiler attempts, actual
 packet comparisons, raw protocol records, native reviews and drawing images.
 
@@ -139,7 +139,7 @@ EE requests numbered 2 and 4; ordinary accepted VU outputs and full-window
 activation remain unknown. End-to-end elapsed contrasts do not isolate a
 VU/GS stage. No production promotion is justified by this measurement.
 
-The [ordinary source/evidence archive](tyrax2-corona24-pricing-2026-10-05/README.md)
+The ordinary source/evidence archive
 preserves both orders, rejected observer coverage, source/native closure and
 raw records independently of the earlier isolated qualification.
 
@@ -153,7 +153,7 @@ drawing pixels; it does not cover every camera, depth, clipping or replay path.
 Removing guards or switching the pricing scene to Bits16 would not satisfy
 these requirements. These trials establish no universal PS2 performance limit.
 
-The [source and evidence archive](tyrax2-gs-sprite-coronas-2026-10-05/README.md)
+The source and evidence archive
 preserves exact source revisions, native budget failure/success, parser repair,
 ordinary raw records, saved-output diagnosis and reconstruction proofs. ELF,
 objects, resource blobs and savestates are hash-only. Production code and

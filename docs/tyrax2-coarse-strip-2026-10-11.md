@@ -1,6 +1,6 @@
 # Coarse native-strip submission (A30)
 
-Private follow-up to [A29](tyrax2-clip-ring-2026-10-11/README.md), not a
+Private follow-up to A29, not a
 production/default change or a measured gain. Before starting, checked the
 investigation register's A24/A25/C06/C11/C18/H02 and C11's strip-subrange
 qualification: old clip-cap enlargement, consumer bypass and direct packet

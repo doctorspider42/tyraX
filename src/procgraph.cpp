@@ -681,7 +681,7 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                .def = 0.0f, .lo = 0.0f, .hi = 4000.0f,
                .tip = "Per-chunk cut-off in world units; 0 = always drawn. The "
                       "cheapest LOD there is."},
-              {.key = "shadow", .label = "Cast shadow", .kind = PK::Bool,
+              {.key = "shadow", .label = "Contact shadow (AO)", .kind = PK::Bool,
                .def = 0.0f,
                .tip = "Let the baked chunks darken the terrain around them. "
                       "Off by default: thousands of instances would make the "

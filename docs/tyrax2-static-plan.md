@@ -105,6 +105,6 @@ partial path in the moving workload; do not treat `renderStaticBatches` as a
 synonym for all static geometry. Fixed-view success is not stable60 while moving.
 
 Evidence and frozen sources are in
-[the archive](tyrax2-static-plan-2026-10-08/README.md). No physical assertion,
+the archive. No physical assertion,
 trap or warning was logged. Owned emulator processes were stopped; the completed
 PS2 file server is left available. No console/host shutdown is requested.

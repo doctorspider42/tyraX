@@ -23,7 +23,7 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | Component | Version pinned | License | Redistributed in this repo? |
 | --- | --- | --- | --- |
 | [Tyra engine](https://github.com/h4570/tyra) | fork of `9273416` | Apache-2.0 | **Yes** — `vendor/tyra/engine`, sources tracked |
-| [Geist](https://github.com/vercel/geist-font) | `v1.7.2` (Geist, Geist SemiBold, Geist Mono) | SIL OFL 1.1 | **Yes** — `resources/fonts`, unmodified, embedded in the editor |
+| [Geist](https://github.com/vercel/geist-font) | `v1.7.2` (Geist, Geist SemiBold, Geist Mono, Geist Mono SemiBold) | SIL OFL 1.1 | **Yes** — `resources/fonts`, unmodified, embedded in the editor; Geist Mono SemiBold is also the games' default font, shipped as baked glyph images |
 | [Dear ImGui](https://github.com/ocornut/imgui) | `b334d19b` (docking), patched | MIT | **Yes** — `vendor/imgui-tyrax`, the compiled subset, modified (see its `TYRAX-PATCHES.md`) |
 | [GLFW](https://www.glfw.org/) | `7b6aead9` (3.4) | zlib/libpng | No — fetched |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | `dc25afb9` | MIT | No — fetched |
@@ -97,12 +97,13 @@ is the compliant thing to do regardless of upstream's current state.
 
 ## Geist — SIL Open Font License 1.1
 
-`resources/fonts/Geist-Regular.ttf`, `Geist-SemiBold.ttf` and
-`GeistMono-Regular.ttf` are the static fonts of the Geist v1.7.2 release
+`resources/fonts/Geist-Regular.ttf`, `Geist-SemiBold.ttf`,
+`GeistMono-Regular.ttf` and `GeistMono-SemiBold.ttf` are the static fonts of the Geist v1.7.2 release
 (github.com/vercel/geist-font, `geist-font-v1.7.2.zip`, sha256
 `7fc800d2ac6b92844895196e5041aca55d814c15db70c44f79b3b83ab82b04e2`), unmodified.
 They are embedded in the editor executable (cmake/embed_binary.cmake) to draw
-its interface; they are not sold on their own and are not renamed. The license
+its interface, and Geist Mono SemiBold is rasterized into the glyph atlas and
+text images of a game whose font is left on *Default*; they are not sold on their own and are not renamed. The license
 travels with them as `resources/fonts/OFL.txt`:
 
 ```

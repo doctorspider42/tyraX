@@ -104,7 +104,7 @@ validation remain strict. Any initial host orchestrator failure before its
 empty log acquired data is recorded separately; the already-running console
 trial was preserved and completed by its exact owned waiter.
 
-The [source/evidence archive](tyrax2-player-light-receivers-2026-10-05/README.md)
+The source/evidence archive
 preserves source postimages, raw runs, native/host authorities and owned phase
 images. Binary resources, ELF and objects are hash-only. Production engine,
 editor code and project files are unchanged.

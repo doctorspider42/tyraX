@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 95, in <module>
-    assert n(r,'paved')==4 and n(r,'grounded')==1,'Cold wheel pavement/contact missing'
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: Cold wheel pavement/contact missing

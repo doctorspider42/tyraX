@@ -12,6 +12,7 @@
 #include <stb_image.h>        // implementation lives in app.cpp
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include "detmath.hpp"  // .tskl/.tmdl are committed - same bits on every OS
 #include "json.hpp"
 #include "meshlod.hpp"  // shared bake-time decimator (also used by .tmdl)
 
@@ -81,10 +82,10 @@ void slerp(const float* a, const float* bIn, float t, float* out) {
         wa = 1.0f - t;
         wb = t;
     } else {
-        const float theta = std::acos(std::min(dot, 1.0f));
-        const float sinTheta = std::sin(theta);
-        wa = std::sin((1.0f - t) * theta) / sinTheta;
-        wb = std::sin(t * theta) / sinTheta;
+        const float theta = detmath::acos(std::min(dot, 1.0f));
+        const float sinTheta = detmath::sin(theta);
+        wa = detmath::sin((1.0f - t) * theta) / sinTheta;
+        wb = detmath::sin(t * theta) / sinTheta;
     }
     for (int i = 0; i < 4; ++i) out[i] = wa * a[i] + wb * b[i];
     const float len = std::sqrt(out[0] * out[0] + out[1] * out[1] +

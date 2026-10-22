@@ -1,6 +1,0 @@
-open name rom0:ROMVER flag 1 data 41378
-open fd = 4
-open name rom0:ROMVER flag 1 data 41378
-open fd = 4
-open name rom0:ROMVER flag 1 data 41378
-open fd = 4

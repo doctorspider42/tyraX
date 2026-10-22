@@ -18,7 +18,7 @@ incomplete vehicle setup still compiles.
 ## Importing a model
 
 Import a `.glb` into `res/models/`, then select it on the Vehicle Editor's
-**Model** tab. Keep four separate, similarly sized wheel mesh objects with
+**Model & cost** tab. Keep four separate, similarly sized wheel mesh objects with
 their origins at the hubs. The importer detects them by shape and position;
 the wheel table lets you mark each one **Steered** and **Driven**. Check the
 measured wheelbase, track and radius. Use **Flip front/rear** if it guessed the
@@ -27,11 +27,11 @@ nose incorrectly. Re-export from Blender when geometry or UVs are wrong.
 Give lamps materials named `headlights` and `rear lights`; use `glass` or
 `window` for glazing. A single compact body atlas and few materials reduce
 PS2 draw submissions. The default body budget is 2400 triangles; roughly 160
-per wheel is a useful target. The **Cost** tab reports the actual baked
+per wheel is a useful target. The **Model & cost** tab reports the actual baked
 triangles and submissions. Models with an interior can use translucent glass.
 
-For traffic and distant cars, assign a **Far model** on the Cost tab. Export it
-in the same coordinates and with the same atlas as the full model. The Cost tab
+For traffic and distant cars, assign a **Far model** on the Model & cost tab. Export it
+in the same coordinates and with the same atlas as the full model. The Model & cost tab
 also sets the full-to-far distance and the separate distance for parked and AI
 cars. An optional fast-wheel model replaces all four wheels above the authored
 spin threshold. The full model remains the source of wheel positions and
@@ -50,27 +50,54 @@ can instead use a material whose name contains `paint`.
 ## The Vehicle Editor
 
 The window is three columns: the vehicle list, the **live preview** in the
-middle, and the settings. The list starts with **Global defaults** (the base
-every vehicle inherits from), then each vehicle with a silhouette in its paint
-colour, its model file and how many values it customises ("all defaults",
-"22 custom"); **+** adds a vehicle, right-click one for *Duplicate* and
-*Delete*.
+middle, and the settings. The list starts with **Defaults** (the base every
+vehicle follows - "base for 3 vehicles"), then each vehicle with a silhouette
+in its paint colour and how much of it is its own ("all from Defaults",
+"8 own - 63 from Defaults"), with the own-value count as a badge; a vehicle
+made before Defaults existed reads *legacy*. **+** adds a vehicle, right-click
+one for *Duplicate* and *Delete*.
 
-Changing an inherited value creates a local override for that one field, and
-the inspector shows it **on the row**: a dot after the caption and a reset
-arrow that puts that single value back to Global defaults; inherited values
-keep a dim caption. **Reset to defaults** at the top of a tab resets every
-custom value of that section. Model, wheel geometry, paint, LOD and exit
-offset stay local to each definition; the measured wheel placement carries a
-`model` badge and **Re-measure** takes the model's numbers back.
+### Defaults and own values
+
+The top of the settings says **which values you are editing**: *Editing:
+Defaults | <vehicle>* switches between the project-wide Defaults and the
+selected car, and a line under it says how many of the car's values are its
+own. In Defaults the line says which vehicles a change reaches.
+
+Every tuned value is a row of three columns - caption, control, and a fixed
+**state slot** on the right, so nothing is drawn over a caption:
+
+- **follows Defaults**: the row is dimmed and the slot reads *Defaults*;
+  hovering the row turns it into **Make own**, and editing the value does the
+  same;
+- **own**: full ink, an **Own** pill, a grey tick on the slider at the
+  Defaults value, and a revert button (its tooltip names the value it goes
+  back to);
+- **measured from the model** (wheel placement): a *Model* pill, and
+  **Re-measure** takes the model's numbers back;
+- **waiting on another value** (a pitch with no sample, the high-rev loop
+  switched off): faded, with the reason in the slot instead of disappearing;
+- in **Defaults** the slot shows who follows: a square per vehicle in its
+  paint colour, filled when it follows and outlined when it has its own -
+  click it for the list and a **Follow** per vehicle.
+
+**Reset to defaults** at the top of a tab resets every own value of that
+section; **Show: Own only** hides everything that follows. A legacy vehicle
+gets one banner and one button, **Adopt Defaults**, which keeps the values
+that differ as its own and lets the rest follow. Model, wheel geometry,
+paint, the body's shine and glass, LOD and exit offset stay local to each
+definition.
 
 | Tab | Main controls |
 |---|---|
-| Model | Model, paint, the import summary, front direction and the wheel table |
 | Handling | Wheel placement (measured), power and speed, steering and grip, road surfaces, suspension, gearbox, nitrous, fast wheel swap - each a collapsible section |
+| Engine & sound | A pitch-against-revs chart (idle loop, high-rev loop over its crossfade band, the Defaults curve dashed), then Idle loop, High-rev loop, Tyre squeal and Gear shift - each sample picker shows the file's length and size |
+| Camera & HUD | Cameras, HUD, controls card, exit position |
 | Damage | Visual and performance damage, dents, loose parts, power loss and test hits |
-| Feel | Driver (cameras, HUD, controls card, exit position), Sounds (engine loops, pitch curves, tyre squeal, gear shift) and Effects (headlights, skid marks, tyre smoke, lamp glow, speed feel, exhaust) |
-| Cost | Triangle budgets, submissions, fast wheels and far model |
+| Look | Paint, body shine, reflection map and glass (this vehicle), then headlights, skid marks, tyre smoke, lamp glow, speed feel and exhaust |
+| Model & cost | Model, the import summary, front direction and the wheel table, then triangle budgets, submissions, fast wheels and far model |
+
+Each tab shows how many of its values are the car's own.
 
 The **live preview** uses the baked body and wheels. Drag to orbit, scroll to
 zoom. Its overlay has **Near | Far** - *Far* shows the far tier the console
@@ -86,7 +113,8 @@ preview, **Speed**, **Steering** and **Revs** scrub the pose and the engine;
 **Listen to engine** auditions the current sound tuning without driving the
 game. The Damage tab can apply test hits and repair the preview.
 
-**Drive it** (the green button, top right) drives the first placed instance of the vehicle in the
+**Drive it** is hidden in 2.0 (`kShowDriveIt` in `vehicle_ui.cpp`; the
+simulation behind it stays). When shown, the green button, top right, drives the first placed instance of the vehicle in the
 active scene with the same simulation the console runs (W/S/A/D, Space, E);
 the card under the preview then shows the telemetry, and *Stop driving* puts
 the car back where it was. With no instance placed the button is disabled and

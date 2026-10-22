@@ -1,7 +1,0 @@
-{
-  "status": "REJECTED_MISSING_SOLO_GEOMETRY_IN_OFF_ARM",
-  "pid": 9466,
-  "terminalAbsenceConfirmed": true,
-  "hardwareTimingQualified": false,
-  "reason": "Normal batching does not prepare solo ObjectGeometry for batched members. Switching map alone skips all50 buildings, OFF13bags/9387vertices, invalid. ON37/80187 correct; no batching price accepted."
-}

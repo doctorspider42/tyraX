@@ -1333,13 +1333,9 @@ const std::vector<std::string>& fallbackFontFiles() {
 }
 
 const char* defaultFontLabel() {
-#ifdef _WIN32
-    return "Consolas Bold";
-#elif defined(__APPLE__)
-    return "Arial Bold";
-#else
-    return "DejaVu Sans Bold";
-#endif
+    // The game's default font is built in (menubake::builtinFont) and the same
+    // on every OS; fallbackFontFiles() above only backs it up.
+    return "Geist Mono SemiBold";
 }
 
 const std::vector<UiFontFamily>& uiFontFiles() {

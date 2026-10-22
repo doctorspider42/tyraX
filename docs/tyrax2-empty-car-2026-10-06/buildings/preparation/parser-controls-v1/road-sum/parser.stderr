@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 101, in <module>
-    assert n(r,'roadBags')+n(r,'carBags')+n(modelWitnesses[phase][n(r,'offset')],'acceptedBags')+n(buildingWitnesses[phase][n(r,'offset')],'acceptedBags')==n(r,'acceptedBags') and n(r,'roadVertices')+n(r,'carVertices')+n(modelWitnesses[phase][n(r,'offset')],'acceptedVertices')+n(buildingWitnesses[phase][n(r,'offset')],'acceptedVertices')==n(r,'acceptedVertices')
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

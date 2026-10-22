@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-paint-lifecycle-analyze.py", line 19, in <module>
-    assert hashlib.sha256((root/'production-paint-block.txt').read_bytes()).hexdigest()==manifest['productionBlockSha256']
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

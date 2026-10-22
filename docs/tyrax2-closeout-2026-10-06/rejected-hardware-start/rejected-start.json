@@ -1,6 +1,0 @@
-{
-  "reason": "Repeated freepad DMA Busy ret=1, no loadelf/CLOSEOUTCONFIG",
-  "pid": 30800,
-  "status": "REJECTED_NO_GAME_START_FREEPAD_DMA_BUSY",
-  "physicalRestartRequired": true
-}

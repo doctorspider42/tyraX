@@ -10,7 +10,7 @@ No SPR runtime or performance improvement ships with this audit.
 The [October 4 private runtime follow-up](tyrax2-spr-call-runtime-2026-10-04.md)
 implemented direct SPR prefix construction and native CALL/RET replay. Guarded
 SPR bytes and the physical images passed, but both candidates increased elapsed
-time in both physical orders. Their [immutable source archive](tyrax2-spr-call-prototype-sources-2026-10-04/README.md)
+time in both physical orders. Their immutable source archive
 preserves the actual implementation without adding a production renderer mode.
 The finalized-prefix copy-only arm described below remains unpriced on hardware;
 the direct-construction experiment does not close cache-flush removal gates.
@@ -44,7 +44,7 @@ The bank/window state machine is scaffolding, not the engine's implemented SPR
 owner. It preserves external REF addresses, not REF payload publication or
 lifetime. It cannot establish EE cache behavior, DMAC barriers, real transfer
 completion or hardware performance. The
-[audit and host record](tyrax2-spr-host-2026-10-02.json) preserves source hashes,
+audit and host record preserves source hashes,
 commands/results and the detailed feasibility report.
 
 ## Hardware prototype and publication requirements

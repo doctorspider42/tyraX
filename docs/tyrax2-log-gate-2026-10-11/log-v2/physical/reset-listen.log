@@ -1,7 +1,0 @@
-LOG: VEH pos 0 138 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1536 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60 boom100 665 want100 665 avatar 0
-LOG: VEH pos 0 138 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1536 lean10 0 mtx 1 fw 0 paved 0 grip100 60 shake 0 blur 0 fov 60 boom100 665 want100 665 avatar 0
-LOG: VEHCONTACT car 0 def 0 driven gap1000 2 2 2 2 roadlift1000 0 0 0 0
-FRAMEARENA frames=102240 peak=1048112 resets=12 fallbacks=0 maxFrameBytes=2562352 maxBorrowed=2284960 freeKiB=11206
-NATIVEVIF frames=102240 batches=102252
-ORDEREDFRAME frames=102240 splitFrames=6
-FRAMEPIPELINE starts=102240 dmaBusyStarts=100938

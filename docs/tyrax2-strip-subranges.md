@@ -89,7 +89,7 @@ witnesses**, with zero range or geometry-writer failures. Host ASan/UBSan and
 renderer controls also pass. Analyzer negative controls reject row errors,
 clock leakage, failed witnesses and missing successful completion.
 
-[Archived evidence](tyrax2-strip-subranges-2026-10-08/README.md) separates
+Archived evidence separates
 prototype from integrated sources, physical from emulator data, and correctness
 from timing builds. Full-night, moving pixel identity and stable-60 qualification
 remain open; this is a narrow dispatch reduction, not a renderer rewrite.

@@ -27,7 +27,7 @@ Scene totals2129751cycles:135 disjoint core intervals sum1722875, leaving406876 
 
 The large loop tail also includes completion and pacing. TerrainGame::loop tail-jumps to Renderer::endFrame; its real return is in Engine::realLoop. Do not invent a local post-call address or claim the waiting tail is the renderer bottleneck without splitting its owners. The V4 protocol has many more queue-draining snapshots than V2: subtracting their totals would measure different apparatus, not an optimization.
 
-The [machine record](tyrax2-pcsx2-scopes-2026-10-04.json) pins all three independent proofs, exact ELF/text/image identity, layout and the source correction:0x110a70 is a legitimate conditional renderProcChunks return, not embedded data. It was unsuitable for this sampled-frame selection because no actual core-entry RA selected it. Partial/rejected setup attempts remain in the external research archive.
+The machine record pins all three independent proofs, exact ELF/text/image identity, layout and the source correction:0x110a70 is a legitimate conditional renderProcChunks return, not embedded data. It was unsuitable for this sampled-frame selection because no actual core-entry RA selected it. Partial/rejected setup attempts remain in the external research archive.
 
 ## Next physical check
 

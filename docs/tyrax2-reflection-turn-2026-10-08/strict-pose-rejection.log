@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-factorial-analyze.py", line 62, in <module>
-    assert abs(shift-expected_shift)<.00002,(i,shift,expected_shift)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError: (1, 0.12, 0)

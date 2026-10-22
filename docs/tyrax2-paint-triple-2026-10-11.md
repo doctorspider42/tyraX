@@ -38,7 +38,7 @@ After the user's physical reset, retry the SAME bound ELF once with
 ConsoleAlreadyReset in fresh staging, without another network reset.
 
 Physical same-ELF first order now closes BOTH-target full gates:
-[617-file archive](tyrax2-paint-triple-2026-10-11/v1/README.md), both copied
+617-file archive, both copied
 readers byte-identical. Actual DISPFB day58.703/59.378/58.591Hz, night54.338/
 56.679/54.092Hz. Candidate late intervals5 versus11/12 day,29 versus50/52 night.
 Integrated mean non-pacing saves1.063..1.119ms day,1.130..1.212ms night.

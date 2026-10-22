@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 24, in <module>
-    stdout=a.stdout.read_text(encoding='utf8',errors='replace');artifact=a.artifact.read_text(encoding='utf8');configs=rows(stdout,'CLOSEOUTCONFIG');dones=rows(stdout,'CLOSEOUTDONE');assert len(configs)==len(dones)==1;cfg=configs[0];done=dones[0];order=n(cfg,'order');kind=n(cfg,'kind');assert order==0 and kind==4
-                                                                                                                                                                                                                                                                                                      ^^^^^^^^^^^^^^^^^^^^
-AssertionError

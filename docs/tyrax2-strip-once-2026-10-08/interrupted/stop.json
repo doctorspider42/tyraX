@@ -1,7 +1,0 @@
-{
-  "status": "stopped-on-user-redirection",
-  "physicalLaunched": false,
-  "completedTiming": false,
-  "reason": "Scene and packet preparation audit takes priority over cache-related optimization",
-  "utc": "2026-10-08T21:19:37.4581137Z"
-}

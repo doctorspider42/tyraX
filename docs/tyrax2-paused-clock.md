@@ -54,7 +54,7 @@ mood changes and no visible stretched triangles. Its private diagnostics are abs
 production templates. No physical visual confirmation of this particular
 clock-policy change was requested or obtained.
 
-[The immutable archive](tyrax2-paused-clock-2026-10-06/payload-manifest.json)
+The immutable archive
 contains source blobs, actual build records, native/ABI checks, host parser
 controls, raw physical logs and emulator qualification. ELF/symbol hashes are
 recorded instead of committing binaries. Failed private compilation and

@@ -1,6 +1,6 @@
 # Private unconventional rendering experiments
 
-The [independent fifteen-idea review](tyrax2-wild-source-2026-10-05/history/fifteen-ideas-report.md)
+The independent fifteen-idea review
 proposes changes of representation and arithmetic for the night workload.
 The agent received previous source/measurement evidence, without our pending
 optimization ideas. These are hypotheses, not measured savings. Private trials
@@ -22,7 +22,7 @@ phase0; its partial attempt is retained. All three reverse images were captured
 with owned-process and actual-flag records and reviewed as qualitatively normal.
 This does not establish pixel equality or physical television appearance.
 
-The [both-order PS2 record](tyrax2-wild-2026-10-05.json) retains 10,800 completed
+The both-order PS2 record retains 10,800 completed
 loops, 768 raw samples and 30 bounded chunks. In the forward run, inclusive
 elapsed-minus-pacing means were 18.989370 / 19.086022 / 18.915335 ms: candidate
 was 0.096651 / 0.170687 ms slower than its controls. In reverse they were
@@ -86,11 +86,11 @@ ordinary activation, Hybrid scanout and physical pricing remain unqualified.
 
 ## Preservation
 
-The [source/control snapshot](tyrax2-wild-source-2026-10-05/README.md) contains
+The source/control snapshot contains
 five unique postimages for the two candidates, exact parser/sampler controls,
 native/config summaries and reconstruction pins. Each candidate changes four
 of 497 frozenV3 inputs; 493 remain identical. Its historical boundary predates
 physical completion and is retained unchanged. The separate
-[physical payload manifest](tyrax2-wild-physical-2026-10-05/SHA256.json)
+physical payload manifest
 binds raw logs, normalization, strict calculations and independent reviews.
 No ELF, asset or executable binary is embedded in these documentation packages.

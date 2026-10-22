@@ -39,7 +39,7 @@ reader repaired to that relocation-specific contract; complete acceptance pendin
 
 ## Completed First Order
 
-[603-file V1 evidence](tyrax2-hybrid-triple-2026-10-11/v1/README.md) now passes
+603-file V1 evidence now passes
 closed both-target six drives, actual grants,36 exact rasters each, unchanged
 parent-pinned head writer, geometry/header lengths and14 rejecting controls.
 Both copied readers replay byte-identically. Editor-equivalent hardware reset,
@@ -68,7 +68,7 @@ intervention would be a different test, not deleting FINISH or field limits.
 
 ## Completed Reverse
 
-[Reverse-v1 evidence](tyrax2-hybrid-triple-2026-10-11/reverse-v1/README.md)
+Reverse-v1 evidence
 passes native491/ELF6f6ea95f...daae3, both full six-trip/36-raster/14-control
 gates and actual3/2/3 moving grants. Only two bound selection/restoration files
 differ from V1. Reader compatibility reproduces the old physical report exactly.

@@ -62,7 +62,7 @@ of a batching gain.
 
 ## Evidence and limits
 
-[The dated archive](tyrax2-main11-batch-2026-10-06/README.md) preserves both
+The dated archive preserves both
 frozen 501-file source postimages, native/ABI/source/parser proofs, independent
 reviews, repaired fallback accounting, preflight rejection, helpers, owned
 launch/capture records, six images, root summaries and the source diagnosis.

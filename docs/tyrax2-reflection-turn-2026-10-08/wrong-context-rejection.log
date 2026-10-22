@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "F:\Projects\tyra-editor\tools\tyrax2-factorial-analyze.py", line 24, in <module>
-    assert fixture['night']==night and fixture['roads']==roads
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-AssertionError

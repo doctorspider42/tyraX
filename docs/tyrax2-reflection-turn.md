@@ -3,7 +3,7 @@
 Stationary-car camera sweeps isolate reflection costs and qualify a private
 VU1 paint-colour prototype on physical PS2.
 
-Latest status: [A13 physical results](tyrax2-paint-physical-2026-10-09/README.md)
+Latest status: A13 physical results
 complete six integrated EE/VU/EE road trips. Mean work saves 1.040-1.195 ms day
 and 1.027-1.103 ms night; equal-distance estimates are 0.926/1.017 ms. Candidate
 entry/present rates are 38.317/34.235 Hz, not sustained 60. Production remains
@@ -22,7 +22,7 @@ paint checks (1,138 at speed >5) with zero errors, both authored LODs and all
 three reloads. Ten lifecycle and five travel negative controls reject malformed
 evidence. V1's light counter incorrectly scanned inactive array capacity;
 V2 counts the live prefix and confirms day/night/day lights 0/8/0. This is no
-new renderer bug or speed gain. [A12 evidence](tyrax2-paint-drive-2026-10-09/README.md)
+new renderer bug or speed gain. A12 evidence
 preserves both attempts. A13 subsequently removes the heavy every-vertex oracle
 and forced fallback/LOD and completes the first physical order as linked above.
 
@@ -42,7 +42,7 @@ including 62 held-basis EE refreshes, with zero colour/state errors. Every phase
 confirms midnight, 66 road chunks and eight active lights; final completion and
 nine negative parser controls pass. No timings are inferred from this intrusive
 oracle. Full-throttle driving and physical requalification remain outstanding.
-See [A11 evidence and limitations](tyrax2-paint-game-2026-10-09/README.md).
+See A11 evidence and limitations.
 
 ## VU paint trial (private, not promoted)
 
@@ -110,7 +110,7 @@ support a useful private candidate; neither proves a universal 60 Hz result
 for roads, driving, night scenes or other vehicles. All 303 staged physical
 inputs per fixture still match after execution, and the user's original
 manifest hash is unchanged. Evidence is in
-[`tyrax2-reflection-turn-2026-10-08`](tyrax2-reflection-turn-2026-10-08/README.md).
+`tyrax2-reflection-turn-2026-10-08`.
 
 ### Numerical checks
 
@@ -168,7 +168,7 @@ The private paint path remains private. Next audit representation readiness:
 switching EE/VU with an unchanged accepted key must not retain stale colour data
 or uninitialized VU basis. Preserve the prior accepted basis/hysteresis.
 
-Evidence: [A07 snapshot](tyrax2-paint-raster-2026-10-09/README.md).
+Evidence: A07 snapshot.
 All 1034 archived files verify against their manifest. Both 468-file source
 bindings and both ELFs were independently verified before export. No emulator
 from this test remains running; physical owned server 13224 remains alive.
@@ -220,7 +220,7 @@ or production-default qualification is claimed. Same-pointer stamp invalidation
 is exercised on host, not injected into live geometry in this run. The actual
 scene rebuild and LOD tests exercise fresh/rebound data instead.
 
-Evidence: [A08 snapshot](tyrax2-paint-lifecycle-2026-10-09/README.md).
+Evidence: A08 snapshot.
 All 500 archived files verify against the manifest; the 468 bound native sources,
 ELF and three authored vehicle body assets were also checked before export.
 The owned emulator and Xvfb have stopped; no A08 physical deployment occurred.
@@ -270,7 +270,7 @@ ENVN (166 slots); no duplicate TC/TD/TCE clip images are linked. Fog clipping
 and view-edge candidate images were inspected. Final generator ASan/UBSan and
 rebuilt `--vu-check` pass; ordinary 45-file byte identity still holds.
 
-Evidence: [A09 snapshot](tyrax2-paint-generator-2026-10-09/README.md).
+Evidence: A09 snapshot.
 All 1,336 archived files verify against the SHA256 manifest; both 473-file
 native bindings and their ELFs were independently checked before export.
 The generator-owned loop is qualified in this bounded synthetic test, not in
@@ -333,7 +333,7 @@ launch. No engine motion hooks were imported. The first verifier also correctly
 rejected the absent MotionProbe::rows symbol before the explicit raster-witness
 option was added. Both emulator runs are stopped. No physical deployment.
 
-Evidence: [A10 snapshot](tyrax2-paint-engine-2026-10-09/README.md).
+Evidence: A10 snapshot.
 All 1,173 archived files verify against the SHA256 manifest; native sources and
 ELFs were independently checked before export. The enabled near-clip fog image
 was visually inspected. Authored full/no-roads manifests retain their original hashes.
@@ -862,6 +862,6 @@ part/LOD on EE; evaluating against a fresh camera basis every frame would
 silently change the current hysteresis behavior. The reflection sampling basis
 and the accepted paint basis are distinct, especially for a retained capture.
 
-[Evidence archive](tyrax2-reflection-turn-2026-10-08/README.md) includes the
+Evidence archive includes the
 attribution, scatter and VU trials, logs/CSVs, source/ELF identities, parser controls and owned
 emulator captures. No user project files or production renderer paths changed.

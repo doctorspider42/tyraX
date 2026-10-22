@@ -86,7 +86,7 @@ reduces **submits** — one bag instead of many. Packages can fall too when
 members pack together, but a list-mode bag whose members each already filled
 whole packages can show the same count either way. There is no universal fixed
 EE price per submit: geometry, bounds, state, packing and existing waits all
-affect the net result. The [controlled 80k physical contrast](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md)
+affect the net result. The controlled 80k physical contrast
 measures about 4.60 ms for changing 37 accepted carriers to 313 at identical
 accepted input geometry. That is the whole representation difference on that
 fixture, not a pure EE or per-bag constant, and the production map already

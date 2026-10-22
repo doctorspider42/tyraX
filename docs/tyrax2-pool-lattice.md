@@ -57,11 +57,11 @@ The epoch diagnostic intentionally forces replay misses.
 
 ## Exact preservation
 
-The [source and evidence archive](tyrax2-pool-lattice-2026-10-05/README.md)
+The source and evidence archive
 contains fourteen pricing postimages, two diagnostic postimages, strict
 controls, raw physical logs, normalized copies, native and runtime proofs,
 actual compiler text and images. Binary, SaveState and asset identities remain
-hash-only. Its [payload manifest](tyrax2-pool-lattice-2026-10-05/SHA256.json)
+hash-only. Its payload manifest
 preserves exact bytes, including raw Latin-1 device logs.
 
 Starting from the previously verified 499-file Pool2 source-only restoration,

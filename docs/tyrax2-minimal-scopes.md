@@ -24,12 +24,12 @@ The first private fixture completed emulator mechanics, but its inherited every1
 
 PS2client emitted a few non-UTF8 banner bytes. The raw files remain unchanged. Separate ISO8859-1-to-UTF8 copies are byte-bijective, with all diagnostic protocol rows checked as ASCII; independent review binds both files. Corresponding emulator images were inspected. There is no fresh captured PS2 raster or pixel-parity acceptance in this record.
 
-The [machine record](tyrax2-minimal-scopes-2026-10-04.json) qualifies native source/mirror/dependency closure, actual ELF/symbol text,294 byte-equal baked assets and four native ADPCM conversions. Scope headers received actual R5900 compile-only layout verification and host O0/O2 controls. All independent physical pair audits pass. No production render code changes here.
+The machine record qualifies native source/mirror/dependency closure, actual ELF/symbol text,294 byte-equal baked assets and four native ADPCM conversions. Scope headers received actual R5900 compile-only layout verification and host O0/O2 controls. All independent physical pair audits pass. No production render code changes here.
 
 
 ## Scene, completion and Core aggregate follow-up
 
-Eight further physical boots complete the V3 Scene/completion/flush pairs and the V4 same-frame Scene/Core aggregate. Each pair has same-ELF Off/On/Off and On/Off/On orders, 5400 loops per boot and 384 records per boot. The [frame/Core machine record](tyrax2-frame-core-scopes-2026-10-04.json) retains every On window, observer contrast, sparse context and source/native/ABI/raw/archive/independent-review pin. The earlier V2 machine record remains unchanged.
+Eight further physical boots complete the V3 Scene/completion/flush pairs and the V4 same-frame Scene/Core aggregate. Each pair has same-ELF Off/On/Off and On/Off/On orders, 5400 loops per boot and 384 records per boot. The frame/Core machine record retains every On window, observer contrast, sparse context and source/native/ABI/raw/archive/independent-review pin. The earlier V2 machine record remains unchanged.
 
 | Inclusive interval | Three On phase means, ms |
 | --- | --- |
@@ -61,7 +61,7 @@ Narrow the Core-side route under stable selected geometry and actual adaptive fl
 
 ## Selected inner work: stripped packages
 
-A fresh V5 fixture measures the actual `StaPipCore::renderStrippedPkgs` invocation inside its owning Core and Scene. Both physical orders completed 5400 loops against the same V5 ELF. All 768 records qualify 135 Core calls and 49794 summed bag vertices per sampled frame, with two actual Work calls per frame. The [inner-work machine record](tyrax2-inner-work-scopes-2026-10-04.json) binds raw logs, reversible UTF-8 copies, launch/evidence archives, source/native/ABI authority and independent reviews. Earlier V2/V3/V4 records remain unchanged.
+A fresh V5 fixture measures the actual `StaPipCore::renderStrippedPkgs` invocation inside its owning Core and Scene. Both physical orders completed 5400 loops against the same V5 ELF. All 768 records qualify 135 Core calls and 49794 summed bag vertices per sampled frame, with two actual Work calls per frame. The inner-work machine record binds raw logs, reversible UTF-8 copies, launch/evidence archives, source/native/ABI authority and independent reviews. Earlier V2/V3/V4 records remain unchanged.
 
 | Own On window | Scene mean, ms | Work sum mean, ms | Same-frame Scene minus Work, ms |
 | --- | --- | --- | --- |
@@ -113,7 +113,7 @@ Bracket the remaining preparation/head paths and wait seams under stable selecte
 
 ## Core prefix and Core-owned submission
 
-The [new dated record](tyrax2-prefix-submit-scopes-2026-10-04.json) binds separate V8 prefix and V9 Core-owned submit fixtures to completed physical and emulator pairs. Earlier machine records remain unchanged.
+The new dated record binds separate V8 prefix and V9 Core-owned submit fixtures to completed physical and emulator pairs. Earlier machine records remain unchanged.
 
 ### V8 SceneWithCorePrefixWorkAggregate
 

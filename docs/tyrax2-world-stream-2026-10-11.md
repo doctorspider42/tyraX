@@ -8,7 +8,7 @@ Same-ELF physical net+0.045194/+0.034259ms is positive but minor; ON59.387Hz/
 5 misses matches settled OFF cadence, NOT stable60/night/default. Close this
 fine-tuning lead as the larger cause. User pause after the trial is reached;
 devices stay on, objective remains unfinished.
-[Full result](tyrax2-world-stream-2026-10-11/terrain-lod-v1-physical-qualified/physical/world-cell-price-ps2.json).
+Full result.
 
 Moving cold-input-format V2 now passes FULL emulator+real PS2 correctness
 (54 exact images/3942 poses/SDK inverse audits/old-reader lifetimes/identical
@@ -18,7 +18,7 @@ Cold rebuilt command geometry is~12% smaller, yet elapsed rebuild boundary
 rises~0.58->1.42ms. Do not promote/tune this post-SDK transcode implementation
 or call the result a scene capacity proof. Retain component format evidence,
 return to substantial existing EE preparation. Physical archive sealing follows.
-[Sealed physical evidence](tyrax2-world-stream-2026-10-11/world-input-price-v2-physical-qualified/physical/world-cell-price-ps2.json)
+Sealed physical evidence
 verifies1297 hashes/305 inputs and exact fresh copied emulator/PS2 readers.
 Correctness qualification is not performance acceptance. All owned jobs stopped;
 computer/console remain powered and the stable60 goal remains incomplete.
@@ -29,7 +29,7 @@ two incoming ROW/MASK states,150 compact streams/1230 fallbacks and final saved
 memory/state restoration. Actual SDK inputs remain source-bound. Shader kicks
 are intentionally removed; this is NOT moving/shader/lease/double-buffer/FPS
 qualification. Editor-network-reset boots the physical component correctly.
-[Combined component archive](tyrax2-world-stream-2026-10-11/world-input-native-v1-qualified/physical/world-input-native-ps2.json)
+Combined component archive
 verifies842 hashes/306 staged inputs and exact fresh copied emulator/PS2 readers.
 Owned emulator28/Xvfb23 and client5832 stopped after completion; devices stay ON.
 Next cold-only world integration must account for mode invalidation/rebuild costs
@@ -43,15 +43,15 @@ NOT stable60 or public default qualification. Close fine tuning of this lead.
 Owned client42040 stopped after completion/readbacks; devices stay powered.
 Previous physical-v1 stopped after three trips and physical-v2 had no EE boot;
 neither supplies qualified performance. Full archive replay is recorded below.
-Final [physical archive](tyrax2-world-stream-2026-10-11/terrain-normal-v1-physical-qualified/physical/world-cell-price-ps2.json)
+Final physical archive
 PASS1289 payload hashes/305 inputs/exact fresh archived emulator AND PS2 readers.
-[Current sealed tail replay](tyrax2-world-stream-2026-10-11/terrain-normal-tail-v1/report.json)
+Current sealed tail replay
 shows ON actual59.3871Hz/five late intervals at the same route offsets. Four
 follow captures; the fifth does not. Most preceding capture work15.57..16.05ms
 is below one field budget (phase5 has18.91ms exception). Inclusive work is not
 pure EE time; do not revive rejected A39 or infer a capacity ceiling. Existing
 event-tail six-phase Hz/late results remain unchanged after reader extension.
-Private [native segment storage prototype](../tools/tyrax2-native-segments.hpp)
+Private native segment storage prototype
 passes3371 actual-FrameVifWriter host cases optimized and ASan/UBSan, including
 earlier-window byte protection and final single packed GS FINISH. Frozen host
 v3 inventory: F:/Projects/tyrax2-native-segments-host-20261012-v3/sha256.json.
@@ -74,7 +74,7 @@ wrap-safe intervals and hashes all six presentation CSVs. Reject this early
 environment-prefix policy; do not tune its split point or promote it. This is
 not a scene capacity proof or a rejection of every segmented architecture.
 Client6388 is stopped after completed readbacks; both devices remain powered.
-[Extended presentation archive](tyrax2-world-stream-2026-10-11/native-segments-v3-actual-present-qualified/physical/world-cell-price-ps2.json)
+Extended presentation archive
 verifies1296 hashes/305 inputs and exact fresh emulator/physical reader replay.
 The original physical archive is preserved unchanged.
 
@@ -100,7 +100,7 @@ endpoints exact, normal OFF0/ON132 uses per132 builds.917-hash/305-input archive
 exact reader replay PASS. Same ELF actual PS2 physical-v1 running via editor
 procedure, owned client28304; full physical gates/net remain pending.
 
-[Offline event entry/present tail report](tyrax2-world-stream-2026-10-11/audio-event-tail-v1/report.json)
+Offline event entry/present tail report
 confirms actual ON6/7/6 missed presentation intervals. The14.573ms work row is
 preceded by18.858ms work, pays16.054ms pacing and presents after33.368ms;
 entry lateness appears one row later. Do not diagnose an additional pacing
@@ -108,7 +108,7 @@ bug from a single non-pacing value or revive rejected A39/A41 hooks.
 
 PCM event lifecycle V1 native505/ELFbf9361c6...6cc57e2f passes real PS2 and
 emulator six actual play/feed/stop/resume rounds with returned kernel waiter.
-[520-file component archive](tyrax2-world-stream-2026-10-11/pcm-life-v1-qualified/pcm-life-manifest.json)
+520-file component archive
 replays both verifiers exactly after final-log sealing. This component is NOT a
 render/FPS or audible-quality gate. Legacy low-ring warning remains recorded;
 audio capture/public adoption still open. Devices ON, owned jobs stopped.
@@ -584,7 +584,7 @@ reuse/count-variant bbox protection/counted snapshot; do not recreate those.
 Many debug locations unresolved despite exact debug/deployed text: no precise
 line/exclusive-cycle attribution. Archive1319 hashes/305 inputs/exact emulator+
 physical price/PC qualifier AND symbolizer replays, devices powered/no live jobs.
-Evidence: [current physical PC distribution](tyrax2-world-stream-2026-10-11/pc-refresh-v1-physical-qualified/pc-current-symbolized-physical.json).
+Evidence: current physical PC distribution.
 
 Next private combination retains accepted direct compiler/terrain cells,
 ordinary roads and Hybrid2 BOTH roles, enabling existing A13/A40 paint via its
@@ -603,7 +603,7 @@ Keep direct+paint as private baseline, roads ordinary, no night/normal variable-
 dt/public default or historical-delta sum. Physical archive1275 hashes/305 inputs
 and exact fresh emulator/PS2 replays verify. Owned server stopped only after full
 completion/evidence; devices remain powered. Evidence:
-[paint V1 physical report](tyrax2-world-stream-2026-10-11/paint-cell-v1-physical-qualified/physical/world-cell-price-ps2.json).
+paint V1 physical report.
 
 Direct cold construction component V1 now PASS840 source-range cases/12 source
 controls/14 DMA fragment-budget controls optimized and ASan/UBSan. The new
@@ -623,7 +623,7 @@ work/preemption/publication, not exclusive EE cycles. Private baseline correctio
 not public default/night/ordinary variable-dt qualification. Physical archive1274
 hashes/305 inputs, exact emulator AND PS2 reader replays; devices stay powered,
 owned server stopped. Evidence:
-[direct V2 physical report](tyrax2-world-stream-2026-10-11/direct-cold-v2-physical-qualified/physical/world-cell-price-ps2.json).
+direct V2 physical report.
 
 Private road-cell extension now derives the qualified skip-A31 fixture. It
 preserves original heavy ordering/coarse checks/full clipping; restores shared
@@ -641,7 +641,7 @@ ceiling. Emulator archive893 verifies; physical net-rejected archive1269 hashes/
 305 inputs replays emulator AND PS2 reports exactly. Archive testValid is runtime
 correctness, not net success. Owned file server stopped after full evidence read;
 devices remain powered. Frozen evidence:
-[physical report](tyrax2-world-stream-2026-10-11/road-cell-v1-physical-net-rejected/physical/world-cell-price-ps2.json).
+physical report.
 See the register before reopening a road architecture or cold-compiler lead.
 
 The external world-chain proposal suggests reusing transformed terrain across
@@ -650,7 +650,7 @@ occlusion/emission in any scene, and zero terrain layers in driving scenes0/1.
 Its extra ground-shadow passes use separate lifted shaded subsets, not identical
 base geometry. The read-only audit binds all500 source hashes, actual ELF and
 accepted PS2 log/report; observed20/36 and25/43 cell/pass counts are consistent.
-See [report](tyrax2-terrain-pass-presence-2026-10-12.json) and the decision register.
+See report and the decision register.
 This closes this specific active-workload identical-position fusion lead without
 inventing a saving; it does not close future maps, car multipass or road offload.
 
@@ -810,7 +810,7 @@ The owned client44876 was identity-checked and stopped after complete exports;
 PS2 and computer remain on. Closed-log reader passes performanceCandidate=false
 and omits contrasts/firstOrderGate. There is no A31 FPS improvement claim.
 
-The completed [664-file runtime archive](tyrax2-world-stream-2026-10-11/runtime-v2/)
+The completed 664-file runtime archive
 preserves bound sources, same ELF identity, SDK proof, both platform logs and
 all rasters/readers. Read-only archived reanalysis reproduces both reports
 byte-identically and the SHA256 inventory remains unchanged. Cold compiler
@@ -936,7 +936,7 @@ all source/delivery/residual/baseline/SDK/quiet/terrain/residency gates. Hardwar
 counts vary with the actual trajectory (e.g.16 bodies in phase4); emulator40 is
 not a hardware census. Owned client45844 verified/stopped after complete exports,
 then closed-log analysis passes performanceCandidate=false. The
-[671-file mask archive](tyrax2-world-stream-2026-10-11/mask-runtime-v2/)
+671-file mask archive
 replays both reports byte-identically and its inventory remains unchanged.
 Selected-native all-plane cold route is qualified on both platforms. Whole-owner
 source/raster admission, runtime lifecycle and live pricing remain outstanding.
@@ -1153,7 +1153,7 @@ live pass production. It also changes delivered offscreen work: all-owner
 all-plane geometry is broader than prior package culling. Net gain is not pure
 EE cycles or proof that these remaining stages are free.
 
-The [670-file owner runtime archive](tyrax2-world-stream-2026-10-11/owner-runtime-v8/)
+The 670-file owner runtime archive
 replays both full reports byte-identically from copied readers, inventory
 unchanged. Keep the unqualified/rejected source-only/native/apparatus V1..V7
 artifacts external. No production owner default was enabled.
@@ -1235,7 +1235,7 @@ part caps65535/4096 reject excessive descriptors before allocation; they do not
 measure aggregate RAM, replace geometry lifetime leases or establish runtime
 coverage of this scene.
 
-The [preserved V4 sources and logs](tyrax2-world-stream-2026-10-11/prepared-front-host-v4/sha256.json)
+The preserved V4 sources and logs
 inventory23 files; copied C++ recompiles/repeats read-only, hashes unchanged.
 V1 basic checks, V2 failure/wrap tests and V3 bounds caps are superseded by V4,
 which also pins the source identity. The VU0 assembly min/max leaf is replaced
@@ -1285,7 +1285,7 @@ accounting against actual copied bounds code. Fresh host V2 passes64 rounds in
 optimized and ASan/UBSan builds, plus the512-case foundation. Host V1 compilation
 exposed the renamed test-main's missing explicit return, not a renderer failure;
 it remains preserved. These tests do not exhaust legal-bag adapter mutations.
-The31-file [tracked-owner host archive](tyrax2-world-stream-2026-10-11/prepared-runtime-host-v2/sha256.json)
+The31-file tracked-owner host archive
 recompiles/runs optimized read-only, with all hashes unchanged. The foundation
 archive remains separate and untouched. No user-visible feature, editor API or
 example defaults changed, so root/example README feature entries are unchanged.
@@ -1308,7 +1308,7 @@ Do not promote, claim60fps or subtract A31 V8's different ELF to isolate A32.
 This rejects this combined policy, NOT every producer-owned frontend approach,
 nor all bounds cost under other workloads, nor proves a PS2 capacity ceiling.
 
-The [680-file runtime archive](tyrax2-world-stream-2026-10-11/prepared-runtime-v1/archive-sha256.json)
+The 680-file runtime archive
 includes bound sources, both closed runs, headers/raster evidence and complete
 derived readers. Both archived reports reanalyze byte-identically into external
 files; the entire inventory remains unchanged. No production/default changes.
@@ -1417,9 +1417,9 @@ reports explicitly retain hotOriginalHead=true, performanceCandidate=false and
 omit contrasts/firstOrderGate. The generated-reader verifier now also rejects
 remaining late pricing assignments. The fixture itself remains unchanged.
 
-The [678-file runtime archive](tyrax2-world-stream-2026-10-11/object-head-runtime-v2/archive-sha256.json)
+The 678-file runtime archive
 reanalyzes both reports byte-identically into external outputs; inventory stays
-unchanged. The separate [22-file SDK host archive](tyrax2-world-stream-2026-10-11/object-head-host-v3/sha256.json)
+unchanged. The separate 22-file SDK host archive
 recompiles/runs read-only, unchanged. Original compiled head is still generated
 by the old writer in this qualification; do not publish even a partial A33 FPS
 gain or mark the broader frontend/60fps goal complete. Computer and PS2 stay on.
@@ -1489,9 +1489,9 @@ registered attachments are destroyed, including unseen passes. No steady-frame
 sweep is added. Tests now cover move-over-populated, self-move and releaseAll.
 Native V4 build/qualification is pending, not accepted on host assumptions.
 
-The [22-file SDK host archive](tyrax2-world-stream-2026-10-11/head-hot-sdk-host-v2/sha256.json)
+The 22-file SDK host archive
 includes raw aligned byte storage and unaligned-output rejection, and the
-[30-file V3 owner/facts archive](tyrax2-world-stream-2026-10-11/head-hot-owner-host-v3/sha256.json)
+30-file V3 owner/facts archive
 preserves the pre-registry owner tests. All three optimized SDK/owner/facts
 executables recompile/run against read-only archives; inventories unchanged.
 They do not qualify V4 registry lifecycle or physical head performance.
@@ -1510,7 +1510,7 @@ The next continuation completes closed V4 hidden qualification: six trips,
 controls. Baseline head ownership is zero in every control role; common A31
 moving owners and every parent source/residual/travel gate pass. Emulator is
 stopped after completion and exports, not used for a performance attribution.
-The30-file [V4 owner/facts host archive](tyrax2-world-stream-2026-10-11/head-hot-owner-host-v4/sha256.json)
+The30-file V4 owner/facts host archive
 recompiles/runs optimized owner and facts executables read-only, all hashes
 unchanged. Physical303 inputs staged; identical ELF runs via editor-network-reset,
 owned client28308, physical net-cost/head correctness qualification pending.
@@ -1521,7 +1521,7 @@ Net HEAD-ONLY price is a regression:0.510422ms day/0.670933ms night mean,
 0.613064/0.620994ms equal-distance. Candidate p95 is22.159197/25.532298ms versus
 worse adjacent control20.892097/24.541260ms. Candidate cadence44.442764Hz day,
 night38.70Hz. firstOrderGate=false. No default promotion or60fps/ceiling proof.
-The [684-file runtime archive](tyrax2-world-stream-2026-10-11/head-hot-runtime-v4/archive-sha256.json)
+The 684-file runtime archive
 replays both full reports byte-identically; complete inventory unchanged.
 
 Close this head-template policy, not the broader prepared frontend. Do not
@@ -1568,7 +1568,7 @@ Expanded host tests actual producer publication/state rollback/replacement and
 V5 native488 binding passes ELFd38e2039...f86e4. Bound producer-host V3/V4
 pass optimized+ASan/UBSan including actual extracted producer controls,2496
 field mutations/64 registry rounds and bbox foundation. V4 additionally records
-native core/owner/original-method pins. The [36-file producer host archive](tyrax2-world-stream-2026-10-11/world-front-producer-host-v4/sha256.json)
+native core/owner/original-method pins. The 36-file producer host archive
 recompiles/runs optimized read-only with all hashes unchanged. SDK/compiler/
 cacher/ABI shims are component evidence only. Do not run its creation driver
 into the archive. V5 hidden emulator PID46/Xvfb35 live, full gates pending;

@@ -36,7 +36,7 @@ Automated emulator runs use an invisible WSL/Xvfb session. Host compilation and 
 
 ## Physical results
 
-All three private comparisons now complete six source-bound physical trips and their hidden-emulator controls. Each platform/trial retains 3942 exact pose rows, 54 held main/environment/Hybrid2-display captures, live capture/paint workload equality and actual producer comparisons. Terrain images are exact across roles. Material and combined runs explicitly compare changed appearance, retain exact returning controls and do not grant visual acceptance. Source, logs, assets and reports were revalidated after the owned processes stopped; the [sealed machine report](tyrax2-offline-world-2026-10-20.json) records the inputs and limits.
+All three private comparisons now complete six source-bound physical trips and their hidden-emulator controls. Each platform/trial retains 3942 exact pose rows, 54 held main/environment/Hybrid2-display captures, live capture/paint workload equality and actual producer comparisons. Terrain images are exact across roles. Material and combined runs explicitly compare changed appearance, retain exact returning controls and do not grant visual acceptance. Source, logs, assets and reports were revalidated after the owned processes stopped; the sealed machine report records the inputs and limits.
 
 | Candidate | Mean non-pacing saving, forward / reverse | Physical On presentation | Missed refreshes per 537 moving frames |
 | --- | --- | --- | --- |

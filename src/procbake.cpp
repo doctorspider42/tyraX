@@ -9,6 +9,7 @@
 #include <mutex>
 #include <sstream>
 
+#include "detmath.hpp"  // the merged chunk meshes are committed - same bits on every OS
 #include "meshlod.hpp"
 #include "prefab.hpp"
 
@@ -73,14 +74,14 @@ void applySettings(const ProcGraph& g, SceneObject& o) {
 void rotateVec(const float in[3], const float rotDeg[3], float out[3]) {
     const float rx = rotDeg[0] * kDeg, ry = rotDeg[1] * kDeg, rz = rotDeg[2] * kDeg;
     float x = in[0], y = in[1], z = in[2];
-    float t = y * std::cos(rx) - z * std::sin(rx);
-    z = y * std::sin(rx) + z * std::cos(rx);
+    float t = y * detmath::cos(rx) - z * detmath::sin(rx);
+    z = y * detmath::sin(rx) + z * detmath::cos(rx);
     y = t;
-    t = x * std::cos(ry) + z * std::sin(ry);
-    z = -x * std::sin(ry) + z * std::cos(ry);
+    t = x * detmath::cos(ry) + z * detmath::sin(ry);
+    z = -x * detmath::sin(ry) + z * detmath::cos(ry);
     x = t;
-    t = x * std::cos(rz) - y * std::sin(rz);
-    y = x * std::sin(rz) + y * std::cos(rz);
+    t = x * detmath::cos(rz) - y * detmath::sin(rz);
+    y = x * detmath::sin(rz) + y * detmath::cos(rz);
     x = t;
     out[0] = x;
     out[1] = y;

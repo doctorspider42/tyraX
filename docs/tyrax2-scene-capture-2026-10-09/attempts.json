@@ -1,6 +1,0 @@
-{
-  "v1": {"status": "generation rejected", "reason": "commented duplicate renderVehicleWheels method matched; no build or target launch"},
-  "v2": {"status": "host rejected", "reason": "inherited P06 add gate filtered Bags; frame accounting failed", "elfSha256": "18fb1104437fba33e65f3e9466f2277f173bd80aaad038e75da8d643cf760571", "targetLaunch": false},
-  "v3": {"status": "superseded emulator prototype", "reason": "five shadow bags per turn frame unlabelled", "elfSha256": "2a7868607438e7d57879568e1f9dedfe7c44d4f2c0a03a15ee64eb2a051c692a", "physicalLaunch": false},
-  "v4": {"status": "accepted bounded StaPip census", "elfSha256": "98cc8ea98d4dbca424a334af3083ce589fc31cfaa6e3585eb09b4b9ce458059e", "nativeSourceFiles": 467, "emulatorBags": 1027, "emulatorClips": 757, "physicalBags": 1027, "physicalClips": 892, "unchangedPhysicalInputs": 303, "physicalLaunchAttempts": 1, "productionFix": false}
-}

@@ -2,20 +2,24 @@
 
 Preserved TyraX2 branch engineering and acceptance notes. The current SKILL.md
 and its focused references govern editor UI, platform and build conventions;
-version numbers below describe historical branch snapshots.
+version numbers below describe historical branch snapshots. The TyraX2
+performance investigation is closed: its lab scripts (`tools/tyrax2-*`, most
+`tools/verify-*`) and raw evidence were removed and are only in git history.
 
 # TyraX development
 
 Terrain focus (1.173.5): BOTH template headers declare terrainFocusX/Z and
 BOTH camera loops capture cameraLookAt before flow/vehicle visual shake.
-The shared renderScene streams terrain using this stable target, retaining
-player-two focus and splitSecondPass exclusion. Do not feed shaken targets
-back into LOD: millimetre shake at a snap boundary triggers repeated EE builds.
-Both physical A/B orders qualify the fix, not a stable-60 claim. See A28 and
-tools/verify-terrain-focus.py; rebuild existing generated games.
+The shared renderScene streams terrain using this stable target, keeping the
+player-two focus and the splitSecondPass exclusion. Do not feed shaken targets
+back into LOD: millimetre shake across a snap boundary caused 53-55 terrain
+rebuilds per trip instead of six (about 1.5-1.8 ms on a moving PS2 drive).
+Rebuild existing generated games to pick it up. Its host check
+(`tools/verify-terrain-focus.py`) was removed with the TyraX2 lab and is in
+git history.
 
-A11 generated paint integration stays behind default-OFF TYRA_VU1_EXP_PAINT
-in BOTH GeoPart headers and renderEnvPass. Accepted basis lives in the texture
+The generated VU paint integration stays behind the default-off
+`TYRA_VU1_EXP_PAINT` in BOTH GeoPart headers and renderEnvPass. Accepted basis lives in the texture
 bag; EE readiness is separate, so a held-basis fallback still materializes
 colours. Normal source/count/stamp invalidates acceptance and the distinct map.
 Set HIGHLIGHT2 before supportsPaintVu and clear paintVu on non-paint draws.
@@ -26,7 +30,7 @@ VU paint qualification uses `vugen::buildPaintExperiment`, a private explicit
 entry point absent from allDescs/--vu-emit and generated game defaults. Ordinary
 emitted shader/wrapper files remain byte-identical. Do not regenerate examples
 to enable this experiment: runtime bag capability, accepted-basis readiness and
-fallback integration are separate gates. See docs/tyrax2-reflection-turn.md A09.
+fallback integration are separate gates. See docs/tyrax2-reflection-turn.md.
 
 Ground-mask residency (1.173.3): `templates.cpp` emits per-scene accounted
 Indexed4 preload bytes and declares pins in BOTH game headers; the shared
@@ -34,7 +38,8 @@ Indexed4 preload bytes and declares pins in BOTH game headers; the shared
 new scene. Complete sets up to 512 KiB qualify; larger sets stream as before.
 Do not pin VRAM or move loads into the frame update and call it hitch-free.
 Actual loaded format and cumulative cost are checked with rollback. See
-`docs/shadows.md` and `tools/verify-ground-shadow-pins.py`.
+`docs/shadows.md`. (Its host check, `tools/verify-ground-shadow-pins.py`, was
+removed with the TyraX2 lab and is in git history.)
 
 Terrain codegen (1.173.2): `game_templates.inc` enables `refineStrips` for base, paint, AO, emission and ground-shadow bags together. Keep shared package sizing and the monotonic `g_bboxStamp` across rebuilds/reloads. This is a generated runtime optimization, not a manifest setting or format change. See `docs/tyrax2-strip-subranges.md`.
 

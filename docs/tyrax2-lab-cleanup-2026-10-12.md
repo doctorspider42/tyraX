@@ -40,7 +40,7 @@ uses all CSVs and verifies absence of each recorded removed target.
 - Unique/unmatched source, raw evidence and emulator states remain. The lab
   itself is retained, not recursively deleted wholesale.
 
-[Machine-readable verification](tyrax2-lab-cleanup-2026-10-12.json) lists the
+Machine-readable verification lists the
 three deletion CSVs. `tools/verify-tyrax2-lab-cleanup.ps1` verifies removed
 origins and all retained archive hashes. Logical bytes are not a measurement
 of NTFS allocation or unrelated concurrent disk usage.

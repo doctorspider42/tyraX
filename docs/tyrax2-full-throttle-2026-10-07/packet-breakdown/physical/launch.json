@@ -1,7 +1,0 @@
-{
-  "elfSha256": "93f5be20031d0385581b3cd34d86e753fe90150981df5f925f6080a949732c97",
-  "cwd": "F:/Projects/tyrax2-drive-breakdown-20261007-v1/physical/bin",
-  "arguments": "-h 192.168.100.150 execee host:vehicle-playground.elf -ps2link",
-  "pid": 5048,
-  "startedUtc": "2026-10-07T20:26:55.3385914Z"
-}

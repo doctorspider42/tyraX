@@ -1,5 +1,0 @@
-{"valid": false, "deliveryValid": false, "images": 36, "exactImages": 36}
-Traceback (most recent call last):
-  File "/mnt/f/Projects/tyra-editor/docs/tyrax2-world-stream-2026-10-11/moving-on-v2-delivery-rejected/tools/verify-world-cell-moving.py", line 95, in <module>
-    assert valid, 'Moving complete-cell delivery or image mismatch'
-AssertionError: Moving complete-cell delivery or image mismatch

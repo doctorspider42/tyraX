@@ -1,8 +1,0 @@
-{
-  "requestAtUtc": "2026-10-07T22:24:43.0229850Z",
-  "command": "Start-Sleep -Seconds 90; & \"$env:SystemRoot\\System32\\shutdown.exe\" /s /t 0",
-  "startedUtc": "2026-10-07T22:23:13.0229850Z",
-  "helperPid": 25480,
-  "completedShutdownVerified": false,
-  "forceApplications": false
-}

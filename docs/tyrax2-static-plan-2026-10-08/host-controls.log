@@ -1,5 +1,0 @@
-/tmp/tmpjkm6plbk/test.cpp:19:9: warning: #pragma once in main file
-   19 | #pragma once
-      |         ^~~~
-PASS actual plan-cache host controls; shim types, no DMA emulation
-{"reference": true, "missingRow": false, "accounting": false, "inactive": false, "viewLeak": false, "geometry": false, "warmMiss": false, "badResult": false, "clockLeak": false, "missingDone": false, "cameraDrift": false, "coldFailure": false}

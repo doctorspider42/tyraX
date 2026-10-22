@@ -1,1 +1,0 @@
-PASS cases=1280 triangles=29392 nonempty=27050 fan-expanded=9937 exact ordered output/state; immutable inputs; rejection-controls=3

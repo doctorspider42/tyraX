@@ -37,7 +37,7 @@ with100/100/98 misses. This confirms the previously rejected early-prefix policy
 entry-loop late counts268..269 must not be substituted for display misses.
 The previous sealed physical archive remains unchanged; a separate extended
 reader archive preserves this additional interpretation, not a new console run.
-[Extended actual-present archive](tyrax2-world-stream-2026-10-11/native-segments-v3-actual-present-qualified/physical/world-cell-price-ps2.json)
+Extended actual-present archive
 finishes with1296 payload hashes/305 inputs and exact fresh emulator AND PS2
 reader replay. Correctness qualification is not promotion; net remains negative.
 
@@ -104,7 +104,7 @@ library1e50c0e4...7880055. Hidden emulator executes that ELF and reaches
 INPUTSDKDONE records60/54856 words; existing SDK12/60/270/54 gate passes.
 No assertion in either log. Owned emulator26/Xvfb15 identity checked/stopped
 after completed dump, before freezing logs. Both devices stay powered.
-[Actual SDK component evidence](tyrax2-world-stream-2026-10-11/world-input-sdk-v2-qualified/report.json)
+Actual SDK component evidence
 PASS531 payload hashes, frozen optimized+ASan/UBSan decode and eight corrupt
 binary controls. Actual60 bodies shrink54480 to50280 words (~7.709%);75 streams
 compact and615 remain original. All VU Qwords match at every modeled kick for
@@ -145,7 +145,7 @@ logging is console-only (debug.hpp explicitly flushes assertions); absent
 bin/log.txt is expected there, while emulator file log remains mandatory.
 Owned5832 identity checked/stopped after completed component. Fresh final-log
 replay and separate combined archive follow; no moving FPS/default claim.
-[Combined input-native component archive](tyrax2-world-stream-2026-10-11/world-input-native-v1-qualified/physical/world-input-native-ps2.json)
+Combined input-native component archive
 finishes842 payload hashes and exact fresh copied emulator AND physical reader
 replay, including306 staged hardware inputs. Both completed clients are stopped;
 devices remain powered. Next moving integration must invalidate encoding choice
@@ -219,7 +219,7 @@ useful for future work, but return to substantial existing EE preparation.
 Emulator archive PASS921 hashes/305 inputs/exact fresh reader replay. Owned
 physical10940 stopped after completed readbacks/full initial reader; final-log
 reader and separate physical archive running. Devices remain ON, goal incomplete.
-[Input-price V2 physical archive](tyrax2-world-stream-2026-10-11/world-input-price-v2-physical-qualified/physical/world-cell-price-ps2.json)
+Input-price V2 physical archive
 finishes1297 payload hashes/305 inputs and exact fresh archived emulator AND PS2
 reader replay. Correctness-qualified archive contains a NET-REJECTED candidate,
 not an accepted fix. No live owned build/emulator/archive/ps2client remains.
@@ -256,7 +256,7 @@ This identifies genuine unnecessary EE work but rejects it as the substantial
 remaining bottleneck. Do not tune this key further or turn24.7% fewer rebuilds
 into24.7% faster frames. Daytime only, ordinary variable-dt/night and public
 adoption remain unqualified; no preserved-scene incapacity proof exists.
-[Full physical report](tyrax2-world-stream-2026-10-11/terrain-lod-v1-physical-qualified/physical/world-cell-price-ps2.json).
+Full physical report.
 Sealed archive verifies1296 payload hashes/305 launch inputs, with exact fresh
 copied emulator and PS2 reader replay. All owned build/test/client jobs stopped;
 computer and console remain powered on.
@@ -577,7 +577,7 @@ Final analyzer requires the existing sealed physical archive: every consumed
 source/ELF/report/deploy/CSV must match its sha256.json, not just a new hash
 of possibly edited inputs. Replaying that immutable evidence reproduces the
 live-fixture analysis exactly. No archived source/input was modified.
-[Complete tail contexts and input hashes](tyrax2-world-stream-2026-10-11/audio-event-tail-v1/report.json).
+Complete tail contexts and input hashes.
 Next EE source audit should examine terrain source construction during the
 remaining93 LOD replacements, not repeat A39/A41 rejected presentation hooks.
 `buildTerrainChunk` recomputes height gradients/normalization and directional
@@ -1510,7 +1510,7 @@ or priced: reject identical-position terrain multipass as the next fix for
 THIS workload. This corrects the conversational suggestion that such passes
 were the strongest next lead. Future layer maps and vehicle passes remain open.
 
-Evidence: [source/log audit](tyrax2-terrain-pass-presence-2026-10-12.json).
+Evidence: source/log audit.
 Reproduce with `python3 tools/tyrax2-terrain-pass-presence.py
 F:/Projects/tyrax2-world-cell-skip-a31-game-20261012-v1 OUT.json` on Windows,
 or use `/mnt/f/Projects/...` paths under WSL. No new target run, timing saving,
@@ -2481,7 +2481,7 @@ immutable uploads and 3 rejection controls, including native strips/parity,
 all64 masks and shared lighting/env/spot. Actual VCL/DVP assembly PASS; C
 strip376/TCstrip404 words. Private late tag reloads fix C register pressure.
 Next integrate normal VIF/DMA, folded-light/paint ABI, resident sets and guards
-before physical timing. See [A29](tyrax2-clip-ring-2026-10-11/README.md).
+before physical timing. See A29.
 No runtime gain/default claim.
 A29 V8 now checks hybrid list/strip, current folded-light and compiled paint
 ABI:7680 cases/176352 triangles and actual assembly PASS. Runtime V1 native
@@ -2834,7 +2834,7 @@ are host shims. Finite host inputs do not qualify PS2 floating-point behavior,
 the complete StaPipBag-to-key adapter, SDK headers, raster or FPS. V1..V3 are
 superseded host stages, not failed console tests. No console deployment occurred.
 
-The [23-file host source/log inventory](tyrax2-world-stream-2026-10-11/prepared-front-host-v4/sha256.json)
+The 23-file host source/log inventory
 and preserved originals replay from copied C++ without modifying the archive.
 Next implement the actual legal-bag adapter and producer replacement hooks,
 then route Core through admitted owned facts without freezing live semantics.
@@ -3000,7 +3000,7 @@ firstOrderGate=false; keep OFF, do not tune the template key into another
 mini-cache iteration. This rejects this head policy, not a full frontend
 rewrite or a workload-preserving capacity ceiling.684-file immutable archive
 reproduces both reports byte-identically, all hashes unchanged. See
-[A34 evidence](tyrax2-world-stream-2026-10-11/head-hot-runtime-v4/head-hot-physical.json).
+A34 evidence.
 
 ### A35 Full Prepared World Frontend: Next Boundary
 
@@ -3312,28 +3312,28 @@ save 0.276..0.287 ms against both adjacent controls; all 20 rasters equal,
 1152 samples, zero descriptor/state mismatches. The 587-file immutable archive
 passes read-only reanalysis. Small real gain (~1%), not the whole StaPip gap.
 Candidate stays private pending moving/mutable-source and lifetime checks.
-See [A22 result](tyrax2-list-join-2026-10-09/README.md#a22-accepted-physical-result).
+See A22 result.
 
 Earlier offline checkpoint: A19's contiguous-list oracle passes four emulator
 states / 80 GS images. It identifies 11-20 redundant gathers (13,392-20,448
 bytes) per checked frozen frame, not a measured speedup. Keep it private and
 lower priority. The earlier offline-only hold is superseded by the user's
 2026-10-10 reset confirmation and the recovery section below.
-[A19 audit and evidence](tyrax2-list-join-2026-10-09/README.md).
+A19 audit and evidence.
 
 Previous physical checkpoint: A21 all-ordinary frozen NIGHT split passes.
 Object/bounds/state Setup 5.60..5.62 ms, Geometry dispatch/package work
 6.81..6.83 ms, preparation Queue 4.04 ms, residual 2.43..2.44 ms. Both timed
 repetitions agree; observer adds about 0.80 ms versus Off. Both StaPip regions
 are substantial, not one overwhelming cause. Do not claim a speedup from
-cross-ELF A20/A21 totals. [A21 result](tyrax2-preparation-split-2026-10-10/README.md#a21-accepted-physical-result).
+cross-ELF A20/A21 totals. A21 result.
 
 Previous physical checkpoint: A20 all-ordinary frozen NIGHT split passes.
 Preparation is 19.34 ms: StaPip excluding queue 12.88, queue 4.01..4.02,
 unclassified 2.44 ms. Timed observer adds 0.462..0.465 ms versus Off; two
 repetitions, stable counts and identical rasters. Finish queue 9.80 ms includes
 completion waits, not an EE construction bill. Next narrow StaPip, not generic
-cache/queue rewrites. [A20 evidence](tyrax2-preparation-split-2026-10-10/README.md).
+cache/queue rewrites. A20 evidence.
 
 Previous physical checkpoint: clean A18 V4 DAY now passes: ordinary
 25.74..25.93, list 25.20..25.23, command 9.53..9.56 ms, equal rasters.
@@ -3346,19 +3346,19 @@ See the A18 resume section below. No production default or authored-map changes.
 Previous checkpoint: A17's six physical day/night drives find 3,450 post-warmup
 normal-preparation calls, all hits, zero roots. Synthetic direct-mapped churn
 exists but does not occur in this workload; no normalization-policy fix.
-Six emulator routes agree. [A17 evidence](tyrax2-normal-census-2026-10-09/README.md).
+Six emulator routes agree. A17 evidence.
 
 Previous checkpoint: A16 fixes current-bag TEX1 order (288 corrected packet checks,
 zero errors; 96 legacy failures). A private reflection-target reject passes
 paired emulator/PS2 raster checks but six physical day/night trips show no
 useful speed gain: -0.063/+0.024 ms savings against mean bracketing controls.
-Gate stays private/OFF. See [A16 evidence](tyrax2-ee-preparation-2026-10-09/README.md).
+Gate stays private/OFF. See A16 evidence.
 
 Previous checkpoint: A13 V2 completes all six physical EE/VU/EE day/night trips.
 Integrated paint saves 1.040-1.195 ms day and 1.027-1.103 ms night versus the
 bracketing controls; equal-distance estimates are 0.926/1.017 ms. Candidate
 entry/present rate is 38.317/34.235 Hz, NOT sustained 60. Production stays OFF.
-See [physical results and overnight summary](tyrax2-paint-physical-2026-10-09/README.md).
+See physical results and overnight summary.
 The user initially requested a PAUSE after this test; the A16 authorization
 below now resumes bounded corrective work and subsequent measurement. Reverse preparation was stopped after one emulator
 phase, with no physical deployment. The user also REVOKED shutdown permission:
@@ -3398,7 +3398,7 @@ closed generic cache/inverse/clip-plane trials without new evidence.
 ### A20 preparation split (2026-10-10)
 
 User authorizes separating StaPip packet construction from ownership/DMA
-assembly. Use [A20 scope/observer plan](tyrax2-preparation-split-2026-10-10/README.md):
+assembly. Use A20 scope/observer plan:
 all-ordinary frozen A18 V5, repeated Off/Count/Timed/Count/Off, exclusive
 StaPip/queue buckets plus residual, preparation and finalization separate.
 Do not repeat the older moving queue audit or interpret inclusive waits as
@@ -3502,7 +3502,7 @@ No production/default/map changes; owned emulators stopped, PS2 untouched.
 
 The user approved ordinary scene / owned descriptor list / owned command
 stream comparison instead of another fine-grained timer census. Follow the
-[A18 plan and gates](tyrax2-three-path-2026-10-09/README.md). First qualify
+A18 plan and gates. First qualify
 one frozen driving state with actual main/env GS readbacks; only then broaden
 coverage and price the three routes. The old 23.33/10.73 ms V7 result is a
 validation-policy contrast WITHIN terminal replay, not ordinary versus replay.
@@ -3565,7 +3565,7 @@ Whole-bag baked validation loops are compile-time diagnostic paths, OFF by
 default; do not mistake them for ordinary per-frame work. Matrix/clip-plane
 micro-optimizations already have H07/P03 negative or negligible results.
 
-Runtime follow-up: [A17 census](tyrax2-normal-census-2026-10-09/README.md)
+Runtime follow-up: A17 census
 uses a source-bound private clone of A16 with the rejected target gate OFF.
 Host observer accounting and all six routes on BOTH hidden PCSX2 and physical
 PS2 pass. Physical post-warmup: 1,440 parked/turn calls plus 2,010 driving
@@ -3886,7 +3886,7 @@ compiler also accepts fresh FPP/orbit physics TUs/headers with flag 0/1.
 The vehicle-playground example is regenerated; no authored setting changed.
 In-place rebuild/source edits are host tests, not injected target cases. This
 run does not include full-throttle driving or paired whole-scene GS readbacks.
-See [A11 evidence](tyrax2-paint-game-2026-10-09/README.md).
+See A11 evidence.
 All 673 archived files verify against SHA-256. Owned emulator/Xvfb are stopped;
 authored full/no-road manifests retain their original hashes, and A06's physical
 CSV remains unchanged at 578,112 bytes / 02:05:20 with its host server alive.
@@ -3917,7 +3917,7 @@ phase, camera sweeps about -60..+60 degrees, 0/8/0 active lights and 66 roads.
 Paint records 8,981 visits with zero errors; moving visits are 1,138 (541 VU,
 597 EE). Both authored LODs/all six modes appear; ten lifecycle and five route
 negative controls reject malformed evidence. Three pre-drive screenshots are
-smoke checks only. See [A12 evidence](tyrax2-paint-drive-2026-10-09/README.md).
+smoke checks only. See A12 evidence.
 All 1,039 archived files verify, including both 471-file bindings. Both owned
 emulator runs are stopped; the authored map hashes and stalled physical CSV
 are unchanged. No physical deploy or production default changed during A12.
@@ -3944,7 +3944,7 @@ states, and nine malformed-data controls reject incorrect evidence. Source
 and symbols confirm no paint oracle or hardware trace. The paint loop matches
 production apart from declared gates/counters. No emulator prices are emitted.
 Physical stage: `F:/Projects/tyrax2-paint-qualification-20261009-v2/physical/bin`,
-303 pinned files; no deployment record exists. See [A13 evidence](tyrax2-paint-qualification-2026-10-09/README.md).
+303 pinned files; no deployment record exists. See A13 evidence.
 All 1,003 archived files verify. Both A13 native bindings are retained; V1 was
 never launched, V2's owned emulator/Xvfb are stopped and final analysis matches
 its final log. Source, skill-twin and Python syntax checks pass.
@@ -4179,19 +4179,19 @@ silently repriced on today's map or revalidated by this consolidation.
 | ID | Existing work / recorded decision | Evidence |
 |---|---|---|
 | H01 | Whole-scene terminal preparation and sealed replay. Different completion/backpressure; not a pure GPU timer. | [Scene isolation](tyrax2-scene-isolation.md), [EE/VU0 audit](tyrax2-ee-vu0.md) |
-| H02 | Direct-producer route: corrected activation and exact rasters, but physical regression; not promoted. | [Route record](tyrax2-direct-producer-raster-2026-10-03.json), [overlap](tyrax2-direct-producer-overlap-2026-10-03.json) |
-| H03 | Whole-frame/Core, stripped/list work and dispatch-tail clocks already measured. Do not sum across apparatus versions. | [Selected scopes](tyrax2-minimal-scopes.md), [frame/Core](tyrax2-frame-core-scopes-2026-10-04.json), [prefix/submit](tyrax2-prefix-submit-scopes-2026-10-04.json) |
-| H04 | Road allocation inventory was NOT copy traffic: original-road copied bytes were zero. | [Road owner census](tyrax2-road-owner-census-2026-10-03.json) |
-| H05 | Snapshot/native pass breakdown and immutable-borrow lookup; no robust lookup gain. | [Snapshot breakdown](tyrax2-snapshot-breakdown-2026-10-02.json), [borrow trial](tyrax2-immutable-borrow-2026-10-02.json) |
+| H02 | Direct-producer route: corrected activation and exact rasters, but physical regression; not promoted. | Route record, overlap |
+| H03 | Whole-frame/Core, stripped/list work and dispatch-tail clocks already measured. Do not sum across apparatus versions. | [Selected scopes](tyrax2-minimal-scopes.md), frame/Core, prefix/submit |
+| H04 | Road allocation inventory was NOT copy traffic: original-road copied bytes were zero. | Road owner census |
+| H05 | Snapshot/native pass breakdown and immutable-borrow lookup; no robust lookup gain. | Snapshot breakdown, borrow trial |
 | H06 | Bounds/package/texture/program/light/object-data partition and five-part bounds follow-up already exist. No one bounds region dominates the older pose. | [Core prefix partition](tyrax2-core-prefix-partition.md) |
-| H07 | Matrix-key comparison unresolved; clip-plane optimization failed real PS2 bits; corrected variants regress or are mixed. | [Core preparation experiments](tyrax2-core-preparation-experiments.md), [same-call reuse](tyrax2-clip-reuse-2026-10-02.json) |
-| H08 | Inverse/key math, local-light choices and object-data breakdown; memoization gains small/mixed. | [Inverse census](tyrax2-ee-inverse-cost-2026-10-02.json), [night shift](tyrax2-night-shift.md), [EE math](tyrax2-ee-math-2026-10-02.json) |
+| H07 | Matrix-key comparison unresolved; clip-plane optimization failed real PS2 bits; corrected variants regress or are mixed. | [Core preparation experiments](tyrax2-core-preparation-experiments.md), same-call reuse |
+| H08 | Inverse/key math, local-light choices and object-data breakdown; memoization gains small/mixed. | Inverse census, [night shift](tyrax2-night-shift.md), EE math |
 | H09 | Interleave benefit measured; previous mixed N/N-1 scorer labels are not valid current-frame attribution. | [Interleave](tyrax2-interleave.md) |
 | H10 | Player-only light receiver diagnostic saves time but removes lighting participation; far-light gate regresses. | [Receiver experiment](tyrax2-player-light-receivers.md), [far-light gate](tyrax2-far-light-gate.md) |
 | H11 | Night producer observer: selected flashlight scopes inactive; beam/corona work small. Eleven-box batching falls back because lights differ. | [Night producers](tyrax2-night-producers.md), [main batching](tyrax2-main11-batch.md) |
 | H12 | Sky RGB-only retint retention and paused-clock work already investigated. | [Sky retint](tyrax2-sky-retint.md), [paused clock](tyrax2-paused-clock.md) |
 | H13 | Validation/TEX1, adjacent reuse and PMU experiments have prior physical gates and limitations. | [Proposal trials](tyrax2-claude-trials.md), [EE source audit](tyrax2-ee-performance-audit-2026-10-05.md) |
-| H14 | Empty-map buildup and batching contrast: batching helps strongly, but authored Vehicle Playground already enables it. | [Buildup](tyrax2-empty-car-2026-10-06/README.md), [both batching orders](tyrax2-empty-car-2026-10-06/batch/physical-order1/README.md) |
+| H14 | Empty-map buildup and batching contrast: batching helps strongly, but authored Vehicle Playground already enables it. | Buildup, both batching orders |
 
 ## Rejected comparisons and operational traps
 
@@ -4306,11 +4306,11 @@ hardware prices. Middle-arm screenshot retains asphalt, with no obvious new
 corruption; it is not a pixel-equivalence oracle. Owned emulator/host processes
 are cleaned up; network reset status is archived, not visually verified.
 
-Evidence: [physical analysis](tyrax2-road-prep-2026-10-08/physical/turn-analysis.json),
-[emulator analysis](tyrax2-road-prep-2026-10-08/emulator/turn-analysis.json),
-[host checks](tyrax2-road-prep-2026-10-08/road-prep-host.json),
-[source binding](tyrax2-road-prep-2026-10-08/native-binding.json),
-[archive hashes](tyrax2-road-prep-2026-10-08/evidence-sha256.json).
+Evidence: physical analysis,
+emulator analysis,
+host checks,
+source binding,
+archive hashes.
 
 Decision: close creation/classification as the MAIN road bottleneck for this
 specific sweep. Prioritize repeated per-bag preparation BEFORE dispatch, then
@@ -4357,7 +4357,7 @@ These five regions sum to 1.441633 ms; their clock gaps are not redistributed.
 Both targets complete 2520 rows and 16 parser rejection controls; host tests
 also cover prefix stage transitions, off/unselected scopes and early exit.
 ELF `43aa6c323d079e735731219a5bc25332ad328f8427afd39daa3aa6f50043625c`,
-467 source/mirror files verified. Evidence: [P02 archive](tyrax2-road-prefix-2026-10-08/evidence-sha256.json).
+467 source/mirror files verified. Evidence: P02 archive.
 Next: test the P03 exact-key reuse contract in the largest region. Avoid
 reopening tiny head/validation tweaks. Automatic interleave remains enabled
 in P01/P02, so their observer deltas are not merely clock instruction costs.
@@ -4390,7 +4390,7 @@ original function, including a corrupted-cache negative control. Both targets
 complete 2520 rows and 13 parser negative controls. Emulator contrast is mixed
 (-0.012686/+0.005883 ms); not a hardware price. ELF
 `64ddda9e424e7d60f2099f177e79f88ab12495ae66afd2a8e3329b06afcace99`.
-Evidence: [P03 archive](tyrax2-road-clip-memo-2026-10-08/evidence-sha256.json).
+Evidence: P03 archive.
 
 **P04 - Draw-only road grouping. Status: private gain, tail regression; not promoted.**
 
@@ -4451,9 +4451,9 @@ complete 2520 rows and 13 parser rejection controls, with matching cold
 geometry/submission witnesses. Native agreement covers 467 files and ELF
 `af13ccff7c71ea7b8019ddec41a0d4c548f91a5f15071ce3c056ca4016132dce`.
 This is sufficient to try P05, not to promote the four-member policy.
-Evidence: [forward](tyrax2-road-groups-2026-10-08/forward/evidence-sha256.json),
-[reverse](tyrax2-road-groups-2026-10-08/reverse/evidence-sha256.json),
-[rejected zero-group v1](tyrax2-road-groups-2026-10-08/rejected-v1/evidence-sha256.json).
+Evidence: forward,
+reverse,
+rejected zero-group v1.
 
 **P05 - Road grouping coverage with pairs. Status: private gain, tail regression; not promoted.**
 
@@ -4506,8 +4506,8 @@ identity as well as Core-call count; the measured gain is not a pure call-tax
 number. Dynamic lighting currently falls back, so night performance is not
 qualified. No production renderer/codegen behavior changed in P01-P05.
 
-Evidence: [pairs forward](tyrax2-road-groups-2026-10-08/pairs-forward/evidence-sha256.json),
-[pairs reverse](tyrax2-road-groups-2026-10-08/pairs-reverse/evidence-sha256.json).
+Evidence: pairs forward,
+pairs reverse.
 All accepted physical P04/P05 deployments retain 303 unchanged staged input
 hashes. Owned hosts/emulators were stopped; final network reset returned 0
 (ps2link screen not visually verified). Both original user project hashes remain
@@ -4565,8 +4565,8 @@ ineligible here; it serves cull slices, not this expanded clipping route.
 Do not infer a missing geometry cache or price pure EE time from this span.
 V3 screenshots captured only phase 2 (late helper); V2 captured all three.
 Neither is exact raster equivalence. P07 tests the localized dispatch lead.
-Evidence: [accepted V3](tyrax2-road-trace-2026-10-08/accepted-v3/evidence-sha256.json),
-[superseded V2](tyrax2-road-trace-2026-10-08/superseded-v2/evidence-sha256.json).
+Evidence: accepted V3,
+superseded V2.
 
 **P07 - Two clip-heavy road chunks, destructive attribution. Status: measured, not a fix.**
 
@@ -4610,7 +4610,7 @@ in both orders. This differs from the existing cull-only partial replay and
 from C18's geometric subrange refinement. If command bodies cannot be reused
 without relaxing lifetime/state rules, reject that candidate rather than adding
 another broad cache. No production renderer/codegen defaults changed here.
-Evidence: [P07](tyrax2-road-pair-omit-2026-10-08/forward/evidence-sha256.json).
+Evidence: P07.
 
 All three physical fixtures retain 303 unchanged staged inputs. Both original
 user project hashes remain unchanged. Evidence archives freeze private source,
@@ -4659,8 +4659,8 @@ price. Reject this implementation; no reverse-order promotion trial warranted.
 Do not infer that all command replay is useless: this memo retains every chunk
 loop, dynamic header, lookup and queue operation. The implementation is private
 and does not justify another arbitrary cache-size/hash tuning series.
-Evidence: [rejected V1](tyrax2-clip-command-2026-10-08/rejected-v1/evidence-sha256.json),
-[completed V2](tyrax2-clip-command-2026-10-08/forward-v2/evidence-sha256.json).
+Evidence: rejected V1,
+completed V2.
 
 **P09 - One expansion lookup per original strip. Status: stopped on user redirection; unpriced.**
 
@@ -4686,7 +4686,7 @@ zero mismatch/fallback. The user redirected the investigation to scene/work
 amplification before completion. Owned emulator/capture were stopped; there
 is no completed timing contrast, physical launch, raster qualification or
 production change. Do not resume merely to finish a cache-related series.
-Evidence: [interrupted P09](tyrax2-strip-once-2026-10-08/interrupted/evidence-sha256.json).
+Evidence: interrupted P09.
 
 **A01 - Scene and packet preparation audit. Status: source audit, no new deployment.**
 
@@ -4820,7 +4820,7 @@ emulator log hash drift; unchanged closed log reanalysis passes full gates.
 Next: qualify isolated net frontend pricing, preserving common A31 body costs,
 candidate-only ticket preparation/release and all correctness gates, then
 same-ELF both-order PS2 A/B. Do not promote based on preflight timing columns.
-The678-file [V7 archive](tyrax2-world-stream-2026-10-11/world-front-runtime-v7/)
+The678-file V7 archive
 replays both full reports byte-identically with preserved tools and validated
 inventory. Goal ACTIVE/unmet; devices remain powered on, no default changes.
 
@@ -4846,7 +4846,7 @@ adjacent controls (-0.036706/+0.052075); night REGRESSES0.086226ms with
 candidate p95 24.426517 vs23.712084/23.764079. Both first-order gates FAIL.
 Keep OFF; no reverse boot/promotion. Initial load excluded, moving rebuilds
 included; strip-only boundary, not pure EE or a full-scene ceiling proof.
-See [net rejection evidence](tyrax2-world-stream-2026-10-11/world-front-net-v1/README.md).
+See net rejection evidence.
 Next must identify a different substantial mechanism from existing packet
 lineage/caller evidence; do not tune the failed ticket policy or blindly extend
 it to lists/env/light classes. Goal remains ACTIVE/unmet, devices powered on.
@@ -4874,7 +4874,7 @@ headers versus117 lists; Clip_TC240/146176; env27/98256. Header counts agree
 with input lengths. Largest MVP-delimited run46 calls/3390 vectors; owner
 identity is unresolved.827 VIF FLUSH are not EE launches or permission to
 remove fences. V1 rejects stripped ELF lacking symbols; pinned nm/image repair
-passes. See [A36 ledger](tyrax2-command-lineage-2026-10-11/README.md).
+passes. See A36 ledger.
 No runtime change, new hardware test or timing. This is older A18, not current
 A35: next obtain a matched current-baseline closure under qualified synchronized
 freeze/ordinary-return raster gates before attributing a new optimization.
@@ -4900,7 +4900,7 @@ Road descriptors28/17967 main source vectors (46.48%); includes Core rejects,
 NOT emitted work or EE time. Freeze poses differ by real dt; qualify per-target.
 Unknown owners explicit; no command-owner binding or price.602-file archive
 replays qualifiers unchanged and physical decoder byte-identical:
-[current V7 capture](tyrax2-command-lineage-2026-10-11/current-v7-v1/README.md).
+current V7 capture.
 Next caller audit must consult existing road investigations first. No promotion.
 
 A37 interrupted-PC feasibility: road caller and queue audit confirms counted
@@ -5083,7 +5083,7 @@ field-length16-bit wrap, but edge polarity, actual blank width, startup epoch,
 reservation and original-copy budget need target qualification. No hardware
 register changed or deployment. Next establish this fail-closed guard before
 Core/queue integration; do not trust delayed START/END handler timestamps.
-[Pinned ELF/source observations](tyrax2-hybrid-copy-adapter-2026-10-11/README.md#hardware-window-source-audit).
+Pinned ELF/source observations.
 
 A41 adapter V5 component now passes42 mocked-hardware controls plus644 EXACT
 extracted backend packet validation cases in optimized and ASan+UBSan. Real MMIO/
@@ -5096,7 +5096,7 @@ blank proof. Require explicit window callback covering actual event age/budget;
 unbound target backend FAILS CLOSED. Next inspect hardware timer/gate and kernel
 semantics, then bind actual queue/framebuffer owners and original immutable copy.
 V2 missing initializer_list fails host compile; V1/V3/V4 earlier component evidence
-not target-qualified. [Adapter constraints/evidence](tyrax2-hybrid-copy-adapter-2026-10-11/README.md).
+not target-qualified. Adapter constraints/evidence.
 
 A41 private copy protocol component now passes144 guards/161280 event schedules
 in BOTH optimized and ASan+UBSan host builds; EE relocatable compile verifies36/
@@ -5107,7 +5107,7 @@ fallback risk and adds withdrawn-field guard BEFORE accepted V1. Actual adapter/
 MMIO/cache/atomic transitions NOT implemented/tested; volatile is not a lock.
 No target deployment/net/60claim. Next implement the immutable packet and actual
 single-old-job adapter, extract/mock its actual code before native/full output
-qualification and Hybrid2-only physical pricing. [Protocol evidence](tyrax2-hybrid-copy-protocol-2026-10-11/README.md).
+qualification and Hybrid2-only physical pricing. Protocol evidence.
 
 A41 source/binary audit closes: current A40 ELF/.sym exact text and492 bound
 sources, linked graph_wait_vsync0x1017d8 clears old latched VSINT before polling
@@ -5120,14 +5120,14 @@ not a measured causal count. Proposed next architecture: prebuilt immutable
 Hybrid2 copy armed for independent VBlank start, explicit old-job/FINISH/GIF/
 source-lifetime and atomic ISR-vs-fallback ownership. Different from rejected
 A39 renderer callback/per-Core hook, no runtime implementation yet. Must qualify
-copy completion within blank, not just drawing readbacks. [Audit/protocol](tyrax2-vblank-sdk-2026-10-11/README.md).
+copy completion within blank, not just drawing readbacks. Audit/protocol.
 
 A40 V1 first physical order now completes BOTH targets/full36-raster/17-control
 gates. Day58.703/59.378/58.591Hz, night54.338/56.679/54.092; candidate integrated
 non-pacing saves1.063..1.119/1.130..1.212ms. Both net PASS, both stable60 FAIL
 (day5late,night29).617-file copied readers replay exact; reverse/default-off
 image-cost/production integration open. Devices ON. Not an EE solution via
-promoting triple buffering. [A40 result](tyrax2-paint-triple-2026-10-11/v1/README.md).
+promoting triple buffering. A40 result.
 
 Burnout buffer recheck: all six saved states FRAME1/2 CT32/block2240, both GS
 dumps active DISPFB2 CT16S/block0 and fixed decoded display fields, plus dithered
@@ -5135,7 +5135,7 @@ CT24-to-CT16S output copy. This resembles Hybrid2, not ordinary CT32 rotation;
 corrects any provisional suggestion that eliminating a copy matches Burnout.
 Metadata does NOT establish EE wait timing/physical cost; focus next source audit
 on synchronization/copy submission dependencies, retain CT32x2 as diagnostic
-alternative only. [Bounded report](tyrax2-burnout-buffers-2026-10-11/README.md).
+alternative only. Bounded report.
 
 A40 V1 closes native492/ELF9f811be6...8b9b6 and hidden six-trip/36 exact-image/
 17-control gates, positive paint activation and exact+3qw/head. Reader first
@@ -5218,7 +5218,7 @@ night55.104/40.832/54.889. Both triple endpoints beat double with retained p95;
 both net gates PASS, stable60 FAIL (10/10 day,43/45 night late intervals).
 603-file copied-reader replay exact. No production default: private common
 A31/A30 qualification is not normal-production integration. Devices ON, owned
-6428/26/15 stopped after completion. [Reverse](tyrax2-hybrid-triple-2026-10-11/reverse-v1/README.md).
+6428/26/15 stopped after completion. Reverse.
 
 A39 next, source audit ONLY: nonblocking publication of an already-finished old
 Hybrid3 job during next-frame EE preparation. Nearest H01 replay/C05 fusion/H05
@@ -5251,7 +5251,7 @@ byte-identically. Physical DISPFB day49.629/58.928/50.422Hz, night41.515/55.217/
 work barely changes; confirmed large pacing contribution, not EE memcpy fix.
 Actual steady VRAM pressure/Hybrid FINISH included. No default promotion yet.
 Next reverse3/2/3 BEFORE a new EE/presentation scheduling candidate. Evidence:
-[A38 V1](tyrax2-hybrid-triple-2026-10-11/v1/README.md).
+A38 V1.
 
 A37 moving completes native490/ELF185560b0...e7b9a, closed hidden30604/PS230492
 samples and36 exact OFF/ON/OFF rasters each,15 reader controls, no overflow/late
@@ -5259,7 +5259,7 @@ IRQ. Both997/1733us distributions agree: physical VBlank30.93..34.04%, largest
 non-wait function copyQwords5.00..6.29%, Core/head/bounds distributed. These are
 PC residency, NOT exclusive cycles. OFF return49.26 day/41.18 night, no60proof.
 623-file archive replays qualifiers and physical symbolizer byte-identically:
-[A37 moving](tyrax2-pc-sampling-2026-10-11/moving-v1/README.md).
+A37 moving.
 
 A38 next question (NOT implemented): does current Hybrid double-buffer present
 sequencing waste usable throughput despite mean non-pacing work14.04/16.17ms?

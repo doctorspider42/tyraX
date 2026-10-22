@@ -1,4 +1,0 @@
-Traceback (most recent call last):
-  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-queue-audit-v2/analyze-balance.py", line 39, in <module>
-    assert b['firstOwner']==b['lastOwner'] and b['firstOwner']in(r['frame']-1,r['frame']) and b['jobPhaseMask']in(1,2,4)
-AssertionError

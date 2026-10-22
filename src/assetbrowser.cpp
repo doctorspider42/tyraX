@@ -188,10 +188,29 @@ const char* App::assetKindName(AssetKind k) {
 // ---------------------------------------------------------------------------
 
 void App::scanAssetTree() {
+    // The rescan runs every 1.5 s while the browser is open. Rebuilding the
+    // "who names this file" map re-reads every .obj and .mtl in res/, which on
+    // the vehicle playground was a hitch every 1.5 s - so it is kept when the
+    // scan finds the same files with the same sizes and times.
+    const std::vector<AssetItem> before = std::move(assetItems_);
+    const bool hadWfUsers = assetWfUsersReady_;
     assetItems_.clear();
     assetDirs_.clear();
-    assetWfUsers_.clear();
     assetWfUsersReady_ = false;
+    struct KeepOrDropWfUsers {
+        App& app;
+        const std::vector<AssetItem>& before;
+        bool had;
+        ~KeepOrDropWfUsers() {
+            const std::vector<AssetItem>& now = app.assetItems_;
+            bool same = had && now.size() == before.size();
+            for (size_t i = 0; same && i < now.size(); ++i)
+                same = now[i].rel == before[i].rel && now[i].bytes == before[i].bytes &&
+                       now[i].mtime == before[i].mtime;
+            app.assetWfUsersReady_ = same;
+            if (!same) app.assetWfUsers_.clear();
+        }
+    } keepOrDrop{*this, before, hadWfUsers};
     if (!hasProject_) return;
 
     AssetDir rootDir;
@@ -312,6 +331,7 @@ void App::assetsChanged() {
     wavIssueCache_.clear();
     viewport_.invalidateAssets();  // model/material/texture/thumbnail caches
     assetUsageSerial_ = ~0ull;     // re-census on the next query
+    assetWfUsersReady_ = false;    // an edit may have rewritten a reference
     scanAssetTree();
 }
 
@@ -1273,8 +1293,20 @@ void App::drawAssetBrowserWindow() {
         scanAssetTree();
     // Each new thumbnail is a GL render + a texture copy; spread a folder full
     // of them over a few frames instead of stalling one.
+    //
+    // A TIME budget on top of the count: one thumbnail of a car body or a
+    // facade is a model parse + texture decode + upload, and four of those plus
+    // six model parses in one frame made opening the browser on the vehicle
+    // playground a multi-hundred-millisecond hitch. The first one per frame
+    // always goes, so a slow machine fills the grid slower rather than never.
     assetThumbBudget_ = 4;
     int metaBudget = 6;  // model parses for the tiles' triangle line, per frame
+    const auto frameStart = std::chrono::steady_clock::now();
+    bool spentOne = false;
+    auto withinBudget = [&] {
+        return !spentOne ||
+               std::chrono::steady_clock::now() - frameStart < std::chrono::milliseconds(6);
+    };
 
     auto isUnused = [&](const AssetItem& item) {
         if (item.generated) return false;
@@ -1765,7 +1797,9 @@ void App::drawAssetBrowserWindow() {
     // frame), the file size for everything else.
     auto metaOf = [&](const AssetItem& item) -> std::string {
         if (item.kind == AssetKind::Model) {
-            if (modelInfoCache_.count(item.rel + "|") || metaBudget-- > 0) {
+            const bool cached = modelInfoCache_.count(item.rel + "|") > 0;
+            if (cached || (withinBudget() && metaBudget-- > 0)) {
+                if (!cached) spentOne = true;
                 const ModelInfo& info = modelInfo(item.rel);
                 if (info.ok) {
                     char b[32];
@@ -1829,8 +1863,8 @@ void App::drawAssetBrowserWindow() {
             // this tile is about to spend one of the frame's thumbnail slots.
             const bool baked = viewport_.assetThumb(item.rel, false) != 0;
             const uint32_t tex = baked ? viewport_.assetThumb(item.rel, false)
-                                       : viewport_.assetThumb(item.rel, assetThumbBudget_ > 0);
-            if (!baked && tex) --assetThumbBudget_;
+                                       : viewport_.assetThumb(item.rel, assetThumbBudget_ > 0 && withinBudget());
+            if (!baked && tex) --assetThumbBudget_, spentOne = true;
             const float pad = scaled(4);
             if (tex) {
                 // A rendered thumbnail comes out of a framebuffer (bottom-left

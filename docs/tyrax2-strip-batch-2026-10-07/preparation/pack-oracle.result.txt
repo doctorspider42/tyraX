@@ -1,1 +1,0 @@
-PASS cases=40000 sourceVertices=25029165 retainedSavings=8639148 exactTriangleAttributes=1 provokingVertexPreserved=1

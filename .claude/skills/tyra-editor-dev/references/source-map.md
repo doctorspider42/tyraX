@@ -77,6 +77,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `meshlod.cpp/.hpp` | 460 | Bake-time decimation, shadow proxy | runtime-rendering-and-meshes |
 | `meshstrip.cpp/.hpp` | 420 | Triangle stripification | runtime-rendering-and-meshes |
 | `primmesh.cpp/.hpp` | 200 | Unit-primitive tessellation | runtime-rendering-and-meshes |
+| `detmath.hpp` | 150 | Bit-identical sin/cos/asin/atan2/log/exp/pow for anything hashed or committed (with `-ffp-contract=off`) | runtime-rendering-and-meshes |
 | `objparser.cpp/.hpp` | 560 | .obj/.mtl reader | runtime-rendering-and-meshes |
 | `menubake.cpp/.hpp` | 3.2k | Menu panels, text, credits strip, icon/glyph atlases | game-screens-menus-text |
 | `menulayout.cpp/.hpp` | 700 | Menu geometry engine | game-screens-menus-text |

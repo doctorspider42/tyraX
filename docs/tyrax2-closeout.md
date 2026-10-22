@@ -19,7 +19,7 @@ is unpriced. This qualification promotes no additional renderer or map change.
 
 ## Physical results
 
-The [physical evidence archive](tyrax2-closeout-physical-2026-10-06/README.md)
+The physical evidence archive
 records all eight complete starts and the excluded asset-staging attempt.
 Receiver forward All/Players/All non-pacing chunk means are
 16.068 / 15.137 / 16.106 ms; reverse Players/All/Players means are
@@ -115,36 +115,36 @@ own apparatus; do not subtract private receiver or geometry gains from them
 to predict the new ELF. The 60 Hz budget is approximately 16.68 ms, and missing
 the presentation deadline can produce a roughly 33.37 ms return period.
 
-The [frozen evidence archive](tyrax2-closeout-2026-10-06/README.md) retains
+The frozen evidence archive retains
 selected raw records, native/source proofs, scripts and screenshots. It excludes
 ELF/SDK/assets while retaining their provenance hashes. It is the emulator/source
 archive; the separate physical archive above supplies the new hardware records.
 
 ## Fresh one-car isolation follow-up
 
-The [new empty-map diagnostic](tyrax2-empty-car-2026-10-06/README.md) contains only one Ravager plus nonrendering camera logic and a private invisible analytic collision floor. There are no authored map objects or lighting/audio effects. Native binding, 5400 emulator loops, actual driving and six positive cold geometry witnesses passed; all three reviewed screenshots show the full centered car. PS2 then completed5400 loops: parked/driving/post-drive non-pacing loop work was1.1858/1.8252/1.1856ms, with all warmed windows at16.683334ms ordinary entry cadence (approximately59.94Hz),320 rendered and0 synthetic completions each. No raw entry period exceeded25ms; full-run scanout and physical TV appearance remain separate. Minimal vehicle/physics/pipeline workload has ample headroom, so populated-scene workload remains the target. The missing-default-HUD-resource first start is rejected; the unchanged ELF repeated cleanly with complete resources.
+The new empty-map diagnostic contains only one Ravager plus nonrendering camera logic and a private invisible analytic collision floor. There are no authored map objects or lighting/audio effects. Native binding, 5400 emulator loops, actual driving and six positive cold geometry witnesses passed; all three reviewed screenshots show the full centered car. PS2 then completed5400 loops: parked/driving/post-drive non-pacing loop work was1.1858/1.8252/1.1856ms, with all warmed windows at16.683334ms ordinary entry cadence (approximately59.94Hz),320 rendered and0 synthetic completions each. No raw entry period exceeded25ms; full-run scanout and physical TV appearance remain separate. Minimal vehicle/physics/pipeline workload has ample headroom, so populated-scene workload remains the target. The missing-default-HUD-resource first start is rejected; the unchanged ELF repeated cleanly with complete resources.
 
 The private always-RAM showcase music diagnostic also completed its emulator protocol with the cache-active marker, but retained a low-ring warning. Its two physical launch attempts had empty logs/no loadelf and are rejected as no start. The user's original audible showcase failure therefore remains open; a RAM cache is not qualified as a fix.
 
-The incremental one-road follow-up adds a normal untextured mild S road with indexed contact queries and bounded virtual-pad steering. Native binding,24 parser controls and5400 emulator loops pass, including positive road/car geometry and four paved-wheel cold witnesses. Its first physical start was rejected as no loadelf after a network-reset timeout. After a power cycle,5400 PS2 loops completed with1.3848/2.4046/1.3297ms parked/driving/post-drive non-pacing work and16.6833ms observed cadence in every window. No raw entry period exceeded25ms; all six cold contexts had four paved wheels and positive road/car geometry. The user reports a normal car and uniform bright road against empty black surrounding. This tests a simple untextured S road, not a large network or a causal road-only price because the controller changed. See the same [one-car evidence page](tyrax2-empty-car-2026-10-06/README.md).
+The incremental one-road follow-up adds a normal untextured mild S road with indexed contact queries and bounded virtual-pad steering. Native binding,24 parser controls and5400 emulator loops pass, including positive road/car geometry and four paved-wheel cold witnesses. Its first physical start was rejected as no loadelf after a network-reset timeout. After a power cycle,5400 PS2 loops completed with1.3848/2.4046/1.3297ms parked/driving/post-drive non-pacing work and16.6833ms observed cadence in every window. No raw entry period exceeded25ms; all six cold contexts had four paved wheels and positive road/car geometry. The user reports a normal car and uniform bright road against empty black surrounding. This tests a simple untextured S road, not a large network or a causal road-only price because the controller changed. See the same one-car evidence page.
 
-The next isolation sibling adds a stationary Pica Turbo to the same Ravager/S-road map. Native binding,30 parser controls and5400 emulator loops pass with both models' body/wheel geometry positive at all six cold witnesses and both visible in three reviewed captures. Driving is deliberately shortened to retain both in view, so a causal incremental price against the former bend route is unsupported. The first physical start received no loadelf after network-reset timeout and is rejected. Following a power cycle,5400 PS2 loops complete with1.8952/2.8012/1.8942ms non-pacing work and16.6833ms observed cadence in all windows, zero raw entry periods above25ms and zero synthetic completions. Both actual models' body/wheel acceptance is positive at all six cold frames, and the user confirms both look correct. Details remain on the [isolation evidence page](tyrax2-empty-car-2026-10-06/README.md).
+The next isolation sibling adds a stationary Pica Turbo to the same Ravager/S-road map. Native binding,30 parser controls and5400 emulator loops pass with both models' body/wheel geometry positive at all six cold witnesses and both visible in three reviewed captures. Driving is deliberately shortened to retain both in view, so a causal incremental price against the former bend route is unsupported. The first physical start received no loadelf after network-reset timeout and is rejected. Following a power cycle,5400 PS2 loops complete with1.8952/2.8012/1.8942ms non-pacing work and16.6833ms observed cadence in all windows, zero raw entry periods above25ms and zero synthetic completions. Both actual models' body/wheel acceptance is positive at all six cold frames, and the user confirms both look correct. Details remain on the isolation evidence page.
 
-The two-car follow-up also archives a [read-only reset audit](tyrax2-empty-car-2026-10-06/two-cars/reset-audit/report.md). Installed ps2client performs blocking TCP connection before UDP reset; its timeout does not bound connection setup. This establishes a host-side failure possibility, not the observed causal stage or a qualified fix. Console artifact versions differ locally and the resident version remains unknown. No reset request was made during this audit; the validated game was left running.
+The two-car follow-up also archives a read-only reset audit. Installed ps2client performs blocking TCP connection before UDP reset; its timeout does not bound connection setup. This establishes a host-side failure possibility, not the observed causal stage or a qualified fix. Console artifact versions differ locally and the resident version remains unknown. No reset request was made during this audit; the validated game was left running.
 
-The [moving-point follow-up](tyrax2-empty-car-2026-10-06/README.md#two-cars-with-one-moving-dynamic-point-light) keeps two cars and the short road controller unchanged. One real dynamic point yields 2.6687/2.9214/2.6660 ms non-pacing work with approximately 59.94 Hz in all measured physical windows, zero raw entry periods above 25 ms and positive selected/effective body-wheel light paths at all six cold frames. Native binding, 37 parser controls and 5400 emulator loops pass. TV confirmation remains pending; no authored pools/night/audio were enabled and separate-ELF differences are not causal pricing. A prior UDP-only reset failed to admit a fresh ELF despite established TCP; power cycle restored launch. The bypass is not promoted as a reset fix.
+The moving-point follow-up keeps two cars and the short road controller unchanged. One real dynamic point yields 2.6687/2.9214/2.6660 ms non-pacing work with approximately 59.94 Hz in all measured physical windows, zero raw entry periods above 25 ms and positive selected/effective body-wheel light paths at all six cold frames. Native binding, 37 parser controls and 5400 emulator loops pass. TV confirmation remains pending; no authored pools/night/audio were enabled and separate-ELF differences are not causal pricing. A prior UDP-only reset failed to admit a fresh ELF despite established TCP; power cycle restored launch. The bypass is not promoted as a reset fix.
 
-The [static-model continuation](tyrax2-empty-car-2026-10-06/README.md#two-cars-moving-light-and-a-static-textured-model) adds a small public textured pine to the same two-car/moving-point scene. Native binding, 42 parser controls and 5400 emulator loops pass; all six cold frames accept the distinct model and preserve car light paths. Three owned images are reviewed. After physical restart, the unchanged ELF completes 5400 PS2 loops at 2.6972/2.9829/2.6954 ms non-pacing work, approximately 59.94 Hz in all observed windows, zero raw entry periods above 25 ms and zero synthetic measured completions. All six cold frames accept one 96-vertex tree bag and preserve both cars' effective light paths. The user confirms the current scene looks correct. The small 32-triangle model is not a dense-scene qualification; historical separate-ELF differences are not matched causal prices. Console left running without another reset.
+The static-model continuation adds a small public textured pine to the same two-car/moving-point scene. Native binding, 42 parser controls and 5400 emulator loops pass; all six cold frames accept the distinct model and preserve car light paths. Three owned images are reviewed. After physical restart, the unchanged ELF completes 5400 PS2 loops at 2.6972/2.9829/2.6954 ms non-pacing work, approximately 59.94 Hz in all observed windows, zero raw entry periods above 25 ms and zero synthetic measured completions. All six cold frames accept one 96-vertex tree bag and preserve both cars' effective light paths. The user confirms the current scene looks correct. The small 32-triangle model is not a dense-scene qualification; historical separate-ELF differences are not matched causal prices. Console left running without another reset.
 
-The user confirms resident ps2link r7. A [private reset diagnostic](tyrax2-empty-car-2026-10-06/resetdiag/preparation/report.md) is source/native reviewed and built with IOP/EE/boot breadcrumbs, preserving original r7 order. It remains unflashed and untested on hardware; early background markers can be hidden and missing network output is inconclusive. A separate cold-launch qualification is required; no hot resident replacement or reset fix is claimed.
+The user confirms resident ps2link r7. A private reset diagnostic is source/native reviewed and built with IOP/EE/boot breadcrumbs, preserving original r7 order. It remains unflashed and untested on hardware; early background markers can be hidden and missing network output is inconclusive. A separate cold-launch qualification is required; no hot resident replacement or reset fix is claimed.
 
-The [eight-building continuation](tyrax2-empty-car-2026-10-06/README.md#eight-buildings-on-the-same-road) retains both cars, moving point, pine and public static batching. Native binding,48 parser controls and5400 emulator loops qualify eight owner memberships in accepted carriers at all six cold frames; imported11328 vertices are separate from actual accepted counts. Physical measurement awaits reset-ready start; emulator is not hardware pricing.
+The eight-building continuation retains both cars, moving point, pine and public static batching. Native binding,48 parser controls and5400 emulator loops qualify eight owner memberships in accepted carriers at all six cold frames; imported11328 vertices are separate from actual accepted counts. Physical measurement awaits reset-ready start; emulator is not hardware pricing.
 
 The eight-building ELF subsequently completes 5400 loops on PS2 at 5.2653/5.2789/5.2748 ms non-pacing work, retaining approximately 59.94 Hz in all observed windows and zero synthetic completions. All eight building owners are represented in 12 accepted carriers / 11,328 input vertices. Visual confirmation remains pending; USB was removed before the cold start, which does not establish the reset failure cause.
 
-The [actual80133-input continuation](tyrax2-empty-car-2026-10-06/README.md#fifty-buildings-and-actual80133-accepted-inputs) qualifies50 building owners with checked64-bit masks,70800 accepted building vertices and80133 total at six cold frames. Fresh physical v2 completed5400 loops: nonpacing 15.4556/15.4649/15.4654ms, entry periods 16.6833/16.6833/16.6834ms, about59.94Hz in these bounded windows. All six cold frames accept80133 input vertices and all50 owner refs. User confirmed the current80k TV image looks good; this does not retroactively qualify the earlier8-building TV. The serving client remains active; archived stdout is the immutable completed prefix, not a terminal-run claim. Common sampler/observer footprint remains unpriced and nonpacing is not pureEE time.
+The actual80133-input continuation qualifies50 building owners with checked64-bit masks,70800 accepted building vertices and80133 total at six cold frames. Fresh physical v2 completed5400 loops: nonpacing 15.4556/15.4649/15.4654ms, entry periods 16.6833/16.6833/16.6834ms, about59.94Hz in these bounded windows. All six cold frames accept80133 input vertices and all50 owner refs. User confirmed the current80k TV image looks good; this does not retroactively qualify the earlier8-building TV. The serving client remains active; archived stdout is the immutable completed prefix, not a terminal-run claim. Common sampler/observer footprint remains unpriced and nonpacing is not pureEE time.
 
-The [normal Ravager blob continuation](tyrax2-empty-car-2026-10-06/README.md#normal-ravager-blob-shadow-at-actual80187-inputs) retains the parent80133 accepted inputs plus54 separately classified normal blob inputs. Physical measurement pending; emulator is not hardware pricing.
+The normal Ravager blob continuation retains the parent80133 accepted inputs plus54 separately classified normal blob inputs. Physical measurement pending; emulator is not hardware pricing.
 ## Interpretation of the incremental workload ladder
 
 | Validated physical workload | Accepted input vertices at cold observations | Accepted carriers | Parked non-pacing work |
@@ -160,15 +160,15 @@ The earlier full-night census accepted 134 carriers, versus 36 in the 80k fixtur
 The corrected blob continuation completes 5400 clean PS2 loops at 15.4753/15.4872/15.4859 ms non-pacing work, approximately 59.94 Hz in all observed windows, zero synthetic measured completions and zero raw entry periods above 25 ms. All six cold observations retain 80,133 parent inputs plus one accepted 54-vertex normal blob. The original missing-resource runs remain rejected. The separate-ELF comparison is not a causal shadow-only price; physical TV confirmation remains pending.
 
 
-The [clean physical blob result](tyrax2-empty-car-2026-10-06/README.md#clean-physical-blob-result) supersedes the earlier pending hardware checkpoint, preserving all rejected resource-failure evidence.
+The clean physical blob result supersedes the earlier pending hardware checkpoint, preserving all rejected resource-failure evidence.
 
-The [stationary batching contrast](tyrax2-empty-car-2026-10-06/batch/README.md) now passes native binding and both5400-loop software-emulator orders. Same sparse geometry/car/camera/light witnesses qualify37 ON versus313 OFF carriers at80187 input vertices. Normal solo and combined buffers remain resident in both arms; startup/extra memory/common observer costs are unpriced. Physical ON/OFF pricing remains pending a reset-ready console; no batching performance conclusion or public optimization is accepted yet.
+The stationary batching contrast now passes native binding and both5400-loop software-emulator orders. Same sparse geometry/car/camera/light witnesses qualify37 ON versus313 OFF carriers at80187 input vertices. Normal solo and combined buffers remain resident in both arms; startup/extra memory/common observer costs are unpriced. Physical ON/OFF pricing remains pending a reset-ready console; no batching performance conclusion or public optimization is accepted yet.
 
-The [first physical batching contrast](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md) completes5400 loops: ON/OFF/ON15.4751/20.0728/15.4748 ms,approximately59.94/29.97/59.94 Hz. Identical80187 accepted inputs and37/313 carriers yield4.5978 ms OFF-minus-ON with0.000348 ms outer spread. This prices net representation on this fixture,not pure EE or fixed bag cost; reverse hardware and physical TV checks remain pending. It supports fragmentation as a practical optimization lead without diagnosing the whole production night.
+The first physical batching contrast completes5400 loops: ON/OFF/ON15.4751/20.0728/15.4748 ms,approximately59.94/29.97/59.94 Hz. Identical80187 accepted inputs and37/313 carriers yield4.5978 ms OFF-minus-ON with0.000348 ms outer spread. This prices net representation on this fixture,not pure EE or fixed bag cost; reverse hardware and physical TV checks remain pending. It supports fragmentation as a practical optimization lead without diagnosing the whole production night.
 
-The [reverse physical batching order and authored-map audit](tyrax2-empty-car-2026-10-06/batch/physical-order1/README.md) complete:20.2152/15.4757/20.2528 ms OFF/ON/OFF,matching80187 accepted inputs and37/313 carriers. Reverse corroborates direction,but its initial OFF precedes lazy combined-array bake; the earlier preparation claim of identical fully baked residency across every reverse phase is corrected. First order ON warms both representations before all measured phases and its4.5978 ms is the cleaner estimate. Vehicle Playground already enables batching; its authored report has77 eligible objects,37 grouped into28 groups; this is not a new4.60 ms production optimization. Historical night-box merging had zero activation under correct light/reflection guards. Both hardware orders are complete; TV confirmation remains pending.
+The reverse physical batching order and authored-map audit complete:20.2152/15.4757/20.2528 ms OFF/ON/OFF,matching80187 accepted inputs and37/313 carriers. Reverse corroborates direction,but its initial OFF precedes lazy combined-array bake; the earlier preparation claim of identical fully baked residency across every reverse phase is corrected. First order ON warms both representations before all measured phases and its4.5978 ms is the cleaner estimate. Vehicle Playground already enables batching; its authored report has77 eligible objects,37 grouped into28 groups; this is not a new4.60 ms production optimization. Historical night-box merging had zero activation under correct light/reflection guards. Both hardware orders are complete; TV confirmation remains pending.
 
-The [full-city daylight drive diagnosis](tyrax2-city-day-drive-2026-10-06/README.md)
+The full-city daylight drive diagnosis
 reproduces transient drops: the slowest64-loop moving window has15.5815 ms
 non-pacing work and21.1150 ms entry period (~47.36 Hz). Two later windows with
 the camera held at that chunk's representative midpoint have13.5018/13.5003 ms
@@ -179,14 +179,14 @@ supports investigating transient motion/view work without dismissing the whole
 city as uniformly too expensive. It does not isolate physics from changing
 visibility, price observer overhead or resolve full-night stable60.
 
-The [vehicle substep follow-up](tyrax2-city-physics-2026-10-06/README.md) is native
+The vehicle substep follow-up is native
 and emulator qualified: actual planned/executed updates and bounded vehicle
 scope intervals accompany384 ordinary raw loops, with512 separately accounted
 extra Count reads and parked Off/On/Off plus reverse controls. No production
 timestep or renderer behavior changes. Physical activation/cost/transition
 ordering await a reset-ready PS2; emulator timing supplies no hardware verdict.
 
-The [physical substep follow-up](tyrax2-city-physics-2026-10-06/physical/README.md)
+The physical substep follow-up
 now completes5400 loops: driving scopes average0.5989 ms for107 one-step rows
 and0.8187 ms for21 two-step rows. Over-budget driving loops average0.6251 ms
 inside the vehicle wrapper and18.5047 ms outside. Fourteen of15 one-to-two
@@ -197,7 +197,7 @@ dominant spike source. Parked forward/reverse active observer contrasts are
 tax or uniform correction is accepted. Next partition remaining game update
 from render preparation/submission and existing waits. Physical TV remains pending.
 
-The [complete daylight loop balance](tyrax2-loop-balance-2026-10-06/README.md)
+The complete daylight loop balance
 now qualifies384 raw rows and256 active partitions through native, emulator and
 physical5400-loop runs. Heavy driving rows average18.7498 ms non-pacing work:
 17.4102 ms render phase,1.2952 ms pre-render update,0.0363 ms engine remainder
@@ -206,7 +206,7 @@ preceding EE loop. Existing pacing agrees exactly with the independent ordinary
 sampler; no waits/fairness drain were added. Parked Off/On/Off and reverse
 contrasts are-0.08331/+0.09376 ms, so no scalar tax is subtracted. Render includes
 its own logic/HUD/effects and elapsed preemption; this is not a pure EE bill.
-The [two-axis render audit](tyrax2-render-audit-2026-10-06/README.md) now completes
+The two-axis render audit now completes
 native/emulator and5400 physical loops. It also corrects a small historical
 overlap: flipBuffers' two GIF waits were already covered by pacing and should
 not have been timed again as leaf waits. The immutable old archive remains;
@@ -216,7 +216,7 @@ Objects/terrain average6.227/3.055 ms; engine submission/recording averages
 partitions, never additive. Dense instrumentation adds1.753/1.403 ms in parked
 forward/reverse controls and changes deadline crossings; no scalar subtraction
 or normal-game heavy-frame comparison is accepted. The
-[selective queue audit](tyrax2-queue-audit-2026-10-06/README.md) completes that
+selective queue audit completes that
 hardware follow-up: snapshot ownership/copy averages2.5777 ms during driving,
 native emission0.5645 ms, submit/send remainders0.3927/0.2988 ms. Every enabled
 row has one recorded VIF1 flush/enqueue, zero snapshot failures/retries and no
@@ -228,7 +228,7 @@ borrow candidate preserving retirement and bank-reader safety. Core preparation
 and unannotated render remain separate leads. Full-night stable60, physical TV and
 audio inspection remain pending; no production optimization ships here.
 
-The [October 7 strip/batch experiment](tyrax2-strip-batch-2026-10-07/README.md)
+The October 7 strip/batch experiment
 confirms that 208 of 260 shipped static-model parts already have strips.
 Bidirectional strip walking saves only 57 asset vertices. Compacting batch-run
 padding reduces resident batch vertices 9096→7998, but the physical stationary
