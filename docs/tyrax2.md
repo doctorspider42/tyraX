@@ -7,11 +7,12 @@ natively and terminated once, including the final presentation FINISH.
 Texture uploads, GS state and auxiliary passes are represented in order.
 Explicit same-frame GPU reads, compatibility
 operations and bounded-memory overflow may drain through a measured fallback.
-Preferences > Picture > Advanced > **TyraX2 frame pipeline** controls ordered frame
-recording and N/N-1 execution. Version 1.171.0 enables the request for new
-projects. Format v95 always saves `settings.framePipeline`, including `false`;
-older manifests without the field retain the ordinary queue and allocate no
-frame banks. Generated initialization explicitly calls
+Preferences > Picture > Advanced > **Renderer** (*TyraX2 | Legacy*) controls
+ordered frame recording and N/N-1 execution. Since 2.0 TyraX2 is the
+default for every project: a manifest without `settings.framePipeline` (any
+1.x project) gets it too, and only an explicit `false` - *Legacy*, the 1.x
+ordinary queue with no frame banks - keeps the old path. Format v95 always
+saves the field. Generated initialization explicitly calls
 `RendererCore::setFramePipeline(true)` or `false` for either project setting.
 
 ## New-project default and legacy preservation (1.171.0)
@@ -282,9 +283,9 @@ job's programs or targets while it is still executing.
 
 ## Runtime acceptance (2026-10-02)
 
-The 2026-10-02 builds were experimental and off by default. Current new-project
-and legacy behavior is described above. **Project > Preferences
-> Display > TyraX2 frame pipeline** changes the saved request; rebuild the game.
+The 2026-10-02 builds were experimental and off by default. The 2.0 default
+is described above. **Preferences > Picture > Advanced > Renderer** changes
+the saved request; rebuild the game.
 The request
 survives save/reopen; `getFramePipeline()` reports the requested setting, even
 when the current display mode takes a synchronous compatibility path. This

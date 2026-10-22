@@ -18437,7 +18437,7 @@ static const char* const kPrefCatSub[] = {
     "The space the game happens in.", "Textures, shadows and lighting.",
     "What a build carries while you make the game."};
 static const PrefIndexEntry kPrefIndex[] = {
-    {"TyraX2 frame pipeline", "Picture", "Picture", "framePipeline", true, "frame overlap latency"},
+    {"Renderer", "Picture", "Picture", "framePipeline", true, "tyrax2 legacy frame pipeline overlap latency"},
     {"Dynamic light receivers", "Graphics", "", "dynamicLightReceivers", false, "players vehicle lighting"},
     {"Reflect a baked background", "Graphics", "", "reflectionPanorama", true, "panorama probe"},
     {"Bake static lamps into scenery", "Graphics", "", "bakeStaticLamps", false, "lighting"},
@@ -19534,15 +19534,22 @@ void App::drawPreferencesWindow() {
         }
     }
     prefRow("Triple buffering");
-    ui::Switch("TyraX2 frame pipeline", &prefSettings_.framePipeline);
-    prefHelp("Prepare the next frame while the GPU executes the previous one.\n"
-             "Uses about 2.25 MB of extra EE RAM and adds one queued frame\n"
-             "of input latency. Field rendering, temporal upscaling and\n"
-             "unlimited triple buffering use synchronous compatibility.\n"
-             "Memory overflow splits a frame.\n"
-             "Enabled by default for new projects. Measure your game's\n"
-             "frame pacing and input response when choosing this setting.");
-    prefRow("TyraX2 frame pipeline");
+    {
+        // TyraX2 is the renderer; Legacy (the 1.x synchronous frame) stays
+        // reachable for a game that measured better on it.
+        static const char* const kRenderers[] = {"TyraX2", "Legacy"};
+        int renderer = prefSettings_.framePipeline ? 0 : 1;
+        if (ui::SegmentedRow("Renderer", kRenderers, 2, &renderer))
+            prefSettings_.framePipeline = renderer == 0;
+    }
+    prefHelp("TYRAX2 prepares the next frame while the GPU executes the\n"
+             "previous one (the TyraX2 frame pipeline). It uses about 2.25 MB\n"
+             "of extra EE RAM and adds one queued frame of input latency.\n"
+             "Field rendering, temporal upscaling and unlimited triple\n"
+             "buffering fall back to a synchronous frame on their own.\n"
+             "LEGACY is the 1.x renderer: every frame drawn and shown in\n"
+             "turn. Keep it only if your game measured better on it.");
+    prefRow("Renderer");
     ui::Switch("Disable VSync", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"

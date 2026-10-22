@@ -6365,10 +6365,10 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
 
 static void readSettingsSection(const json::Value& root, Project& out) {
     out.settings = ProjectSettings{};
-    // Pre-integration branches reused v95 for unrelated additive features.
-    // Only an explicit request can opt an existing manifest into TyraX2;
-    // create() retains the new-project default and current writers emit it.
-    out.settings.framePipeline = false;
+    // TyraX2 is THE renderer since 2.0: a manifest that never chose (every
+    // 1.x project) gets it too. Only an explicit "framePipeline": false keeps
+    // the Legacy path (Preferences > Picture > Advanced > Renderer).
+    out.settings.framePipeline = true;
     if (const auto* s = root.find("settings")) {
         ProjectSettings& st = out.settings;
         if (const auto* v = s->find("videoSystem")) {
@@ -6404,7 +6404,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
         if (const auto* v = s->find("framePipeline"))
-            st.framePipeline = v->boolOr(false);
+            st.framePipeline = v->boolOr(true);
         if (const auto* v = s->find("dynamicLightReceivers"))
             st.dynamicLightReceivers = v->stringOr("") == "players"
                                           ? DynamicLightReceivers::Players

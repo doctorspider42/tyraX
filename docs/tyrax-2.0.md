@@ -19,9 +19,9 @@ collision backend, and Scene Preferences retains its per-level override.
 
 The editor identifies itself as **2.0.0** and writes project format **114**.
 The format combines optional fields from branches that independently used the
-same version stamps. An explicit pipeline boolean is preserved. A missing one
-means off, preventing an existing mainline or UI project from silently changing
-its rendering path. New projects request the pipeline. No destructive migration
+same version stamps. TyraX2 is the default renderer: a project that never chose - a missing
+`framePipeline` - gets it, and an explicit `false` is shown and kept as
+*Renderer: Legacy*. No destructive migration
 is needed; [format versioning](format-versioning.md) explains the gates.
 
 This branch prepares a release candidate. It does not create a release tag or

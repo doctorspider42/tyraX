@@ -9,7 +9,7 @@ history.
 
 ### TyraX2 and mainline integration
 
-- The redesigned editor and the TyraX2 frame pipeline now ship together, including ordered frame submission, reflection and shadow improvements, and the accompanying qualification tools. New projects request the pipeline; existing manifests without an explicit request retain ordinary submission.
+- The redesigned editor and the TyraX2 frame pipeline now ship together, including ordered frame submission, reflection and shadow improvements, and the accompanying qualification tools. **TyraX2 is the default renderer** for every project, 1.x projects included; the old synchronous renderer stays as *Preferences > Picture > Advanced > Renderer: Legacy*.
 - Collision queries share mainline's grid or octree broad phase, including per-scene overrides and refreshed bounds for streamed models, scripts and spinners. Camera sweeps retain TyraX2's cached narrow phase while using the shared candidate query.
 - Project format 114 combines the additive fields from all integration branches; explicit pipeline settings, Outliner visibility and collision choices survive saving and reopening.
 - This is the 2.0 integration candidate. Cross-platform and release qualification still listed in the backlog remains outstanding.
