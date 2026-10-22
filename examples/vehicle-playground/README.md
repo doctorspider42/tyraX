@@ -48,8 +48,9 @@ Ravager's flow graph, a *Repair Vehicle* node).
 The current seated start is the primary [TyraX2 hardware control](../../docs/tyrax2.md).
 `tools/tyrax2-fixture.py` makes isolated day/night copies with host polling off,
 including separate public-runtime `pipeline-check` and `pipeline-timing` arms.
-Enable **Project > Preferences > Display > TyraX2 frame pipeline** and rebuild
-to try ordered single-chain rendering with EE/GPU overlap (off by default;
+Use **Project > Preferences > Picture > Advanced > TyraX2 frame pipeline**
+to choose ordered single-chain rendering with EE/GPU overlap (this example
+requests it; new projects enable it, while missing legacy requests stay off;
 about 2.25 MiB EE RAM and one queued frame of latency). Keep the authored
 camera, video mode and quality when comparing frame times. The runtime record
 separates the first final day hardware result from pending day/night repeats.
@@ -156,3 +157,7 @@ and baked-lamp fields when compiling the live generated grouping function.
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+The TyraX 2.0 native build and PCSX2 software-renderer smoke check passed
+seated startup, R2 acceleration, left-stick steering and L2 braking without
+warnings or assertions. See the [integration record](../../docs/tyrax-2.0.md#showcase-and-motor-district-smoke-checks-2026-10-22).

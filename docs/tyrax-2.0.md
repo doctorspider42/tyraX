@@ -56,3 +56,32 @@ after releasing the stick again differ by 0 pixels.
 These checks qualify this integration on macOS. Windows/Linux builds, physical
 PS2 integration and installer/update qualification remain release work in the
 [backlog](backlog.md).
+
+## Showcase and Motor District smoke checks (2026-10-22)
+
+Both examples were copied to short `/tmp` paths and built natively from the
+2.0 branch. The authored debug profile, progressive display and enabled
+TyraX2 request were retained. Each ran separately in PCSX2 2.8.2 with the
+software renderer and an isolated emulator configuration.
+
+- **Showcase:** booted through the arrival film, then accepted right-stick look
+  and left-stick walking. GS captures at frames 753 and 987 show the changed
+  viewpoint; the debugger reached frame 1929 without a halt or crash report.
+  The log reports a one-frame DynamicMesh warning and repeated music-ring
+  starvation warnings (1–5 per five-second reporting window). Audio quality
+  is not qualified by this smoke check; the underruns remain open.
+- **Vehicle playground:** booted seated in the Ravager. A fresh seated run
+  used R2 to accelerate, the left stick to steer and L2 to brake. Telemetry
+  moved from `(-119, 0)` to `(-51, 9)`, reached `spd10 215`, changed heading
+  from 89 to 69 degrees and returned to `spd10 0`. A frame capture and
+  debugger heartbeat confirm the run continued. No warnings, assertion block
+  or crash report appeared in this run.
+
+The first vehicle input probe used Cross (nitrous) and Square (exit), rather
+than the example's R2/L2 bindings. It confirmed exit but did not prove driving;
+the fresh seated run above supplies the driving evidence. These are functional
+emulator checks, not physical-console performance or audio-quality claims.
+
+![Showcase after the arrival film](img/tyrax-2.0-showcase.png)
+
+![Motor District after acceleration, steering and braking](img/tyrax-2.0-vehicle.png)

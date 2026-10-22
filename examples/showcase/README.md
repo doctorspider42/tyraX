@@ -14,8 +14,9 @@ Open `showcase.tyra` in TyraX, or build and launch it:
 build/tyrax-editor.exe --build examples/showcase --run
 ```
 
-On Linux use `build/tyrax-editor` with the same arguments. Docker and a
-configured PCSX2 installation are required for the game build and launch.
+On Linux and macOS use `build/tyrax-editor` with the same arguments. Native
+PS2DEV is the default build backend; Docker is optional. A configured PCSX2
+installation is required to launch the game.
 
 ## Explore
 
@@ -359,3 +360,7 @@ Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dy
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+The TyraX 2.0 native build and PCSX2 software-renderer smoke check passed
+boot, the arrival film and pad-driven movement. Music-ring starvation warnings
+remain open; see the [integration record](../../docs/tyrax-2.0.md#showcase-and-motor-district-smoke-checks-2026-10-22).
