@@ -1410,29 +1410,107 @@ void TerrainGame::renderScene() {
                    drift <= REFLECTION_REUSE_BUDGET;
     }
   }
-  if (!ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 && skyDome.bag &&
-      (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
-      !splitPassActive) {
+  // Terrain streaming: one update per FRAME (the split's second pass reuses
+  // it) with player 2's avatar as a second focus while active - each player
+  // keeps the terrain around them resident even when the pair walks apart.
+  // It runs BEFORE the reflection capture so the capture knows whether this
+  // frame already paid for a chunk build (terrainBuiltThisFrame).
+  if (!splitSecondPass) {
+    terrainBuiltThisFrame = 0;
+    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+    // A streamed map builds up to two missing chunks a frame. A resident one
+    // only ever rebuilds for a LOD band change, and two of those in one frame
+    // were the heaviest frames of the Motor District drive: one a frame
+    // halved its late frames on a PS2 (docs/terrain.md).
+    updateTerrainChunks(terrainFocusX, terrainFocusZ,
+                        p2Focus ? players[1].x : 0.0F,
+                        p2Focus ? players[1].z : 0.0F, p2Focus,
+                        terrainWholeMapResident() ? 1 : 2);
+  }
+  // Amortised capture (docs/reflective-materials.md): with a second env
+  // target the capture is split over THREE frames into the BACK target - the
+  // sky, then the terrain, then roads, objects and scenery, all from the pose
+  // the first phase recorded - and swapped in when complete. No frame pays
+  // more than a third of the capture (measured on a PS2, the sky and the
+  // terrain were each ~1.6 ms of one capture and the rest ~1.7), and a frame
+  // that just built a terrain chunk lets its phase wait a frame so the two
+  // costs never stack. One target: every phase runs in this frame, exactly
+  // the old capture.
+  static int envPhase = 0;
+  static Vec4 envPhaseEye;
+  static V3 envPhaseDir = {0.0F, 0.0F, 1.0F};
+  static float envPhaseNearest = 1.0F;
+  static unsigned int envPhaseColorKey = 0u, envPhaseContentKey = 0u;
+  const bool envSplit = engine->renderer.core.envMap.isDoubleBuffered();
+  const bool envWanted = !ENV_PROBE_REFLECTED && g_dynamicEnvUsers > 0 &&
+      skyDome.bag && (refreshEnvMap || !sharedEnvBasisValid) && !envReuseOk &&
+      !splitPassActive;
+  constexpr int kEnvPhases = 3;
+  // Background work runs in the frames that have room for it. The EE time the
+  // PREVIOUS frame spent (loop period minus the renderer's present stalls) is
+  // the cheap predictor: heavy views come in runs, so a frame after a heavy
+  // one is likely heavy too. Such a frame lets its probe phase wait - at most
+  // kEnvMaxDefer frames in a row, so the image keeps refreshing - and a 128-px
+  // reflection a frame or two older is invisible. On a PS2 the late frames of
+  // the heavy night spot came in a run of ~15 at one place on the road, and a
+  // probe phase (~1.1-1.7 ms) in that run was what pushed frames past the
+  // field (docs/reflective-materials.md, "Amortised capture").
+  static u32 envBudgetTicks = 0, envBudgetStall = 0, envDeferred = 0;
+  static float envLastWorkMs = 0.0F;
+  {
+    const u32 now = ilObservationTicks();
+    const u32 stall = engine->renderer.core.getStallTotal();
+    if (envBudgetTicks != 0) {
+      const u32 period = now - envBudgetTicks, stalled = stall - envBudgetStall;
+      envLastWorkMs = period > stalled ? (float)(period - stalled) / 294912.0F : 0.0F;
+    }
+    envBudgetTicks = now;
+    envBudgetStall = stall;
+  }
+  constexpr float kEnvHeavyMs = 14.0F;
+  constexpr u32 kEnvMaxDefer = 4;
+  const bool envDefer = envSplit && envLastWorkMs > kEnvHeavyMs &&
+                        envDeferred < kEnvMaxDefer;
+  if (envSplit ? !terrainBuiltThisFrame && !splitPassActive && !envDefer &&
+                     (envPhase != 0 || envWanted)
+               : envWanted) {
+    envDeferred = 0;
     const u32 costSharedEnvStart = costStart();
     auto& core = engine->renderer.core;
-    const Vec4 probeEye = cameraPosition;
-    const V3 probeDir = lvl;
+    const bool envFirst = !envSplit || envPhase == 0;
+    const bool envLast = !envSplit || envPhase == kEnvPhases - 1;
+    // What this phase draws: everything with one target, else one share.
+    const bool envDoSky = !envSplit || envPhase == 0;
+    const bool envDoTerrain = !envSplit || envPhase == 1;
+    const bool envDoRest = envLast;  // roads, reflected objects, scenery
+    if (envFirst) {
+      envPhaseEye = cameraPosition;
+      envPhaseDir = lvl;
+      envPhaseNearest = envNearest;
+      envPhaseColorKey = envColorKey;
+      envPhaseContentKey = envContentKey;
+    }
+    const Vec4 probeEye = envPhaseEye;
+    const V3 probeDir = envPhaseDir;
 
-    skyMat.identity();
-    skyMat.data[12] = probeEye.x;
-    skyMat.data[13] = probeEye.y;
-    skyMat.data[14] = probeEye.z;
     Vec4 envLook(probeEye.x + probeDir.x, probeEye.y + probeDir.y,
                  probeEye.z + probeDir.z, 1.0F);
     core.envMap.begin(Color(scriptCtx.skyColor.r, scriptCtx.skyColor.g,
-                            scriptCtx.skyColor.b, 128.0F));
+                            scriptCtx.skyColor.b, 128.0F),
+                      envFirst, envSplit);
     core.renderer3D.pushEnvView(probeEye, envLook, 110.0F,
                                 (float)Tyra::RendererCoreEnvMap::size);
-    const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
-    skyDome.infoBag->zTestType = PipelineZTest_AllPass;
-    renderWorldBag(skyDome.bag.get());
-    renderSkyBodies(probeEye, envLook);
-    skyDome.infoBag->zTestType = prevZTest;
+    if (envDoSky) {
+      skyMat.identity();
+      skyMat.data[12] = probeEye.x;
+      skyMat.data[13] = probeEye.y;
+      skyMat.data[14] = probeEye.z;
+      const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      skyDome.infoBag->zTestType = PipelineZTest_AllPass;
+      renderWorldBag(skyDome.bag.get());
+      renderSkyBodies(probeEye, envLook);
+      skyDome.infoBag->zTestType = prevZTest;
+    }
     // The world under the car matters more to paint than another distant prop.
     // Draw only resident terrain and reserved road chunks here: no new
     // geometry, pair search, or unrelated procedural/prefab bags - and, with
@@ -1441,15 +1519,19 @@ void TerrainGame::renderScene() {
     // turned (a turn captures every second frame), and a chunk 100 units away
     // is a few pixels at the horizon of this 128-pixel target.
     g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
-    renderTerrain();
-    renderRoadChunks();
+    if (envDoTerrain) renderTerrain();
+    if (envDoRest) renderRoadChunks();
     g_groundDrawRadius = 0.0F;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
-    for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
+    for (int ri = 0; envDoRest && ri < (int)runtimeObjects.size(); ++ri) {
       RuntimeObject& ro = runtimeObjects[ri];
       if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+      // A batched member is drawn by its (reflected) batch below - and must
+      // not reach rebuildObjectGeometry here, which would eat the dirty flag
+      // renderStaticBatches demotes it on.
+      if (ri < (int)objectBatchOf.size() && objectBatchOf[ri] != -1) continue;
       // Skip the object the PROBE stands at: it would swamp the whole
       // map - typically the very reflective surface being inspected, whose
       // own dark self-reflection reads as ugly patches up close. In
@@ -1475,22 +1557,37 @@ void TerrainGame::renderScene() {
         for (GeoPart& part : objectGeometry[ri].parts)
           if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
     }
+    if (envDoRest) {
+      // The reflected static batches, whole. The per-object self-skip above
+      // becomes: a probe eye inside the batch's box draws it not at all.
+      for (StaticBatch& b : staticBatches) {
+        if (!b.reflected || !b.bag || b.bag->count == 0) continue;
+        if (probeEye.x >= b.aabbMin[0] && probeEye.x <= b.aabbMax[0] &&
+            probeEye.y >= b.aabbMin[1] && probeEye.y <= b.aabbMax[1] &&
+            probeEye.z >= b.aabbMin[2] && probeEye.z <= b.aabbMax[2])
+          continue;
+        renderWorldBag(b.bag.get());
+      }
+    }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
+    envPhase = envSplit && !envLast ? envPhase + 1 : 0;
+    if (envLast) {
+    if (envSplit) core.envMap.swap();  // the finished back target goes live
     // Store the basis that produced this exact texture, after end() has
     // completed the target update. The target's camera is level by design.
-    sharedEnvRight = {-lvl.z, 0.0F, lvl.x};
+    sharedEnvRight = {-probeDir.z, 0.0F, probeDir.x};
     sharedEnvBasisValid = true;
     // ...and, with it, everything the reuse gate above compares against. The
     // basis is what the SAMPLER needs; these are what the next frame needs to
     // decide whether this image is still the right one.
-    sharedEnvFwd = lvl;
+    sharedEnvFwd = probeDir;
     sharedEnvEyeX = probeEye.x;
     sharedEnvEyeY = probeEye.y;
     sharedEnvEyeZ = probeEye.z;
-    sharedEnvNearest = envNearest;
-    sharedEnvColorKey = envColorKey;
-    sharedEnvContentKey = envContentKey;
+    sharedEnvNearest = envPhaseNearest;
+    sharedEnvColorKey = envPhaseColorKey;
+    sharedEnvContentKey = envPhaseContentKey;
     if (daynight::active(currentScene)) {
       for (int k = 0; k < 3; ++k) {
         sharedEnvSun[k] = daynight::g_sun[k];
@@ -1500,9 +1597,12 @@ void TerrainGame::renderScene() {
       sharedEnvMoonRad = daynight::g_moonRad;
       sharedEnvMoonRoll = daynight::g_moonRoll;
     }
+    }  // envLast
     // Deliberately a standalone phase: it is the shared target render, not
     // the later per-object sampling passes nested inside Objects.
     costEnd("Reflections_shared_probe", -1, costSharedEnvStart);
+  } else if (envDefer && (envPhase != 0 || envWanted)) {
+    ++envDeferred;  // a phase that waited for a lighter frame
   }
 
   // Camera texture feed: its own VRAM target, so order only matters
@@ -1543,16 +1643,14 @@ void TerrainGame::renderScene() {
   // build cost spreads over frames), then submit the built chunks - the
   // engine drops whole out-of-frustum chunks EE-side (main-bbox classify)
   // before any packaging or clipping work happens.
-  // One streaming update per FRAME (the split's second pass reuses it) with
-  // player 2's avatar as a second focus while active - each player keeps the
-  // terrain around them resident even when the pair walks apart.
-  if (!splitSecondPass) {
-    const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
-    updateTerrainChunks(cameraLookAt.x, cameraLookAt.z,
-                        p2Focus ? players[1].x : 0.0F,
-                        p2Focus ? players[1].z : 0.0F, p2Focus, 2);
-  }
+  // (Streaming runs before the reflection capture - see there.)
+  // One submission batch around the chunks: their stamps then share packets
+  // instead of sending one each (docs/stapip-stamps.md, "Batching"). Chunk
+  // arrays are not rewritten between the chunk draws, which is what the
+  // batch scope asks of its bags.
+  stapip.core.beginSubmissionBatch();
   renderTerrain();
+  stapip.core.endSubmissionBatch();
   costEnd("Terrain",-1,costTerrainStart);
   { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving
@@ -1676,8 +1774,16 @@ void TerrainGame::renderScene() {
     // it stays in the same bucket. The reflection coordinates still update
     // continuously; only the broad Fresnel/specular modulation is stepped.
     const int paint = 0;
+#if TYRA_VU1_EXP_PAINT
+    part.envTexBag->paintVu = false;
+#endif
     if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
       part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
+#if TYRA_VU1_EXP_PAINT
+      part.envTexBag->paintVu = stapip.core.supportsPaintVu(part.envBag.get());
+      const u32 normalStamp = part.envTexBag->contentVersion
+                                  ? *part.envTexBag->contentVersion : 0;
+#endif
       Tyra::Vec4 fwdL(envFwd.x, envFwd.y, envFwd.z, 0.0F);
       // A fixed overhead-ish key light: arcade paint wants a stable hot spot,
       // not the scene's lighting model. H = normalize(L + V), V = -forward.
@@ -1704,6 +1810,12 @@ void TerrainGame::renderScene() {
                             paintKey(hL.y),   paintKey(hL.z)};
       bool paintChanged = !part.envPaintValid ||
                           part.envPaintLod != (signed char)part.shownLod;
+#if TYRA_VU1_EXP_PAINT
+      paintChanged = paintChanged ||
+          part.envPaintSource != part.envTexBag->coordinates ||
+          part.envPaintCount != part.envBag->count ||
+          part.envPaintVersion != normalStamp;
+#endif
       // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
       // hover on either side of a rounded bucket while the apparent view is
       // unchanged; waiting for a real angular move prevents alternating
@@ -1722,6 +1834,19 @@ void TerrainGame::renderScene() {
         for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
         part.envPaintLod = (signed char)part.shownLod;
         part.envPaintValid = true;
+#if TYRA_VU1_EXP_PAINT
+        part.envPaintSource = part.envTexBag->coordinates;
+        part.envPaintCount = part.envBag->count;
+        part.envPaintVersion = normalStamp;
+        part.envTexBag->paintForward = fwdL;
+        part.envTexBag->paintHalf = hL;
+        part.envPaintEeReady = false;
+      }
+      // Representation can change while the accepted camera basis stays held.
+      if (!part.envTexBag->paintVu && !part.envPaintEeReady) {
+        fwdL = part.envTexBag->paintForward;
+        hL = part.envTexBag->paintHalf;
+#endif
         // The tier the bags currently point at - applyGeoLod re-aims
         // envColorBag at part.envColors (tier 0) or at a tier's own array.
         BagArray<Tyra::Color>& dstArr =
@@ -1740,7 +1865,14 @@ void TerrainGame::renderScene() {
         // result is identical to the per-vertex loop it replaces. The loop
         // ran ~1.4 ms of EE on the CC96 every frame the camera turned
         // (physical PS2, 2026-09-23). The map is built once per normal array.
-        if (part.paintMapSrc != nrm || part.paintMapCount != n) {
+        if (part.paintMapSrc != nrm || part.paintMapCount != n
+#if TYRA_VU1_EXP_PAINT
+            || part.paintMapVersion != normalStamp
+#endif
+        ) {
+#if TYRA_VU1_EXP_PAINT
+          part.paintMapVersion = normalStamp;
+#endif
           part.paintMapSrc = nrm;
           part.paintMapCount = n;
           part.paintNormals.clear();
@@ -1808,6 +1940,9 @@ void TerrainGame::renderScene() {
           const unsigned short* map = part.paintMap.data();
           for (u32 k = 0; k < n; ++k) dst[k] = paintColors[map[k]];
         }
+#if TYRA_VU1_EXP_PAINT
+        part.envPaintEeReady = true;
+#endif
       }
     }
     renderObjectBag(objectIndex, part.envBag.get());
@@ -1967,9 +2102,29 @@ void TerrainGame::renderScene() {
                                 : runtimeObjects[i].data.meshLod;
       int tier = 0;
       if (lodDist > 0.0F) {
-        const float dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
-        const float dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
-        const float dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        // Measured to the nearest point of the object's world box, not to its
+        // origin. A 34-unit promenade is 15 units from its own centre while
+        // the camera stands ON it, so the centre distance put the far tier
+        // under the player's feet - and a decimated flat slab keeps almost
+        // none of the vertices its baked light lives on, so the whole floor
+        // changed brightness two steps later (docs/model-pipeline.md, "LOD
+        // distance is measured to the box"). A matrix-path body's box is in
+        // its own space; it keeps the origin distance.
+        const ObjectGeometry& lg = objectGeometry[i];
+        float dx, dy, dz;
+        if (lg.coarseBoxValid && !lg.matrixMode) {
+          const Vec4& lo = lg.coarseBox.vertices[0];
+          const Vec4& hi = lg.coarseBox.vertices[7];
+          const float cx = cameraPosition.x, cy = cameraPosition.y,
+                      cz = cameraPosition.z;
+          dx = cx < lo.x ? lo.x - cx : (cx > hi.x ? cx - hi.x : 0.0F);
+          dy = cy < lo.y ? lo.y - cy : (cy > hi.y ? cy - hi.y : 0.0F);
+          dz = cz < lo.z ? lo.z - cz : (cz > hi.z ? cz - hi.z : 0.0F);
+        } else {
+          dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+          dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+          dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        }
         const float d2 = dx * dx + dy * dy + dz * dz;
         const float m2 = lodDist * lodDist;
         tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);
@@ -2137,6 +2292,9 @@ void TerrainGame::renderScene() {
   // now in the frame, so they go after all the opaque geometry and before
   // everything that composites on top of it. One submit per merged group; no
   // per-caster work of any kind (docs/shadows.md).
+  // Baked from the SUN, so - like the ground maps in renderTerrain - only
+  // while the sun is up when the day cycle runs.
+  if (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F)
   { const u32 ct=costStart(); renderShadowDecals(); costEnd("Shadow_decals",-1,ct); }
   // Mirrors after the whole scene (including the skinned avatars their
   // copies re-use): reflected copies first, glass quads blended over them
@@ -2957,6 +3115,10 @@ void TerrainGame::renderObjectProbe(int index) {
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
     RuntimeObject& ro = runtimeObjects[ri];
     if (!ro.active || !ro.visible || !ro.data.reflected) continue;
+    // A batched member is drawn by its (reflected) batch below - and must
+    // not reach rebuildObjectGeometry here, which would eat the dirty flag
+    // renderStaticBatches demotes it on.
+    if (ri < (int)objectBatchOf.size() && objectBatchOf[ri] != -1) continue;
     if (ri == index) continue;  // never the mirror-er itself
     // proximity self-skip against the probe eye (see the classic pass)
     {
@@ -2976,6 +3138,16 @@ void TerrainGame::renderObjectProbe(int index) {
     else
       for (GeoPart& part : objectGeometry[ri].parts)
         if (part.bag && !part.lodHidden) renderObjectBag(ri, part.bag.get());
+  }
+  // The reflected static batches, whole. The per-object self-skip above
+  // becomes: a probe eye inside the batch's box draws it not at all.
+  for (StaticBatch& b : staticBatches) {
+    if (!b.reflected || !b.bag || b.bag->count == 0) continue;
+    if (probeEye.x >= b.aabbMin[0] && probeEye.x <= b.aabbMax[0] &&
+        probeEye.y >= b.aabbMin[1] && probeEye.y <= b.aabbMax[1] &&
+        probeEye.z >= b.aabbMin[2] && probeEye.z <= b.aabbMax[2])
+      continue;
+    renderWorldBag(b.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
@@ -3293,6 +3465,13 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // Same projection as the screen, only the view swaps to the virtual
   // camera - the destination lands exactly where the opening is.
   core.renderer3D.pushPortalView(eye, at);
+  // Cull this view against the OPENING, not the whole screen: the same
+  // projection puts the destination exactly behind the carved rectangle, so
+  // anything the virtual camera sees outside it is scissored away by the GS
+  // after VU1 has already transformed it. A margin covers the rounding of the
+  // carved bounds; popEnvView restores the full planes.
+  core.renderer3D.narrowFrustumToRect(bx0 - 16, by0 - 16, bx1 + 16, by1 + 16,
+                                      fbW, fbH);
   if (p.showTerrain) {
     if (skyDome.bag) {
       // dome parked on the VIRTUAL eye; the main pass re-centers it after
@@ -4716,6 +4895,8 @@ void TerrainGame::resetTerrainChunks() {
       releaseTexture(c.gsTexPath);
       c.gsTexPath.clear();
     }
+  for (const std::string& path : groundShadowPins) releaseTexture(path);
+  groundShadowPins.clear();
   // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
   // what makes renderTerrain and the streaming pass no-ops: every loop over
   // them runs zero times.
@@ -4747,7 +4928,49 @@ void TerrainGame::resetTerrainChunks() {
 
   terrainChunks.clear();
   terrainChunks.resize(pool);  // sized once per scene - slots stay put
+  terrainShadeCache.clear();
   terrainChunkSlot.assign(total, -1);
+  prepareGroundShadowTextures();
+}
+
+
+
+// A small scene's masks stay decoded in EE RAM. Chunk references remain
+// independent; VRAM residency is still managed by the normal texture cache.
+void TerrainGame::prepareGroundShadowTextures() {
+#ifdef GROUND_SHADOWS_ON
+  constexpr unsigned budget = 512 * 1024;
+  if (!SCENE_GROUND || !layerInfoBag ||
+      SCENE_GROUND_CHUNKS_X != terrainChunksX ||
+      SCENE_GROUND_PRELOAD_BYTES[g_activeScene] > budget) return;
+  unsigned retained = 0;
+  for (int cz = 0; cz < terrainChunksZ; ++cz)
+    for (int cx = 0; cx < terrainChunksX; ++cx) {
+      const unsigned short* rows = SCENE_GROUND +
+          (cz * terrainChunksX + cx) * TERRAIN_CHUNK_CELLS;
+      bool any = false;
+      for (int r = 0; r < TERRAIN_CHUNK_CELLS; ++r) any = any || rows[r];
+      if (!any) continue;
+      const std::string path = "gshadow/s" + std::to_string(g_activeScene) +
+          "_" + std::to_string(cx) + "_" + std::to_string(cz) + ".png";
+      Texture* tex = acquireTexture(path);
+      // Generated masks are Indexed4, 64/128 square. Unexpected replacement
+      // assets fall back to ordinary chunk ownership, never an unbounded pin.
+      const bool expected = tex && tex->core->bpp == Tyra::bpp4 &&
+          (tex->getWidth() == 64 || tex->getWidth() == 128) &&
+          tex->getHeight() == tex->getWidth();
+      const unsigned bytes = expected
+          ? unsigned(tex->getWidth() * tex->getHeight() / 2 + 64 + 1024) : budget + 1;
+      if (bytes > budget - retained) {
+        releaseTexture(path);
+        for (const std::string& pin : groundShadowPins) releaseTexture(pin);
+        groundShadowPins.clear();
+        return;
+      }
+      groundShadowPins.push_back(path);
+      retained += bytes;
+    }
+#endif
 }
 
 
@@ -4793,6 +5016,7 @@ int TerrainGame::terrainLodStep(int cx, int cz) const {
 // streamed in later is pixel-identical to one built at scene load.
 void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   TerrainChunk& ch = terrainChunks[slot];
+  ++terrainBuiltThisFrame;
   if (ch.cx >= 0)  // recycling: unmap the chunk this slot held
     terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
   ch.cx = cx;
@@ -4920,6 +5144,27 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (s.z > 1.0F) s.z = 1.0F;
     return s;
   };
+  // The shade is a function of the heightfield node alone: normal, probes,
+  // point lights, emissive pools, tint noise - all static for the scene. A
+  // whole-map-resident terrain therefore computes each node once and every
+  // later build (a LOD band change, a texture landing) only reads it back.
+  // Rebuilding a chunk used to redo all of it, 1.3-5.7 ms of EE per chunk on
+  // the PS2. Shared edge nodes see the same emitters from either chunk (the
+  // local emitter list is collected over a sphere that contains them), so the
+  // value cached by one chunk is the one its neighbour would compute.
+  const bool shadeCached = terrainWholeMapResident();
+  if (shadeCached && terrainShadeCache.size() != (size_t)HM_W * HM_D * 4)
+    terrainShadeCache.assign((size_t)HM_W * HM_D * 4, -1.0F);
+  auto shadeAtC = [&](int ix, int iz) -> V3 {
+    if (!shadeCached || ix < 0 || iz < 0 || ix >= HM_W || iz >= HM_D)
+      return shadeAt(ix, iz);
+    float* c = &terrainShadeCache[((size_t)iz * HM_W + ix) * 4];
+    if (c[3] < 0.0F) {
+      const V3 s = shadeAt(ix, iz);
+      c[0] = s.x, c[1] = s.y, c[2] = s.z, c[3] = 1.0F;
+    }
+    return V3{c[0], c[1], c[2]};
+  };
 
   // No material: two greens in a checker pattern. With a material, the Kd
   // tint colors every cell uniformly - textured terrain modulates the map
@@ -5016,12 +5261,107 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   };
   auto shadeAtE = [&](int ix, int iz) -> V3 {
     const EdgeMix m = edgeMix(ix, iz);
-    if (!m.snap) return shadeAt(ix, iz);
-    const V3 sa = m.alongZ ? shadeAt(ix, m.a) : shadeAt(m.a, iz);
-    const V3 sb = m.alongZ ? shadeAt(ix, m.b) : shadeAt(m.b, iz);
+    if (!m.snap) return shadeAtC(ix, iz);
+    const V3 sa = m.alongZ ? shadeAtC(ix, m.a) : shadeAtC(m.a, iz);
+    const V3 sb = m.alongZ ? shadeAtC(ix, m.b) : shadeAtC(m.b, iz);
     return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
               sa.z + (sb.z - sa.z) * m.t};
   };
+  // Ground shadows folded into the vertex colour (docs/shadows.md, "Folded
+  // into the vertex colour"): with GROUND_SHADOW_FOLD the sun's shadow does not
+  // get its own pass over the shaded cells - each terrain node takes the mean
+  // of the chunk masks over the half cell around it, and that share of its
+  // shade drops to the ambient-only level. The masks stay the source; only the
+  // representation changes, at one sample per node instead of 4-8 per cell.
+  // Applied AFTER the shade cache (which stays sun-independent), so a sunset
+  // only re-colours chunks (groundShadowFoldWanted / the stale check in
+  // updateTerrainChunks) instead of re-shading the map.
+  const bool foldOn = groundShadowFoldWanted(currentScene);
+#ifdef GROUND_SHADOWS_ON
+  // The chunk masks the fold samples: acquired on first use and held for the
+  // scene (the game already pins them all on a small map).
+  static std::vector<Texture*> foldTex;
+  static std::vector<std::string> foldTexPath;
+  static unsigned int foldTexGeneration = ~0u;
+  if (foldTexGeneration != sceneGeneration) {
+    foldTexGeneration = sceneGeneration;
+    for (const std::string& pth : foldTexPath)
+      if (!pth.empty()) releaseTexture(pth);
+    foldTex.clear();
+    foldTexPath.clear();
+  }
+  auto groundShadowFoldAt = [&](int nx, int nz) -> float {
+    if (!SCENE_GROUND) return 0.0F;
+    const int C = TERRAIN_CHUNK_CELLS;
+    const int chunksX = SCENE_GROUND_CHUNKS_X;
+    const int chunksZ = terrainChunksZ;
+    float sum = 0.0F;
+    // The four cells around the node, each read over its quadrant that touches
+    // the node: together a box of one cell centred on it.
+    for (int q = 0; q < 4; ++q) {
+      const int gx = nx - 1 + (q & 1), gz = nz - 1 + (q >> 1);
+      if (gx < 0 || gz < 0) continue;
+      const int ccx = gx / C, ccz = gz / C;
+      if (ccx >= chunksX || ccz >= chunksZ) continue;
+      const int lx = gx - ccx * C, lz = gz - ccz * C;
+      const unsigned short row = SCENE_GROUND[(ccz * chunksX + ccx) * C + lz];
+      if (!(row & (1U << lx))) continue;
+      const size_t ci = (size_t)(ccz * chunksX + ccx);
+      if (foldTex.size() < (size_t)chunksX * chunksZ) {
+        foldTex.assign((size_t)chunksX * chunksZ, nullptr);
+        foldTexPath.assign((size_t)chunksX * chunksZ, std::string());
+      }
+      if (!foldTex[ci] && foldTexPath[ci].empty()) {
+        foldTexPath[ci] = "gshadow/s" + std::to_string(g_activeScene) + "_" +
+                          std::to_string(ccx) + "_" + std::to_string(ccz) + ".png";
+        foldTex[ci] = acquireTexture(foldTexPath[ci]);
+      }
+      Texture* t = foldTex[ci];
+      if (!t || t->core->bpp != Tyra::bpp4) continue;
+      const int g = t->getWidth();
+      const int per = g / C;  // texels per cell side
+      if (per < 2) continue;
+      // The quadrant of cell (lx, lz) nearest the node.
+      const int x0 = lx * per + ((q & 1) ? 0 : per / 2);
+      const int z0 = lz * per + ((q >> 1) ? 0 : per / 2);
+      const unsigned char* px = t->core->data;
+      unsigned int acc = 0, n = 0;
+      for (int z = z0; z < z0 + per / 2; ++z)
+        for (int x = x0; x < x0 + per / 2; ++x) {
+          const unsigned char b = px[(z * g + x) >> 1];
+          acc += (x & 1) ? (b >> 4) : (b & 15U);  // PSMT4: low nibble first
+          ++n;
+        }
+      if (n) sum += (float)acc / (15.0F * (float)n);
+    }
+    return sum * 0.25F;
+  };
+#else
+  auto groundShadowFoldAt = [](int, int) -> float { return 0.0F; };
+#endif
+  auto shadeAtF = [&](int ix, int iz) -> V3 {
+    if (!foldOn) return shadeAtE(ix, iz);
+    const float amb = SCENE_BRIGHTNESS * SCENE_AMBIENT;
+    auto folded = [&](int nx, int nz) -> V3 {
+      V3 s = shadeAtC(nx, nz);
+      const float a = groundShadowFoldAt(nx, nz);
+      if (a > 0.0F) {
+        s.x += ((s.x < amb ? s.x : amb) - s.x) * a;
+        s.y += ((s.y < amb ? s.y : amb) - s.y) * a;
+        s.z += ((s.z < amb ? s.z : amb) - s.z) * a;
+      }
+      return s;
+    };
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return folded(ix, iz);
+    const V3 sa = m.alongZ ? folded(ix, m.a) : folded(m.a, iz);
+    const V3 sb = m.alongZ ? folded(ix, m.b) : folded(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  if (g_terrainFoldState.size() < terrainChunks.size())
+    g_terrainFoldState.resize(terrainChunks.size(), 0);
+  g_terrainFoldState[(size_t)slot] = (signed char)(foldOn ? 1 : 0);
   // Quads this chunk really emits - the reserve has to follow the stride or a
   // distant chunk asks for sixteen times the memory it fills.
   const int quadsX = (gx1 - gx0 + lod - 1) / lod;
@@ -5085,6 +5425,29 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.colors.reserve(reserveN);
     lp.sts.reserve(reserveN);
   }
+  // Per-layer constants, hoisted out of the vertex loops: the tint scaled for
+  // modulate, the tiling and the whole-repeat UV rebase are properties of the
+  // LAYER and the CHUNK, not of a vertex. They used to be re-derived per
+  // vertex - two software floorf calls and a three-level table walk per
+  // vertex per layer - which made vertex emission ~1.6 ms of a 2.4 ms chunk
+  // rebuild on a physical PS2 (docs/terrain.md, "A map that fits").
+  struct LayerConst {
+    float tint[3], tu, tv, offU, offV;
+  };
+  LayerConst layerConst[TERRAIN_MAX_LAYERS > 0 ? TERRAIN_MAX_LAYERS : 1];
+  for (int a = 0; a < activeN; ++a) {
+    const int l = activeLayers[a];
+    const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
+    const float lk = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0 ? 128.0F : 255.0F;
+    LayerConst& c = layerConst[a];
+    c.tint[0] = tint[0] * lk;
+    c.tint[1] = tint[1] * lk;
+    c.tint[2] = tint[2] * lk;
+    c.tu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
+    c.tv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+    c.offU = floorf(chunkMidX * c.tu + 0.5F);
+    c.offV = floorf(chunkMidZ * c.tv + 0.5F);
+  }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
     if (iz < 0) iz = 0;
@@ -5141,7 +5504,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     auto emitAt = [&](int ix, int iz) {
       const float wx = startX + ix * stepX;
       const float wz = startZ + iz * stepZ;
-      const V3 s = shadeAtE(ix, iz);
+      const V3 s = shadeAtF(ix, iz);
       ch.vertices.push_back(Vec4(wx, hAtE(ix, iz), wz, 1.0F));
       ch.colors.push_back(
           Color(baseA[0] * s.x, baseA[1] * s.y, baseA[2] * s.z, 128.0F));
@@ -5152,19 +5515,12 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       if (terrainMapLit) ch.emisCols.push_back(ec);
       for (int a = 0; a < activeN; ++a) {
         TerrainChunk::LayerPass& lp = ch.layerPasses[a];
-        const int l = lp.layer;
-        const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
-        const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
-        const float lk = ltex ? 128.0F : 255.0F;
-        const float w = splatAt(ix, iz, l);
-        lp.colors.push_back(Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                                  tint[2] * lk * s.z, w * 128.0F));
+        const LayerConst& c = layerConst[a];
+        const float w = splatAt(ix, iz, lp.layer);
+        lp.colors.push_back(Color(c.tint[0] * s.x, c.tint[1] * s.y,
+                                  c.tint[2] * s.z, w * 128.0F));
         // The same whole-repeat rebase, at this layer's own tiling.
-        const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-        const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
-        lp.sts.push_back(Vec4(wx * ltu - floorf(chunkMidX * ltu + 0.5F),
-                              wz * ltv - floorf(chunkMidZ * ltv + 0.5F),
-                              1.0F, 0.0F));
+        lp.sts.push_back(Vec4(wx * c.tu - c.offU, wz * c.tv - c.offV, 1.0F, 0.0F));
       }
     };
     // A run that fills MID-STRIP carries the two-vertex overlap into the next
@@ -5224,8 +5580,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
 
         const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
         const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
-        const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
-        const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
+        const V3 s00 = shadeAtF(x, z), s10 = shadeAtF(xN, z);
+        const V3 s01 = shadeAtF(x, zN), s11 = shadeAtF(xN, zN);
         auto shaded = [&](const V3& s) {
           return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
         };
@@ -5272,14 +5628,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         for (int a = 0; a < activeN; ++a) {
           TerrainChunk::LayerPass& lp = ch.layerPasses[a];
           const int l = lp.layer;
-          const float* tint = TERRAIN_LAYER_TINTS[g_activeScene][l];
-          const bool ltex = TERRAIN_LAYER_TEXTURES[g_activeScene][l] >= 0;
-          const float lk = ltex ? 128.0F : 255.0F;
-          const float ltu = TERRAIN_LAYER_TILE_US[g_activeScene][l];
-          const float ltv = TERRAIN_LAYER_TILE_VS[g_activeScene][l];
+          const LayerConst& c = layerConst[a];
+          const float ltu = c.tu, ltv = c.tv;
           auto lcol = [&](const V3& s, float w) {
-            return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
-                         tint[2] * lk * s.z, w * 128.0F);
+            return Color(c.tint[0] * s.x, c.tint[1] * s.y, c.tint[2] * s.z,
+                         w * 128.0F);
           };
           // Sampled at the quad's own corners: a painted layer's weight is a
           // blend factor, so a coarse chunk reading coarse weights loses detail
@@ -5294,8 +5647,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           lp.colors.push_back(lcol(s10, w10));
           lp.colors.push_back(lcol(s11, w11));
           lp.colors.push_back(lcol(s01, w01));
-          const float lOffU = floorf(chunkMidX * ltu + 0.5F);
-          const float lOffV = floorf(chunkMidZ * ltv + 0.5F);
+          const float lOffU = c.offU, lOffV = c.offV;
           auto lst = [&](float wx, float wz) {
             lp.sts.push_back(Vec4(wx * ltu - lOffU, wz * ltv - lOffV, 1.0F, 0.0F));
           };
@@ -5330,6 +5682,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.colorBag = std::make_unique<StaPipColorBag>();
     ch.bag = std::make_unique<StaPipBag>();
     ch.bag->info = infoBag.get();
+    ch.bag->refineStrips = true;
     ch.bag->lighting = nullptr;
   }
   ch.colors.bind(ch.colorBag);
@@ -5357,6 +5710,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       lp.bag->lighting = nullptr;
     }
     lp.bag->info = layerInfoBag.get();
+    lp.bag->refineStrips = true;
     lp.colors.bind(lp.colorBag);
     lp.bag->color = lp.colorBag.get();
     ch.vertices.bind(lp.bag);
@@ -5385,6 +5739,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.aoBag->lighting = nullptr;
     }
     ch.aoBag->info = layerInfoBag.get();
+    ch.aoBag->refineStrips = true;
     ch.aoCols.bind(ch.aoColorBag);
     ch.aoBag->color = ch.aoColorBag.get();
     ch.vertices.bind(ch.aoBag);
@@ -5407,6 +5762,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.emisBag->lighting = nullptr;
     }
     ch.emisBag->info = lightAddInfoBag.get();
+    ch.emisBag->refineStrips = true;
     ch.emisCols.bind(ch.emisColorBag);
     ch.emisBag->color = ch.emisColorBag.get();
     ch.vertices.bind(ch.emisBag);
@@ -5453,7 +5809,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     }
     ch.gsVerts.clear();
     ch.gsSts.clear();
-    if (ch.gsTexBag.texture && gsRows) {
+    // Folded into the vertex colours above: no pass of its own.
+    if (ch.gsTexBag.texture && gsRows && !foldOn) {
       const float ox = startX + (float)gx0 * stepX;
       const float oz = startZ + (float)gz0 * stepZ;
       const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
@@ -5493,6 +5850,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         ch.gsBag->lighting = nullptr;
       }
       ch.gsBag->info = layerInfoBag.get();
+      ch.gsBag->refineStrips = true;
       ch.gsCols.bind(ch.gsColorBag);
       ch.gsBag->color = ch.gsColorBag.get();
       ch.gsVerts.bind(ch.gsBag);
@@ -5529,8 +5887,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // rasterises - degenerate joins and padding included - so it is not
   // comparable with a list build's size / 3 (docs/model-pipeline.md, "What
   // the triangle counters count"). This number must be identical in both arms
-  // of an A/B or the arms are not drawing the same ground.
-  {
+  // of an A/B or the arms are not drawing the same ground. Once per slot: a
+  // LOD rebuild while driving would pay a walk over every vertex for a log
+  // line nobody reads at that point.
+  if (!ch.stripLogged) {
+    ch.stripLogged = true;
     int tris = 0;
     if (!strips) {
       tris = (int)(ch.vertices.size() / 3);
@@ -5577,6 +5938,15 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
 
 
 
+// True when the slot pool holds every chunk of the map (see
+// updateTerrainChunks): the map is then built whole and never streamed.
+bool TerrainGame::terrainWholeMapResident() const {
+  return TERRAIN_VIEW_DISTANCE > 0.0F &&
+         (int)terrainChunks.size() >= terrainChunksX * terrainChunksZ;
+}
+
+
+
 // Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
 // builds into). loadScene uses this as the loading-bar denominator and to
 // drive the batched terrain drain to completion.
@@ -5589,7 +5959,7 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
   const float startX = -TERRAIN_WIDTH * 0.5F;
   const float startZ = -TERRAIN_DEPTH * 0.5F;
   int cx0 = 0, cz0 = 0, cx1 = terrainChunksX - 1, cz1 = terrainChunksZ - 1;
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+  if (TERRAIN_VIEW_DISTANCE > 0.0F && !terrainWholeMapResident()) {
     auto clampX = [&](int v) {
       return v < 0 ? 0 : (v > terrainChunksX - 1 ? terrainChunksX - 1 : v);
     };
@@ -5656,6 +6026,26 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   addRect(focusX, focusZ);
   if (twoFoci) addRect(focus2X, focus2Z);
 
+  // A map whose every chunk fits the slot pool is not streamed: it is built
+  // whole (behind the loading screen) and never evicted. The ring used to
+  // throw out the chunks behind the player and rebuild them on the way back,
+  // 2.6-5.7 ms of EE apiece on the PS2, for memory the pool had reserved
+  // anyway. The view rects then only cull what renderTerrain draws.
+  terrainDrawRectCount = rectCount;
+  for (int r = 0; r < rectCount; ++r) {
+    terrainDrawRect[r][0] = rects[r].cx0;
+    terrainDrawRect[r][1] = rects[r].cz0;
+    terrainDrawRect[r][2] = rects[r].cx1;
+    terrainDrawRect[r][3] = rects[r].cz1;
+  }
+  const bool wholeMap = terrainWholeMapResident();
+  if (wholeMap)
+    for (int r = 0; r < rectCount; ++r) {
+      rects[r].cx0 = rects[r].cz0 = 0;
+      rects[r].cx1 = terrainChunksX - 1;
+      rects[r].cz1 = terrainChunksZ - 1;
+    }
+
   // The LOD bands' own foci, SNAPPED to half a chunk. Detail is a step
   // function, so its input may as well be one: without the snap the field
   // changes on every centimetre of walking and a chunk sitting on a band
@@ -5673,7 +6063,7 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     }
   }
 
-  if (TERRAIN_VIEW_DISTANCE > 0.0F) {
+  if (TERRAIN_VIEW_DISTANCE > 0.0F && !wholeMap) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       bool keep = false;
@@ -5721,6 +6111,21 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     --budget;
   }
 
+  // Chunks built with the ground shadows folded in for the other side of a
+  // sunrise/sunset (docs/shadows.md, "Folded into the vertex colour"): rebuilt
+  // in place, within the same budget, the old one drawn until then.
+#ifdef GROUND_SHADOWS_ON
+  if (g_groundShadowFold) {
+    const signed char want = groundShadowFoldWanted(currentScene) ? 1 : 0;
+    for (int s = 0; budget > 0 && s < (int)terrainChunks.size(); ++s) {
+      if (terrainChunks[s].cx < 0 || s >= (int)g_terrainFoldState.size() ||
+          g_terrainFoldState[(size_t)s] == want)
+        continue;
+      buildTerrainChunk(s, terrainChunks[s].cx, terrainChunks[s].cz);
+      --budget;
+    }
+  }
+#endif
   // Then the resident chunks whose detail has gone stale - their own band
   // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
   // Missing chunks are built first on purpose: a hole in the ground is a worse
@@ -5839,8 +6244,18 @@ void TerrainGame::renderTerrain() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerTerrain);
 #endif
+  const bool ringCull = terrainWholeMapResident() && terrainDrawRectCount > 0;
   for (TerrainChunk& ch : terrainChunks) {
     if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    if (ringCull) {
+      bool inRing = false;
+      for (int r = 0; r < terrainDrawRectCount && !inRing; ++r)
+        inRing = ch.cx >= terrainDrawRect[r][0] &&
+                 ch.cx <= terrainDrawRect[r][2] &&
+                 ch.cz >= terrainDrawRect[r][1] &&
+                 ch.cz <= terrainDrawRect[r][3];
+      if (!inRing) continue;
+    }
     if (portalExitPlaneOn) {
       // Portal through-view dead zone: skip chunks fully on the virtual
       // camera's side of the exit plane - through a real hole that region
@@ -5907,8 +6322,15 @@ void TerrainGame::renderTerrain() {
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
     if (ch.aoBag && ch.aoBag->count > 0) renderWorldBag(ch.aoBag.get());
-    // The sun's shadow darkens the sunlit ground, not the lamps' light.
-    if (ch.gsBag && ch.gsBag->count > 0) renderWorldBag(ch.gsBag.get());
+    // The sun's shadow darkens the sunlit ground, not the lamps' light - and
+    // only while there IS a sun: with the day cycle running and the sun below
+    // the horizon (the moon owns the light, daynight::tick's handover) the
+    // baked map would darken the night ground by a sun that is not up. A full
+    // extra pass per shaded chunk, ~1.7 ms of EE on a PS2 night drive
+    // (docs/shadows.md, "Ground shadow maps").
+    if (ch.gsBag && ch.gsBag->count > 0 &&
+        (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F))
+      renderWorldBag(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
       renderWorldBag(ch.emisBag.get());
   }

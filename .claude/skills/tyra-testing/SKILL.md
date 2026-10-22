@@ -19,6 +19,45 @@ description: >
 
 # Building, running and verifying
 
+Critical-path census: docs/tyrax2-critical-path.md and
+tyrax2-critical-path-fixture.py. No offline tables/quality changes; observer
+Off/On controls are NOT optimization modes. Keep full image/pose/SDK/owner and
+capture-work gates. Nested inclusive scopes are not additive; raw hardware
+boundary states are not utilization. Correlate prior N-1 launch/presentation
+with preparation N, price observer overhead and use actual present records.
+V2 FULL emulator/PS2 PASS54 held images/3942 poses/six endpoints. Actual off
+8/7/7 vs on7/7/7 late intervals; all seven recurring sites common to controls.
+On-minus-Off contrast−0.005519/+0.002238ms. Pending N-1 linkage is checked
+against actual preceding launch/sequence, one native launch per measured loop.
+Seal with tyrax2-critical-path-report.py AFTER owned processes stop and both
+verifier/analyzer pairs rerun. Four recurrent consumer cases vs three late
+preparation cases; do not infer pure VU ALU time from VEW or nested scopes.
+
+Offline-world trials: see docs/tyrax2-offline-world.md. The offline terrain
+bootstrap enumerates all effective LOD/edge combinations in the native producer;
+its host compiler verifies every active stream after factoring base LODs and
+sparse edges. Emulator-produced floats are not automatically physical-PS2
+producer bytes: retain the native oracle and failed physical evidence. Material
+composition is an explicit quality experiment; verify-world-cell-price.py
+requires --quality-trial and a material-compose manifest with qualityEquivalent
+false. Protocol/timing success never grants visual or equivalent-output approval.
+Always launch automated emulator checks in an invisible WSL/Xvfb session.
+
+Final-VIF follow-up: docs/tyrax2-offline-vif.md. Bootstrap actual SDK geometry
+for all effective variants, factor it with tyrax2-offline-vif-compile.py, and
+use tyrax2-offline-vif-fixture.py for replay. Keep camera/material/VRAM binding
+live, validate native program/layout metadata, and preserve full-body SDK plus
+exact raster/pose/work/owner gates. No --quality-trial. The offline terrain
+stager selects BOTH pinned PS2 assets. Report both raw and final table memory;
+the On role includes both restore stages, not an isolated final-stage price.
+Final VIF V1 now FULL emulator/PS2 PASS54 exact held rasters/3942 poses/six
+endpoints and native SDK/owner gates. Net0.077975/0.043239ms BOTH orders;
+compiler boundary0.578–0.587->0.451–0.453ms, On59.278Hz/6 late intervals,
+NOT60. Tables2,818,768 bytes plus allocator/static-binding/ordinary-body costs.
+No default promotion or substantial improvement over raw-only demonstrated.
+Preserve binary header bytes when copying/hash-pinning; metadata JSON digests
+must use actual canonical UTF-8/LF output, not pre-translation text on Windows.
+
 Run tools/verify-world-input-compact.py OUT under WSL for frozen cold-format
 component optimized/ASan/UBSan checks. Host V2 passes1120 cases/eight controls,
 exact modeled VU memory at each kick and restored incoming ROW/MASK. Decoder

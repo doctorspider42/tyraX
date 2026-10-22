@@ -4,6 +4,35 @@ Architecture audit (2026-10-20): [TyraX2 architecture audit](tyrax2-architecture
 tracks every item and its PS2 result in its Goal table; the rows still marked
 "owed" there are the open work.
 
+[Critical path/VU investigation](tyrax2-critical-path.md) now FULL emulator/PS2
+PASS exact54 rasters/3942 poses/six endpoints and SDK/owner/capture-work gates.
+All seven recurrent misses appear in both observer roles: four consumer-ready
+tails16.81–17.54ms (VIF waits0.83–4.95ms, GS tail~0.208ms), three late EE arrivals
+16.72–17.69ms with effectively ready consumer. Observer contrast−0.0055/+0.0022ms;
+do not call it an optimization. Native selected VU1 set2034+6 words leaves8.
+Next distinct consumer lead: transform native-strip positions once per input
+inside VU1 before original clipping, not once per triangle corner. It requires
+existing-image consolidation, unlit admission, actual numerical/raster/lifetime
+gates and physical pricing; NOT implemented or a60 claim. Independently narrow
+EE Core/road/object and rare terrain-build preparation. VU0 has no measured
+large COP2-free arithmetic job yet. Devices powered, owned processes stopped.
+
+Offline-world experiments (2026-10-20): the terrain bootstrap/host factoring and
+private moving runtime are described in [offline world compilation](tyrax2-offline-world.md).
+All three emulator/PS2 protocols now complete with separately pinned arithmetic-
+platform inputs. Offline geometry saves only0.046–0.057ms at about1.35MB native
+capacity; composition saves0.285–0.319ms with changed appearance; combined saves
+0.343–0.376ms. None sustains every refresh. Close terrain patch fine-tuning and
+do not promote it as the main60Hz fix. Final SDK/body compilation still runs;
+the [final-VIF follow-up](tyrax2-offline-vif.md) now passes full hidden-emulator
+and physical exact-output protocols. Its compiler boundary drops0.58->0.45ms,
+but net saves only0.077975/0.043239ms and On remains59.278Hz/6 late intervals,
+at2.82MB table capacity plus allocator/ordinary-body costs. Close this private
+trial without default promotion; it does not establish a substantially larger
+gain than raw-only terrain. A production relocatable exporter remains separate. General
+materials, close-up quality, full-current-production/night/variable-dt and public
+integration remain separate work, not acceptance granted by these prototypes.
+
 Terrain-normal V1 now FULL PS2 physical-v3 PASS after human physical reset,
 no network reset: six657-row trips/54 held rasters/3942 poses/all six rebuilt
 main/env/display endpoints exact. Same-ELF both-order net saves0.050959/

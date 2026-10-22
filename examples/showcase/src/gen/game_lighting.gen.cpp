@@ -134,6 +134,31 @@ TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
     s.coneBag = std::make_unique<StaPipBag>();
     s.coneBag->info = s.coneInfo.get();
     s.coneBag->color = s.coneColorBag.get();
+    // The coronas' billboard twin (TYRA_BEAM_CORONA_VU1): the particles'
+    // contract - centres in `vertices`, one 2x2 basis weight per lamp in the
+    // texture coordinates, one colour per lamp, no EE frustum or clip work
+    // (the VU1 program drops a quad whose corner leaves the GS raster
+    // window; a corona that big is a camera inside the lamp head).
+    s.bbCenters.reserve(lightBeams.size());
+    s.bbWeights.reserve(lightBeams.size());
+    s.bbColors.reserve(lightBeams.size());
+    s.bbInfo = std::make_unique<StaPipInfoBag>();
+    s.bbInfo->model = &s.mat;
+    s.bbInfo->shadingType = TyraShadingGouraud;
+    s.bbInfo->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    s.bbInfo->fullClipChecks = false;
+    s.bbInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    s.bbInfo->additiveBlendFix = 128;
+    s.bbColorBag = std::make_unique<StaPipColorBag>();
+    s.bbTexBag = std::make_unique<StaPipTextureBag>();
+    s.bbTexBag->texture = beamCoronaTex;
+    s.bbBasis = std::make_unique<StaPipBillboardBag>();
+    s.bbBag = std::make_unique<StaPipBag>();
+    s.bbBag->info = s.bbInfo.get();
+    s.bbBag->color = s.bbColorBag.get();
+    s.bbBag->texture = s.bbTexBag.get();
+    s.bbBag->lighting = nullptr;
+    s.bbBag->billboard = s.bbBasis.get();
   }
   return *beamBatches[beamBatchCall++];
 }
@@ -435,6 +460,7 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
       grid[iz][ix] = Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
     }
   }
+  liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
   int v = 0;
   for (int iz = 0; iz < kCells; ++iz) {
     for (int ix = 0; ix < kCells; ++ix) {
@@ -618,13 +644,81 @@ void TerrainGame::updateAndRenderLightPools() {
   auto buildVolMask = [&](BagArray<Vec4>& front, BagArray<Vec4>& back,
                           StaPipBag* setBag, StaPipBag* clrBag,
                           const ProjBox* const picks[4], int n,
-                          const Vec4& vOrigin, float range) -> bool {
+                          const Vec4& vOrigin, float range,
+                          bool keepable = false) -> bool {
     front.clear();
     back.clear();
-    for (int vj = 0; vj < n; ++vj)
-      emitCasterVolume(*picks[vj], gameModels,
-                       runtimeObjects[picks[vj]->obj].data, vOrigin,
-                       cameraPosition, range, /*farCaps=*/false, front, back);
+    // KEPT VOLUMES (TYRA_SPOT_VOLUME_KEEP, docs/shadows.md "A still lamp
+    // keeps its volumes"): a scene spot's volumes are a function of the light,
+    // its range and its casters' placement - none of which moves for a street
+    // lamp over parked props - plus ONE camera dot product per triangle that
+    // picks its count list. So the world-space triangles are captured once and
+    // replayed against each frame's camera; any change to the key below (the
+    // lamp, the picks, a caster's box or transform) captures afresh. The torch
+    // moves with the eye every frame and never asks for this.
+    static std::vector<float> keepKey, keyNow;
+    static std::vector<VolTri> keepTris;
+    bool replay = false;
+    if (keepable && TYRA_SPOT_VOLUME_KEEP) {
+      keyNow.clear();
+      keyNow.push_back(vOrigin.x);
+      keyNow.push_back(vOrigin.y);
+      keyNow.push_back(vOrigin.z);
+      keyNow.push_back(range);
+      keyNow.push_back((float)n);
+      for (int vj = 0; vj < n; ++vj) {
+        const ProjBox& pb = *picks[vj];
+        const SceneObjectData& cd = runtimeObjects[pb.obj].data;
+        const float* pf = &pb.o[0];
+        for (int k = 0; k < 15; ++k) keyNow.push_back(pf[k]);
+        keyNow.push_back((float)pb.obj);
+        keyNow.push_back((float)pb.type);
+        for (int k = 0; k < 3; ++k) keyNow.push_back(cd.position[k]);
+        for (int k = 0; k < 3; ++k) keyNow.push_back(cd.scale[k]);
+        keyNow.push_back((float)cd.model);
+      }
+      replay = keyNow == keepKey;
+      if (!replay) {
+        keepTris.clear();
+        g_volCapture = &keepTris;
+        for (int vj = 0; vj < n; ++vj)
+          emitCasterVolume(*picks[vj], gameModels,
+                           runtimeObjects[picks[vj]->obj].data, vOrigin,
+                           cameraPosition, range, /*farCaps=*/false, front, back);
+        g_volCapture = nullptr;
+        keepKey = keyNow;
+      }
+      classifyVolTris(keepTris, cameraPosition, front, back);
+#if TYRA_SPOT_VOLUME_KEEP_VERIFY
+      // THE ORACLE: the emitters again, and both lists compared to the byte.
+      {
+        static BagArray<Vec4> f0, b0;
+        f0.clear();
+        b0.clear();
+        for (int vj = 0; vj < n; ++vj)
+          emitCasterVolume(*picks[vj], gameModels,
+                           runtimeObjects[picks[vj]->obj].data, vOrigin,
+                           cameraPosition, range, /*farCaps=*/false, f0, b0);
+        static u32 vChecked = 0, vBad = 0;
+        ++vChecked;
+        if (f0.size() != front.size() || b0.size() != back.size() ||
+            (front.size() &&
+             memcmp(f0.data(), front.data(), front.size() * sizeof(Vec4)) != 0) ||
+            (back.size() &&
+             memcmp(b0.data(), back.data(), back.size() * sizeof(Vec4)) != 0))
+          ++vBad;
+        if (vChecked % 300 == 0)
+          printf("SPOTVOLKEEP checked %u MISMATCH %u replay %d tris %d\n",
+                 (unsigned)vChecked, (unsigned)vBad, replay ? 1 : 0,
+                 (int)keepTris.size());
+      }
+#endif
+    } else {
+      for (int vj = 0; vj < n; ++vj)
+        emitCasterVolume(*picks[vj], gameModels,
+                         runtimeObjects[picks[vj]->obj].data, vOrigin,
+                         cameraPosition, range, /*farCaps=*/false, front, back);
+    }
     if (front.empty() && back.empty()) return false;
     // The counting bracket is SCISSORED to the volumes' screen bbox - a
     // full-raster clear plus a full-raster resolve every frame measurably
@@ -1979,7 +2073,7 @@ void TerrainGame::updateAndRenderLightPools() {
           spotVol = buildVolMask(volBags->volFront, volBags->volBack,
                                  volBags->volSetBag.get(),
                                  volBags->volClrBag.get(), picks, nPick,
-                                 lightAt, d.lightRadius);
+                                 lightAt, d.lightRadius, /*keepable=*/true);
       }
     } else {
       patchChanged =
@@ -2488,7 +2582,18 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
+    // What the blob lies on: the terrain and the roads, or the top of a solid
+    // object below the caster - the same receivers the projected patch takes
+    // (projCollectReceivers). Terrain alone was all this used to ask, so in a
+    // scene built from model floors (Showcase has no terrain) the ground came
+    // back as the void, every caster stood miles above it and the fade hid
+    // the blob on its first frame (docs/shadows.md, "A blob on a model floor").
+    float blobReach = shapeHx > shapeHz ? shapeHx : shapeHz;
+    if (r > blobReach) blobReach = r;
+    blobReach += 0.5F;
+    projCollectReceivers(cx, cz, blobReach, d.position[1] - halfY + 0.35F);
+    const bool onObjects = !g_projRecv.empty();
+    const float ground = projSurfaceAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
@@ -2522,7 +2627,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, (onObjects ? projSurfaceAt(x, z) : groundSurfaceAt(x, z)) + lift,
+                  z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -2538,6 +2644,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
+    // The road-step lift measures each corner against the TERRAIN under it;
+    // over an object's top that "step" is the object's height, and the lift
+    // would drag the neighbouring ground corners up to it.
+    if (!onObjects) liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {
@@ -2565,6 +2675,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
 // nearest `slots` of them render each frame.
 void TerrainGame::setupProjShadows() {
   projShadows.clear();
+  Tyra::Vif1Queue::drain();  // no reader may still hold a cached clamp copy
+  projClampCache.clear();
   projCasters.clear();
   if (!PROJ_SHADOWS_USED) return;
   // The per-object mode overrides the flag both ways: 3 casts a silhouette
@@ -2958,6 +3070,7 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
               PipelineInfoBagFrustumCulling_Precise;
           batchNoSpotInfoBag->fullClipChecks = true;
           batchNoSpotInfoBag->spotLit = false;
+          batchNoSpotInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
         }
         sb->bag->info = batchNoSpotInfoBag.get();
       }
@@ -3004,6 +3117,7 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
             batchSkipInfoBag->frustumCulling =
                 PipelineInfoBagFrustumCulling_Precise;
             batchSkipInfoBag->fullClipChecks = true;
+            batchSkipInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
           }
           // One spot carves per frame, so one bag serves every lone batch.
           batchSkipInfoBag->dynLightSkipSlot = slot;
@@ -3591,7 +3705,6 @@ void TerrainGame::renderProjShadows() {
     // its underground part, a mesh's underground part flattens to a sliver
     // at floor level. Read the bag's own pointer, not part.vertices - a LOD
     // tier re-aims it.
-    static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
       bool below = false;
@@ -3605,17 +3718,36 @@ void TerrainGame::renderProjShadows() {
         renderWorldBag(bag);
         return;
       }
-      // One shared buffer for every part of every caster, handed to the
-      // pipeline by REFERENCE: the previous part's DMA may still be reading it
-      // when the next part overwrites it (assign() may even reallocate under
-      // the transfer). Only the shadow-slot brackets fence this; between two
-      // parts of one caster nothing does, so wait for the readers first -
-      // ALL of them: with the engine's VIF1 queue a plain channel wait can
-      // return while chains are still queued (vif1_queue.hpp).
-      Tyra::Vif1Queue::drain();
-      projClamp.assign(bag->vertices, bag->vertices + bag->count);
-      for (Vec4& v : projClamp)
-        if (v.y < gy0) v.y = gy0;
+      // ONE CLAMPED COPY PER CASTER BAG, kept between frames. It used to be
+      // one buffer shared by every part of every caster, so rewriting it for
+      // the next part needed every reader gone: Vif1Queue::drain() - with the
+      // VIF1 queue and the frame pipeline that is the whole frame so far. On
+      // Showcase (a patrolling 1 000-triangle caster) that drain was ~20 ms of
+      // a 34 ms frame on a physical PS2 (docs/shadows.md, "The clamp buffer
+      // is per caster"). A bag draws its copy once per frame, and nothing
+      // from the previous frame still reads it when the next one rewrites it
+      // (the pipelined frame snapshots mutable REF payloads into its bank at
+      // submit; without the pipeline the frame ends on a GS finish), so the
+      // copy is rewritten in place with no wait. Only a size change - which
+      // reallocates - still drains. A still caster also keeps its bytes and
+      // its bbox stamp, so its baked stream is not re-built every frame.
+      ProjClampEntry& ce = projClampCache[bag];
+      const u32 content = bag->contentVersion ? *bag->contentVersion : 0U;
+      if (ce.src != bag->vertices || ce.count != bag->count ||
+          ce.bbox != bag->bboxVersion || ce.content != content ||
+          ce.floorY != gy0 || ce.arr.empty()) {
+        if (ce.arr.size() != bag->count) Tyra::Vif1Queue::drain();
+        ce.arr.assign(bag->vertices, bag->vertices + bag->count);
+        for (Vec4& v : ce.arr)
+          if (v.y < gy0) v.y = gy0;
+        ce.src = bag->vertices;
+        ce.count = bag->count;
+        ce.bbox = bag->bboxVersion;
+        ce.content = content;
+        ce.floorY = gy0;
+        ce.stamp = ++g_bboxStamp;
+      }
+      BagArray<Vec4>& projClamp = ce.arr;
       Vec4* const keepVerts = bag->vertices;
       const u32 keepStamp = bag->bboxVersion;
       // The bag is aimed at the shared clamp buffer for ONE render and put
@@ -3628,7 +3760,7 @@ void TerrainGame::renderProjShadows() {
       const unsigned int* const keepContent = bag->contentVersion;
       projClamp.bind(bag);
       bag->count = static_cast<u32>(projClamp.size());
-      bag->bboxVersion = ++g_bboxStamp;
+      bag->bboxVersion = ce.stamp;
       renderWorldBag(bag);
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
@@ -4112,11 +4244,16 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
   const bool keep = TYRA_BEAMS_KEEP != 0;
   static std::vector<Vec4> kCoronaV, kCoronaS, kConeV;
   static std::vector<Color> kCoronaC, kConeC;
+  static std::vector<Vec4> kBbC, kBbW;  // TYRA_BEAM_CORONA_VU1 billboards
+  static std::vector<Color> kBbK;
   kCoronaV.clear();
   kCoronaS.clear();
   kCoronaC.clear();
   kConeV.clear();
   kConeC.clear();
+  kBbC.clear();
+  kBbW.clear();
+  kBbK.clear();
   if (!keep) {
     bb.coronaVerts.clear();
     bb.coronaSts.clear();
@@ -4207,6 +4344,16 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
           out = true;
       if (out) continue;
     }
+    if (TYRA_BEAM_CORONA_VU1) {
+      // One billboard per lamp: the pulled centre, a basis weight that scales
+      // the camera right/up by chalf - corner = C +/- R*chalf +/- U*chalf,
+      // the four corners the EE quad below would have built - and the colour.
+      const float kb = k > 1.0F ? 1.0F : k;
+      kBbC.push_back(Vec4(pcx, pcy, pcz, 1.0F));
+      kBbW.push_back(Vec4(chalf, 0.0F, 0.0F, chalf));
+      kBbK.push_back(Color(128.0F * d.color[0] * kb, 128.0F * d.color[1] * kb,
+                           128.0F * d.color[2] * kb, 128.0F));
+    } else {
     const Vec4 corners[4] = {
         Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
              pcz + (-rz - uz) * chalf, 1.0F),
@@ -4239,6 +4386,9 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coronaSts.push_back(cb.coronaSts[v]);
       bb.coronaColors.push_back(cc);
     }
+    }  // !TYRA_BEAM_CORONA_VU1
+    const float kk = k > 1.0F ? 1.0F : k;
+    const LightBeam& cb = b;  // read-only: no content stamp on the sources
 
     if (b.kind == 2 && b.coneBag &&
         (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
@@ -4293,6 +4443,29 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     }
   }
 
+  // The coronas as VU1 billboards: written only where a byte changed (a
+  // still camera over steady lamps rewrites nothing), the camera basis rides
+  // as a per-mesh upload. Same reserve-then-resize rule as the arrays below.
+  if (TYRA_BEAM_CORONA_VU1 && !kBbC.empty()) {
+    auto bbWrite = [](auto& arr, const auto& src) {
+      bool wrote = false;
+      if (arr.size() != src.size()) {
+        arr.resize(src.size());
+        wrote = true;
+      }
+      return bagWriteIfChanged(arr, 0, src.data(), src.size()) || wrote;
+    };
+    bbWrite(bb.bbCenters, kBbC);
+    bbWrite(bb.bbWeights, kBbW);
+    bbWrite(bb.bbColors, kBbK);
+    bb.bbCenters.bind(bb.bbBag);
+    bb.bbWeights.bind(bb.bbTexBag);
+    bb.bbColors.bind(bb.bbColorBag);
+    bb.bbBag->count = (u32)bb.bbCenters.size();
+    bb.bbBasis->right = Vec4(rx, ry, rz, 0.0F);
+    bb.bbBasis->up = Vec4(ux, uy, uz, 0.0F);
+    renderWorldBag(bb.bbBag.get());
+  }
   if (keep) {
     // Resizing stays inside the capacity beamBatchForCall reserved, so the
     // arrays never move under a stream the VIF may still be reading. A

@@ -79,6 +79,30 @@
 #ifndef TYRA_VEH_SUBSTEP_VERIFY
 #define TYRA_VEH_SUBSTEP_VERIFY 0
 #endif
+// TYRA_VEH_COLLIDER_GRID: objects the build flagged static
+// (SCENE_STATIC_COLLIDER_TABLES) are placed once into a cell grid, and a car
+// gathers only the cells around it plus the dynamic objects, instead of every
+// collider being re-derived each frame and scanned by every car
+// (docs/vehicles.md, "The static collider grid"). Same lists, same order.
+#ifndef TYRA_VEH_COLLIDER_GRID
+#define TYRA_VEH_COLLIDER_GRID 1
+#endif
+// Its oracle: the merged list and every grid gather are re-done by the full
+// walk and compared, logged as VEHCOLGRID. Never on when measuring.
+#ifndef TYRA_VEH_COLLIDER_GRID_VERIFY
+#define TYRA_VEH_COLLIDER_GRID_VERIFY 0
+#endif
+// TYRA_SPOT_VOLUME_KEEP: the carving scene spot's shadow-volume triangles are
+// captured once and replayed against each frame's camera while the lamp and
+// its casters stay put (docs/shadows.md, "A still lamp keeps its volumes").
+#ifndef TYRA_SPOT_VOLUME_KEEP
+#define TYRA_SPOT_VOLUME_KEEP 1
+#endif
+// Its oracle: the emitters re-run and both count lists compared, logged as
+// SPOTVOLKEEP. Never on when measuring.
+#ifndef TYRA_SPOT_VOLUME_KEEP_VERIFY
+#define TYRA_SPOT_VOLUME_KEEP_VERIFY 0
+#endif
 #ifndef TYRA_VEH_PAINT_DISTANCE_STEP
 #define TYRA_VEH_PAINT_DISTANCE_STEP 1
 #endif
@@ -90,6 +114,18 @@
 #endif
 #ifndef TYRA_BEAMS_KEEP
 #define TYRA_BEAMS_KEEP 1
+#endif
+// TYRA_BEAM_CORONA_VU1: the lamp coronas as one VU1 billboard bag (centre +
+// basis weight + colour a lamp, the particles' program) instead of EE-built
+// camera-facing quads (docs/flashlight.md, "Coronas on VU1").
+#ifndef TYRA_BEAM_CORONA_VU1
+#define TYRA_BEAM_CORONA_VU1 0  // opt-in until priced on a PS2
+#endif
+// TYRA_VEH_POOL_PLANE: a car's headlight pool takes its heights from the
+// plane of its four wheel contacts instead of 16 ground searches a rebuild
+// (docs/vehicles.md, "Headlight pools").
+#ifndef TYRA_VEH_POOL_PLANE
+#define TYRA_VEH_POOL_PLANE 0  // opt-in until priced on a PS2
 #endif
 
 // Definition of the active-scene index declared in scene_data.hpp (which also
@@ -314,6 +350,143 @@ inline bool assetFileExists(const std::string& cwdRel) {
   if (f) fclose(f);
   return f != nullptr;
 }
+
+// Ground shadows folded into the terrain's vertex colour (docs/shadows.md,
+// "Folded into the vertex colour"). GROUND_SHADOW_FOLD comes from the
+// project (bakedShadowGroundFold); the variable lets a test flip it before a
+// scene (re)builds its chunks. Only while the sun is up - the same gate the
+// mask pass has - and a chunk remembers which way it was built
+// (g_terrainFoldState, per slot) so a sunset re-colours it.
+#ifndef GROUND_SHADOW_FOLD
+#define GROUND_SHADOW_FOLD 0
+#endif
+inline bool g_groundShadowFold = GROUND_SHADOW_FOLD != 0;
+inline std::vector<signed char> g_terrainFoldState;
+inline bool groundShadowFoldWanted(int scene) {
+#ifdef GROUND_SHADOWS_ON
+  return g_groundShadowFold &&
+         (!daynight::active(scene) || daynight::g_sun[1] >= 0.0F);
+#else
+  (void)scene;
+  return false;
+#endif
+}
+
+#ifdef REFL_PANO_ON
+#include <malloc.h>
+// The reflection probe's baked background (docs/reflective-materials.md, "The
+// baked background"; host half: src/reflpano.cpp). One file per scene,
+// reflpano/s<scene>.bin, read once on the scene's first capture: per 16-unit
+// road cell a 128x32 8-bit panorama (azimuth x elevation) of what the probe
+// would draw of the STATIC world from the cell's centre, run-length coded and
+// expanded only when the eye enters the cell, and one palette for the scene. The capture code in renderScene draws it as one camera-facing
+// card instead of the terrain and road chunks and the baked box proxies.
+namespace reflpano_rt {
+struct File {
+  int scene = -1;
+  unsigned char* data = nullptr;
+  int w = 0, h = 0, cellsX = 0, cellsZ = 0, slots = 0, boxes = 0;
+  float minX = 0.0F, minZ = 0.0F, cell = 16.0F, elTop = 64.0F, elBottom = -90.0F;
+  const short* slot = nullptr;
+  const int* boxObject = nullptr;
+  const unsigned char* palette = nullptr;  // 256 x RGBA, logical order
+  const unsigned int* offsets = nullptr;   // slots + 1, into runs
+  const unsigned char* runs = nullptr;     // (count, index) pairs per slot
+  size_t runBytes = 0;
+};
+inline File g_file;
+
+// One cell's w x h indices out of its runs; false = a damaged stream.
+inline bool expand(int slot, unsigned char* dst) {
+  const File& f = g_file;
+  const unsigned int a = f.offsets[slot], b = f.offsets[slot + 1];
+  if (a > b || b > f.runBytes || ((b - a) & 1U)) return false;
+  const size_t total = (size_t)f.w * f.h;
+  size_t at = 0;
+  for (unsigned int i = a; i < b; i += 2) {
+    const size_t n = f.runs[i];
+    if (at + n > total) return false;
+    memset(dst + at, f.runs[i + 1], n);
+    at += n;
+  }
+  return at == total;
+}
+
+// The panorama of the cell (x, z) is in, -1 = none (off the baked roads).
+inline int slotAt(float x, float z) {
+  const File& f = g_file;
+  if (!f.data) return -1;
+  const int cx = (int)floorf((x - f.minX) / f.cell);
+  const int cz = (int)floorf((z - f.minZ) / f.cell);
+  if (cx < 0 || cz < 0 || cx >= f.cellsX || cz >= f.cellsZ) return -1;
+  return f.slot[cz * f.cellsX + cx];
+}
+
+// Is authored object `ri` one the panorama stands in for?
+inline bool baked(int ri) {
+  for (int i = 0; i < g_file.boxes; ++i)
+    if (g_file.boxObject[i] == ri) return true;
+  return false;
+}
+
+// Reads the scene's file once; false = no panorama (the live path draws).
+inline bool load(int scene) {
+  if (g_file.scene == scene) return g_file.data != nullptr;
+  free(g_file.data);
+  g_file = File();
+  g_file.scene = scene;
+  if (scene < 0 || scene >= SCENE_COUNT || !REFL_PANO_SCENES[scene]) return false;
+  char path[32];
+  snprintf(path, sizeof(path), "reflpano/s%d.bin", scene);
+  FILE* fp = fopen(FileUtils::fromCwd(path).c_str(), "rb");
+  if (!fp) return false;
+  fseek(fp, 0, SEEK_END);
+  const long n = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  unsigned char* d = n >= 48 ? static_cast<unsigned char*>(memalign(64, (size_t)n)) : nullptr;
+  const bool ok = d && fread(d, 1, (size_t)n, fp) == (size_t)n;
+  fclose(fp);
+  if (!ok || memcmp(d, "RPAN", 4) != 0) {
+    free(d);
+    TYRA_WARN("Reflection panorama: ", path, " is missing or not readable.");
+    return false;
+  }
+  auto u16 = [&](int at) { unsigned short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto s16 = [&](int at) { short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto f32 = [&](int at) { float v; memcpy(&v, d + at, 4); return v; };
+  File& f = g_file;
+  f.w = u16(8), f.h = u16(10), f.cellsX = u16(12), f.cellsZ = u16(14);
+  f.minX = f32(16), f.minZ = f32(20), f.cell = f32(24);
+  f.slots = u16(32), f.boxes = u16(34);
+  f.elTop = s16(36) / 10.0F, f.elBottom = s16(38) / 10.0F;
+  size_t at = 48;
+  f.slot = reinterpret_cast<const short*>(d + at);
+  at += (size_t)f.cellsX * f.cellsZ * 2;
+  at = (at + 15) & ~(size_t)15;
+  f.boxObject = reinterpret_cast<const int*>(d + at);
+  at += (size_t)f.boxes * 4;
+  at = (at + 15) & ~(size_t)15;
+  f.palette = d + at;
+  at += 256 * 4;
+  f.offsets = reinterpret_cast<const unsigned int*>(d + at);
+  at += ((size_t)f.slots + 1) * 4;
+  f.runs = d + at;
+  f.runBytes = at <= (size_t)n ? (size_t)n - at : 0;
+  unsigned int version;
+  memcpy(&version, d + 4, 4);
+  if (version != 2 || f.w != 128 || f.h != 32 || at > (size_t)n ||
+      f.offsets[f.slots] != f.runBytes) {
+    free(d);
+    f = File();
+    f.scene = scene;
+    TYRA_WARN("Reflection panorama: ", path, " does not match this game.");
+    return false;
+  }
+  f.data = d;
+  return true;
+}
+}  // namespace reflpano_rt
+#endif
 
 /** Per-object rendering cut-off (Properties > Draw distance) measured from
  * the object center - the cheapest LOD. Draw-time only: collision, sounds
@@ -593,17 +766,112 @@ struct DynLightRt {
   // The engine slot this light took this frame (-1 = not registered: off,
   // hidden, dark) - what a receiver names to be skipped by the slot pick.
   int slot = -1;
+  // BAKED STATIC LAMP (BAKE_STATIC_LAMPS, docs/dynamic-light-receivers.md "Baked lamp
+  // light"): a lamp that never moves and never flickers. Its light is folded
+  // into the vertex colours of the static geometry whenever its on/level
+  // state changes (the day/night switch), so static bags skip it in the
+  // per-bag pick; moving receivers still pick it live.
+  bool baked = false;
 };
 inline std::vector<DynLightRt> g_dynLights;
+
+/** The baked lamps' light as static geometry carries it right now: one entry
+ * per baked lamp that is lit, in the exact constants the VU1 spot program
+ * uses (StaPipQBufferRenderer::buildSpotForBagInverse, world space - static
+ * geometry has an identity model), so a baked vertex receives what the live
+ * slot gave it. Rebuilt by updateDynLights when the lamps' state changes,
+ * which then raises g_lampRebake for TerrainGame::rebakeLampLight. */
+struct BakedLampRt {
+  V3 pos, dir;
+  float col[3];  // 128 = +1.0, as the registry's colour
+  float range, invRange2, cosCut2, invSoft;
+};
+inline std::vector<BakedLampRt> g_bakedLamps;
+inline std::vector<BakedLampRt> g_bakedLampsPrev;  // what geometry had before
+inline unsigned int g_bakedLampSig = 0;
+inline bool g_lampRebake = false;
+// Staged around world-space bakes of static geometry (objects, LOD tiers,
+// static batches): pushVert then adds g_bakedLamps on top of the finished
+// vertex colour, exactly where the VU1 spot term would have landed.
+inline bool g_lampBakeHere = false;
+
+/** The static collider grid (docs/vehicles.md, "The static collider grid"):
+ * which runtime objects the vehicle code placed in its static half (1 =
+ * placed once, guarded by flags only), and whether one of them was rebuilt
+ * since the vehicle step last looked - rebuildObjectGeometry raises it, so a
+ * dirty flag consumed after the step still re-places the static half. Empty
+ * in a project without vehicles. */
+inline std::vector<unsigned char> g_colStaticObj;
+inline bool g_colStaticRebuilt = false;
+
+inline void bakedLampAdd(const V3& wp, float& r, float& g, float& b) {
+  for (const BakedLampRt& L : g_bakedLamps) {
+    const float dx = wp.x - L.pos.x, dy = wp.y - L.pos.y, dz = wp.z - L.pos.z;
+    const float dist2 = dx * dx + dy * dy + dz * dz;
+    float t = dx * L.dir.x + dy * L.dir.y + dz * L.dir.z;
+    if (t < 0.0F) t = 0.0F;
+    float cone = (t * t - L.cosCut2 * dist2) * L.invSoft;
+    if (cone <= 0.0F) continue;
+    if (cone > 1.0F) cone = 1.0F;
+    const float axial = 1.0F - dist2 * L.invRange2;
+    if (axial <= 0.0F) continue;
+    const float k = cone * axial;
+    r += L.col[0] * k;
+    g += L.col[1] * k;
+    b += L.col[2] * k;
+  }
+}
 inline float g_dynLightTime = 0.0F;
 // The starfield's own clock. It cannot borrow g_dynLightTime: that one only
 // advances while the scene HAS dynamic lights, so a night sky over an unlit
 // scene would freeze mid-shimmer.
 inline float g_starTime = 0.0F;
 
+/** One baked lamp's entry at multiplier `level` (Set Light intensity times
+ * nothing else - a baked lamp never flickers), in the registry's units. */
+inline void bakedLampPush(const SceneObjectData& d, float level) {
+  const float k = d.lightBright * level;
+  if (k <= 0.0F) return;
+  BakedLampRt b;
+  b.pos = {d.position[0], d.position[1], d.position[2]};
+  for (int c = 0; c < 3; ++c) {
+    const float v = d.color[c] * 128.0F * k;
+    b.col[c] = v > 255.0F ? 255.0F : v;
+  }
+  b.range = d.lightRadius > 0.01F ? d.lightRadius : 0.01F;
+  const float r2 = b.range * b.range;
+  b.invRange2 = 1.0F / r2;
+  if (d.lightSpot) {
+    V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+    const float len = sqrtf(sd.x * sd.x + sd.y * sd.y + sd.z * sd.z);
+    if (len > 1e-5F) sd = {sd.x / len, sd.y / len, sd.z / len};
+    b.dir = sd;
+    const float c = cosf(d.lightSpotAngle * 3.14159265F / 180.0F);
+    b.cosCut2 = c * c;
+    // buildSpotForBagInverse: full brightness at 0.18 of the range on the
+    // axis, softness 1.6 as updateDynLights registers it.
+    const float coneBase = r2 * 0.18F * 0.18F * (1.0F - b.cosCut2);
+    b.invSoft = coneBase > 1e-10F ? 1.6F / coneBase : 0.0F;
+  } else {
+    b.dir = {0.0F, 0.0F, 0.0F};
+    b.cosCut2 = -1.0F;
+    b.invSoft = 1.0e4F / r2;
+  }
+  g_bakedLamps.push_back(b);
+}
+
+inline unsigned int bakedLampSigStep(unsigned int h, unsigned int v) {
+  return (h ^ v) * 16777619u;
+}
+
 inline void collectScenePointLights() {
   g_scenePointLights.clear();
   g_dynLights.clear();
+  g_bakedLamps.clear();
+  g_bakedLampsPrev.clear();
+  g_lampRebake = false;
+  unsigned int sig = 2166136261u;
+  const unsigned char* staticTable = SCENE_STATIC_COLLIDER_TABLES[g_activeScene];
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
@@ -611,6 +879,26 @@ inline void collectScenePointLights() {
       if ((int)g_dynLights.size() < (int)Tyra::RendererCore::DYN_LIGHTS_MAX) {
         DynLightRt d;
         d.objIndex = i;
+        // Baked: the project asks for it, the lamp never flickers, nothing
+        // the build can see moves or retargets it (the static-object table),
+        // and it does not carve shadow volumes (that machinery owns its
+        // receivers' light per frame).
+        const bool carves = L.lightSpot &&
+            (L.lightShadowVolumes == 2 ||
+             (L.lightShadowVolumes == 0 && SPOT_SHADOW_VOLUMES));
+        d.baked = BAKE_STATIC_LAMPS && L.lightFlicker <= 0.0F &&
+                  staticTable[i] != 0 && !carves;
+        // The state the scene's geometry is about to be built with: a baked
+        // lamp starts on at full intensity, like every dynamic light.
+        // (A baked lamp is never on a streaming layer: the static table
+        // already refuses layered objects.)
+        if (d.baked) {
+          bakedLampPush(L, 1.0F);
+          unsigned int lv;
+          const float one = 1.0F;
+          memcpy(&lv, &one, 4);
+          sig = bakedLampSigStep(bakedLampSigStep(sig, (unsigned)g_dynLights.size()), lv);
+        }
         g_dynLights.push_back(d);
       }
       continue;  // never baked - the engine lights it live
@@ -624,6 +912,7 @@ inline void collectScenePointLights() {
     b.bright = L.lightBright;
     g_scenePointLights.push_back(b);
   }
+  g_bakedLampSig = sig;
 }
 
 /** Applies Set Light requests and registers this frame's dynamic point
@@ -677,11 +966,39 @@ inline void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
           Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
           d.lightRadius > 0.01F ? d.lightRadius : 0.01F, d.lightSpotAngle,
           1.6F);
+      if (L.baked) core.markDynLightBaked(L.slot);
     } else {
-      core.addDynPointLight(
+      const int slot = core.addDynPointLight(
           Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
           Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
           d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+      if (L.baked) core.markDynLightBaked(slot);
+    }
+    // (A baked lamp stays registered - the cars, the player and every other
+    // moving receiver still pick it per vertex - but static bags, whose
+    // vertex colours already carry it, skip it: dynLightSkipBaked.)
+  }
+  // The baked lamps' state, as the static geometry must carry it. Any change
+  // (the day/night switch, a Set Light on one of them) re-derives the set and
+  // asks the game to re-bake what it lights (TerrainGame::rebakeLampLight).
+  if (BAKE_STATIC_LAMPS) {
+    unsigned int sig = 2166136261u;
+    for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      const DynLightRt& L = g_dynLights[li];
+      if (!L.baked || L.lastLevel <= 0.0F) continue;
+      unsigned int lv;
+      memcpy(&lv, &L.lastLevel, 4);
+      sig = bakedLampSigStep(bakedLampSigStep(sig, (unsigned)li), lv);
+    }
+    if (sig != g_bakedLampSig) {
+      g_bakedLampSig = sig;
+      g_bakedLampsPrev.swap(g_bakedLamps);
+      g_bakedLamps.clear();
+      for (const DynLightRt& L : g_dynLights)
+        if (L.baked && L.lastLevel > 0.0F && ctx.objects &&
+            L.objIndex < ctx.objectCount)
+          bakedLampPush(ctx.objects[L.objIndex].data, L.lastLevel);
+      g_lampRebake = true;
     }
   }
 }
@@ -1259,9 +1576,18 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
   // colors cannot wrap.
   const float scale = textured ? 128.0F : 255.0F;
   auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
-  cols.push_back(Color(c255(o.color[0] * scale * shade.x),
-                       c255(o.color[1] * scale * shade.y),
-                       c255(o.color[2] * scale * shade.z), 128.0F));
+  float cr = c255(o.color[0] * scale * shade.x);
+  float cg = c255(o.color[1] * scale * shade.y);
+  float cb = c255(o.color[2] * scale * shade.z);
+  // Baked static lamps (BAKE_STATIC_LAMPS): added to the FINISHED colour and
+  // clamped again, which is exactly what the VU1 spot slot did to it per
+  // frame - so a static receiver lit by one lamp looks as it did live. (Two
+  // lamps reaching one vertex now both land; the live slot picked one.)
+  if (g_lampBakeHere && !g_bakedLamps.empty() && !g_litNormals && !g_bakeLocal) {
+    bakedLampAdd(wp, cr, cg, cb);
+    cr = c255(cr), cg = c255(cg), cb = c255(cb);
+  }
+  cols.push_back(Color(cr, cg, cb, 128.0F));
   // staged-material path only (kdArg = a model part whose UVs the loader
   // already remapped)
   if (!kdArg && g_primUvRect)
@@ -3219,6 +3545,33 @@ inline void buildShadowMesh(
 // pushed a short way down the beam (a hand-held light's parallax), which
 // makes every shadow diverge a little and show around its caster, the way
 // the silhouette mode's wider-FOV projector does.
+// KEPT SPOT VOLUMES (docs/shadows.md, "A still lamp keeps its volumes"): a
+// volume triangle in world space with its outward normal and centroid - the
+// only part of a shadow volume that depends on the CAMERA is which of the two
+// count lists (front / back) each triangle goes to, and that is one dot
+// product. While g_volCapture is set, the emitters below record the triangle
+// here instead of classifying it; classifyVolTris then replays the capture
+// against any camera, triangle for triangle and in the same order, which is
+// exactly what the emitter would have produced for that camera.
+struct VolTri {
+  Vec4 a, b, c;
+  float n[3], ctr[3];
+};
+inline std::vector<VolTri>* g_volCapture = nullptr;
+inline void classifyVolTris(const std::vector<VolTri>& tris, const Vec4& cam,
+                            BagArray<Vec4>& outFront, BagArray<Vec4>& outBack) {
+  for (const VolTri& t : tris) {
+    const bool front = t.n[0] * (cam.x - t.ctr[0]) + t.n[1] * (cam.y - t.ctr[1]) +
+                           t.n[2] * (cam.z - t.ctr[2]) >
+                       0.0F;
+    BagArray<Vec4>& dst = front ? outFront : outBack;
+    if (dst.size() > 3996) continue;  // the emitters' fill-rate backstop
+    dst.push_back(t.a);
+    dst.push_back(t.b);
+    dst.push_back(t.c);
+  }
+}
+
 inline void emitMeshShadowVolume(const ShadowMesh& m,
                                  const SceneObjectData& cdd,
                                  const ProjBox& basis, const Vec4& vL,
@@ -3275,6 +3628,13 @@ inline void emitMeshShadowVolume(const ShadowMesh& m,
               nz * (refPt[2] - cz);
     if (refIsInterior) s = -s;
     if (s < 0.0F) nx = -nx, ny = -ny, nz = -nz;
+    if (g_volCapture) {
+      g_volCapture->push_back(VolTri{Vec4(a[0], a[1], a[2], 1.0F),
+                                     Vec4(b[0], b[1], b[2], 1.0F),
+                                     Vec4(c[0], c[1], c[2], 1.0F),
+                                     {nx, ny, nz}, {cx, cy, cz}});
+      return;
+    }
     const bool front =
         nx * (cam.x - cx) + ny * (cam.y - cy) + nz * (cam.z - cz) > 0.0F;
     BagArray<Vec4>& dst = front ? outFront : outBack;
@@ -3408,6 +3768,10 @@ inline void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
             nz2 * (cz3 - volC[2]) <
         0.0F)
       nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+    if (g_volCapture) {
+      g_volCapture->push_back(VolTri{a3, b3, c3, {nx2, ny2, nz2}, {cx3, cy3, cz3}});
+      return;
+    }
     const bool front =
         nx2 * (cam.x - cx3) + ny2 * (cam.y - cy3) + nz2 * (cam.z - cz3) >
         0.0F;

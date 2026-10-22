@@ -58,6 +58,7 @@ TerrainGame::~TerrainGame() {}
 
 void TerrainGame::init() {
   engine->renderer.core.setFramePipeline(true);
+  stapip.core.setStampEnabled(true);
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
@@ -635,6 +636,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -738,6 +742,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  if (g_lampRebake) rebakeLampLight();  // baked static lamps changed state
   updateDynLitObjects();
   // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
   // range reduction folds through a 2^23 add, so an unbounded seconds counter
@@ -2099,12 +2104,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go

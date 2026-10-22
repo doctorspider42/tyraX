@@ -135,8 +135,8 @@ elif mode=='stage':
                 p.match('cell-*.bin') or p.match('source-*.bin') or
                 p.match('moving-*.bin') or p.match('world-price-*.bin')): continue
         if p.name in ('bag-identity.csv','pc-calibration.csv') or p.match('pc-drive-*.csv') or p.match('pc-held-*.csv'): continue
-        if p.match('triple-present-*.csv') or p.match('hybrid-copy-*.csv'): continue
-        if p.name in ('launch.scene','livedbg.bin','livedbg.cmd','rendercost.txt','motion-probe.csv','motion-lifetime.csv','drive-probe.csv','static-plan.csv','static-plan-analysis.json','producer-probe.csv','producer-bins.csv','producer-analysis.json','subrange-analysis.json','analysis.json','log.txt','ps2link.run','sky-analysis.json','sky-prepared-analysis.json','road-geometry.bin','road-geometry.json','road-reduction-analysis.json') or p.suffix=='.sym': continue
+        if p.match('triple-present-*.csv') or p.match('hybrid-copy-*.csv') or p.match('critical-path-*.csv'): continue
+        if p.name in ('offline-terrain-source.bin','offline-vif-source.bin','offline-mismatch-expected.bin','offline-mismatch-actual.bin','launch.scene','livedbg.bin','livedbg.cmd','rendercost.txt','motion-probe.csv','motion-lifetime.csv','drive-probe.csv','static-plan.csv','static-plan-analysis.json','producer-probe.csv','producer-bins.csv','producer-analysis.json','subrange-analysis.json','analysis.json','log.txt','ps2link.run','sky-analysis.json','sky-prepared-analysis.json','road-geometry.bin','road-geometry.json','road-reduction-analysis.json') or p.suffix=='.sym': continue
         if p.is_dir(): shutil.copytree(p,dest/p.name)
         else: shutil.copy2(p,dest/p.name)
     (dest/'ps2link.run').write_text('ps2link',encoding='ascii')

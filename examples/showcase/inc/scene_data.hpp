@@ -253,6 +253,9 @@ inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
+extern const unsigned char SCENE_0_STATIC_COLLIDERS[];
+inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES[SCENE_COUNT] = {SCENE_0_STATIC_COLLIDERS};
+
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
 // SCROLLER_CLONES maps each baked clone object to its scroller +
 // belt phase; SCROLLER_HIDDEN lists the authored member templates
@@ -592,11 +595,11 @@ inline constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
 inline constexpr int STAR_TIERS = 3;
 inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
-inline constexpr int BLOB_SHADOWS_USED = 0;
+inline constexpr int BLOB_SHADOWS_USED = 1;
 inline constexpr int BLSS_ADAPTIVE = 0;
 #define BLSS_SCENE_ON 0
 #define BLSS_SCENE_NET 0
-inline constexpr int PROJ_SHADOWS_USED = 1;
+inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {49};
 inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {35.0F};

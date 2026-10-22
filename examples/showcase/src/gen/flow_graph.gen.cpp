@@ -8,7 +8,6 @@
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
 #include "scripts/navigation.gen.hpp"  // AI nodes (Patrol/Chase/Flee/On Player Seen)
-#include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 
 #include <math.h>
 #include <stdio.h>
@@ -89,14 +88,12 @@ float factNum[1] = {0.0F};
 float factPos[1][3] = {{0.0F, 0.0F, 0.0F}};
 
 static inline void factWrite(int slot, float v, int src) {
-  if (factNum[slot] != v) livedbg::factWrite(slot, v, src);
+  (void)src;
   factNum[slot] = v;
 }
 static inline void factWritePos(int slot, float x, float y,
                                 float z, int src) {
-  if (factPos[slot][0] != x || factPos[slot][1] != y ||
-      factPos[slot][2] != z)
-    livedbg::factWritePos(slot, x, y, z, src);
+  (void)src;
   factPos[slot][0] = x;
   factPos[slot][1] = y;
   factPos[slot][2] = z;
@@ -154,9 +151,6 @@ class FlowGraphScript_0_0 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -169,24 +163,8 @@ class FlowGraphScript_0_0 : public Script {
       flowSetDynText(ctx, 0, std::string("THE OBSERVATORY AWAKENS / Thank you for exploring."));
     if (ctx.dynTextOn && ctx.dynTextOn[1])
       flowSetDynText(ctx, 1, std::string("Find three brass lenses. SELECT: guided tour."));
-    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
-      livedbg::hit(0);
-      livedbg::hit(2);
-      {
-        auto& song = ctx.engine->audio.song;
-        song.stop();
-        song.load(Tyra::FileUtils::fromCwd("audio/ambient.wav"));
-        song.inLoop = true;
-        song.setVolume(45);
-        song.play();
-      }
-      livedbg::hit(1);
-      sequences::play(0);  // "Arrival"
-    }
     if (!started) {
       started = true;
-      livedbg::hit(0);
-      livedbg::hit(2);
       {
         auto& song = ctx.engine->audio.song;
         song.stop();
@@ -195,46 +173,19 @@ class FlowGraphScript_0_0 : public Script {
         song.setVolume(45);
         song.play();
       }
-      livedbg::hit(1);
       sequences::play(0);  // "Arrival"
-    }
-    if (livedbg::forced(3)) {  // Live Debugger: fired from the editor
-      livedbg::hit(3);
-      livedbg::hit(4);
-      ctx.textRequest[0] = 0;  // "title"
-      livedbg::hit(5);
-      ctx.textRequest[1] = 0;  // "subtitle"
-      livedbg::hit(6);
-      if (((ctx.saveValues[1] >= 1.0F))) {
-        livedbg::hit(9);
-        ctx.dynTextRequest[0] = 1;
-        ctx.dynTextDuration[0] = 7.0F;
-        flowSetDynText(ctx, 0, std::string("THE OBSERVATORY AWAKENS / Thank you for exploring."));
-      }
-      else {
-        livedbg::hit(10);
-        ctx.dynTextRequest[1] = 1;
-        ctx.dynTextDuration[1] = 7.0F;
-        flowSetDynText(ctx, 1, std::string("Find three brass lenses. SELECT: guided tour."));
-      }
     }
     {
       const bool playing = sequences::playing();
       if (!playing && seqWas4) {
-      livedbg::hit(3);
-      livedbg::hit(4);
       ctx.textRequest[0] = 0;  // "title"
-      livedbg::hit(5);
       ctx.textRequest[1] = 0;  // "subtitle"
-      livedbg::hit(6);
       if (((ctx.saveValues[1] >= 1.0F))) {
-        livedbg::hit(9);
         ctx.dynTextRequest[0] = 1;
         ctx.dynTextDuration[0] = 7.0F;
         flowSetDynText(ctx, 0, std::string("THE OBSERVATORY AWAKENS / Thank you for exploring."));
       }
       else {
-        livedbg::hit(10);
         ctx.dynTextRequest[1] = 1;
         ctx.dynTextDuration[1] = 7.0F;
         flowSetDynText(ctx, 1, std::string("Find three brass lenses. SELECT: guided tour."));
@@ -242,14 +193,7 @@ class FlowGraphScript_0_0 : public Script {
       }
       seqWas4 = playing;
     }
-    if (livedbg::forced(7)) {  // Live Debugger: fired from the editor
-      livedbg::hit(7);
-      livedbg::hit(8);
-      sequences::play(1);  // "The Grand Tour"
-    }
     if (ctx.engine->pad.getClicked().Select) {
-      livedbg::hit(7);
-      livedbg::hit(8);
       sequences::play(1);  // "The Grand Tour"
     }
   }
@@ -266,9 +210,6 @@ class FlowGraphScript_0_26 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -276,17 +217,8 @@ class FlowGraphScript_0_26 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(11)) {  // Live Debugger: fired from the editor
-      livedbg::hit(11);
-      livedbg::hit(12);
-      ctx.objects[26].spinRate[0] = 0.0F;
-      ctx.objects[26].spinRate[1] = 9.0F;
-      ctx.objects[26].spinRate[2] = 0.0F;
-    }
     if (!started) {
       started = true;
-      livedbg::hit(11);
-      livedbg::hit(12);
       ctx.objects[26].spinRate[0] = 0.0F;
       ctx.objects[26].spinRate[1] = 9.0F;
       ctx.objects[26].spinRate[2] = 0.0F;
@@ -304,9 +236,6 @@ class FlowGraphScript_0_27 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -314,17 +243,8 @@ class FlowGraphScript_0_27 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(13)) {  // Live Debugger: fired from the editor
-      livedbg::hit(13);
-      livedbg::hit(14);
-      ctx.objects[27].spinRate[0] = 0.0F;
-      ctx.objects[27].spinRate[1] = -14.0F;
-      ctx.objects[27].spinRate[2] = 0.0F;
-    }
     if (!started) {
       started = true;
-      livedbg::hit(13);
-      livedbg::hit(14);
       ctx.objects[27].spinRate[0] = 0.0F;
       ctx.objects[27].spinRate[1] = -14.0F;
       ctx.objects[27].spinRate[2] = 0.0F;
@@ -342,9 +262,6 @@ class FlowGraphScript_0_28 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -352,17 +269,8 @@ class FlowGraphScript_0_28 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(15)) {  // Live Debugger: fired from the editor
-      livedbg::hit(15);
-      livedbg::hit(16);
-      ctx.objects[28].spinRate[0] = 0.0F;
-      ctx.objects[28].spinRate[1] = 18.0F;
-      ctx.objects[28].spinRate[2] = 0.0F;
-    }
     if (!started) {
       started = true;
-      livedbg::hit(15);
-      livedbg::hit(16);
       ctx.objects[28].spinRate[0] = 0.0F;
       ctx.objects[28].spinRate[1] = 18.0F;
       ctx.objects[28].spinRate[2] = 0.0F;
@@ -380,9 +288,6 @@ class FlowGraphScript_0_32 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -393,42 +298,14 @@ class FlowGraphScript_0_32 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[2])
       flowSetDynText(ctx, 2, std::string("LENS 1 RECOVERED / Align the central instrument."));
-    if (livedbg::forced(17)) {  // Live Debugger: fired from the editor
-      livedbg::hit(17);
-      livedbg::hit(18);
-      if (!once2) {
-        once2 = true;
-        livedbg::hit(19);
-        ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(20);
-        ctx.dynTextRequest[2] = 1;
-        ctx.dynTextDuration[2] = 4.0F;
-        flowSetDynText(ctx, 2, std::string("LENS 1 RECOVERED / Align the central instrument."));
-        livedbg::hit(21);
-        ctx.objects[32].visible = false;
-        livedbg::hit(22);
-        {
-          const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
-          ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
-          ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
-        }
-      }
-    }
     if (ctx.usedObject == 32) {
-      livedbg::hit(17);
-      livedbg::hit(18);
       if (!once2) {
         once2 = true;
-        livedbg::hit(19);
         ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(20);
         ctx.dynTextRequest[2] = 1;
         ctx.dynTextDuration[2] = 4.0F;
         flowSetDynText(ctx, 2, std::string("LENS 1 RECOVERED / Align the central instrument."));
-        livedbg::hit(21);
         ctx.objects[32].visible = false;
-        livedbg::hit(22);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
@@ -457,9 +334,6 @@ class FlowGraphScript_0_33 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -470,42 +344,14 @@ class FlowGraphScript_0_33 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[3])
       flowSetDynText(ctx, 3, std::string("LENS 2 RECOVERED / Align the central instrument."));
-    if (livedbg::forced(23)) {  // Live Debugger: fired from the editor
-      livedbg::hit(23);
-      livedbg::hit(24);
-      if (!once2) {
-        once2 = true;
-        livedbg::hit(25);
-        ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(26);
-        ctx.dynTextRequest[3] = 1;
-        ctx.dynTextDuration[3] = 4.0F;
-        flowSetDynText(ctx, 3, std::string("LENS 2 RECOVERED / Align the central instrument."));
-        livedbg::hit(27);
-        ctx.objects[33].visible = false;
-        livedbg::hit(28);
-        {
-          const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
-          ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
-          ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
-        }
-      }
-    }
     if (ctx.usedObject == 33) {
-      livedbg::hit(23);
-      livedbg::hit(24);
       if (!once2) {
         once2 = true;
-        livedbg::hit(25);
         ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(26);
         ctx.dynTextRequest[3] = 1;
         ctx.dynTextDuration[3] = 4.0F;
         flowSetDynText(ctx, 3, std::string("LENS 2 RECOVERED / Align the central instrument."));
-        livedbg::hit(27);
         ctx.objects[33].visible = false;
-        livedbg::hit(28);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
@@ -534,9 +380,6 @@ class FlowGraphScript_0_34 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -547,42 +390,14 @@ class FlowGraphScript_0_34 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[4])
       flowSetDynText(ctx, 4, std::string("LENS 3 RECOVERED / Align the central instrument."));
-    if (livedbg::forced(29)) {  // Live Debugger: fired from the editor
-      livedbg::hit(29);
-      livedbg::hit(30);
-      if (!once2) {
-        once2 = true;
-        livedbg::hit(31);
-        ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(32);
-        ctx.dynTextRequest[4] = 1;
-        ctx.dynTextDuration[4] = 4.0F;
-        flowSetDynText(ctx, 4, std::string("LENS 3 RECOVERED / Align the central instrument."));
-        livedbg::hit(33);
-        ctx.objects[34].visible = false;
-        livedbg::hit(34);
-        {
-          const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
-          ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
-          ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
-        }
-      }
-    }
     if (ctx.usedObject == 34) {
-      livedbg::hit(29);
-      livedbg::hit(30);
       if (!once2) {
         once2 = true;
-        livedbg::hit(31);
         ctx.saveValues[0] += 1.0F;  // "lenses"
-        livedbg::hit(32);
         ctx.dynTextRequest[4] = 1;
         ctx.dynTextDuration[4] = 4.0F;
         flowSetDynText(ctx, 4, std::string("LENS 3 RECOVERED / Align the central instrument."));
-        livedbg::hit(33);
         ctx.objects[34].visible = false;
-        livedbg::hit(34);
         {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
@@ -611,9 +426,6 @@ class FlowGraphScript_0_35 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -623,33 +435,12 @@ class FlowGraphScript_0_35 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[5])
       flowSetDynText(ctx, 5, std::string("Recover all three brass lenses to align the instrument."));
-    if (livedbg::forced(35)) {  // Live Debugger: fired from the editor
-      livedbg::hit(35);
-      livedbg::hit(36);
-      if (((ctx.saveValues[0] >= 3.0F))) {
-        livedbg::hit(37);
-        sequences::play(2);  // "Celestial Alignment"
-        livedbg::hit(38);
-        ctx.saveValues[1] = 1.0F;  // "aligned"
-      }
-      else {
-        livedbg::hit(39);
-        ctx.dynTextRequest[5] = 1;
-        ctx.dynTextDuration[5] = 4.0F;
-        flowSetDynText(ctx, 5, std::string("Recover all three brass lenses to align the instrument."));
-      }
-    }
     if (ctx.usedObject == 35) {
-      livedbg::hit(35);
-      livedbg::hit(36);
       if (((ctx.saveValues[0] >= 3.0F))) {
-        livedbg::hit(37);
         sequences::play(2);  // "Celestial Alignment"
-        livedbg::hit(38);
         ctx.saveValues[1] = 1.0F;  // "aligned"
       }
       else {
-        livedbg::hit(39);
         ctx.dynTextRequest[5] = 1;
         ctx.dynTextDuration[5] = 4.0F;
         flowSetDynText(ctx, 5, std::string("Recover all three brass lenses to align the instrument."));
@@ -668,9 +459,6 @@ class FlowGraphScript_0_36 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -680,16 +468,7 @@ class FlowGraphScript_0_36 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[6])
       flowSetDynText(ctx, 6, std::string("Collect three brass lenses. SELECT: guided tour."));
-    if (livedbg::forced(40)) {  // Live Debugger: fired from the editor
-      livedbg::hit(40);
-      livedbg::hit(41);
-      ctx.dynTextRequest[6] = 1;
-      ctx.dynTextDuration[6] = 5.0F;
-      flowSetDynText(ctx, 6, std::string("Collect three brass lenses. SELECT: guided tour."));
-    }
     if (ctx.usedObject == 36) {
-      livedbg::hit(40);
-      livedbg::hit(41);
       ctx.dynTextRequest[6] = 1;
       ctx.dynTextDuration[6] = 5.0F;
       flowSetDynText(ctx, 6, std::string("Collect three brass lenses. SELECT: guided tour."));
@@ -707,9 +486,6 @@ class FlowGraphScript_0_42 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -719,16 +495,7 @@ class FlowGraphScript_0_42 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[7])
       flowSetDynText(ctx, 7, std::string("CALIBRATION / Square: pick up. Circle: throw."));
-    if (livedbg::forced(42)) {  // Live Debugger: fired from the editor
-      livedbg::hit(42);
-      livedbg::hit(43);
-      ctx.dynTextRequest[7] = 1;
-      ctx.dynTextDuration[7] = 5.0F;
-      flowSetDynText(ctx, 7, std::string("CALIBRATION / Square: pick up. Circle: throw."));
-    }
     if (ctx.usedObject == 42) {
-      livedbg::hit(42);
-      livedbg::hit(43);
       ctx.dynTextRequest[7] = 1;
       ctx.dynTextDuration[7] = 5.0F;
       flowSetDynText(ctx, 7, std::string("CALIBRATION / Square: pick up. Circle: throw."));
@@ -746,9 +513,6 @@ class FlowGraphScript_0_49 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -758,16 +522,7 @@ class FlowGraphScript_0_49 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[8])
       flowSetDynText(ctx, 8, std::string("OPTICS / Silver traces light. Gold watches the sky."));
-    if (livedbg::forced(44)) {  // Live Debugger: fired from the editor
-      livedbg::hit(44);
-      livedbg::hit(45);
-      ctx.dynTextRequest[8] = 1;
-      ctx.dynTextDuration[8] = 5.0F;
-      flowSetDynText(ctx, 8, std::string("OPTICS / Silver traces light. Gold watches the sky."));
-    }
     if (ctx.usedObject == 49) {
-      livedbg::hit(44);
-      livedbg::hit(45);
       ctx.dynTextRequest[8] = 1;
       ctx.dynTextDuration[8] = 5.0F;
       flowSetDynText(ctx, 8, std::string("OPTICS / Silver traces light. Gold watches the sky."));
@@ -785,9 +540,6 @@ class FlowGraphScript_0_55 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -797,33 +549,14 @@ class FlowGraphScript_0_55 : public Script {
     frame++;
     if (ctx.dynTextOn && ctx.dynTextOn[9])
       flowSetDynText(ctx, 9, std::string("Lenses: the entrance, crossing and west garden."));
-    if (livedbg::forced(46)) {  // Live Debugger: fired from the editor
-      livedbg::hit(46);
-      livedbg::hit(47);
-      {
-        static const int navWps2[] = {52, 53, 54};  // keeper-route-1 keeper-route-2 keeper-route-3
-        navPatrol(ctx, 55, navWps2, 3, 1.1F, 2.0F, 0);
-      }
-    }
     if (!started) {
       started = true;
-      livedbg::hit(46);
-      livedbg::hit(47);
       {
         static const int navWps2[] = {52, 53, 54};  // keeper-route-1 keeper-route-2 keeper-route-3
         navPatrol(ctx, 55, navWps2, 3, 1.1F, 2.0F, 0);
       }
     }
-    if (livedbg::forced(48)) {  // Live Debugger: fired from the editor
-      livedbg::hit(48);
-      livedbg::hit(49);
-      ctx.dynTextRequest[9] = 1;
-      ctx.dynTextDuration[9] = 5.0F;
-      flowSetDynText(ctx, 9, std::string("Lenses: the entrance, crossing and west garden."));
-    }
     if (ctx.usedObject == 55) {
-      livedbg::hit(48);
-      livedbg::hit(49);
       ctx.dynTextRequest[9] = 1;
       ctx.dynTextDuration[9] = 5.0F;
       flowSetDynText(ctx, 9, std::string("Lenses: the entrance, crossing and west garden."));
@@ -835,14 +568,6 @@ class FlowGraphScript_0_55 : public Script {
   int frame = 0;
   bool started = false;
 };
-
-// Live Debugger watch table (docs/live-debugger.md): the flow variables
-// in one shared order - ints, then bools, then positions.
-int flowDbgVarCount() { return 0; }
-void flowDbgReadVar(int index, float* out3) {
-  out3[0] = out3[1] = out3[2] = 0.0F;
-  (void)index;  // this project defines no flow variables
-}
 
 }  // namespace Showcase
 

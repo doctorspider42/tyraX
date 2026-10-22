@@ -14,6 +14,16 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+Critical-path V2 (docs/tyrax2-critical-path.md) FULL physical exact-output census:
+four repeat consumer tails and three EE-preparation tails; no single exclusive
+EE/VU/GS bottleneck. VIF end-wait may include XGKICK backpressure. Private
+selected ring/fold/paint set2034+FINISH6 of2048 leaves8 instruction words;
+do not append a large VU job or evict classes without actual admission proof.
+New source lead: native strips repeat MVP transforms per triangle corner.
+Vertex-once VU1 preparation is NOT implemented/priced; preserve spot/env original
+inputs, operation order, both XTOP halves and rings, plus target/raster gates.
+VU0 macro/micro ownership and an actual COP2-free interval remain mandatory.
+
 Cold compact-input component is HOST ONLY:1120 optimized/sanitized cases,
 exact modeled VU memory per kick and ROW/MASK restore. Caller must prove actual
 incoming ROW/MASK/STMOD=0; no per-frame repacking. Constant-W masked V3_32 is

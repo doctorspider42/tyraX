@@ -7,7 +7,6 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
-#include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 
 #include <math.h>
 #include <stdio.h>
@@ -26,14 +25,12 @@ float factNum[1] = {0.0F};
 float factPos[1][3] = {{0.0F, 0.0F, 0.0F}};
 
 static inline void factWrite(int slot, float v, int src) {
-  if (factNum[slot] != v) livedbg::factWrite(slot, v, src);
+  (void)src;
   factNum[slot] = v;
 }
 static inline void factWritePos(int slot, float x, float y,
                                 float z, int src) {
-  if (factPos[slot][0] != x || factPos[slot][1] != y ||
-      factPos[slot][2] != z)
-    livedbg::factWritePos(slot, x, y, z, src);
+  (void)src;
   factPos[slot][0] = x;
   factPos[slot][1] = y;
   factPos[slot][2] = z;
@@ -91,9 +88,6 @@ class FlowGraphScript_0_131 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -101,25 +95,11 @@ class FlowGraphScript_0_131 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
-      livedbg::hit(0);
-      livedbg::hit(1);
-      ctx.vehicleRequest = 131;
-    }
     if (!started) {
       started = true;
-      livedbg::hit(0);
-      livedbg::hit(1);
       ctx.vehicleRequest = 131;
     }
-    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
-      livedbg::hit(2);
-      livedbg::hit(3);
-      ctx.vehicleRepair = 131;
-    }
     if (ctx.engine->pad.getClicked().DpadDown) {
-      livedbg::hit(2);
-      livedbg::hit(3);
       ctx.vehicleRepair = 131;
     }
   }
@@ -135,9 +115,6 @@ class FlowGraphScript_1_132 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 1) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -145,15 +122,8 @@ class FlowGraphScript_1_132 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
-      livedbg::hit(4);
-      livedbg::hit(5);
-      ctx.vehicleRequest = 132;
-    }
     if (!started) {
       started = true;
-      livedbg::hit(4);
-      livedbg::hit(5);
       ctx.vehicleRequest = 132;
     }
   }
@@ -163,14 +133,6 @@ class FlowGraphScript_1_132 : public Script {
   int frame = 0;
   bool started = false;
 };
-
-// Live Debugger watch table (docs/live-debugger.md): the flow variables
-// in one shared order - ints, then bools, then positions.
-int flowDbgVarCount() { return 0; }
-void flowDbgReadVar(int index, float* out3) {
-  out3[0] = out3[1] = out3[2] = 0.0F;
-  (void)index;  // this project defines no flow variables
-}
 
 }  // namespace Vehicle_playground
 
