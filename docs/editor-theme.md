@@ -190,6 +190,31 @@ A few things worth knowing because they are decisions rather than defaults:
   docked behind another tab. The Outliner rows draw a type icon, the name and
   the type (dim, right-aligned) themselves; the row's label is still
   `name  (type)` - the ID and what scripts name it by.
+- **Assets, Audio and Scripts share one shape** (`src/rail_ui.cpp`): header
+  actions, search and filters, a list that takes the height, rows that say
+  what uses them, one fix per problem, a one-line hint at the bottom.
+  - **Assets** is a pocket Asset Browser: type chips with counts, a folder
+    picker, **Unused**, Grid | List, thumbnails with a used-by badge (amber
+    0), models first. Drag a model onto the viewport or double-click it to
+    place it; the selection drawer has *Add to scene* (*Edit material* for a
+    material) and *Open in Asset Browser*. The built-in HUD sprites in
+    `res/hud` show only when that folder is picked. Moving, renaming and
+    deleting stay in the browser.
+  - **Audio** starts with the SPU2 budget bar (a segment per sound; music
+    streams and takes none), then Music and Sounds. Every row has a round
+    **play** button (the editor plays the file; music shows its progress),
+    length, size and its first use. A selected track shows its PS2 build
+    settings (Keep / 48k / 32k / 22k, Mono) and its users; the fixes are
+    *Convert*, *Edit in Drone Generator* and, for a sound too big for SPU2
+    that nothing plays as a sound, *Make music*.
+  - **Scripts** filters All | Flow graphs | C++ | VU. Flow graphs are the
+    active scene's objects with a graph, their node count and trigger
+    nodes, and open in the Flow Graph. C++ files show the classes they
+    register (a *global* tag for `TYRA_SCRIPT`) and the objects each class
+    is attached to; a class nobody attaches has *Attach...* (to the selected
+    object), and a class an object attaches that nothing registers is listed
+    as *missing* with *Create*. The last build's first error in a script
+    sits on top with *Open file*.
 - **The viewport's controls float on glass cards.** After `render()`,
   `Viewport::blurBackdrop` makes a quarter-size gaussian-blurred copy of the
   viewport image (two reused framebuffers, GL 3.3); `ui::SetOverlayBackdrop`

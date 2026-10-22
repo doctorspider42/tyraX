@@ -329,6 +329,8 @@ private:
     void drawLayersSection();
     bool isObjectHiddenInEditor(const SceneObject& o) const;
     void drawScriptsSection();
+    int railScriptFilter_ = 0;  // All | Flow graphs | C++ | VU
+    char railScriptSearch_[96] = "";
     void drawNewScriptModal();
     void drawNewSceneModal();
     void drawDeleteSceneModal();
@@ -619,6 +621,14 @@ private:
     // Project-panel section listing res/models + res/textures with the
     // Import... buttons (the object pickers only offer what is listed here)
     void drawAssetsSection();
+    // Assets page state (rail_ui.cpp): type chip, search, folder, Unused,
+    // Grid | List and the selected file.
+    int railAssetKind_ = 0;
+    char railAssetSearch_[96] = "";
+    std::string railAssetFolder_;
+    bool railAssetUnused_ = false;
+    bool railAssetList_ = false;
+    std::string railAssetSel_;
 
     // --- Asset Browser (Tools > Asset Browser, docs/asset-browser.md) -------
     // A file manager over the project's res/ tree: folder tree, thumbnail grid,
@@ -1501,9 +1511,12 @@ private:
     // (preset bindings, On Action nodes, menu rebind rows, Set Input Preset).
     void renameInputAction(int index, const std::string& newName);
     void renameInputPreset(int index, const std::string& newName);
-    void drawMusicSection();
+    // The Project panel's Audio page (rail_ui.cpp): music + sounds, play,
+    // the SPU2 budget, build knobs on the selected track.
+    void drawAudioPage();
+    std::unique_ptr<audiopreview::ClipPlayer> clipPlayer_;
+    std::string railAudioSel_;
     void importMusicTrack();
-    void drawSoundsSection();
     void importSoundEffect();
 
     // --- Asset deletion (Assets / HUD / Music / Sounds sections) -----------

@@ -276,6 +276,7 @@ add_executable(tyrax-editor
     src/app.cpp
     src/audiopreview.cpp
     src/assetbrowser.cpp
+    src/rail_ui.cpp
     src/blss.cpp
     src/blsscorpus.cpp
     src/blssscene.cpp

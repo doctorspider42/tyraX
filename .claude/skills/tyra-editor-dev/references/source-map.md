@@ -33,6 +33,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `droneui.cpp` | 1.9k | Drone Generator window | audio |
 | `drone_simple_ui.cpp` | 1.3k | Drone Generator, Simple view: moods, six sliders, Feeling, Over the track, In the game (writes through `dronegen::simple`) | audio |
 | `assetbrowser.cpp` | 2.2k | Asset Browser, `retargetAssetPath`, `rebuildAssetUsage` | assets-import-animation |
+| `rail_ui.cpp` | 700 | Project panel pages Assets / Audio (`drawAudioPage`, `audiopreview::ClipPlayer`) / Scripts - read `assetItems_`, `assetUsageFor`, `logOut_`; never move/rename files (the browser does) | editor-ui-and-conventions |
 | `save_assets.cpp` | 540 | Built-in save-menu HUD sprites (embedded PNGs) | game-screens-menus-text |
 | `project.cpp` / `project.hpp` | 9.8k / 5.1k | Data model, (de)serialization, sections, `refreshGenerated` | project-model-and-serialization |
 | `version.hpp` | 6.1k | Editor semver macros + `kFormatVersion` (94) + `kMinFormatVersion`; mostly the per-version change log | project-model-and-serialization |

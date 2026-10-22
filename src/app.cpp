@@ -533,16 +533,8 @@ static bool readWavFormat(const std::string& path, int& audioFormat, int& channe
                                   bitsPerSample);
 }
 
-// PS2 SPU2 has ~2 MB of sample RAM. Sound emitters load every sfx into it at
-// scene start (audsrv ADPCM one-shots), so the whole set must fit - a sample
-// too big just fails to load and plays nothing. adpenc packs 28 samples into
-// 16 bytes, so ADPCM is ~2/7 of the 16-bit PCM data; that lets us estimate the
-// SPU2 footprint from the WAV file size and warn before a build silently drops
-// it. Budget left a little under 2 MB for audsrv's own reverb/stream buffers.
-static constexpr uintmax_t kSpu2SampleBudgetBytes = 2u * 1024 * 1024;
-static uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
-    return wavFileBytes * 2 / 7;
-}
+// kSpu2SampleBudgetBytes / estimateAdpcmBytes: app_internal.hpp (the Audio
+// page in rail_ui.cpp reads them too).
 
 // The editor's desktop identity. It is one string on purpose: the window's
 // Wayland app id, its X11 WM_CLASS, and the basename of the .desktop file and
@@ -5974,7 +5966,40 @@ void App::drawProjectWindow() {
         std::string count;
         if (page == 0) count = std::to_string(project_.objects().size());
         if (page == 1) count = std::to_string(project_.active().layers.size());
-        ui::PanelHeader(kTitles[page], count.c_str(), page == 0 ? 1 : 0);
+        if (page == 3) count = std::to_string(project_.music.size() + project_.sounds.size());
+        // Header actions per page (rail_ui.cpp draws the pages themselves).
+        static const int kButtons[] = {1, 0, 3, 3, 2};
+        ui::PanelHeader(kTitles[page], count.c_str(), kButtons[page]);
+        if (page == 2) {
+            if (ui::PanelHeaderButton("Import model", ui::Glyph::Box, "Import a model (.obj / .glb / .fbx)"))
+                importModelAsset();
+            if (ui::PanelHeaderButton("New material", ui::Glyph::Plus, "New material")) {
+                showMaterialEditor_ = true;
+                openNewMaterialPopup_ = true;
+                matEdNewError_.clear();
+            }
+            if (ui::PanelHeaderButton("Open in Asset Browser", ui::Glyph::Folder, "Open in Asset Browser")) {
+                showAssetBrowser_ = true;
+                scanAssetTree();
+            }
+        }
+        if (page == 3) {
+            if (ui::PanelHeaderButton("Import music", ui::Glyph::Music, "Import a music track (WAV)"))
+                importMusicTrack();
+            if (ui::PanelHeaderButton("Import sound", ui::Glyph::Speaker, "Import a sound effect (WAV)"))
+                importSoundEffect();
+            if (ui::PanelHeaderButton("Drone Generator", ui::Glyph::Sparkle, "Make a track in the Drone Generator"))
+                showDroneGenerator_ = true;
+        }
+        if (page == 4) {
+            if (ui::PanelHeaderButton("New script", ui::Glyph::Plus, "New script")) {
+                openNewScriptPopup_ = true;
+                newScriptError_.clear();
+                newScriptAttachTo_ = -1;
+            }
+            if (ui::PanelHeaderButton("Open in VS Code", ui::Glyph::Code, "Open the project in VS Code"))
+                openInVSCode();
+        }
         if (page == 0) {
             // Still labelled "+ Add object": scripts and docs name it so.
             if (ui::PanelHeaderButton("+ Add object", ui::Glyph::Plus, "Add object"))
@@ -5989,10 +6014,7 @@ void App::drawProjectWindow() {
             case 0: drawSceneSection(); break;
             case 1: drawLayersSection(); break;
             case 2: drawAssetsSection(); break;
-            case 3:
-                drawMusicSection();
-                drawSoundsSection();
-                break;
+            case 3: drawAudioPage(); break;
             case 4: drawScriptsSection(); break;
         }
     }
@@ -10074,61 +10096,7 @@ void App::drawAssetQualityCombo(const std::string& assetRel) {
                           "(overrides Preferences > Textures).");
 }
 
-// Assets used to be a flat bullet list of res/models + res/materials with the
-// per-asset controls crammed onto each row. They live in the Asset Browser now
-// (Tools > Asset Browser, docs/asset-browser.md) - folders, thumbnails, type
-// filters, reference-safe moves. What stays here is the summary an artist wants
-// while working in the Project panel, plus the import entry points.
-void App::drawAssetsSection() {
-    // A page of its own on the left rail (drawProjectWindow) - no header.
-
-    if (ImGui::Button("Browse assets...")) {
-        showAssetBrowser_ = true;
-        scanAssetTree();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
-                          "drag & drop into the scene, safe move/rename/delete.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(modelImporting_);
-    if (ImGui::SmallButton("Import model...")) {
-        importModelAsset();
-    }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(".obj / .glb / .fbx - preview, split, size and\n"
-                          "optimize before anything is written.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("New material...")) {
-        showMaterialEditor_ = true;
-        openNewMaterialPopup_ = true;
-        matEdNewError_.clear();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Create a material in the Material Editor\n"
-                          "(color, brightness, texture - live preview).");
-
-    // One line per type, counted straight off the res/ tree.
-    if (assetScanTime_ < 0.0) scanAssetTree();
-    int models = 0, anims = 0, materials = 0, textures = 0, other = 0;
-    for (const AssetItem& item : assetItems_) {
-        if (item.generated) continue;
-        switch (item.kind) {
-            case AssetKind::Model: ++models; break;
-            case AssetKind::AnimModel: ++anims; break;
-            case AssetKind::Material: ++materials; break;
-            case AssetKind::Texture: ++textures; break;
-            case AssetKind::Music:
-            case AssetKind::Sound:
-            case AssetKind::Font: break;  // their own panel sections below
-            default: ++other; break;
-        }
-    }
-    ImGui::TextDisabled("%d model(s), %d animated, %d material(s), %d texture(s)",
-                        models, anims, materials, textures);
-    if (models + anims + materials + textures + other == 0)
-        ImGui::TextDisabled("res/ is empty - import a model or drop files into it.");
-}
+// drawAssetsSection: rail_ui.cpp (the Project panel's Assets page).
 
 // Creates a scene object for a model that is already inside the project
 // (res/models/...) - the "no-copy" path used by the From-project menu and
@@ -11306,126 +11274,7 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
     return wavIssueCache_.emplace(key, std::move(issue)).first->second;
 }
 
-void App::drawMusicSection() {
-    if (!ui::Section("Music", ImGuiTreeNodeFlags_DefaultOpen)) return;
-
-    if (ImGui::SmallButton("Import WAV...##music")) importMusicTrack();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Generate...##music")) showDroneGenerator_ = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Tools > Drone Generator: build an ambient/drone track\n"
-                          "in the editor instead of importing one.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Rescan##music")) rescanAssets(true);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Pick up WAVs dropped by hand into res/audio and res/sfx.");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("16-bit PCM WAV, mono or stereo, 11-48 kHz\n"
-                          "(22050 Hz stereo recommended). Unplayable formats are\n"
-                          "converted at import; hand-dropped files get a Convert\n"
-                          "button. Play via Flow Graph: On Start -> Play Music.");
-
-    for (int i = 0; i < (int)project_.music.size(); ++i) {
-        const std::string name = std::filesystem::path(project_.music[i]).filename().string();
-        ImGui::PushID(i);
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(name.c_str());
-        const std::string& issue = wavIssue(project_.music[i], false);
-        if (!issue.empty()) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "!");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", issue.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Convert")) {
-                std::string err;
-                const std::filesystem::path full =
-                    std::filesystem::path(project_.dir) / project_.music[i];
-                statusMessage_ = wavconvert::convertTo16(full, 22050, err)
-                                     ? name + " converted to 16-bit PCM 22050 Hz"
-                                     : name + ": conversion failed - " + err;
-                wavIssueCache_.clear();
-            }
-        }
-        // A track the Drone Generator made kept its patch next to it, so it can
-        // be reopened and re-rendered instead of replaced by hand.
-        {
-            std::filesystem::path patch =
-                std::filesystem::path(project_.dir) / project_.music[i];
-            patch.replace_extension(".drone");
-            std::error_code pec;
-            if (std::filesystem::exists(patch, pec)) {
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Edit")) {
-                    std::filesystem::path rel(project_.music[i]);
-                    rel.replace_extension(".drone");
-                    droneLoadPatch(rel.generic_string());
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Open this track's patch in the Drone "
-                                      "Generator (Tools > Drone Generator).");
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x"))
-            requestAssetDelete(PendingAssetDelete::Music, project_.music[i], name);
-
-        // Build-time conversion knobs: applied to the bin/audio copy after
-        // every build (the res/ source stays untouched). Only rates audsrv
-        // has an upsampler for (find_upsampler fails on anything else -
-        // 16000 was offered here once and is NOT supported). 48000 is
-        // special: SPU2-native, the IOP does a plain channel demux with zero
-        // resampling arithmetic - the lever when the 36 MHz IOP is the
-        // bottleneck (network deploys share it with the ps2link stack);
-        // lower rates are the lever when the network itself cannot keep up.
-        {
-            auto it = project_.musicBuild.find(project_.music[i]);
-            Project::MusicBuildOpt opt =
-                it != project_.musicBuild.end() ? it->second : Project::MusicBuildOpt{};
-            int rateIdx = opt.rate == 48000 ? 1 : opt.rate == 32000 ? 2
-                          : opt.rate == 22050 ? 3 : opt.rate == 11025 ? 4 : 0;
-            // Labels stay short so the mono checkbox on the same line fits
-            // inside the (narrow) Project panel - a wider combo pushed it
-            // past the clip rect and it silently disappeared.
-            const char* rateNames[] = {"keep rate", "48000 Hz", "32000 Hz",
-                                       "22050 Hz", "11025 Hz"};
-            ImGui::Indent();
-            ImGui::TextDisabled("PS2 build:");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(110.0f);
-            bool edited = ImGui::Combo("##mbrate", &rateIdx, rateNames, 5);
-            ImGui::SameLine();
-            edited |= ImGui::Checkbox("mono##mb", &opt.mono);
-            if (ImGui::IsItemHovered() || (ImGui::IsItemHovered(ImGuiHoveredFlags_None)))
-                ImGui::SetTooltip(
-                    "Converts the bin\\ copy after every build (source WAV stays\n"
-                    "untouched). For network deploys try 48000 Hz stereo first:\n"
-                    "SPU2-native, so the IOP skips resampling entirely (that CPU\n"
-                    "also runs the ps2link network stack). Drop the rate only\n"
-                    "when the network itself cannot keep up.");
-            ImGui::Unindent();
-            if (edited) {
-                opt.rate = rateIdx == 1 ? 48000 : rateIdx == 2 ? 32000
-                           : rateIdx == 3 ? 22050 : rateIdx == 4 ? 11025 : 0;
-                if (opt.rate == 0 && !opt.mono)
-                    project_.musicBuild.erase(project_.music[i]);
-                else
-                    project_.musicBuild[project_.music[i]] = opt;
-                // A widget like any other: mark, don't write. Nothing reads
-                // these from disk - projectForBuild() hands the build the
-                // in-memory model - so the old saveAll() bought nothing and
-                // cost a full project + history rewrite per click, plus a
-                // cleared save icon (the editing model in app.hpp).
-                commitChange();
-                statusMessage_ = "Music build settings changed - rebuild to apply";
-            }
-        }
-        ImGui::PopID();
-    }
-    if (project_.music.empty()) ImGui::TextDisabled("No music tracks.");
-}
+// The Audio page (music + sounds): rail_ui.cpp, drawAudioPage.
 
 void App::importSoundEffect() {
     const std::string src = pickWavFile();
@@ -11485,81 +11334,6 @@ void App::importSoundEffect() {
     saveAll(status.c_str());
 }
 
-void App::drawSoundsSection() {
-    if (!ui::Section("Sounds", ImGuiTreeNodeFlags_DefaultOpen)) return;
-
-    if (ImGui::SmallButton("Import WAV...##sfx")) importSoundEffect();
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Rescan##sfx")) rescanAssets(true);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Pick up WAVs dropped by hand into res/audio and res/sfx.");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Effects and vehicle sounds use mono 16-bit 22050 Hz WAV.\n"
-                          "Import converts automatically. Convert fixes existing files;\n"
-                          "builds also convert a copy, keeping the source untouched.\n"
-                          "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
-                          "scene start, so keep them short - use Music for full tracks.");
-
-    uintmax_t totalAdpcm = 0;
-    for (int i = 0; i < (int)project_.sounds.size(); ++i) {
-        const std::string name =
-            std::filesystem::path(project_.sounds[i]).filename().string();
-        std::error_code ec;
-        const uintmax_t wavBytes = std::filesystem::file_size(
-            std::filesystem::path(project_.dir) / project_.sounds[i], ec);
-        const uintmax_t adpcm = ec ? 0 : estimateAdpcmBytes(wavBytes);
-        totalAdpcm += adpcm;
-
-        ImGui::PushID(i + 1000);
-        ImGui::Bullet();
-        ImGui::SameLine();
-        ImGui::TextUnformatted(name.c_str());
-        const std::string& issue = wavIssue(project_.sounds[i], true);
-        if (!issue.empty()) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "!");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", issue.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Convert")) {
-                std::string err;
-                const std::filesystem::path full =
-                    std::filesystem::path(project_.dir) / project_.sounds[i];
-                statusMessage_ = wavconvert::convertTo16(full, 22050, err, true)
-                                     ? name + " converted to mono 16-bit PCM 22050 Hz"
-                                     : name + ": conversion failed - " + err;
-                wavIssueCache_.clear();
-            }
-        }
-        ImGui::SameLine();
-        if (!ec) {
-            const bool big = adpcm > kSpu2SampleBudgetBytes;
-            const char* fmt = adpcm >= 1024 * 1024 ? "(~%.1f MB)" : "(~%.0f KB)";
-            const double val = adpcm >= 1024 * 1024 ? adpcm / (1024.0 * 1024.0)
-                                                    : adpcm / 1024.0;
-            if (big)
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), fmt, val);
-            else
-                ImGui::TextDisabled(fmt, val);
-            ImGui::SameLine();
-        }
-        if (ImGui::SmallButton("x"))
-            requestAssetDelete(PendingAssetDelete::Sound, project_.sounds[i], name);
-        ImGui::PopID();
-    }
-    if (project_.sounds.empty()) {
-        ImGui::TextDisabled("No sound effects.");
-    } else {
-        const double totalMb = totalAdpcm / (1024.0 * 1024.0);
-        if (totalAdpcm > kSpu2SampleBudgetBytes)
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                               "SPU2 sample RAM: ~%.1f / 2.0 MB - over budget, some "
-                               "sounds will not play", totalMb);
-        else
-            ImGui::TextDisabled("SPU2 sample RAM: ~%.1f / 2.0 MB", totalMb);
-    }
-}
 
 // Save Editor (Tools > Save Editor): everything about memory card saves in
 // one place - how the save presents in the PS2 browser (title + icon, baked
@@ -15967,134 +15741,7 @@ void App::drawMenuLayoutTab(GameMenu& m, bool& changed) {
                           "everything; Overlay draws over the text at its offset.");
 }
 
-void App::drawScriptsSection() {
-    // A page of its own on the left rail (drawProjectWindow) - no header.
-
-    if (ImGui::SmallButton("New script...")) {
-        openNewScriptPopup_ = true;
-        newScriptError_.clear();
-        newScriptAttachTo_ = -1;  // created loose - attach later in Properties
-    }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Open in VS Code")) openInVSCode();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Object scripts (TYRA_OBJECT_SCRIPT) run when attached to objects:\n"
-            "Properties > Scripts. Plain TYRA_SCRIPT classes run globally every\n"
-            "frame. Subfolders are compiled too; generated code lives in src\\gen.");
-
-    // List user scripts as a folder tree: every .cpp under src/scripts,
-    // subfolders included - that directory is exclusively the user's. Engine-
-    // generated sources live in src/gen and never show here (any stray
-    // *.gen.cpp left by an old editor version is filtered out for good
-    // measure). Click a file to open it in VS Code in the project context.
-    const std::filesystem::path dir = std::filesystem::path(project_.dir) / "src" / "scripts";
-    std::error_code ec;
-
-    struct ScriptNode {
-        std::map<std::string, ScriptNode> folders;  // sorted subfolders
-        std::vector<std::string> files;             // leaf filenames
-    };
-    ScriptNode root;
-    bool any = false;
-    if (std::filesystem::exists(dir, ec)) {
-        for (std::filesystem::recursive_directory_iterator it(dir, ec), end;
-             it != end && !ec; it.increment(ec)) {
-            if (!it->is_regular_file(ec)) continue;
-            if (it->path().extension() != ".cpp") continue;
-            const std::string fname = it->path().filename().string();
-            if (fname.size() > 8 &&
-                fname.compare(fname.size() - 8, 8, ".gen.cpp") == 0)
-                continue;
-            // Slot the relative path into the tree: walk/create a folder node
-            // per path segment, drop the filename in the final node's files.
-            const std::string rel =
-                std::filesystem::relative(it->path(), dir, ec).string();
-            ScriptNode* node = &root;
-            for (size_t start = 0;;) {
-                size_t sep = rel.find_first_of("/\\", start);
-                if (sep == std::string::npos) {
-                    node->files.push_back(rel.substr(start));
-                    break;
-                }
-                node = &node->folders[rel.substr(start, sep - start)];
-                start = sep + 1;
-            }
-            any = true;
-        }
-    }
-
-    // The project's VU programs (src/vu/*.cpp, docs/vu-authoring.md). Listed
-    // HERE rather than in the VU panel because that is what they are - scripts
-    // the project wrote - and because a file nobody can find is a feature
-    // nobody uses. They are a separate group, not part of the tree above: they
-    // do not run on the EE at all, they run on the host at build time and leave
-    // a microprogram behind, so filing them next to object scripts without
-    // saying so would be a lie about what they do.
-    const std::filesystem::path vuDir =
-        std::filesystem::path(project_.dir) / "src" / "vu";
-    std::vector<std::string> vuFiles;
-    if (std::filesystem::exists(vuDir, ec)) {
-        for (std::filesystem::directory_iterator it(vuDir, ec), end;
-             it != end && !ec; it.increment(ec))
-            if (it->is_regular_file(ec) && it->path().extension() == ".cpp")
-                vuFiles.push_back(it->path().filename().string());
-        std::sort(vuFiles.begin(), vuFiles.end());
-    }
-    if (!vuFiles.empty()) {
-        if (ImGui::TreeNodeEx("VU programs", ImGuiTreeNodeFlags_DefaultOpen |
-                                                 ImGuiTreeNodeFlags_SpanAvailWidth)) {
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "src\\vu\\*.cpp - C++ compiled and RUN on the host at build\n"
-                    "time, leaving a VU1 microprogram in the ELF. They replace\n"
-                    "the engine's resident program for the material classes\n"
-                    "they claim (docs/vu-authoring.md).");
-            for (const std::string& f : vuFiles) {
-                ImGui::Bullet();
-                ImGui::SameLine();
-                if (ImGui::Selectable(f.c_str())) openInVSCode("src/vu/" + f);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Open in VS Code");
-            }
-            ImGui::TreePop();
-        }
-    }
-
-    if (!any) {
-        if (vuFiles.empty()) ImGui::TextDisabled("No scripts yet.");
-        return;
-    }
-
-    // Render folders first (open by default), then files. TreeNodeEx pushes an
-    // ID scope per folder, so same-named files in different folders don't
-    // collide. prefix carries the src/scripts-relative path for opening -
-    // forward slashes, because it is handed on as a path, not as display text.
-    std::function<void(const ScriptNode&, const std::string&)> drawNode =
-        [&](const ScriptNode& n, const std::string& prefix) {
-            for (const auto& [name, child] : n.folders) {
-                if (ImGui::TreeNodeEx(name.c_str(),
-                                      ImGuiTreeNodeFlags_DefaultOpen |
-                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                    drawNode(child, prefix + name + "/");
-                    ImGui::TreePop();
-                }
-            }
-            std::vector<std::string> files = n.files;
-            std::sort(files.begin(), files.end());
-            for (const std::string& f : files) {
-                ImGui::Bullet();
-                ImGui::SameLine();
-                if (ImGui::Selectable(f.c_str()))
-                    openInVSCode("src/scripts/" + prefix + f);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Open in VS Code");
-            }
-        };
-    drawNode(root, "");
-}
+// drawScriptsSection: rail_ui.cpp (the Project panel's Scripts page).
 
 void App::drawNewScriptModal() {
     if (openNewScriptPopup_) {

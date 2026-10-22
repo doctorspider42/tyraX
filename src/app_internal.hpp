@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -331,4 +332,15 @@ inline bool speedTierDrag(const char* label, float& stored, float inherited,
             ImGui::SetTooltip("Clear this tier back to %s.", note);
     }
     return changed;
+}
+
+// PS2 SPU2 has ~2 MB of sample RAM. Sound emitters load every sfx into it at
+// scene start (audsrv ADPCM one-shots), so the whole set must fit - a sample
+// too big just fails to load and plays nothing. adpenc packs 28 samples into
+// 16 bytes, so ADPCM is ~2/7 of the 16-bit PCM data; that lets us estimate the
+// SPU2 footprint from the WAV file size and warn before a build silently drops
+// it. Budget left a little under 2 MB for audsrv's own reverb/stream buffers.
+inline constexpr uintmax_t kSpu2SampleBudgetBytes = 2u * 1024 * 1024;
+inline uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
+    return wavFileBytes * 2 / 7;
 }
